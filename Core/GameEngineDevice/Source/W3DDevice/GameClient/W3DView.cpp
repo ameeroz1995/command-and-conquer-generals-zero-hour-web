@@ -196,6 +196,11 @@ void W3DView::setHeight(Int height)
  	vMax.Y=(Real)(m_originY+height)/(Real)TheDisplay->getHeight();
  	m_3DCamera->Set_Viewport(vMin,vMax);
 
+	// The horizontal FOV depends on the aspect ratio, so recompute it: the view is sized
+	// width first, and at any mode other than the 800x600 default that width met a stale
+	// default height (1600x480 at 1600x1200: a 99-degree FOV, zoomed far out).
+	setWidth(getWidth());
+
 	// TheSuperHackers @bugfix Now recalculates the camera constraints because
 	// showing or hiding the control bar will change the viewable area.
 	m_cameraAreaConstraintsValid = false;

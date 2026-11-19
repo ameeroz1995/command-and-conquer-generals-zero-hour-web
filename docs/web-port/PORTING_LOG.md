@@ -1589,3 +1589,38 @@ terrain is lit by the vertex colour (it was much darker), no WebGL errors. Not e
 (nothing in that scene enables it), the monochrome filter, fog, stencil shadows, point lights.
 Still open: SetRenderTarget no-op, authored mips replaced by glGenerateMipmap, no S3TC fallback,
 a texture changed while bound is not re-uploaded, COLORWRITEENABLE ignored.
+
+## 2026-11-19 — Session 20: Frame time: buffer uploads; in-game FOV at other resolutions
+
+A performance report from the live server. Measured in headless Edge (ANGLE on OpenGL, RX 580),
+rAF frame times over 16-20 s, fresh profile each run, same LAN game on Alpine Assault.
+
+Before the fix, in game (still / panning), 800x600 Low unless noted:
+
+| build | fps | game update per frame |
+|---|---|---|
+| 905b8f0 (before the rendering fixes) | 47 / 44 | 19-20 ms |
+| 09466e2 | 30-43 / 31-43 | 25-31 ms |
+| 27f193f | 39-42 / 40-41 | 20-24 ms |
+| 9fca2b8 (live) | 40-44 / 41-46 | 23-30 ms |
+| 9fca2b8, 1600x1200 Very High | 39 / 43 | 21 ms |
+
+The rendering fixes cost little (within run-to-run noise); resolution and detail barely mattered:
+the game was CPU-bound in every build. A fresh profile still starts at Low, 800x600 (the
+recommended level comes from CPU presets that never match on wasm). The shell-map menu ran at
+57-60 fps everywhere.
+
+- **73% of in-game CPU time was `gl.bufferData`.** Vertex/index buffer `Unlock` marked the whole
+  buffer dirty and the next draw re-sent all of it. The engine draws everything from large shared
+  dynamic buffers, writing a small slice per draw, so each draw re-uploaded the whole buffer.
+  Buffers now remember the locked byte range (SizeToLock 0 = to the end) and upload only that with
+  `glBufferSubData`; GL storage is made once. After: 57-60 fps in game at 800x600 Low and 60 fps
+  at 1600x1200 Very High, 12-18 ms update, CPU 63% idle in game; `bufferSubData` is 1%.
+- **The in-game camera zoomed far out at any mode but 800x600.** W3DView::setWidth computes the
+  horizontal FOV from the aspect ratio, but the view is sized width first and met the default
+  height (1600x480 at 1600x1200: 99 degrees instead of 60), and setHeight never recomputed it;
+  the terrain draw window then showed as a slab over black. setHeight now re-runs setWidth.
+  Only showed once Session 17 made other resolutions work; Session 17 checked them in the menus only.
+
+Not measured: a large late-game battle on a big map (the shell-map battle is the busiest scene
+tested), and 16:9 modes in game (same code path as the FOV fix).

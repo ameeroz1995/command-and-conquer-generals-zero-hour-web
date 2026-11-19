@@ -710,17 +710,45 @@ inline HRESULT Emscripten_IDirect3DSurface8::UnlockRect() {
 }
 
 // ---------------------------------------------------------------------------
+// Vertex/index buffers keep their bytes on the CPU and upload only what was locked:
+// the engine draws from large shared dynamic buffers, writing a small slice per
+// draw, and re-sending the whole buffer after every Unlock took ~70% of the frame.
+// ---------------------------------------------------------------------------
+struct Emscripten_BufferData {
+    std::vector<uint8_t> data;
+    size_t dirty_lo = 0, dirty_hi = 0; // locked bytes not yet uploaded
+    bool allocated = false;            // GL storage made with glBufferData
+
+    void Mark(UINT offset, UINT size) {
+        size_t lo = offset < data.size() ? offset : data.size();
+        size_t hi = size ? lo + size : data.size(); // SizeToLock 0 = to the end
+        if (hi > data.size()) hi = data.size();
+        if (dirty_hi <= dirty_lo) { dirty_lo = lo; dirty_hi = hi; return; }
+        if (lo < dirty_lo) dirty_lo = lo;
+        if (hi > dirty_hi) dirty_hi = hi;
+    }
+    void Upload(GLenum target) {
+        if (!allocated) {
+            glBufferData(target, (GLsizeiptr)data.size(), data.data(), GL_DYNAMIC_DRAW);
+            allocated = true;
+        } else if (dirty_hi > dirty_lo) {
+            glBufferSubData(target, (GLintptr)dirty_lo, (GLsizeiptr)(dirty_hi - dirty_lo), data.data() + dirty_lo);
+        }
+        dirty_lo = dirty_hi = 0;
+    }
+};
+
+// ---------------------------------------------------------------------------
 // Vertex buffer — CPU-side byte buffer + GL VBO uploaded on demand
 // ---------------------------------------------------------------------------
 struct Emscripten_IDirect3DVertexBuffer8 : public IDirect3DVertexBuffer8 {
-    std::vector<uint8_t> data;
+    Emscripten_BufferData buf;
     UINT  stride;    // set by SetStreamSource
     GLuint gl_vbo;
-    bool dirty;
 
     Emscripten_IDirect3DVertexBuffer8(UINT length = 0)
-        : stride(0), gl_vbo(0), dirty(true) {
-        data.resize(length, 0);
+        : stride(0), gl_vbo(0) {
+        buf.data.resize(length, 0);
     }
     ~Emscripten_IDirect3DVertexBuffer8() {
         if (gl_vbo) { glDeleteBuffers(1, &gl_vbo); gl_vbo = 0; }
@@ -730,20 +758,17 @@ struct Emscripten_IDirect3DVertexBuffer8 : public IDirect3DVertexBuffer8 {
 
     virtual HRESULT Lock(UINT OffsetToLock, UINT SizeToLock, BYTE **ppbData,
                          DWORD Flags) override {
-        if (ppbData) *ppbData = data.data() + OffsetToLock;
+        if (ppbData) *ppbData = buf.data.data() + OffsetToLock;
+        buf.Mark(OffsetToLock, SizeToLock);
         return 0;
     }
-    virtual HRESULT Unlock() override { dirty = true; return 0; }
+    virtual HRESULT Unlock() override { return 0; }
 
-    // Upload CPU data to GL VBO and bind it
+    // Upload the locked bytes to the GL VBO and bind it
     GLuint Upload_And_Bind() {
         if (!gl_vbo) glGenBuffers(1, &gl_vbo);
         glBindBuffer(GL_ARRAY_BUFFER, gl_vbo);
-        if (dirty) {
-            glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)data.size(),
-                         data.data(), GL_DYNAMIC_DRAW);
-            dirty = false;
-        }
+        buf.Upload(GL_ARRAY_BUFFER);
         return gl_vbo;
     }
 };
@@ -752,13 +777,12 @@ struct Emscripten_IDirect3DVertexBuffer8 : public IDirect3DVertexBuffer8 {
 // Index buffer — CPU-side byte buffer + GL IBO uploaded on demand
 // ---------------------------------------------------------------------------
 struct Emscripten_IDirect3DIndexBuffer8 : public IDirect3DIndexBuffer8 {
-    std::vector<uint8_t> data;
+    Emscripten_BufferData buf;
     GLuint gl_ibo;
-    bool dirty;
 
     Emscripten_IDirect3DIndexBuffer8(UINT length = 0)
-        : gl_ibo(0), dirty(true) {
-        data.resize(length, 0);
+        : gl_ibo(0) {
+        buf.data.resize(length, 0);
     }
     ~Emscripten_IDirect3DIndexBuffer8() {
         if (gl_ibo) { glDeleteBuffers(1, &gl_ibo); gl_ibo = 0; }
@@ -768,19 +792,16 @@ struct Emscripten_IDirect3DIndexBuffer8 : public IDirect3DIndexBuffer8 {
 
     virtual HRESULT Lock(UINT OffsetToLock, UINT SizeToLock, BYTE **ppbData,
                          DWORD Flags) override {
-        if (ppbData) *ppbData = data.data() + OffsetToLock;
+        if (ppbData) *ppbData = buf.data.data() + OffsetToLock;
+        buf.Mark(OffsetToLock, SizeToLock);
         return 0;
     }
-    virtual HRESULT Unlock() override { dirty = true; return 0; }
+    virtual HRESULT Unlock() override { return 0; }
 
     GLuint Upload_And_Bind() {
         if (!gl_ibo) glGenBuffers(1, &gl_ibo);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl_ibo);
-        if (dirty) {
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)data.size(),
-                         data.data(), GL_DYNAMIC_DRAW);
-            dirty = false;
-        }
+        buf.Upload(GL_ELEMENT_ARRAY_BUFFER);
         return gl_ibo;
     }
 };
@@ -1044,7 +1065,7 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
 
     virtual HRESULT DrawPrimitive(D3DPRIMITIVETYPE PrimType, UINT StartVertex,
                                 UINT PrimCount) override {
-        if (!current_vb || current_vb->data.empty()) return 0;
+        if (!current_vb || current_vb->buf.data.empty()) return 0;
         current_vb->Upload_And_Bind();
         _setup_vertex_attribs(0, false);
         GLES3_Draw_Arrays((unsigned int)PrimType, StartVertex, PrimCount);
@@ -1086,9 +1107,9 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
         // dx8wrapper.cpp.
         ++gx_d3d_dip_called;
         if (!current_vb) { ++gx_d3d_dip_no_vb; return 0; }
-        if (current_vb->data.empty()) { ++gx_d3d_dip_empty_vb; return 0; }
+        if (current_vb->buf.data.empty()) { ++gx_d3d_dip_empty_vb; return 0; }
         if (!current_ib) { ++gx_d3d_dip_no_ib; return 0; }
-        if (current_ib->data.empty()) { ++gx_d3d_dip_empty_ib; return 0; }
+        if (current_ib->buf.data.empty()) { ++gx_d3d_dip_empty_ib; return 0; }
         current_vb->Upload_And_Bind();
         current_ib->Upload_And_Bind();
         _setup_vertex_attribs(0, true);
