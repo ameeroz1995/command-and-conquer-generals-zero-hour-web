@@ -329,14 +329,15 @@ bool BigVFS::Parse_Header(const void *header_data, unsigned int header_size,
 // ============================================================================
 // Mount_Archive — Download header and register a .big archive
 // ============================================================================
+// Archives read whole at mount: what start-up parses anyway. The map and terrain archives
+// (maps.big, MapsZH.big, TerrainZH.big, ~69 MB) used to be here too; the map list comes from
+// the shipped map cache, so they now load on demand like the rest (start-up 199 -> 127 MB).
 static bool Should_Preload(const std::string& filename) {
   std::string name = filename;
   for (auto &c : name) c = tolower(c);
   return name == "ini.big" || name == "inizh.big" ||
          name == "window.big" || name == "windowzh.big" ||
-         name == "shaders.big" || name == "shaderszh.big" ||
-         name == "maps.big" || name == "mapszh.big" ||
-         name == "terrainzh.big";
+         name == "shaders.big" || name == "shaderszh.big";
 }
 
 bool BigVFS::Mount_Archive(const char *archive_name) {
