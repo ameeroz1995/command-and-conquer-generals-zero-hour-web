@@ -150,9 +150,14 @@ void Win32LocalFileSystem::getFileListInDirectory(const AsciiString& currentDire
 	char normDir[1024];
 	strncpy(normDir, fullDir.str(), sizeof(normDir) - 1);
 	normDir[sizeof(normDir) - 1] = '\0';
+	// Same rule as LocalFile::open: player data (/home, /userdata, /tmp) keeps its case,
+	// everything else (BigVFS placeholders) is lowercase. Lowercasing everything made
+	// /userdata/Replays\ list as /userdata/replays, so recorded replays never showed.
+	const bool is_userdata = normDir[0] == '/' &&
+		(strncmp(normDir, "/home", 5) == 0 || strncmp(normDir, "/user", 5) == 0 || strncmp(normDir, "/tmp", 4) == 0);
 	for (int i = 0; normDir[i] != '\0'; ++i) {
 		if (normDir[i] == '\\') normDir[i] = '/';
-		normDir[i] = tolower(normDir[i]);
+		if (!is_userdata) normDir[i] = tolower(normDir[i]);
 	}
 	
 	// Strip trailing slash for opendir

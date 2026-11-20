@@ -127,7 +127,9 @@ if(EMSCRIPTEN)
 
     set(EMSCRIPTEN_ASYNC_FLAGS
         ${GX_PROFILE_FLAGS}
-        "-sSAFE_HEAP=0"
+        # GX_WEB_SAFE_HEAP=ON traps loads/stores through null or out-of-range pointers
+        # (debug builds; slow).
+        "-sSAFE_HEAP=$<IF:$<BOOL:${GX_WEB_SAFE_HEAP}>,1,0>"
         "-sEXIT_RUNTIME=0"
         "-sUSE_SDL=2"
         "-sUSE_SDL_IMAGE=2"
