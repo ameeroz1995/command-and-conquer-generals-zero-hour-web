@@ -1267,17 +1267,6 @@ MemoryPoolBlob::allocateSingleBlock(DECLARE_LITERALSTRING_ARG1) {
   // pointer on WASM32, so it can never appear as a legitimate free-list link.
   block->setNextFreeBlock((MemoryPoolSingleBlock *)0xDEADF00DUL);
 
-#if defined(__EMSCRIPTEN__)
-  // Per-block alloc trace for dmaPool_32: lets us reconstruct the
-  // alloc/free timeline from the browser log and correlate with the
-  // POOL-DOUBLE-FREE callstack from the matching freeSingleBlock.
-  if (m_owningPool && strcmp(m_owningPool->getPoolName(), "dmaPool_32") == 0 && g_isDma32TracingEnabledNow) {
-    char callstack_buf[4096];
-    emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_JS_STACK | EM_LOG_DEMANGLE, callstack_buf, sizeof(callstack_buf));
-    fprintf(stderr, "POOL-ALLOC-32 block=%p stack:\n%s\n", block->getUserData(), callstack_buf);
-    fflush(stderr);
-  }
-#endif
 
 #ifdef MEMORYPOOL_INTENSE_VERIFY
   block->debugVerifyBlock();
@@ -1364,16 +1353,6 @@ void MemoryPoolBlob::freeSingleBlock(MemoryPoolSingleBlock *block) {
   m_firstFreeBlock = block;
   --m_usedBlocksInBlob;
 
-#if defined(__EMSCRIPTEN__)
-  // Per-block free trace for dmaPool_32: paired with POOL-ALLOC-32 lines
-  // above so we can find the double-free pair in the browser log.
-  if (m_owningPool && strcmp(m_owningPool->getPoolName(), "dmaPool_32") == 0 && g_isDma32TracingEnabledNow) {
-    char callstack_buf[4096];
-    emscripten_get_callstack(EM_LOG_C_STACK | EM_LOG_JS_STACK | EM_LOG_DEMANGLE, callstack_buf, sizeof(callstack_buf));
-    fprintf(stderr, "POOL-FREE-32 block=%p stack:\n%s\n", block->getUserData(), callstack_buf);
-    fflush(stderr);
-  }
-#endif
 
 #ifdef MEMORYPOOL_INTENSE_VERIFY
   block->debugVerifyBlock();

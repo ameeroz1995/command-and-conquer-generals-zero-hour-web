@@ -1753,3 +1753,28 @@ stays the shipping one.
   shader variants skipped, the GPU is not the limit on an RX 580 and Edge exposes no GPU timer
   to measure them; the render-scale option covers weak GPUs.
 - **Audio:** the listener orientation, set every frame, only crosses into JS when it changes.
+
+## 2026-11-20 — Session 25: Loading 3-4x faster; debug logging off the frame
+
+Loading, timed in headless Edge from localhost (fresh profile, LAN game on Alpine Assault):
+
+| build | page open -> BEGIN | map load (Start -> in game) | downloaded to in game |
+|---|---|---|---|
+| fa00b8d (live) | 19-24 s, 420-435 MB | 38.8-48.3 s | 1071 MB |
+| 1 MB read-ahead windows | 7-8 s, 194-199 MB | 12.3 s | 334-336 MB |
+| + debug prints removed | 6.9-7.6 s, 199 MB | 10.7-11.2 s | 337 MB |
+
+- **Read-ahead windows 8 MB -> 1 MB** (gles3_big_vfs.cpp Fetch_Range_JS). Every read of 512 KB or
+  less pulled the 8 MB window around it, and the 96 MB window LRU evicted and re-fetched them:
+  Textures.big (318 MB) was read for 343 MB, W3D.big (176 MB) for 224 MB. Each fetched byte also
+  goes through the responseText/charCodeAt loop. Tried: 8 MB/384 MB cap 822 MB 29 s; 2 MB/192 MB
+  427 MB 13.4 s; 1 MB with a 96 or 192 MB cap the same (kept 96); 512 KB no faster.
+  ~110 MB is still read before BEGIN by archives preloaded whole (all maps, INI, windows); the map
+  list needs them.
+- **Debug logging in hot paths.** A battle replay (3v3 Hostile Dawn) at Very High, 1600x1200,
+  camera on an army ran 53-57 fps with dips to 41-48; 26% of the CPU was console output:
+  W3DProjectedShadowManager::queueDecal printed four lines per shadow decal per frame (4.6 million
+  lines in 8 minutes; decals are on above Low). Removed, along with its dmaPool_32 tracing toggle
+  and the allocator's tracing blocks (a pool-name strcmp on every alloc/free), and the
+  DEBUG-TOC/CHUNK/DICT prints in DataChunk (thousands per map load). After: a steady 60 fps (rare
+  55-58), CPU ~59% idle, 1821 console lines in the whole run.

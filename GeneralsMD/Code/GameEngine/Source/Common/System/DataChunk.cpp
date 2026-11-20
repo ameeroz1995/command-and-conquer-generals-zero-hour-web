@@ -558,8 +558,6 @@ void DataChunkTableOfContents::read( ChunkInputStream &s)
 		// read id
 		s.read( (char *)&m->id, sizeof(UnsignedInt) );
 
-		printf("DEBUG-TOC: Mapping[%d]: name='%s', id=%u\n", i, m->name.str(), (unsigned int)m->id);
-
 		// prepend to list
 		m->next = this->m_list;
 		this->m_list = m;
@@ -571,7 +569,6 @@ void DataChunkTableOfContents::read( ChunkInputStream &s)
 			maxID = m->id;
 	}
 	m_headerOpened = count > 0 && !s.eof();
-	printf("DEBUG-TOC: Finished reading TOC. m_headerOpened=%d count=%d\n", (int)m_headerOpened, count);
 
 	// adjust next ID so no ID's are reused
 	this->m_nextID = max( this->m_nextID, maxID+1 );
@@ -744,10 +741,6 @@ AsciiString DataChunkInput::openDataChunk(DataChunkVersionType *ver )
 
 	*ver = c->version;
 
-	printf("DEBUG-CHUNK: openDataChunk: offset=%u, id=%u, version=%u, dataSize=%d, parentDataLeft=%d\n",
-		(unsigned int)startOffset, (unsigned int)c->id, (unsigned int)c->version, (int)c->dataSize,
-		m_chunkStack ? (int)m_chunkStack->dataLeft : -1);
-
 	c->next = m_chunkStack;
 	m_chunkStack = c;
 	if (this->atEndOfFile()) {
@@ -916,8 +909,6 @@ Dict DataChunkInput::readDict()
 	decrementDataLeft( sizeof(UnsignedShort) );
 	DEBUG_ASSERTCRASH(m_chunkStack->dataLeft>=len, ("Read past end of chunk."));
 
-	printf("DEBUG-DICT: readDict: len=%d\n", (int)len);
-
 	Dict d(len);
 
 	for (int i = 0; i < len; i++)
@@ -925,8 +916,6 @@ Dict DataChunkInput::readDict()
 		Int keyAndType = readInt();
 		Dict::DataType t = (Dict::DataType)(keyAndType & 0xff);
 		Int tocId = keyAndType >> 8;
-
-		printf("DEBUG-DICT:   [%d/%d] raw=0x%08x, type=%d, tocId=%d\n", i, (int)len, (unsigned int)keyAndType, (int)t, (int)tocId);
 
 		AsciiString kname = m_contents.getName(tocId);
 		NameKeyType k = TheNameKeyGenerator->nameToKey(kname);
@@ -937,40 +926,33 @@ Dict DataChunkInput::readDict()
 				{
 					Byte b = readByte();
 					d.setBool(k, b ? true : false);
-					printf("DEBUG-DICT:     BOOL: name='%s' val=%d\n", kname.str(), (int)b);
 				}
 				break;
 			case Dict::DICT_INT:
 				{
 					Int val = readInt();
 					d.setInt(k, val);
-					printf("DEBUG-DICT:     INT: name='%s' val=%d\n", kname.str(), val);
 				}
 				break;
 			case Dict::DICT_REAL:
 				{
 					Real val = readReal();
 					d.setReal(k, val);
-					printf("DEBUG-DICT:     REAL: name='%s' val=%f\n", kname.str(), (double)val);
 				}
 				break;
 			case Dict::DICT_ASCIISTRING:
 				{
 					AsciiString val = readAsciiString();
 					d.setAsciiString(k, val);
-					printf("DEBUG-DICT:     ASCII: name='%s' val='%s'\n", kname.str(), val.str());
 				}
 				break;
 			case Dict::DICT_UNICODESTRING:
 				{
 					UnicodeString val = readUnicodeString();
 					d.setUnicodeString(k, val);
-					// don't print unicode to avoid console issues, just length or status
-					printf("DEBUG-DICT:     UNICODE: name='%s' len=%d\n", kname.str(), val.getLength());
 				}
 				break;
 			default:
-				printf("DEBUG-DICT:     UNKNOWN TYPE: %d\n", (int)t);
 				throw ERROR_CORRUPT_FILE_FORMAT;
 				break;
 		}
