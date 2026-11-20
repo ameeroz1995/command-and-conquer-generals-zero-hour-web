@@ -94,6 +94,7 @@ if(EMSCRIPTEN)
     #   CMAKE_BUILD_TYPE=Release      -> -O3, closure, emmalloc (distribution)
     #   anything else (RelWithDebInfo)-> -O0 -g3, assertions (development)
     # GeneralsX @build WebPort 2026-07-07
+    option(GX_WEB_OPTIMIZED "Optimised web link (-O3, no assertions) for the RelWithDebInfo build" OFF)
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
         set(GX_PROFILE_FLAGS
             "-O3"
@@ -103,6 +104,18 @@ if(EMSCRIPTEN)
             # Closure's ADVANCED_OPTIMIZATIONS needs the legacy allocator
             # helpers declared (SDL2's SDL_assert.c EM_ASM references them).
             "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','printErr','addFunction','noExitRuntime','UTF8ToString','HEAPU8','allocate','ALLOC_NORMAL','intArrayFromString']"
+        )
+    elseif(GX_WEB_OPTIMIZED)
+        # Optimised link without Release's closure and page minification: closure renames
+        # the Module.gx* properties the page reads, and a minified page can't be patched.
+        # -O0 with ASSERTIONS=2 (the development profile) cost frames in every JS call.
+        set(GX_PROFILE_FLAGS
+            "-O3"
+            "-g0"
+            "--profiling-funcs"
+            "-sMINIFY_HTML=0"
+            "-sASSERTIONS=0"
+            "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS','printErr','addFunction','noExitRuntime','UTF8ToString','HEAPU8']"
         )
     else()
         set(GX_PROFILE_FLAGS

@@ -1624,3 +1624,33 @@ recommended level comes from CPU presets that never match on wasm). The shell-ma
 
 Not measured: a large late-game battle on a big map (the shell-map battle is the busiest scene
 tested), and 16:9 modes in game (same code path as the FOV fix).
+
+## 2026-11-20 — Session 21: Optimised web link; fewer audio calls into JS
+
+Measured uncapped (`--disable-gpu-vsync --disable-frame-rate-limit`, so fps reflects the cost of a
+frame) in headless Edge on an RX 580, same LAN game on Alpine Assault, after Session 20's fix:
+
+| build | menu (shell-map battle) | in game, still | in game, panning |
+|---|---|---|---|
+| c2f5400 (RelWithDebInfo, live) | 852 fps | 364 fps | 438 fps |
+| + `GX_WEB_OPTIMIZED=ON` + audio change | 1129 fps (+33%) | 554 fps (+52%) | 571 fps (+30%) |
+
+- **The deployed build linked at -O0 with ASSERTIONS=2.** The README's RelWithDebInfo recipe is the
+  development profile: compiled -O2, but linked without wasm-opt, with assertion wrappers on every
+  JS call (`checkInt`, `get`, `stackSave` were ~15% of a frame), and full DWARF (a 68 MB wasm).
+  Release (-O3, closure) can't be used for the private page: closure renames the `Module.gx*`
+  properties the page reads, and the page is minified so it can't be patched. New option
+  `GX_WEB_OPTIMIZED=ON` keeps RelWithDebInfo compiles and links -O3, `-g0 --profiling-funcs`,
+  `-sASSERTIONS=0`, `-sMINIFY_HTML=0`: same page, same names, 8.3 MB wasm.
+  Configure: `emcmake cmake -B build-web -DCMAKE_BUILD_TYPE=RelWithDebInfo -DGX_WEB_OPTIMIZED=ON ...`
+- **3% of a frame was `AIL_set_3D_position`** crossing into JS for the listener and every playing
+  sound each frame. It now returns when the position hasn't changed.
+
+Looked at and left: JS-based C++ exceptions (`invoke_*` trampolines) were ~12% under assertions and
+~1% after; native wasm exceptions need a full recompile for little left. The per-viewport canvas
+size query is under 1%.
+
+Load Replay on web (found while building a heavier benchmark, not fixed): the Win32 local file
+system lowercases paths when listing a directory but not when opening a file, so recorded replays
+(`/userdata/Replays\`) never list, and reading a replay header from a lowercase path failed and
+then aborted the engine (heap corrupted at address zero).
