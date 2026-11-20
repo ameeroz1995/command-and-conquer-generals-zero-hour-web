@@ -588,7 +588,7 @@ void RecorderClass::startRecording(GameDifficulty diff, Int originalGameMode, In
 	// Print out the name of the replay.
 	UnicodeString replayName;
 	replayName = TheGameText->fetch("GUI:LastReplay");
-	m_file->writeFormat(L"%s", replayName.str());
+	m_file->writeFormat(L"%ls", replayName.str());
 	m_file->writeChar(L"\0");
 
 	// Date and Time
@@ -600,9 +600,9 @@ void RecorderClass::startRecording(GameDifficulty diff, Int originalGameMode, In
 	UnicodeString versionString = TheVersion->getUnicodeVersion();
 	UnicodeString versionTimeString = TheVersion->getUnicodeBuildTime();
 	UnsignedInt versionNumber = TheVersion->getVersionNumber();
-	m_file->writeFormat(L"%s", versionString.str());
+	m_file->writeFormat(L"%ls", versionString.str());
 	m_file->writeChar(L"\0");
-	m_file->writeFormat(L"%s", versionTimeString.str());
+	m_file->writeFormat(L"%ls", versionTimeString.str());
 	m_file->writeChar(L"\0");
 	m_file->write(&versionNumber, sizeof(versionNumber));
 	m_file->write(&(TheGlobalData->m_exeCRC), sizeof(TheGlobalData->m_exeCRC));

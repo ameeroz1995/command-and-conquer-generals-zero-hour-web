@@ -455,8 +455,10 @@ Int LocalFile::readChar() {
 // LocalFile::readWideChar
 //=================================================================
 
+// Wide characters in files are UTF-16 code units, as the Windows game writes them
+// (replay headers). wchar_t is 4 bytes on wasm/Linux, so read and write 2 bytes.
 Int LocalFile::readWideChar() {
-  WideChar character = L'\0';
+  uint16_t character = 0;
 
   Int ret = read(&character, sizeof(character));
 
@@ -511,8 +513,13 @@ Int LocalFile::writeFormat(const WideChar *format, ...) {
   Int length =
       vswprintf(buffer, sizeof(buffer) / sizeof(WideChar), format, args);
   va_end(args);
+  if (length < 0)
+    return -1;
 
-  return write(buffer, length * sizeof(WideChar));
+  uint16_t units[1024]; // UTF-16 code units, see readWideChar
+  for (Int i = 0; i < length; ++i)
+    units[i] = (uint16_t)buffer[i];
+  return write(units, length * sizeof(uint16_t));
 }
 
 //=================================================================
@@ -532,7 +539,8 @@ Int LocalFile::writeChar(const Char *character) {
 //=================================================================
 
 Int LocalFile::writeChar(const WideChar *character) {
-  if (write(character, sizeof(WideChar)) == sizeof(WideChar)) {
+  uint16_t unit = (uint16_t)*character; // UTF-16 code unit, see readWideChar
+  if (write(&unit, sizeof(unit)) == sizeof(unit)) {
     return (Int)character;
   }
 

@@ -1726,3 +1726,30 @@ JS glue's heap access on every GL call. Also unsolved for a real deploy: the pag
 input callbacks would call into the game from the main thread (a data race), and the private
 server's saved-asset XHR redirect only patches the main thread. Not deployed; the normal build
 stays the shipping one.
+
+## 2026-11-20 — Session 24: Load Replay works; big-battle benchmark
+
+- **Load Replay listed nothing, and loading a replay crashed.** Two causes:
+  - Win32LocalFileSystem::getFileListInDirectory lowercased every path, while LocalFile::open and
+    CreateDirectory keep the case of player data (/home, /userdata, /tmp). Recorded replays live
+    in `/userdata/Replays/`, so the list looked in `/userdata/replays/`. Listing now uses the same
+    rule as open.
+  - Replay headers store wide text as UTF-16 (2 bytes), but LocalFile::readWideChar/writeChar/
+    writeFormat used sizeof(wchar_t), which is 4 on wasm: every field after the replay name was
+    misread and the parse ended in an alignment fault (the release build reported it as heap
+    corruption at address zero). Wide characters in files are now read and written as 2-byte
+    UTF-16, and the recorder writes its strings with `%ls` (`%s` in a wide format is a wide string
+    on Windows only). Only the recorder uses these functions.
+  Found with a SAFE_HEAP debug build (new option `GX_WEB_SAFE_HEAP=ON`; it also flags benign
+  unaligned reads in map loading, so it stops there).
+- **Retail 1.04 replays drift on wasm** (CRC mismatch at frame 110 in the 3v3 Hostile Dawn replay
+  from GeneralsReplays): wasm floating point is not bit-identical to the PC build. Playback pauses
+  once and resumes with P; the Hard AI armies keep playing, which makes a usable big-battle
+  benchmark. Replays recorded on the web build should play back on it; not verified yet.
+- **Big-battle numbers** (that replay, 8 minutes, ~frame 24000, optimised build, 60 fps cap):
+  5.0-5.7 ms frame callback (p95 6.7-8.5 ms), 2000-2400 GL calls per frame, CPU ~60% idle.
+  So: cached vertex layouts (VAOs) skipped, vertexAttribPointer and its glue are ~1.5% and most
+  draws come from shared dynamic buffers whose offsets change per draw (a VAO cache would miss);
+  shader variants skipped, the GPU is not the limit on an RX 580 and Edge exposes no GPU timer
+  to measure them; the render-scale option covers weak GPUs.
+- **Audio:** the listener orientation, set every frame, only crosses into JS when it changes.

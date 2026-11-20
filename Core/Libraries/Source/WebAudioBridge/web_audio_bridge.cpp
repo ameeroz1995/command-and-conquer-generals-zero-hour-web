@@ -1103,6 +1103,11 @@ void __stdcall AIL_set_3D_orientation(
         float wa_up_y = 1.0f;
         float wa_up_z = 0.0f;
 
+        // Set every frame; only cross into JS when the camera turned.
+        static float last_fx = 1e30f, last_fz;
+        if (wa_face_x == last_fx && wa_face_z == last_fz) return;
+        last_fx = wa_face_x; last_fz = wa_face_z;
+
         EM_ASM({
             if (window.AILBridge.audioContext) {
                 let listener = window.AILBridge.audioContext.listener;
