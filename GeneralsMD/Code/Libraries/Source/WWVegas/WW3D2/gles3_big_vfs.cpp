@@ -75,10 +75,14 @@ EM_JS(
         };
 
         // EXPERIMENT (bisect variant C): readahead chunking. Small requests
-        // (<=512KB) are served from cached 8MB aligned windows, cutting sync
+        // (<=512KB) are served from cached 1MB aligned windows, cutting sync
         // XHR count and responseText/charCodeAt allocation storms ~10-100x
         // during map load. Window cache is LRU-capped at 96MB.
-        const WIN = 8388608;             // 8 MB window
+        // 1 MB windows (was 8 MB): scattered small reads (textures, models) each pulled a
+        // whole 8 MB window, and the 96 MB LRU evicted and re-fetched them: a LAN game on
+        // Alpine Assault read 1071 MB to get in game (Textures.big, 318 MB, fetched 343 MB).
+        // 1 MB: 336 MB and the map load 39-48 s -> 12 s, for ~60 more requests.
+        const WIN = 1048576;             // 1 MB window
         const SMALL = 524288;            // requests <= 512 KB use windows
         const reqLen = end - start + 1;
         if (reqLen <= SMALL) {
@@ -325,14 +329,15 @@ bool BigVFS::Parse_Header(const void *header_data, unsigned int header_size,
 // ============================================================================
 // Mount_Archive — Download header and register a .big archive
 // ============================================================================
+// Archives read whole at mount: what start-up parses anyway. The map and terrain archives
+// (maps.big, MapsZH.big, TerrainZH.big, ~69 MB) used to be here too; the map list comes from
+// the shipped map cache, so they now load on demand like the rest (start-up 199 -> 127 MB).
 static bool Should_Preload(const std::string& filename) {
   std::string name = filename;
   for (auto &c : name) c = tolower(c);
   return name == "ini.big" || name == "inizh.big" ||
          name == "window.big" || name == "windowzh.big" ||
-         name == "shaders.big" || name == "shaderszh.big" ||
-         name == "maps.big" || name == "mapszh.big" ||
-         name == "terrainzh.big";
+         name == "shaders.big" || name == "shaderszh.big";
 }
 
 #ifdef __EMSCRIPTEN_PTHREADS__
