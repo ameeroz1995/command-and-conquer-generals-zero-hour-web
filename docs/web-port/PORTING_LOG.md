@@ -1654,3 +1654,44 @@ Load Replay on web (found while building a heavier benchmark, not fixed): the Wi
 system lowercases paths when listing a directory but not when opening a file, so recorded replays
 (`/userdata/Replays\`) never list, and reading a replay header from a lowercase path failed and
 then aborted the engine (heap corrupted at address zero).
+
+## 2026-11-20 — Session 22: GL state shadow, SIMD, wasm exceptions, optional render scale
+
+Uncapped fps proved too noisy to judge (the same build gave 447 and 905 fps in the menu on two
+runs). Measured instead inside the page: the game's frame callback time (median, ms) and WebGL
+calls per frame, counted by wrapping the WebGL2 prototype. Headless Edge, RX 580, same LAN game.
+
+| | c85dff7 (live) | + state shadow | + SIMD, wasm EH, viewport/uniform caching |
+|---|---|---|---|
+| menu (shell-map battle) | 3.0 ms, 2711 calls | 2.1-2.3 ms, 1155 | 1.5-1.8 ms, 853 |
+| in game, still | 5.8 ms, 5768 calls | 4.3-4.4 ms, 1518 | 3.1-3.3 ms, 1210 |
+| in game, panning | 4.6 ms, 3648 calls | 3.7-3.8 ms, 1134 | 2.7-3.0 ms, 915 |
+
+- **GL state shadow** (gles3_wrapper.cpp): buffer bindings, per-attribute pointers and constants,
+  the active unit and per-unit textures reach WebGL only when they change. Wrap and filter modes
+  live in cached WebGL2 sampler objects instead of four glTexParameteri per bind, and a texture
+  stage state only re-applies them when it is a wrap or filter state (it did on every COLOROP
+  change). Buffers are deleted through GLES3_Delete_Buffer, which resets the attribute shadow: a
+  reused GL id would otherwise look unchanged while the attribute still pointed at the old buffer.
+  DrawPrimitiveUP/DrawIndexedPrimitiveUP re-fill one streaming buffer each instead of creating and
+  deleting a GL buffer per call. The instancing flag uniform and the viewport/depth range are
+  cached. Remaining churn: ~390 vertexAttribPointer per frame, because each draw's base vertex is
+  baked into the pointer offsets; WEBGL_draw_instanced_base_vertex_base_instance would remove it,
+  but Edge does not offer it (draft).
+- **`GX_WEB_OPTIMIZED` now also compiles with `-msimd128` and `-fwasm-exceptions`** (cmake/web.cmake;
+  asyncify is off, so native exceptions are allowed). Needs a full rebuild; wasm 6.9 MB.
+- **Optional render scale** (page settings, default 100%; 85/75/50%): the canvas drawing buffer is
+  the display mode times the scale and CSS upscales it. The engine keeps its resolution (UI layout
+  and mouse mapping unchanged); GLES3_Set_Viewport scales viewports to the buffer, and textures
+  sample with a mip bias of log2(scale) so they pick the full-size mip: without it, 50% showed dark
+  tile seams on terrain (the atlas's 4-pixel tile borders bleed at small mips). Applies live.
+
+Tried and dropped (no gain): ThinLTO (`-flto=thin`): same frame time, wasm 9.5 MB. A cache for
+root-level winGetWindowFromId (2.4% in one profile): no measurable change.
+
+Not done, with reasons: instancing/batching (the game issues ~100-210 draws per frame here; the
+engine already batches trees, render categories and 2D, and instancing units means reworking the
+W3D mesh renderer); caching getStaticDiffuse (it includes dynamic scene lights, so caching would
+freeze explosion lighting on 3-way blend tiles, for under 1%); moving the game to a worker with
+OffscreenCanvas (asset reads are synchronous XHR on the main thread and threads need COOP/COEP
+headers). Revisit batching with a big-battle benchmark (needs Load Replay fixed, see Session 21).

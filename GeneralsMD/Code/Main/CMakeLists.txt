@@ -94,7 +94,6 @@ if(EMSCRIPTEN)
     #   CMAKE_BUILD_TYPE=Release      -> -O3, closure, emmalloc (distribution)
     #   anything else (RelWithDebInfo)-> -O0 -g3, assertions (development)
     # GeneralsX @build WebPort 2026-07-07
-    option(GX_WEB_OPTIMIZED "Optimised web link (-O3, no assertions) for the RelWithDebInfo build" OFF)
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
         set(GX_PROFILE_FLAGS
             "-O3"

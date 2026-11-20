@@ -570,6 +570,7 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
 
             // Ensure driver knows how many levels to expect
             glBindTexture(GL_TEXTURE_2D, gl_tex_id);
+            GLES3_Texture_Binding_Unknown();
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, (int)LevelCount - 1);
 
             GLenum internal_fmt = GLES3_TextureConverter::DX8_Format_To_GL_Internal(
@@ -751,7 +752,7 @@ struct Emscripten_IDirect3DVertexBuffer8 : public IDirect3DVertexBuffer8 {
         buf.data.resize(length, 0);
     }
     ~Emscripten_IDirect3DVertexBuffer8() {
-        if (gl_vbo) { glDeleteBuffers(1, &gl_vbo); gl_vbo = 0; }
+        GLES3_Delete_Buffer(&gl_vbo);
     }
 
     DUMMY_IUNKNOWN
@@ -767,7 +768,7 @@ struct Emscripten_IDirect3DVertexBuffer8 : public IDirect3DVertexBuffer8 {
     // Upload the locked bytes to the GL VBO and bind it
     GLuint Upload_And_Bind() {
         if (!gl_vbo) glGenBuffers(1, &gl_vbo);
-        glBindBuffer(GL_ARRAY_BUFFER, gl_vbo);
+        GLES3_Bind_Array_Buffer(gl_vbo);
         buf.Upload(GL_ARRAY_BUFFER);
         return gl_vbo;
     }
@@ -785,7 +786,7 @@ struct Emscripten_IDirect3DIndexBuffer8 : public IDirect3DIndexBuffer8 {
         buf.data.resize(length, 0);
     }
     ~Emscripten_IDirect3DIndexBuffer8() {
-        if (gl_ibo) { glDeleteBuffers(1, &gl_ibo); gl_ibo = 0; }
+        GLES3_Delete_Buffer(&gl_ibo);
     }
 
     DUMMY_IUNKNOWN
@@ -800,7 +801,7 @@ struct Emscripten_IDirect3DIndexBuffer8 : public IDirect3DIndexBuffer8 {
 
     GLuint Upload_And_Bind() {
         if (!gl_ibo) glGenBuffers(1, &gl_ibo);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl_ibo);
+        GLES3_Bind_Element_Buffer(gl_ibo);
         buf.Upload(GL_ELEMENT_ARRAY_BUFFER);
         return gl_ibo;
     }
@@ -873,13 +874,15 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
     static void Size_Canvas(const D3DPRESENT_PARAMETERS *pParams) {
 #ifdef __EMSCRIPTEN__
         if (!pParams || pParams->BackBufferWidth < 1 || pParams->BackBufferHeight < 1) return;
+        GLES3_Set_Back_Buffer_Size((int)pParams->BackBufferWidth, (int)pParams->BackBufferHeight);
         EM_ASM({
             Module.gxCanvasW = $0;
             Module.gxCanvasH = $1;
             var c = document.getElementById('canvas');
             if (!c) return;
-            c.width = $0;
-            c.height = $1;
+            var s = Module.gxRenderScale || 1; // page setting: render below the mode, CSS upscales
+            c.width = Math.max(1, Math.round($0 * s));
+            c.height = Math.max(1, Math.round($1 * s));
             c.style.aspectRatio = $0 + ' / ' + $1;
         }, (int)pParams->BackBufferWidth, (int)pParams->BackBufferHeight);
 #endif
@@ -1087,15 +1090,15 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
             case 1: vertex_count = PrimCount;     break; // POINTLIST
             default: vertex_count = PrimCount * 3; break;
         }
-        GLuint tmp_vbo = 0;
-        glGenBuffers(1, &tmp_vbo);
-        glBindBuffer(GL_ARRAY_BUFFER, tmp_vbo);
+        // One streaming buffer re-filled per call (was a new GL buffer created and deleted).
+        static GLuint up_vbo = 0;
+        if (!up_vbo) glGenBuffers(1, &up_vbo);
+        GLES3_Bind_Array_Buffer(up_vbo);
         glBufferData(GL_ARRAY_BUFFER,
                      (GLsizeiptr)(vertex_count * VertexStreamZeroStride),
-                     pVertexStreamZeroData, GL_DYNAMIC_DRAW);
+                     pVertexStreamZeroData, GL_STREAM_DRAW);
         _setup_vertex_attribs(VertexStreamZeroStride, false);
         GLES3_Draw_Arrays((unsigned int)PrimType, 0, PrimCount);
-        glDeleteBuffers(1, &tmp_vbo);
         return 0;
     }
 
@@ -1136,25 +1139,21 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
             default: index_count = PrimCount * 3; break;
         }
         // Upload vertices
-        GLuint tmp_vbo = 0;
-        glGenBuffers(1, &tmp_vbo);
-        glBindBuffer(GL_ARRAY_BUFFER, tmp_vbo);
+        static GLuint up_vbo = 0, up_ibo = 0;
+        if (!up_vbo) { glGenBuffers(1, &up_vbo); glGenBuffers(1, &up_ibo); }
+        GLES3_Bind_Array_Buffer(up_vbo);
         glBufferData(GL_ARRAY_BUFFER,
                      (GLsizeiptr)(NumVertices * VertexStreamZeroStride),
                      pVertexStreamZeroData, GL_DYNAMIC_DRAW);
         _setup_vertex_attribs(VertexStreamZeroStride, false);
         // Upload indices (GLES3_Draw_Triangles expects GL_UNSIGNED_SHORT)
         UINT idx_bytes = (IndexDataFormat == D3DFMT_INDEX16) ? 2 : 4;
-        GLuint tmp_ibo = 0;
-        glGenBuffers(1, &tmp_ibo);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, tmp_ibo);
+        GLES3_Bind_Element_Buffer(up_ibo);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER,
                      (GLsizeiptr)(index_count * idx_bytes),
                      pIndexData, GL_DYNAMIC_DRAW);
         GLES3_Draw_Triangles((unsigned int)PrimType, 0, PrimCount,
                              MinVertexIndex, NumVertices);
-        glDeleteBuffers(1, &tmp_vbo);
-        glDeleteBuffers(1, &tmp_ibo);
         return 0;
     }
     virtual HRESULT CreateTexture(UINT Width, UINT Height, UINT Levels,

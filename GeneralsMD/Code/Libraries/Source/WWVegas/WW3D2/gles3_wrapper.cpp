@@ -97,6 +97,7 @@ struct GLES3_CachedUniformState {
     float alpha_ref;
     int alpha_func;
     int stage_ops[8];
+    float lod_bias;
     int specular_enable;
     unsigned int pixel_shader;
     float ps_const[8][4];
@@ -615,6 +616,10 @@ void GLES3_Get_Transform(unsigned int type, float* matrix_out) {
 // DX8Wrapper API — Viewport
 // ============================================================================
 
+static int g_BackBufferW = 0, g_BackBufferH = 0;
+static float g_LodBias = 0.0f; // log2(drawing buffer / back buffer), set by the viewport
+void GLES3_Set_Back_Buffer_Size(int w, int h) { g_BackBufferW = w; g_BackBufferH = h; }
+
 void GLES3_Set_Viewport(unsigned int x, unsigned int y,
                          unsigned int w, unsigned int h,
                          float min_z, float max_z) {
@@ -626,11 +631,31 @@ void GLES3_Set_Viewport(unsigned int x, unsigned int y,
     
     // Direct3D viewport Y coordinate starts at top-left.
     // OpenGL viewport Y coordinate starts at bottom-left.
+    // Optional render scale: the drawing buffer can be smaller than the back buffer the
+    // engine renders for; scale its viewport (XYZRHW vertices follow u_ViewportRect).
+    g_LodBias = 0.0f;
+    if (g_BackBufferW > 0 && g_BackBufferH > 0 && (canvas_w != g_BackBufferW || canvas_h != g_BackBufferH)) {
+        double sx = (double)canvas_w / g_BackBufferW, sy = (double)canvas_h / g_BackBufferH;
+        g_LodBias = (float)std::log2(sx < 1.0 ? sx : 1.0);
+        unsigned int x2 = (unsigned int)(x * sx + 0.5), y2 = (unsigned int)(y * sy + 0.5);
+        w = (unsigned int)((x + w) * sx + 0.5) - x2;
+        h = (unsigned int)((y + h) * sy + 0.5) - y2;
+        x = x2; y = y2;
+    }
     int gl_y = canvas_h - (int)y - (int)h;
     if (gl_y < 0) gl_y = 0;
     
-    glViewport(x, (unsigned int)gl_y, w, h);
-    glDepthRangef(min_z, max_z);
+    // The engine re-sets the same viewport many times a frame.
+    static int last[4] = { -1, -1, -1, -1 };
+    static float last_z[2] = { -1.0f, -1.0f };
+    if (last[0] != (int)x || last[1] != gl_y || last[2] != (int)w || last[3] != (int)h) {
+        glViewport(x, (unsigned int)gl_y, w, h);
+        last[0] = (int)x; last[1] = gl_y; last[2] = (int)w; last[3] = (int)h;
+    }
+    if (last_z[0] != min_z || last_z[1] != max_z) {
+        glDepthRangef(min_z, max_z);
+        last_z[0] = min_z; last_z[1] = max_z;
+    }
 }
 
 
@@ -638,69 +663,76 @@ void GLES3_Set_Viewport(unsigned int x, unsigned int y,
 // DX8Wrapper API — Texture Binding
 // ============================================================================
 
+static GLuint g_ActiveUnit = ~0u;
+static GLuint g_UnitTexture[8] = { ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u };
+static GLuint g_UnitSampler[8] = { ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u };
+
+static void Active_Unit(unsigned int stage) {
+    if (g_ActiveUnit != stage) { glActiveTexture(GL_TEXTURE0 + stage); g_ActiveUnit = stage; }
+}
+
+// Texture uploads bind on the active unit and put the old binding back, but by GL id
+// only: forget what that unit holds so the next SetTexture binds for real.
+void GLES3_Texture_Binding_Unknown() {
+    if (g_ActiveUnit < 8) g_UnitTexture[g_ActiveUnit] = ~0u;
+}
+
+// Wrap and filter modes live in WebGL2 sampler objects, one per combination, instead of
+// four glTexParameteri on every bind and every stage-state change.
+static GLuint Sampler_For(GLenum wrap_s, GLenum wrap_t, GLenum mag, GLenum min) {
+    static std::unordered_map<uint64_t, GLuint> cache;
+    uint64_t key = (uint64_t)wrap_s << 48 ^ (uint64_t)wrap_t << 32 ^ (uint64_t)mag << 16 ^ (uint64_t)min;
+    auto it = cache.find(key);
+    if (it != cache.end()) return it->second;
+    GLuint smp = 0;
+    glGenSamplers(1, &smp);
+    glSamplerParameteri(smp, GL_TEXTURE_WRAP_S, wrap_s);
+    glSamplerParameteri(smp, GL_TEXTURE_WRAP_T, wrap_t);
+    glSamplerParameteri(smp, GL_TEXTURE_MAG_FILTER, mag);
+    glSamplerParameteri(smp, GL_TEXTURE_MIN_FILTER, min);
+    cache[key] = smp;
+    return smp;
+}
+
 void GLES3_Apply_Texture_Stage_Parameters(unsigned int stage) {
     GLuint tex = g_State.bound_textures[stage];
     if (tex == 0) return;
 
-    glActiveTexture(GL_TEXTURE0 + stage);
-
-    // Apply wrap mode U (S)
     unsigned int u = g_State.texture_stage_state[stage][GLES3_TSS_ADDRESSU];
-    if (u != 0) {
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GLES3_Helpers::AddressMode_To_GL(u));
-    } else {
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    }
-
-    // Apply wrap mode V (T)
     unsigned int v = g_State.texture_stage_state[stage][GLES3_TSS_ADDRESSV];
-    if (v != 0) {
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GLES3_Helpers::AddressMode_To_GL(v));
-    } else {
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    }
+    GLenum wrap_s = u ? GLES3_Helpers::AddressMode_To_GL(u) : GL_REPEAT;
+    GLenum wrap_t = v ? GLES3_Helpers::AddressMode_To_GL(v) : GL_REPEAT;
 
-    // Apply filter modes
     unsigned int mag = g_State.texture_stage_state[stage][GLES3_TSS_MAGFILTER];
-    if (mag != 0) {
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GLES3_Helpers::FilterMode_To_GL(mag));
-    } else {
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    }
+    GLenum gl_mag = mag ? GLES3_Helpers::FilterMode_To_GL(mag) : GL_LINEAR;
 
     unsigned int min = g_State.texture_stage_state[stage][GLES3_TSS_MINFILTER];
     unsigned int mip = g_State.texture_stage_state[stage][GLES3_TSS_MIPFILTER];
-
-    // Determine if texture has mipmaps
     bool has_mipmaps = GLES3_Texture_Has_Mipmaps(tex);
-
     if (min == 0) min = 1; // Default D3D8: POINT (1)
 
     GLenum gl_min_filter = GL_LINEAR;
     if (!has_mipmaps || mip == 0) {
-        // No mipmapping
         gl_min_filter = GLES3_Helpers::FilterMode_To_GL(min);
     } else if (mip == 1) {
-        // D3DTEXF_POINT: Nearest mipmap
         gl_min_filter = (min == 1) ? GL_NEAREST_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_NEAREST;
     } else {
-        // D3DTEXF_LINEAR: Linear mipmap interpolation
         gl_min_filter = (min == 1) ? GL_NEAREST_MIPMAP_LINEAR : GL_LINEAR_MIPMAP_LINEAR;
     }
-    
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_min_filter);
+
+    GLuint smp = Sampler_For(wrap_s, wrap_t, gl_mag, gl_min_filter);
+    if (g_UnitSampler[stage] != smp) { glBindSampler(stage, smp); g_UnitSampler[stage] = smp; }
 }
 
 void GLES3_Set_Texture(unsigned int stage, GLuint gl_texture) {
     if (stage >= 8) return;
     g_State.bound_textures[stage] = gl_texture;
-    glActiveTexture(GL_TEXTURE0 + stage);
-    if (gl_texture) {
+    if (g_UnitTexture[stage] != gl_texture) {
+        Active_Unit(stage);
         glBindTexture(GL_TEXTURE_2D, gl_texture);
-        GLES3_Apply_Texture_Stage_Parameters(stage);
-    } else {
-        glBindTexture(GL_TEXTURE_2D, 0);
+        g_UnitTexture[stage] = gl_texture;
     }
+    if (gl_texture) GLES3_Apply_Texture_Stage_Parameters(stage);
 }
 
 void GLES3_Set_Texture_Stage_State(unsigned int stage, unsigned int state,
@@ -708,7 +740,11 @@ void GLES3_Set_Texture_Stage_State(unsigned int stage, unsigned int state,
     if (stage >= 8 || state >= GLES3_TSS_MAX) return;
     g_State.texture_stage_state[stage][state] = value;
 
-    if (g_State.bound_textures[stage] != 0) {
+    // Only the wrap and filter states feed the sampler.
+    bool sampler_state = state == GLES3_TSS_ADDRESSU || state == GLES3_TSS_ADDRESSV ||
+                         state == GLES3_TSS_MAGFILTER || state == GLES3_TSS_MINFILTER ||
+                         state == GLES3_TSS_MIPFILTER;
+    if (sampler_state && g_State.bound_textures[stage] != 0) {
         GLES3_Apply_Texture_Stage_Parameters(stage);
     }
 }
@@ -730,6 +766,59 @@ void GLES3_Set_Vertex_Has_Color(bool has_color) {
 
 void GLES3_Set_Pretransformed(bool pretransformed) {
     g_State.pretransformed = pretransformed;
+}
+
+// ---------------------------------------------------------------------------
+// GL state shadow (see gles3_wrapper.h)
+// ---------------------------------------------------------------------------
+static GLuint g_ArrayBuffer = ~0u, g_ElementBuffer = ~0u;
+struct GLES3_AttribShadow {
+    int enabled;            // -1 unknown, 0 constant, 1 array
+    GLuint buffer; GLint size; GLenum type; GLboolean norm; GLsizei stride; uintptr_t offset;
+    float c[4];
+};
+static GLES3_AttribShadow g_Attrib[16];
+
+void GLES3_Attrib_Shadow_Reset() {
+    for (auto& a : g_Attrib) a.enabled = -1;
+    g_ArrayBuffer = g_ElementBuffer = ~0u;
+}
+
+void GLES3_Bind_Array_Buffer(GLuint buffer) {
+    if (buffer != g_ArrayBuffer) { glBindBuffer(GL_ARRAY_BUFFER, buffer); g_ArrayBuffer = buffer; }
+}
+
+void GLES3_Bind_Element_Buffer(GLuint buffer) {
+    if (buffer != g_ElementBuffer) { glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer); g_ElementBuffer = buffer; }
+}
+
+void GLES3_Delete_Buffer(GLuint* buffer) {
+    if (!buffer || !*buffer) return;
+    glDeleteBuffers(1, buffer);
+    *buffer = 0;
+    GLES3_Attrib_Shadow_Reset();
+}
+
+void GLES3_Attrib_Pointer(GLuint loc, GLint size, GLenum type, GLboolean norm, GLsizei stride, uintptr_t offset) {
+    GLES3_AttribShadow& a = g_Attrib[loc];
+    if (a.enabled != 1) { glEnableVertexAttribArray(loc); a.enabled = 1; a.buffer = ~0u; }
+    if (a.buffer != g_ArrayBuffer || a.size != size || a.type != type || a.norm != norm ||
+        a.stride != stride || a.offset != offset) {
+        glVertexAttribPointer(loc, size, type, norm, stride, (const void*)offset);
+        a.buffer = g_ArrayBuffer; a.size = size; a.type = type; a.norm = norm; a.stride = stride; a.offset = offset;
+    }
+}
+
+void GLES3_Attrib_Constant(GLuint loc, float x, float y, float z, float w) {
+    GLES3_AttribShadow& a = g_Attrib[loc];
+    if (a.enabled != 0) {
+        glDisableVertexAttribArray(loc); a.enabled = 0;
+        a.c[0] = x + 1.0f; // force the constant below
+    }
+    if (a.c[0] != x || a.c[1] != y || a.c[2] != z || a.c[3] != w) {
+        glVertexAttrib4f(loc, x, y, z, w);
+        a.c[0] = x; a.c[1] = y; a.c[2] = z; a.c[3] = w;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -915,7 +1004,7 @@ void GLES3_Draw_Triangles_Instanced(unsigned int prim_type,
     if (g_InstanceVBO == 0) {
         glGenBuffers(1, &g_InstanceVBO);
     }
-    glBindBuffer(GL_ARRAY_BUFFER, g_InstanceVBO);
+    GLES3_Bind_Array_Buffer(g_InstanceVBO);
     glBufferData(GL_ARRAY_BUFFER, instance_count * 16 * sizeof(float), col_major_matrices, GL_STREAM_DRAW);
     free(col_major_matrices);
 
@@ -943,8 +1032,8 @@ void GLES3_Draw_Triangles_Instanced(unsigned int prim_type,
         glVertexAttribDivisor(7 + i, 0);
     }
 
-    // Re-bind the zero VBO so we don't pollute subsequent draws
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    // Attributes 7-10 were set directly above.
+    GLES3_Attrib_Shadow_Reset();
 
     g_State.draw_calls++;
     g_State.triangles_drawn += prim_count * instance_count;
@@ -990,7 +1079,7 @@ GLES3_VertexBuffer* GLES3_VertexBuffer::Create(unsigned int size,
     vb->lock_ptr = nullptr;
 
     glGenBuffers(1, &vb->gl_buffer);
-    glBindBuffer(GL_ARRAY_BUFFER, vb->gl_buffer);
+    GLES3_Bind_Array_Buffer(vb->gl_buffer);
     glBufferData(GL_ARRAY_BUFFER, size,
                  nullptr, dynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW);
 
@@ -1007,14 +1096,14 @@ void GLES3_VertexBuffer::Lock(void** data, unsigned int offset,
 
 void GLES3_VertexBuffer::Unlock() {
     if (lock_ptr) {
-        glBindBuffer(GL_ARRAY_BUFFER, gl_buffer);
+        GLES3_Bind_Array_Buffer(gl_buffer);
         glBufferSubData(GL_ARRAY_BUFFER, 0, size, lock_ptr);
     }
 }
 
 void GLES3_VertexBuffer::Destroy() {
     if (gl_buffer) {
-        glDeleteBuffers(1, &gl_buffer);
+        GLES3_Delete_Buffer(&gl_buffer);
         gl_buffer = 0;
     }
     if (lock_ptr) {
@@ -1033,7 +1122,7 @@ GLES3_IndexBuffer* GLES3_IndexBuffer::Create(unsigned int size, bool dynamic) {
     ib->lock_ptr = nullptr;
 
     glGenBuffers(1, &ib->gl_buffer);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ib->gl_buffer);
+    GLES3_Bind_Element_Buffer(ib->gl_buffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, size,
                  nullptr, dynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW);
 
@@ -1050,14 +1139,14 @@ void GLES3_IndexBuffer::Lock(void** data, unsigned int offset,
 
 void GLES3_IndexBuffer::Unlock() {
     if (lock_ptr) {
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl_buffer);
+        GLES3_Bind_Element_Buffer(gl_buffer);
         glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, size, lock_ptr);
     }
 }
 
 void GLES3_IndexBuffer::Destroy() {
     if (gl_buffer) {
-        glDeleteBuffers(1, &gl_buffer);
+        GLES3_Delete_Buffer(&gl_buffer);
         gl_buffer = 0;
     }
     if (lock_ptr) {
@@ -1405,6 +1494,7 @@ void GLES3_ShaderManager::Populate_Locations(GLuint program, unsigned int hash) 
     locs.u_PSCount = glGetUniformLocation(program, "u_PSCount");
     locs.u_PS = glGetUniformLocation(program, "u_PS");
     locs.u_PSConst = glGetUniformLocation(program, "u_PSConst");
+    locs.u_LodBias = glGetUniformLocation(program, "u_LodBias");
     locs.u_ColorVertex = glGetUniformLocation(program, "u_ColorVertex");
     locs.u_StageArgs = glGetUniformLocation(program, "u_StageArgs");
     locs.u_TexBound = glGetUniformLocation(program, "u_TexBound");
@@ -1622,6 +1712,10 @@ void GLES3_ShaderManager::Apply_Uniforms(GLuint program,
             GLES3_Upload_Pixel_Shader(locs, state.pixel_shader);
             cache.pixel_shader = state.pixel_shader;
         }
+        if (locs.u_LodBias != -1 && (!cache.initialized || cache.lod_bias != g_LodBias)) {
+            glUniform1f(locs.u_LodBias, g_LodBias);
+            cache.lod_bias = g_LodBias;
+        }
         if (locs.u_PSConst != -1 && (!cache.initialized || memcmp(cache.ps_const, state.ps_const, sizeof(state.ps_const)) != 0)) {
             glUniform4fv(locs.u_PSConst, 8, &state.ps_const[0][0]);
             memcpy(cache.ps_const, state.ps_const, sizeof(state.ps_const));
@@ -1680,8 +1774,8 @@ void GLES3_ShaderManager::Apply_Uniforms(GLuint program,
         glUniform4fv(locs.u_TextureFactor, 1, state.texture_factor);
         memcpy(cache.texture_factor, state.texture_factor, sizeof(state.texture_factor));
     }
-    if (locs.u_InstancingEnabled != -1) {
-        glUniform1i(locs.u_InstancingEnabled, 0);
+    if (locs.u_InstancingEnabled != -1 && !cache.initialized) {
+        glUniform1i(locs.u_InstancingEnabled, 0); // the instanced draw sets 1 and puts 0 back
     }
 
     // Texture coordinate generation and texture transforms (stages 0-3)

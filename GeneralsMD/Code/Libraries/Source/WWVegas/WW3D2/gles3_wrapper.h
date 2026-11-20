@@ -307,6 +307,7 @@ struct GLES3_ProgramUniformLocations {
   GLint u_PSCount;
   GLint u_PS;
   GLint u_PSConst;
+  GLint u_LodBias;
   GLint u_ColorVertex;
   GLint u_StageArgs;
   GLint u_TexBound;
@@ -468,6 +469,21 @@ void GLES3_Set_Light(unsigned int index, const GLES3_Light* light);
 void GLES3_Enable_Light(unsigned int index, bool enable);
 void GLES3_Set_Vertex_Has_Color(bool has_color);
 void GLES3_Set_Pretransformed(bool pretransformed);
+
+// GL state shadow: each call reaches WebGL only when the value changes (every GL call
+// is a wasm -> JS crossing). Anything that changes these bindings must go through here,
+// and deleting a buffer must use GLES3_Delete_Buffer (a reused id would otherwise look
+// unchanged while the attribute still points at the deleted buffer).
+void GLES3_Bind_Array_Buffer(GLuint buffer);
+void GLES3_Bind_Element_Buffer(GLuint buffer);
+void GLES3_Delete_Buffer(GLuint* buffer);
+void GLES3_Attrib_Pointer(GLuint loc, GLint size, GLenum type, GLboolean norm, GLsizei stride, uintptr_t offset);
+void GLES3_Attrib_Constant(GLuint loc, float x, float y, float z, float w);
+void GLES3_Attrib_Shadow_Reset();
+void GLES3_Texture_Binding_Unknown();
+// The engine's back buffer size (its display mode). The canvas drawing buffer may be
+// smaller (the page's optional render scale); viewports are scaled to it.
+void GLES3_Set_Back_Buffer_Size(int w, int h);
 
 // ps.1.1 pixel shaders (CreatePixelShader / SetPixelShader / SetPixelShaderConstant).
 // Create returns a handle > 0, or 0 when the program uses something the emulation lacks

@@ -172,90 +172,42 @@ void GLES3_FVFDecoder::Apply_Vertex_Attribs(unsigned int stride,
     // --- Position (always present) ---
     if (fvf & D3DFVF_POSITION_MASK) {
         bool is_xyzrhw = (fvf & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW;
-        int pos_components = is_xyzrhw ? 4 : 3;
-
-        glEnableVertexAttribArray(ATTR_POSITION);
-        glVertexAttribPointer(
-            ATTR_POSITION,
-            pos_components,
-            GL_FLOAT,
-            GL_FALSE,
-            stride,
-            (const void*)(uintptr_t)(base_offset_bytes + location_offset)
-        );
+        GLES3_Attrib_Pointer(ATTR_POSITION, is_xyzrhw ? 4 : 3, GL_FLOAT, GL_FALSE, stride,
+                             base_offset_bytes + location_offset);
     } else {
-        glDisableVertexAttribArray(ATTR_POSITION);
+        GLES3_Attrib_Constant(ATTR_POSITION, 0.0f, 0.0f, 0.0f, 1.0f);
     }
 
-    // --- Normal ---
-    if (fvf & D3DFVF_NORMAL) {
-        glEnableVertexAttribArray(ATTR_NORMAL);
-        glVertexAttribPointer(
-            ATTR_NORMAL,
-            3,
-            GL_FLOAT,
-            GL_FALSE,
-            stride,
-            (const void*)(uintptr_t)(base_offset_bytes + normal_offset)
-        );
-    } else {
-        glDisableVertexAttribArray(ATTR_NORMAL);
-        // Default normal (0, 0, 1) for vertices without normals
-        glVertexAttrib3f(ATTR_NORMAL, 0.0f, 0.0f, 1.0f);
-    }
+    // --- Normal --- (default (0, 0, 1) for vertices without normals)
+    if (fvf & D3DFVF_NORMAL)
+        GLES3_Attrib_Pointer(ATTR_NORMAL, 3, GL_FLOAT, GL_FALSE, stride, base_offset_bytes + normal_offset);
+    else
+        GLES3_Attrib_Constant(ATTR_NORMAL, 0.0f, 0.0f, 1.0f, 1.0f);
 
-    // --- Diffuse color ---
-    // DX8 stores as BGRA packed DWORD. In the shader, we'll swizzle B↔R.
-    // GL_UNSIGNED_BYTE with GL_TRUE normalization maps 0-255 → 0.0-1.0.
-    // WebGL2 does NOT support GL_BGRA, so we pass as GL_RGBA and swizzle
-    // in the vertex shader (swap .r and .b).
+    // --- Diffuse color --- DX8 BGRA bytes, normalised; the vertex shader swaps R and B
+    // (WebGL2 has no GL_BGRA). Default opaque white, as DX8 without a vertex colour.
     GLES3_Set_Vertex_Has_Color((fvf & D3DFVF_DIFFUSE) != 0);
     GLES3_Set_Pretransformed((fvf & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW);
-    if (fvf & D3DFVF_DIFFUSE) {
-        glEnableVertexAttribArray(ATTR_COLOR);
-        glVertexAttribPointer(
-            ATTR_COLOR,
-            4,
-            GL_UNSIGNED_BYTE,
-            GL_TRUE,    // normalize 0-255 → 0.0-1.0
-            stride,
-            (const void*)(uintptr_t)(base_offset_bytes + diffuse_offset)
-        );
-    } else {
-        glDisableVertexAttribArray(ATTR_COLOR);
-        // Default: opaque white (matches DX8 default when no vertex color)
-        glVertexAttrib4f(ATTR_COLOR, 1.0f, 1.0f, 1.0f, 1.0f);
-    }
+    if (fvf & D3DFVF_DIFFUSE)
+        GLES3_Attrib_Pointer(ATTR_COLOR, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, base_offset_bytes + diffuse_offset);
+    else
+        GLES3_Attrib_Constant(ATTR_COLOR, 1.0f, 1.0f, 1.0f, 1.0f);
 
     // --- Specular color (location 11; 7-10 are the instance matrix) --- BGRA like diffuse.
-    if (fvf & D3DFVF_SPECULAR) {
-        glEnableVertexAttribArray(11);
-        glVertexAttribPointer(11, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride,
-            (const void*)(uintptr_t)(base_offset_bytes + specular_offset));
-    } else {
-        glDisableVertexAttribArray(11);
-        glVertexAttrib4f(11, 0.0f, 0.0f, 0.0f, 0.0f);
-    }
+    if (fvf & D3DFVF_SPECULAR)
+        GLES3_Attrib_Pointer(11, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, base_offset_bytes + specular_offset);
+    else
+        GLES3_Attrib_Constant(11, 0.0f, 0.0f, 0.0f, 0.0f);
 
     // --- Texture coordinates ---
     unsigned int tex_count = Get_Tex_Count(fvf);
     for (unsigned int i = 0; i < 4; i++) {  // shader supports up to 4
         int attr_loc = ATTR_TEXCOORD0 + i;
-        if (i < tex_count) {
-            unsigned int dim = Get_Tex_Coord_Size(fvf, i);
-            glEnableVertexAttribArray(attr_loc);
-            glVertexAttribPointer(
-                attr_loc,
-                dim,
-                GL_FLOAT,
-                GL_FALSE,
-                stride,
-                (const void*)(uintptr_t)(base_offset_bytes + texcoord_offset[i])
-            );
-        } else {
-            glDisableVertexAttribArray(attr_loc);
-            glVertexAttrib2f(attr_loc, 0.0f, 0.0f);
-        }
+        if (i < tex_count)
+            GLES3_Attrib_Pointer(attr_loc, Get_Tex_Coord_Size(fvf, i), GL_FLOAT, GL_FALSE, stride,
+                                 base_offset_bytes + texcoord_offset[i]);
+        else
+            GLES3_Attrib_Constant(attr_loc, 0.0f, 0.0f, 0.0f, 1.0f);
     }
 }
 
@@ -266,6 +218,7 @@ void GLES3_FVFDecoder::Disable_All_Attribs() {
     for (int i = 0; i <= ATTR_TEXCOORD3; i++) {
         glDisableVertexAttribArray(i);
     }
+    GLES3_Attrib_Shadow_Reset();
 }
 
 #endif // __EMSCRIPTEN__

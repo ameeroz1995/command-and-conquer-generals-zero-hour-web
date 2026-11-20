@@ -46,9 +46,19 @@ add_link_options(-sFETCH=1)
 # ASYNCIFY disabled to optimize performance (Fetch_Range_JS uses synchronous XHR and emscripten_sleep yields are commented out)
 add_link_options(-sASYNCIFY=0)
 
-# Enable C++ Exception catching so we can see what is crashing
-add_compile_options(-fexceptions -g)
-add_link_options(-fexceptions -sDISABLE_EXCEPTION_CATCHING=0)
+# Optimised web build (deploys): see GeneralsMD/Code/Main/CMakeLists.txt for the link side.
+option(GX_WEB_OPTIMIZED "Optimised web build: -O3 link, no assertions, SIMD, native wasm exceptions" OFF)
+
+if(GX_WEB_OPTIMIZED)
+  # Native wasm exceptions: JS-based ones route every call in a try/cleanup scope through
+  # an invoke_* JS trampoline. SIMD lets the compiler vectorise the vector/matrix maths.
+  add_compile_options(-fwasm-exceptions -msimd128 -g)
+  add_link_options(-fwasm-exceptions -msimd128)
+else()
+  # Enable C++ Exception catching so we can see what is crashing
+  add_compile_options(-fexceptions -g)
+  add_link_options(-fexceptions -sDISABLE_EXCEPTION_CATCHING=0)
+endif()
 
 # Debugging and Source Maps
 # DEMANGLE_SUPPORT was removed in Emscripten 4.x+ (stacks demangle by default)

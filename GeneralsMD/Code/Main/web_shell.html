@@ -430,6 +430,19 @@
         <input type="range" id="gx-setting-edge-zone" min="5" max="40" value="20" style="width: 100%; accent-color: var(--gx-fg); cursor: pointer;">
       </div>
 
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 1px; margin-bottom: 4px;">
+          <span>RENDER SCALE</span>
+          <select id="gx-setting-render-scale" style="background: transparent; color: var(--gx-fg); border: 1px solid var(--gx-fg); font-family: inherit; font-size: 10px;">
+            <option value="1">100%</option>
+            <option value="0.85">85%</option>
+            <option value="0.75">75%</option>
+            <option value="0.5">50%</option>
+          </select>
+        </div>
+        <div style="font-size: 9px; color: var(--gx-mute); margin-top: 3px;">Draw below the game resolution and upscale: faster, softer</div>
+      </div>
+
       <button id="gx-btn-fullscreen" type="button" style="
         width: 100%;
         padding: 8px;
@@ -1084,7 +1097,7 @@
             if (toast) toast.classList.remove('gx-show');
           },
           settings: (function() {
-            var defaults = { lockCursor: false, edgeScroll: true, edgeScrollZone: 20 };
+            var defaults = { lockCursor: false, edgeScroll: true, edgeScrollZone: 20, renderScale: 1 };
             try {
               var saved = localStorage.getItem('generalsx_settings');
               if (saved) {
@@ -1128,7 +1141,11 @@
           if (!canvasEl) return;
           // The engine sizes the canvas to its display mode (d3d8.h Size_Canvas).
           const M = window.Module || {};
-          const w = M.gxCanvasW || GX_FIXED_W, h = M.gxCanvasH || GX_FIXED_H;
+          // Optional render scale (settings): a smaller drawing buffer, CSS-upscaled.
+          const s = (window.GeneralsX && window.GeneralsX.settings && +window.GeneralsX.settings.renderScale) || 1;
+          M.gxRenderScale = s;
+          const w = Math.max(1, Math.round((M.gxCanvasW || GX_FIXED_W) * s));
+          const h = Math.max(1, Math.round((M.gxCanvasH || GX_FIXED_H) * s));
           if (canvasEl.width !== w) canvasEl.width = w;
           if (canvasEl.height !== h) canvasEl.height = h;
         };
@@ -1569,6 +1586,13 @@
           edgeScrollCb.checked = !!window.GeneralsX.settings.edgeScroll;
           edgeZoneSlider.value = window.GeneralsX.settings.edgeScrollZone;
           edgeZoneVal.textContent = window.GeneralsX.settings.edgeScrollZone + 'px';
+          var renderScaleSel = document.getElementById('gx-setting-render-scale');
+          renderScaleSel.value = String(window.GeneralsX.settings.renderScale || 1);
+          renderScaleSel.addEventListener('change', function() {
+            window.GeneralsX.settings.renderScale = parseFloat(renderScaleSel.value) || 1;
+            saveSettings();
+            if (typeof gxLockCanvasBacking === 'function') gxLockCanvasBacking(); // applies live
+          });
 
           function saveSettings() {
             try {

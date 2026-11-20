@@ -307,6 +307,11 @@ uniform int u_StageOps[8];
 uniform int u_StageArgs[24];
 uniform int u_TexBound;
 
+// Optional render scale: log2(drawing buffer / back buffer), <= 0. Sampling with this
+// bias picks the mip level the full-size frame would, so a smaller buffer doesn't drop to
+// tiny mips (the terrain atlas's tile borders bleed there) and textures stay sharp.
+uniform float u_LodBias;
+
 // D3DRS_SPECULARENABLE: add the specular colour after the stages.
 uniform bool u_SpecularEnable;
 in vec4 v_Specular;
@@ -342,10 +347,10 @@ bool alpha_test(float alpha) {
 
 vec4 sample_stage(int s) {
     if ((u_TexBound & (1 << s)) == 0) return vec4(1.0);
-    if (s == 0) return texture(u_Texture0, v_TexCoord0.xy / v_TexCoord0.z);
-    if (s == 1) return texture(u_Texture1, v_TexCoord1.xy / v_TexCoord1.z);
-    if (s == 2) return texture(u_Texture2, v_TexCoord2.xy / v_TexCoord2.z);
-    return texture(u_Texture3, v_TexCoord3.xy / v_TexCoord3.z);
+    if (s == 0) return texture(u_Texture0, v_TexCoord0.xy / v_TexCoord0.z, u_LodBias);
+    if (s == 1) return texture(u_Texture1, v_TexCoord1.xy / v_TexCoord1.z, u_LodBias);
+    if (s == 2) return texture(u_Texture2, v_TexCoord2.xy / v_TexCoord2.z, u_LodBias);
+    return texture(u_Texture3, v_TexCoord3.xy / v_TexCoord3.z, u_LodBias);
 }
 
 vec4 stage_arg(int a, vec4 diffuse, vec4 current, vec4 tex) {
