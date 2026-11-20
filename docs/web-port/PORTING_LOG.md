@@ -1778,3 +1778,16 @@ Loading, timed in headless Edge from localhost (fresh profile, LAN game on Alpin
   and the allocator's tracing blocks (a pool-name strcmp on every alloc/free), and the
   DEBUG-TOC/CHUNK/DICT prints in DataChunk (thousands per map load). After: a steady 60 fps (rare
   55-58), CPU ~59% idle, 1821 console lines in the whole run.
+
+## 2026-11-20 — Session 26: Logging sweep; BEGIN -> menu; map archives load on demand
+
+- **Logging sweep.** Every plain printf/fprintf and EM_ASM console call outside start-up and
+  tools: what is left is start-up messages, debug-command report dumps, rare warnings, or code
+  behind GX_TRACE_LOGGING. Console lines per run: a menu + LAN game at Low 758 (mostly the
+  1-second TICK/DX8 diagnostics); the Very High battle replay 1821 after Session 25.
+- **BEGIN -> main menu: 0.67-0.74 s** (animation-frame stalls after the click; the engine loads
+  before BEGIN shows). Session 25's 14 s figure was an artifact of the timing script.
+- **maps.big, MapsZH.big and TerrainZH.big are no longer read whole at mount** (gles3_big_vfs.cpp
+  Should_Preload). Page open -> BEGIN 6.9-9.7 s / 199 MB -> 6.2 s / 127 MB; downloaded to in game
+  337 -> 268 MB; map load unchanged (11.2 s). Checked: the official map list and previews in the
+  LAN lobby, a LAN game on Alpine Assault, the 3v3 Hostile Dawn replay (MapsZH.big).
