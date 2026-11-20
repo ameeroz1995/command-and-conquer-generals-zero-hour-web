@@ -1146,8 +1146,10 @@
           M.gxRenderScale = s;
           const w = Math.max(1, Math.round((M.gxCanvasW || GX_FIXED_W) * s));
           const h = Math.max(1, Math.round((M.gxCanvasH || GX_FIXED_H) * s));
-          if (canvasEl.width !== w) canvasEl.width = w;
-          if (canvasEl.height !== h) canvasEl.height = h;
+          try { // throws once the canvas belongs to the game thread (worker build)
+            if (canvasEl.width !== w) canvasEl.width = w;
+            if (canvasEl.height !== h) canvasEl.height = h;
+          } catch (e) {}
         };
         gxLockCanvasBacking();
         // Re-pin on any resize-like event Emscripten may trigger.

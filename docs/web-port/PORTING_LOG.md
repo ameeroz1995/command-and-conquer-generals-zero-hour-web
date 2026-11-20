@@ -1695,3 +1695,34 @@ W3D mesh renderer); caching getStaticDiffuse (it includes dynamic scene lights, 
 freeze explosion lighting on 3-way blend tiles, for under 1%); moving the game to a worker with
 OffscreenCanvas (asset reads are synchronous XHR on the main thread and threads need COOP/COEP
 headers). Revisit batching with a big-battle benchmark (needs Load Replay fixed, see Session 21).
+
+## 2026-11-20 — Session 23: Worker-thread prototype (off by default)
+
+`GX_WEB_WORKER=ON` (with `GX_WEB_OPTIMIZED=ON`) runs main() on a pthread with the canvas
+transferred (`-pthread -sPROXY_TO_PTHREAD -sOFFSCREENCANVAS_SUPPORT=1`). Needs a server sending
+`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`.
+What it took to boot:
+- `cmake/gx_worker_em_asm.h`, force-included in that build, turns the game's EM_ASM blocks
+  (page UI, Web Audio, the JS FS, which lives on the main thread) into MAIN_THREAD_EM_ASM.
+- SDL2 makes its GL context through EGL, which Emscripten runs on the main thread; the worker
+  build makes the WebGL2 context on the game thread instead (EmscriptenMain.cpp) and skips SDL's
+  swap (the OffscreenCanvas presents when the frame callback returns).
+- The canvas backing size is set from the game thread (d3d8.h Size_Canvas); page code that sets
+  canvas.width tolerates the transferred canvas. AILBridge_init (EM_JS) runs on the page.
+
+Result: boots, plays the shell map, starts a LAN game on Alpine Assault, input works. But
+game-thread fps with the frame cap off (new GXFRAME log, every 5 s):
+
+| | normal build | worker build |
+|---|---|---|
+| menu | 1000-1370 | 160-210 |
+| in game, still | 380-790 | 140-170 |
+| in game, panning | 620-890 | 150-200 |
+
+About 4x slower. Likely causes, not yet separated: every redirected EM_ASM is a synchronous
+round trip to the main thread (the audio bridge sets 3D sound positions per sound per frame),
+file reads are proxied to the main thread, and shared memory with ALLOW_MEMORY_GROWTH slows the
+JS glue's heap access on every GL call. Also unsolved for a real deploy: the page's network and
+input callbacks would call into the game from the main thread (a data race), and the private
+server's saved-asset XHR redirect only patches the main thread. Not deployed; the normal build
+stays the shipping one.
