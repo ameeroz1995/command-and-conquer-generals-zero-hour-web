@@ -7,6 +7,9 @@
 #include <stdio.h>
 #include <math.h>
 #include <emscripten.h>
+#ifdef __EMSCRIPTEN_PTHREADS__
+#include <emscripten/threading.h>
+#endif
 
 extern "C" char* WebAudioBridge_ReadEntireFile(const char* filename, uint32_t* out_size);
 
@@ -542,6 +545,17 @@ EM_JS(void, AILBridge_init, (), {
         };
     }
 });
+
+// The bridge lives on the page (Web Audio, window.AILBridge). In the worker build the
+// game runs on a pthread, so set it up on the main thread.
+static void AILBridge_init_on_page() {
+#ifdef __EMSCRIPTEN_PTHREADS__
+    emscripten_sync_run_in_main_runtime_thread(EM_FUNC_SIG_V, AILBridge_init);
+#else
+    AILBridge_init();
+#endif
+}
+
 
 #define MAX_SAMPLES 128
 #define MAX_STREAMS 32
@@ -1344,7 +1358,7 @@ int __stdcall AIL_quick_startup(
     // Debug builds only: let the AILBridge EM_JS console traces through.
     EM_ASM({ window.gxAudioVerbose = true; });
 #endif
-    AILBridge_init();
+    AILBridge_init_on_page();
     EM_ASM({
         window.AILBridge.init();
     });
@@ -1429,7 +1443,7 @@ int __stdcall AIL_startup(void) {
     // Debug builds only: let the AILBridge EM_JS console traces through.
     EM_ASM({ window.gxAudioVerbose = true; });
 #endif
-    AILBridge_init();
+    AILBridge_init_on_page();
     EM_ASM({
         window.AILBridge.init();
     });

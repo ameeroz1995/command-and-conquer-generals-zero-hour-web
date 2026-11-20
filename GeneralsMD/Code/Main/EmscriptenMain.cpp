@@ -580,7 +580,14 @@ int main(int argc, char *argv[]) {
     if (client_w > 0) canvas_width = client_w;
     if (client_h > 0) canvas_height = client_h;
     
+#ifdef __EMSCRIPTEN_PTHREADS__
+    // Worker build: SDL2 makes its GL context through EGL, which Emscripten runs on the
+    // main thread, but the canvas belongs to this thread. Make the WebGL2 context here
+    // and keep the SDL window for input only.
+    const Uint32 windowFlags = SDL_WINDOW_RESIZABLE;
+#else
     const Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
+#endif
     TheSDL3Window = SDL_CreateWindow(
         "Command & Conquer Generals: Zero Hour", SDL_WINDOWPOS_UNDEFINED,
         SDL_WINDOWPOS_UNDEFINED, canvas_width, canvas_height, windowFlags);
@@ -590,6 +597,22 @@ int main(int argc, char *argv[]) {
       return 1;
     }
         
+#ifdef __EMSCRIPTEN_PTHREADS__
+    {
+      EmscriptenWebGLContextAttributes attrs;
+      emscripten_webgl_init_context_attributes(&attrs);
+      attrs.majorVersion = 2;
+      attrs.minorVersion = 0;
+      attrs.depth = 1;
+      attrs.stencil = 1; // stencil shadows / behind-building colour, as SDL_GL_STENCIL_SIZE 8
+      attrs.antialias = 0;
+      EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_create_context("#canvas", &attrs);
+      if (ctx <= 0 || emscripten_webgl_make_context_current(ctx) != EMSCRIPTEN_RESULT_SUCCESS) {
+        fprintf(stderr, "FATAL: WebGL2 context on the game thread failed (%d)\n", (int)ctx);
+        return 1;
+      }
+    }
+#else
     SDL_GLContext gl_context = SDL_GL_CreateContext(TheSDL3Window);
     if (!gl_context) {
       fprintf(stderr, "FATAL: SDL_GL_CreateContext failed: %s\n", SDL_GetError());
@@ -598,6 +621,7 @@ int main(int argc, char *argv[]) {
       return 1;
     }
     SDL_GL_MakeCurrent(TheSDL3Window, gl_context);
+#endif
 
     double dpr = EM_ASM_DOUBLE({
       return window.devicePixelRatio || 1.0;

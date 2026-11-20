@@ -370,19 +370,33 @@ void GLES3_Shutdown() {
 ** In OpenGL there's no equivalent — these are essentially no-ops.
 ** We use them to reset per-frame statistics.
 */
+// Worker build: the game thread's OffscreenCanvas presents when the frame callback
+// returns; SDL's swap goes through EGL on the main thread, which has no context.
+#ifdef __EMSCRIPTEN_PTHREADS__
+#define GLES3_WORKER_BUILD 1
+#else
+#define GLES3_WORKER_BUILD 0
+#endif
+
 void GLES3_Begin_Scene() {
     g_State.draw_calls = 0;
     g_State.triangles_drawn = 0;
 }
 
 void GLES3_End_Scene(bool flip_frame) {
-    if (flip_frame && TheSDL3Window) {
+    if (flip_frame && TheSDL3Window && !GLES3_WORKER_BUILD) {
         SDL_GL_SwapWindow(TheSDL3Window);
     }
 }
 
 void GLES3_Swap_Buffers() {
-    if (TheSDL3Window) {
+    // Frames presented per second, logged every 5 s (works on the game thread too, where
+    // the page cannot see the frames). GXFRAME lines are read by the benchmark scripts.
+    static double t0 = 0; static int n = 0;
+    double now = emscripten_get_now();
+    if (t0 == 0) t0 = now;
+    if (++n, now - t0 >= 5000.0) { printf("GXFRAME fps=%.1f\n", n * 1000.0 / (now - t0)); t0 = now; n = 0; }
+    if (TheSDL3Window && !GLES3_WORKER_BUILD) {
         SDL_GL_SwapWindow(TheSDL3Window);
     }
 }

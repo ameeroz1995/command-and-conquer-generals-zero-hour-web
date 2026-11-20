@@ -54,6 +54,14 @@ if(GX_WEB_OPTIMIZED)
   # an invoke_* JS trampoline. SIMD lets the compiler vectorise the vector/matrix maths.
   add_compile_options(-fwasm-exceptions -msimd128 -g)
   add_link_options(-fwasm-exceptions -msimd128)
+  # Experimental: run the game on a worker thread with an OffscreenCanvas. Needs a server
+  # sending COOP/COEP headers (SharedArrayBuffer).
+  option(GX_WEB_WORKER "Run main() on a pthread with the canvas transferred (experimental)" OFF)
+  if(GX_WEB_WORKER)
+    add_compile_options(-pthread "SHELL:-include ${CMAKE_CURRENT_LIST_DIR}/gx_worker_em_asm.h")
+    add_link_options(-pthread -sPROXY_TO_PTHREAD -sOFFSCREENCANVAS_SUPPORT=1
+      "-sOFFSCREENCANVASES_TO_PTHREAD=#canvas" -sPTHREAD_POOL_SIZE=4)
+  endif()
 else()
   # Enable C++ Exception catching so we can see what is crashing
   add_compile_options(-fexceptions -g)

@@ -20,6 +20,7 @@
 #include <cstring>
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#include <emscripten/html5.h>
 #endif
 // Forward declaration — defined in gles3_wrapper.cpp (which has SDL access)
 void GLES3_Swap_Buffers();
@@ -875,14 +876,24 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
 #ifdef __EMSCRIPTEN__
         if (!pParams || pParams->BackBufferWidth < 1 || pParams->BackBufferHeight < 1) return;
         GLES3_Set_Back_Buffer_Size((int)pParams->BackBufferWidth, (int)pParams->BackBufferHeight);
+#ifdef __EMSCRIPTEN_PTHREADS__
+        // Worker build: this thread owns the (Offscreen)canvas; the page only sets CSS.
+        {
+            double s = MAIN_THREAD_EM_ASM_DOUBLE({ return Module.gxRenderScale || 1; });
+            emscripten_set_canvas_element_size("#canvas",
+                (int)(pParams->BackBufferWidth * s + 0.5), (int)(pParams->BackBufferHeight * s + 0.5));
+        }
+#endif
         EM_ASM({
             Module.gxCanvasW = $0;
             Module.gxCanvasH = $1;
             var c = document.getElementById('canvas');
             if (!c) return;
             var s = Module.gxRenderScale || 1; // page setting: render below the mode, CSS upscales
-            c.width = Math.max(1, Math.round($0 * s));
-            c.height = Math.max(1, Math.round($1 * s));
+            try { // throws once the canvas is transferred to the game thread (worker build)
+                c.width = Math.max(1, Math.round($0 * s));
+                c.height = Math.max(1, Math.round($1 * s));
+            } catch (e) {}
             c.style.aspectRatio = $0 + ' / ' + $1;
         }, (int)pParams->BackBufferWidth, (int)pParams->BackBufferHeight);
 #endif
