@@ -304,8 +304,6 @@ struct GLES3_ProgramUniformLocations {
   GLint u_Texture[4];
   GLint u_StageOps;
   GLint u_SpecularEnable;
-  GLint u_PSCount;
-  GLint u_PS;
   GLint u_PSConst;
   GLint u_LodBias;
   GLint u_ColorVertex;
@@ -347,8 +345,8 @@ private:
 
   // Shader cache (keyed by texture stage configuration hash)
   // Avoids recompiling shaders every frame
-  static GLuint cached_programs[256];
-  static GLES3_ProgramUniformLocations cached_locations[256];
+  static GLuint cached_programs[512];
+  static GLES3_ProgramUniformLocations cached_locations[512];
   static unsigned int Hash_Pipeline_Config(const GLES3_PipelineState &state);
 };
 

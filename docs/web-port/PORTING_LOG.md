@@ -1836,3 +1836,31 @@ private server to send COOP/COEP headers (`Cross-Origin-Opener-Policy: same-orig
 `Cross-Origin-Embedder-Policy: require-corp`) and the page patch's `gxSavedFileUrl` line.
 What it gains is the main thread: map loading's synchronous downloads no longer freeze the page,
 and page work (GC, input) no longer competes with frames. Frame rate is the same.
+
+## 2026-11-21 — Session 27: Safari terrain black: pixel shaders compiled to GLSL
+
+Report: on Safari (Mac), the live worker build drew the terrain black. Only the blend-edge tiles
+(roads, cliffs, snow edges) showed, as stair-stepped outlines; units, buildings, HUD and minimap
+were fine.
+
+- The terrain base pass runs through the ps.1.1 pixel shader (terrain.pso: `lrp r0, v0.a, t1, t0`,
+  `mul r0, r0, v0`); the blend-edge tiles that did show are drawn by the fixed-function stages. Those
+  share texture sampling, the LOD bias, integer uniform arrays and bit operations with the pixel
+  shader path, so those all work on Safari. What only the pixel shader path used was the run-time
+  interpreter: a local `vec4 R[16]` register file indexed and written at run time and passed by
+  value into a helper, a run-time-indexed `ivec4 u_PS[32]` uniform array, and `mix` with a `bvec4`
+  mask, which are the constructs most likely to be mistranslated by WebGL on Metal (ANGLE).
+- **Fix:** GLES3_Create_Pixel_Shader now translates each ps.1.1 program into straight-line GLSL
+  (`r0 = clamp(mix(t0, t1, vec4(v0.a)), -1.0, 1.0); r0 = clamp(r0 * v0, -1.0, 1.0);` for the terrain)
+  and each pixel shader gets its own program (pipeline hash 256 + handle; the program, location and
+  uniform caches grow to 512). The fragment shader runs it as GX_PS_BODY, defined after `#version`
+  when the program is built. The interpreter and its u_PS/u_PSCount uniforms are gone. Same results;
+  less work per pixel on every GPU.
+- **Reproduction:** Playwright's WebKit (WPE, 2227) runs on this Linux machine (after adding
+  libavif16, libgstreamer-plugins-bad1.0-0, libgav1-1 and libyuv0 next to its bundled libraries) but
+  does not reproduce: it renders through Mesa, not Metal, and the old normal build's terrain is fine
+  there. It cannot run the worker build at all (no WebGL2 on an OffscreenCanvas in a worker: "WebGL2
+  context on the game thread failed"), which real Safari 17+ can. So the cause is inferred, not seen.
+- **Verified:** worker build in headless Edge (ANGLE GL): LAN game on Alpine Assault, terrain
+  blended and lit as before, no shader compile errors, 60 fps. Normal build in WebKit: same LAN game,
+  terrain correct. Not verified on Safari on a Mac.

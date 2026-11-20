@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <cmath>
 #include <vector>
+#include <string>
 
 // Forward-declare SDL types so we don't need <SDL.h> at compile time.
 // The linker resolves SDL_GL_SwapWindow via -sUSE_SDL=2 at link time.
@@ -63,8 +64,8 @@ bool GLES3_Texture_Has_Mipmaps(GLuint tex) {
 
 
 // Shader manager statics
-GLuint GLES3_ShaderManager::cached_programs[256] = {0};
-GLES3_ProgramUniformLocations GLES3_ShaderManager::cached_locations[256];
+GLuint GLES3_ShaderManager::cached_programs[512] = {0};
+GLES3_ProgramUniformLocations GLES3_ShaderManager::cached_locations[512];
 
 struct GLES3_CachedUniformState {
     bool initialized;
@@ -114,7 +115,7 @@ struct GLES3_CachedUniformState {
     float tex_matrix[4][16];
 };
 
-static GLES3_CachedUniformState cached_uniform_states[256] = {};
+static GLES3_CachedUniformState cached_uniform_states[512] = {};
 
 // ============================================================================
 // Helper: DX8 Blend Mode → GL Blend Factor
@@ -862,9 +863,64 @@ void GLES3_Attrib_Constant(GLuint loc, float x, float y, float z, float w) {
 // ---------------------------------------------------------------------------
 // ps.1.1 pixel shaders. The game's are short (terrain blend, flat terrain, roads,
 // monochrome filter): tex, mov, add, sub, mul, mad, dp3, dp4, lrp with the usual source
-// modifiers. Each is encoded for the fragment shader's interpreter (see u_PS there).
+// modifiers. Each is translated into GLSL statements and gets its own program (see
+// GX_PS_BODY in the fragment shader). An interpreter over a register array indexed at run
+// time drew Safari's terrain black (ANGLE on Metal); straight-line code avoids that and is
+// cheaper on every GPU.
 // ---------------------------------------------------------------------------
-struct GLES3_PSProgram { int count; int data[16 * 8]; };
+struct GLES3_PSProgram { int count; int data[16 * 8]; std::string glsl; };
+
+static std::string PS_Reg_Name(int r) {
+    static const char* names[8] = { "r0", "r1", "t0", "t1", "t2", "t3", "v0", "v1" };
+    return r < 8 ? names[r] : "u_PSConst[" + std::to_string(r - 8) + "]";
+}
+
+static std::string PS_Src_GLSL(int s) {
+    std::string v = PS_Reg_Name(s & 15);
+    int swz = (s >> 5) & 3;
+    if (swz == 1) v = "vec4(" + v + ".a)"; else if (swz == 2) v = "vec4(" + v + ".b)";
+    switch ((s >> 8) & 15) {
+        case 1: return "(-" + v + ")";              // NEG
+        case 2: return "(" + v + " - 0.5)";         // BIAS
+        case 3: return "(0.5 - " + v + ")";         // BIASNEG
+        case 4: return "(" + v + " * 2.0 - 1.0)";   // SIGN
+        case 5: return "(1.0 - " + v + " * 2.0)";   // SIGNNEG
+        case 6: return "(1.0 - " + v + ")";         // COMP
+        case 7: return "(" + v + " * 2.0)";         // X2
+        case 8: return "(-" + v + " * 2.0)";        // X2NEG
+    }
+    return v;
+}
+
+static std::string PS_To_GLSL(const GLES3_PSProgram& p) {
+    std::string out;
+    for (int i = 0; i < p.count; i++) {
+        const int* d = &p.data[i * 8];
+        int op = d[0] & 255;
+        if (op == 66) continue; // tex: the stage samples are loaded into t0-t3 up front
+        std::string s0 = PS_Src_GLSL(d[2]), s1 = PS_Src_GLSL(d[3]), s2 = PS_Src_GLSL(d[4]), e;
+        switch (op) {
+            case 1: e = s0; break;                                              // mov
+            case 2: e = s0 + " + " + s1; break;                                 // add
+            case 3: e = s0 + " - " + s1; break;                                 // sub
+            case 4: e = s0 + " * " + s1 + " + " + s2; break;                    // mad
+            case 8: e = "vec4(dot(" + s0 + ".rgb, " + s1 + ".rgb))"; break;     // dp3
+            case 9: e = "vec4(dot(" + s0 + ", " + s1 + "))"; break;             // dp4
+            case 18: e = "mix(" + s2 + ", " + s1 + ", " + s0 + ")"; break;      // lrp
+            default: e = s0 + " * " + s1; break;                                // mul
+        }
+        int shift = (d[0] >> 12) & 15;
+        if (shift == 1) e = "(" + e + ") * 2.0"; else if (shift == 2) e = "(" + e + ") * 4.0";
+        else if (shift == 15) e = "(" + e + ") * 0.5";
+        e = ((d[0] >> 16) & 1) ? "clamp(" + e + ", 0.0, 1.0)" : "clamp(" + e + ", -1.0, 1.0)"; // ps.1.1 range
+        int mask = (d[0] >> 8) & 15;
+        std::string sw;
+        for (int c = 0; c < 4; c++) if (mask & (1 << c)) sw += "xyzw"[c];
+        std::string dst = PS_Reg_Name(d[1]);
+        out += mask == 15 ? dst + " = " + e + "; " : "{ vec4 _r = " + e + "; " + dst + "." + sw + " = _r." + sw + "; } ";
+    }
+    return out;
+}
 static std::vector<GLES3_PSProgram> g_PixelShaders;
 
 // Register file index: r0-r1 0-1, t0-t3 2-5, v0-v1 6-7, c0-c7 8-15.
@@ -912,7 +968,8 @@ unsigned int GLES3_Create_Pixel_Shader(const unsigned int* t) {
         d[1] = PS_Reg(dst, ok);
         for (int k = 0; k < nsrc; k++) d[2 + k] = PS_Src(t[i++], ok);
     }
-    if (!ok || p.count == 0) return 0;
+    if (!ok || p.count == 0 || g_PixelShaders.size() >= 255) return 0;
+    p.glsl = PS_To_GLSL(p);
     g_PixelShaders.push_back(p);
     return (unsigned int)g_PixelShaders.size();
 }
@@ -926,11 +983,6 @@ void GLES3_Set_Pixel_Shader_Constants(unsigned int first, const float* data, uns
         memcpy(g_State.ps_const[first + i], data + i * 4, sizeof(float) * 4);
 }
 
-static void GLES3_Upload_Pixel_Shader(const GLES3_ProgramUniformLocations& locs, unsigned int handle) {
-    const GLES3_PSProgram* p = handle ? &g_PixelShaders[handle - 1] : nullptr;
-    if (locs.u_PSCount != -1) glUniform1i(locs.u_PSCount, p ? p->count : 0);
-    if (p && locs.u_PS != -1) glUniform4iv(locs.u_PS, p->count * 2, p->data);
-}
 
 void GLES3_Enable_Light(unsigned int index, bool enable) {
     if (index >= 4) return;
@@ -1400,7 +1452,7 @@ bool GLES3_ShaderManager::Init() {
 }
 
 void GLES3_ShaderManager::Shutdown() {
-    for (int i = 0; i < 256; i++) {
+    for (int i = 0; i < 512; i++) {
         if (cached_programs[i]) {
             glDeleteProgram(cached_programs[i]);
             cached_programs[i] = 0;
@@ -1462,6 +1514,8 @@ unsigned int GLES3_ShaderManager::Hash_Pipeline_Config(
             hash |= (8 << i);
         }
     }
+    // A pixel shader is code, not uniforms: one program per shader (handles 1-255).
+    if (state.pixel_shader) return 256 + (state.pixel_shader - 1);
     return hash & 0xFF; // 256 variants max
 }
 
@@ -1529,8 +1583,6 @@ void GLES3_ShaderManager::Populate_Locations(GLuint program, unsigned int hash) 
 
     locs.u_StageOps = glGetUniformLocation(program, "u_StageOps");
     locs.u_SpecularEnable = glGetUniformLocation(program, "u_SpecularEnable");
-    locs.u_PSCount = glGetUniformLocation(program, "u_PSCount");
-    locs.u_PS = glGetUniformLocation(program, "u_PS");
     locs.u_PSConst = glGetUniformLocation(program, "u_PSConst");
     locs.u_LodBias = glGetUniformLocation(program, "u_LodBias");
     locs.u_ColorVertex = glGetUniformLocation(program, "u_ColorVertex");
@@ -1556,6 +1608,13 @@ GLuint GLES3_ShaderManager::Get_Program(const GLES3_PipelineState& state) {
     // Compile shader variant for this pipeline configuration
     const char* vs_src = GLES3_Get_Vertex_Shader_Source(hash);
     const char* fs_src = GLES3_Get_Fragment_Shader_Source(hash);
+    std::string ps_fs;
+    if (hash >= 256) { // pixel shader program: define its body after the #version line
+        ps_fs = fs_src;
+        size_t eol = ps_fs.find('\n');
+        ps_fs.insert(eol + 1, "#define GX_PS_BODY " + g_PixelShaders[hash - 256].glsl + "\n");
+        fs_src = ps_fs.c_str();
+    }
 
     GLuint vs = Compile_Shader(GL_VERTEX_SHADER, vs_src);
     GLuint fs = Compile_Shader(GL_FRAGMENT_SHADER, fs_src);
@@ -1745,10 +1804,6 @@ void GLES3_ShaderManager::Apply_Uniforms(GLuint program,
         if (locs.u_SpecularEnable != -1 && (!cache.initialized || cache.specular_enable != spec)) {
             glUniform1i(locs.u_SpecularEnable, spec);
             cache.specular_enable = spec;
-        }
-        if (!cache.initialized || cache.pixel_shader != state.pixel_shader) {
-            GLES3_Upload_Pixel_Shader(locs, state.pixel_shader);
-            cache.pixel_shader = state.pixel_shader;
         }
         if (locs.u_LodBias != -1 && (!cache.initialized || cache.lod_bias != g_LodBias)) {
             glUniform1f(locs.u_LodBias, g_LodBias);

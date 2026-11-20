@@ -316,14 +316,9 @@ uniform float u_LodBias;
 uniform bool u_SpecularEnable;
 in vec4 v_Specular;
 
-// A ps.1.1 pixel shader set with SetPixelShader replaces the stages (u_PSCount > 0).
-// Two ivec4 per instruction (encoded by GLES3_Create_Pixel_Shader):
-//   [2i]   = (opcode | writemask << 8 | shift << 12 | saturate << 16, dst, src0, src1)
-//   [2i+1] = (src2, 0, 0, 0)
-// A register is 0-1 r0-r1, 2-5 t0-t3, 6-7 v0-v1, 8-15 c0-c7; a source adds swizzle << 5
-// (1 = .a, 2 = .b replicate) and modifier << 8 (D3DSPSM_*).
-uniform int u_PSCount;
-uniform ivec4 u_PS[32];
+// A ps.1.1 pixel shader set with SetPixelShader replaces the stages. Each one is compiled
+// into its own program: GX_PS_BODY (defined by GLES3_ShaderManager::Get_Program) is the
+// shader as straight-line GLSL over r0-r1, t0-t3, v0-v1 and u_PSConst (c0-c7).
 uniform vec4 u_PSConst[8];
 
 // Output
@@ -391,59 +386,20 @@ vec4 tex_op(int op, vec4 a1, vec4 a2, vec4 a0, vec4 diffuse, vec4 current, vec4 
     return clamp(r, 0.0, 1.0);                             // D3D saturates every stage
 }
 
-vec4 ps_src(vec4 R[16], int s) {
-    vec4 v = R[s & 15];
-    int swz = (s >> 5) & 3;
-    if (swz == 1) v = vec4(v.a); else if (swz == 2) v = vec4(v.b);
-    int m = (s >> 8) & 15;
-    if (m == 1) v = -v;                          // NEG
-    else if (m == 2) v = v - 0.5;                // BIAS
-    else if (m == 3) v = 0.5 - v;                // BIASNEG
-    else if (m == 4) v = v * 2.0 - 1.0;          // SIGN
-    else if (m == 5) v = 1.0 - v * 2.0;          // SIGNNEG
-    else if (m == 6) v = 1.0 - v;                // COMP
-    else if (m == 7) v = v * 2.0;                // X2
-    else if (m == 8) v = -v * 2.0;               // X2NEG
-    return v;
-}
-
-vec4 run_pixel_shader() {
-    vec4 R[16];
-    R[0] = vec4(0.0); R[1] = vec4(0.0);
-    for (int i = 0; i < 4; i++) R[2 + i] = sample_stage(i);
-    R[6] = v_Color; R[7] = v_Specular;
-    for (int i = 0; i < 8; i++) R[8 + i] = u_PSConst[i];
-    for (int i = 0; i < 16; i++) {
-        if (i >= u_PSCount) break;
-        ivec4 a = u_PS[2 * i];
-        int op = a.x & 255;
-        if (op == 66) continue; // tex: the stage samples are already in t0-t3
-        vec4 s0 = ps_src(R, a.z), s1 = ps_src(R, a.w), s2 = ps_src(R, u_PS[2 * i + 1].x);
-        vec4 r;
-        if (op == 1) r = s0;                          // mov
-        else if (op == 2) r = s0 + s1;                // add
-        else if (op == 3) r = s0 - s1;                // sub
-        else if (op == 4) r = s0 * s1 + s2;           // mad
-        else if (op == 8) r = vec4(dot(s0.rgb, s1.rgb)); // dp3
-        else if (op == 9) r = vec4(dot(s0, s1));      // dp4
-        else if (op == 18) r = mix(s2, s1, s0);       // lrp
-        else r = s0 * s1;                             // mul
-        int shift = (a.x >> 12) & 15;
-        if (shift == 1) r *= 2.0; else if (shift == 2) r *= 4.0; else if (shift == 15) r *= 0.5;
-        r = ((a.x >> 16) & 1) != 0 ? clamp(r, 0.0, 1.0) : clamp(r, -1.0, 1.0); // ps.1.1 range
-        int mask = (a.x >> 8) & 15;
-        R[a.y] = mix(R[a.y], r, bvec4((mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0, (mask & 8) != 0));
-    }
-    return clamp(R[0], 0.0, 1.0);
-}
-
 void main() {
     vec4 diffuse = v_Color;
     vec4 color = v_Color; // CURRENT: the diffuse colour at stage 0
 
-    if (u_PSCount > 0) {
-        color = run_pixel_shader();
-    } else {
+#ifdef GX_PS_BODY
+    {
+        vec4 r0 = vec4(0.0), r1 = vec4(0.0);
+        vec4 t0 = sample_stage(0), t1 = sample_stage(1), t2 = sample_stage(2), t3 = sample_stage(3);
+        vec4 v0 = v_Color, v1 = v_Specular;
+        GX_PS_BODY
+        color = clamp(r0, 0.0, 1.0);
+    }
+#else
+    {
         for (int s = 0; s < 4; s++) {
             int cop = u_StageOps[s * 2], aop = u_StageOps[s * 2 + 1];
             if (cop <= 1) break; // D3DTOP_DISABLE ends the chain here
@@ -463,6 +419,7 @@ void main() {
         }
         if (u_SpecularEnable) color.rgb = clamp(color.rgb + v_Specular.rgb, 0.0, 1.0);
     }
+#endif
 
     // --- Alpha test ---
     if (!alpha_test(color.a)) {
