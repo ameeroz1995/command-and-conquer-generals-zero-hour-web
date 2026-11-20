@@ -803,17 +803,13 @@ is an optimized system that only uses the render objects bounding box to determi
 */
 void W3DProjectedShadowManager::queueDecal(W3DProjectedShadow *shadow)
 {
-	g_isDma32TracingEnabledNow = true;
-	fprintf(stderr, "queueDecal start: shadow=%p\n", shadow); fflush(stderr);
 	int i,j,k;
 	Vector3 hmapVertex,objPos;
 	AABoxClass box;
 	Matrix3D   objXform(1);
 	Real cx,cy,dx,dy;
 	Real mapScaleInv=1.0f/MAP_XY_FACTOR;
-	fprintf(stderr, "queueDecal before objCenter init\n"); fflush(stderr);
 	static Vector3 objCenter(0,0,0);
-	fprintf(stderr, "queueDecal after objCenter init\n"); fflush(stderr);
 	Vector3 uVector,vVector;
 	Real uOffset,vOffset,vecLength;
 	Int borderSize;
@@ -829,7 +825,6 @@ void W3DProjectedShadowManager::queueDecal(W3DProjectedShadow *shadow)
 		borderSize=hmap->getBorderSizeInline();
 		if (robj)
 		{
-			fprintf(stderr, "queueDecal robj found\n"); fflush(stderr);
 			objPos=robj->Get_Position();
 			objXform=robj->Get_Transform();
 			if (robj->Get_User_Data())
@@ -998,11 +993,8 @@ void W3DProjectedShadowManager::queueDecal(W3DProjectedShadow *shadow)
 
 		if (vertsPerRow <= 1 || vertsPerColumn <= 1)
 		{
-			g_isDma32TracingEnabledNow = false; 
 			return;	//nothing to render
 		}
-
-		fprintf(stderr, "queueDecal verts processed\n"); fflush(stderr);
 		Int numVerts = vertsPerRow *vertsPerColumn;	//number of terrain vertices
 		Int numIndex=(endX - startX) * (endY-startY)*6;	//6 indices per terrain cell (2 triangles).
 
@@ -1138,10 +1130,8 @@ void W3DProjectedShadowManager::queueDecal(W3DProjectedShadow *shadow)
 
 		nShadowDecalIndicesInBuf += numIndex;
 //		nShadowDecalStartBatchIndex=nShadowDecalIndicesInBuf;
-		g_isDma32TracingEnabledNow = false;
 		return;
 	}
-	g_isDma32TracingEnabledNow = false;
 }
 
 /**Simpler/faster decal system that always uses 2 triangles that are roughly oriented
