@@ -143,6 +143,14 @@ unsigned char g_virtualIP_d = 1;
 
 extern "C" {
   EMSCRIPTEN_KEEPALIVE void GX_Network_EnableVirtual(bool enable) {
+#ifdef __EMSCRIPTEN_PTHREADS__
+    // Called by the page (main thread). The game's operator new/delete are memory pools that
+    // aren't thread-safe, so the queue is only ever touched on the game thread.
+    if (GX_OffGameThread()) {
+      emscripten_dispatch_to_thread_async(GX_GameThread, EM_FUNC_SIG_VI, (void *)GX_Network_EnableVirtual, nullptr, (int)enable);
+      return;
+    }
+#endif
     g_useVirtualNetworking = enable;
     g_virtualPacketQueue.clear();
   }
@@ -154,7 +162,27 @@ extern "C" {
     g_virtualIP_d = d;
   }
 
+  EMSCRIPTEN_KEEPALIVE void GX_Network_PushPacket(const unsigned char *data, int len, unsigned int fromIP, unsigned short fromPort, unsigned short toPort);
+#ifdef __EMSCRIPTEN_PTHREADS__
+  static void GX_Network_PushPacketCopy(unsigned char *copy, int len, unsigned int fromIP, int fromPort, int toPort) {
+    GX_Network_PushPacket(copy, len, fromIP, (unsigned short)fromPort, (unsigned short)toPort);
+    free(copy);
+  }
+#endif
   EMSCRIPTEN_KEEPALIVE void GX_Network_PushPacket(const unsigned char *data, int len, unsigned int fromIP, unsigned short fromPort, unsigned short toPort) {
+#ifdef __EMSCRIPTEN_PTHREADS__
+    // Called by the page (main thread); the caller frees `data` when this returns. Copy it
+    // with malloc (thread-safe; the game's operator new is not) and queue it on the game thread.
+    if (GX_OffGameThread()) {
+      if (len <= 0) return;
+      unsigned char *copy = (unsigned char *)malloc(len);
+      if (!copy) return;
+      memcpy(copy, data, len);
+      emscripten_dispatch_to_thread_async(GX_GameThread, EM_FUNC_SIG_VIIIII, (void *)GX_Network_PushPacketCopy, nullptr,
+                                          copy, len, fromIP, (int)fromPort, (int)toPort);
+      return;
+    }
+#endif
     if (!g_useVirtualNetworking) return;
     VirtualPacket packet;
     packet.data.assign(data, data + len);

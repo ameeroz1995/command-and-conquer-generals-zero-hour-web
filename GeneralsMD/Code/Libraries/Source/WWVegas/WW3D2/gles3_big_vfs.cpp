@@ -335,12 +335,40 @@ static bool Should_Preload(const std::string& filename) {
          name == "terrainzh.big";
 }
 
+#ifdef __EMSCRIPTEN_PTHREADS__
+// Worker build: on the private server the page keeps the game files in the browser and
+// points its own synchronous reads at blob: URLs, by overriding XMLHttpRequest on the main
+// thread. This thread's reads don't see that override, so ask the page for each archive's
+// blob URL (window.gxSavedFileUrl, added by the private server's page patch). Blob URLs
+// work from any same-origin thread. Until a file is saved, retry every 5 s and use the server.
+static std::string GX_Saved_Url(const std::string &url) {
+  struct Entry { std::string resolved; double next_try = 0; };
+  static std::unordered_map<std::string, Entry> cache;
+  Entry &e = cache[url];
+  if (!e.resolved.empty()) return e.resolved;
+  const double now = emscripten_get_now();
+  if (now < e.next_try) return url;
+  e.next_try = now + 5000.0;
+  char buf[512];
+  buf[0] = 0;
+  MAIN_THREAD_EM_ASM({
+    var f = (typeof window !== 'undefined' && window.gxSavedFileUrl) ? window.gxSavedFileUrl(UTF8ToString($0)) : '';
+    stringToUTF8(f || '', $1, $2);
+  }, url.c_str(), buf, (int)sizeof(buf));
+  if (buf[0]) e.resolved = buf;
+  return e.resolved.empty() ? url : e.resolved;
+}
+#define GX_FETCH_URL(u) GX_Saved_Url(u).c_str()
+#else
+#define GX_FETCH_URL(u) (u).c_str()
+#endif
+
 bool BigVFS::Mount_Archive(const char *archive_name) {
   std::string url = base_url + archive_name;
 
   // Step 1: Fetch the first 16 bytes containing the header metadata
   unsigned char initial_header[16];
-  int bytes_read = Fetch_Range_JS(url.c_str(), 0, 15, initial_header);
+  int bytes_read = Fetch_Range_JS(GX_FETCH_URL(url), 0, 15, initial_header);
   if (bytes_read < 16) {
     fprintf(stderr, "ERROR: Failed to fetch first 16 bytes of archive: %s (status %d)\n",
             archive_name, bytes_read);
@@ -376,7 +404,7 @@ bool BigVFS::Mount_Archive(const char *archive_name) {
       return false;
     }
 
-    int total_read = Fetch_Range_JS(url.c_str(), 0, total_size - 1, preload_buf);
+    int total_read = Fetch_Range_JS(GX_FETCH_URL(url), 0, total_size - 1, preload_buf);
     if (total_read <= 0 || (unsigned int)total_read < total_size) {
       fprintf(stderr, "ERROR: Failed to preload entire archive %s (read %d/%u bytes)\n",
               archive_name, total_read, total_size);
@@ -397,7 +425,7 @@ bool BigVFS::Mount_Archive(const char *archive_name) {
     memcpy(header_buf, initial_header, 16);
 
     if (header_size > 16) {
-      int remaining_read = Fetch_Range_JS(url.c_str(), 16, header_size - 1, (char*)header_buf + 16);
+      int remaining_read = Fetch_Range_JS(GX_FETCH_URL(url), 16, header_size - 1, (char*)header_buf + 16);
       if (remaining_read <= 0 || (unsigned int)remaining_read < (header_size - 16)) {
         fprintf(stderr, "ERROR: Failed to fetch remaining header bytes for %s (read %d)\n",
                 archive_name, remaining_read);
@@ -532,7 +560,7 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
       fprintf(stderr,
               "WARN: Retrying fetch for %s (attempt %d)\n", path, attempt + 1);
     }
-    bytes_read = Fetch_Range_JS(archive.url.c_str(), entry->offset,
+    bytes_read = Fetch_Range_JS(GX_FETCH_URL(archive.url), entry->offset,
                                 entry->offset + entry->size - 1, data_copy);
   }
 

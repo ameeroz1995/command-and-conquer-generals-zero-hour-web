@@ -96,9 +96,20 @@ static void emscripten_main_loop_callback() {
 
     // Run game frame
     if (g_Loop.frame_callback) {
+        double work_start = WebTiming::Now_Ms();
         bool keep_running = g_Loop.frame_callback(g_Loop.delta_time_ms);
         if (!keep_running) {
             g_Loop.shutdown_requested = true;
+        }
+        // CPU time per frame on whichever thread runs the game, logged every 5 s
+        // (GXWORK lines; the benchmark scripts compare builds with it).
+        static double work_sum = 0, work_t0 = 0; static int work_n = 0;
+        double work_end = WebTiming::Now_Ms();
+        work_sum += work_end - work_start; work_n++;
+        if (work_t0 == 0) work_t0 = work_end;
+        if (work_end - work_t0 >= 5000.0) {
+            printf("GXWORK ms=%.2f frames=%d\n", work_sum / work_n, work_n);
+            work_sum = 0; work_n = 0; work_t0 = work_end;
         }
     }
 
@@ -109,6 +120,12 @@ static void emscripten_main_loop_callback() {
 // LAN game then stalls for every player. The page calls this from a Web Worker timer (not
 // throttled when hidden) while a networked game's tab is hidden.
 extern "C" EMSCRIPTEN_KEEPALIVE void GX_TickHidden() {
+#ifdef __EMSCRIPTEN_PTHREADS__
+    if (GX_OffGameThread()) { // the page's timer; the frame runs on the game thread
+        emscripten_dispatch_to_thread_async(GX_GameThread, EM_FUNC_SIG_V, (void *)GX_TickHidden, nullptr);
+        return;
+    }
+#endif
     emscripten_main_loop_callback();
 }
 

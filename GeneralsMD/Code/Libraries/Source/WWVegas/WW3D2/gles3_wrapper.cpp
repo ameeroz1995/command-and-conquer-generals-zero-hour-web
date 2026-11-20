@@ -21,6 +21,7 @@
 #if defined(__EMSCRIPTEN__)
 
 #include "gles3_wrapper.h"
+#include <emscripten/html5.h>
 #include <cstring>
 #include <cstdio>
 #include <cmath>
@@ -378,7 +379,27 @@ void GLES3_Shutdown() {
 #define GLES3_WORKER_BUILD 0
 #endif
 
+static int g_BackBufferW = 0, g_BackBufferH = 0;
+static bool g_CanvasSizeStale = true; // canvas size re-read once a frame (GLES3_Set_Viewport)
 void GLES3_Begin_Scene() {
+    g_CanvasSizeStale = true;
+#ifdef __EMSCRIPTEN_PTHREADS__
+    // Worker build: the canvas belongs to this thread, so the page can't apply a new render
+    // scale; check the setting about once a second and resize here (viewports follow).
+    {
+        static double next_check = 0;
+        static double last_scale = 0;
+        const double now = emscripten_get_now();
+        if (now >= next_check && g_BackBufferW > 0) {
+            next_check = now + 1000.0;
+            double sc = MAIN_THREAD_EM_ASM_DOUBLE({ return Module.gxRenderScale || 1; });
+            if (sc != last_scale) {
+                last_scale = sc;
+                emscripten_set_canvas_element_size("#canvas", (int)(g_BackBufferW * sc + 0.5), (int)(g_BackBufferH * sc + 0.5));
+            }
+        }
+    }
+#endif
     g_State.draw_calls = 0;
     g_State.triangles_drawn = 0;
 }
@@ -630,7 +651,6 @@ void GLES3_Get_Transform(unsigned int type, float* matrix_out) {
 // DX8Wrapper API — Viewport
 // ============================================================================
 
-static int g_BackBufferW = 0, g_BackBufferH = 0;
 static float g_LodBias = 0.0f; // log2(drawing buffer / back buffer), set by the viewport
 void GLES3_Set_Back_Buffer_Size(int w, int h) { g_BackBufferW = w; g_BackBufferH = h; }
 
@@ -639,9 +659,13 @@ void GLES3_Set_Viewport(unsigned int x, unsigned int y,
                          float min_z, float max_z) {
     g_State.viewport = { x, y, w, h, min_z, max_z };
     
-    int canvas_w = 800;
-    int canvas_h = 600;
-    emscripten_get_canvas_element_size("#canvas", &canvas_w, &canvas_h);
+    // Canvas size: looked up once a frame (GLES3_Begin_Scene marks it stale). The lookup
+    // goes through a DOM selector, and the engine sets viewports many times a frame.
+    static int canvas_w = 800, canvas_h = 600;
+    if (g_CanvasSizeStale) {
+        emscripten_get_canvas_element_size("#canvas", &canvas_w, &canvas_h);
+        g_CanvasSizeStale = false;
+    }
     
     // Direct3D viewport Y coordinate starts at top-left.
     // OpenGL viewport Y coordinate starts at bottom-left.

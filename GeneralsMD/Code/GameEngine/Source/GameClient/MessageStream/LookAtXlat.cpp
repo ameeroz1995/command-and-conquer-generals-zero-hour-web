@@ -81,11 +81,29 @@ static Bool scrollDir[4] = { false, false, false, false };
 constexpr const Real SCROLL_MULTIPLIER = 2.0f;
 constexpr const Real SCROLL_AMT = 100.0f * SCROLL_MULTIPLIER;
 
+#ifdef __EMSCRIPTEN__
+// The page's edge-scroll settings, read about every 2 s rather than twice a frame (each
+// read is a call into the page; in the worker build a blocking round trip).
+static Int readEdgeScrollSetting(bool zone) {
+  static Int cachedZone = 20, cachedEnabled = 1;
+  static UnsignedInt lastRead = 0;
+  const UnsignedInt now = (UnsignedInt)emscripten_get_now();
+  if (lastRead == 0 || now - lastRead > 2000) {
+    lastRead = now ? now : 1;
+    cachedZone = EM_ASM_INT({
+      return (window.GeneralsX && window.GeneralsX.settings) ? window.GeneralsX.settings.edgeScrollZone : 20;
+    });
+    cachedEnabled = EM_ASM_INT({
+      return (window.GeneralsX && window.GeneralsX.settings && window.GeneralsX.settings.edgeScroll) ? 1 : 0;
+    });
+  }
+  return zone ? cachedZone : cachedEnabled;
+}
+#endif
+
 static Int getEdgeScrollSize() {
 #ifdef __EMSCRIPTEN__
-  return EM_ASM_INT({
-    return (window.GeneralsX && window.GeneralsX.settings) ? window.GeneralsX.settings.edgeScrollZone : 20;
-  });
+  return readEdgeScrollSetting(true);
 #else
   return 3;
 #endif
@@ -127,9 +145,7 @@ void LookAtTranslator::stopScrolling()
 Bool LookAtTranslator::canScrollAtScreenEdge() const
 {
 #ifdef __EMSCRIPTEN__
-	int enabled = EM_ASM_INT({
-		return (window.GeneralsX && window.GeneralsX.settings && window.GeneralsX.settings.edgeScroll) ? 1 : 0;
-	});
+	int enabled = readEdgeScrollSetting(false);
 	if (!enabled) return false;
 	return TheMouse->isCursorCaptured();
 #else

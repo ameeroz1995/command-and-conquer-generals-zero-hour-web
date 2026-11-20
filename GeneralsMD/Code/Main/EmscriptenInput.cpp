@@ -122,6 +122,12 @@ extern "C" void EmscriptenInput_SetRelativeMouseMode(int enabled) {
 
 extern "C" EMSCRIPTEN_KEEPALIVE
 void EmscriptenInput_OnPointerLockChange(int locked) {
+#ifdef __EMSCRIPTEN_PTHREADS__
+  if (GX_OffGameThread()) { // called by the page; input state belongs to the game thread
+    emscripten_dispatch_to_thread_async(GX_GameThread, EM_FUNC_SIG_VI, (void *)EmscriptenInput_OnPointerLockChange, nullptr, locked);
+    return;
+  }
+#endif
   const bool want = locked != 0;
   if (want == g_relativeMouseActive) return;
   g_relativeMouseActive = want;

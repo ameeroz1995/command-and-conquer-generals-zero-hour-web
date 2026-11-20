@@ -1753,3 +1753,49 @@ stays the shipping one.
   shader variants skipped, the GPU is not the limit on an RX 580 and Edge exposes no GPU timer
   to measure them; the render-scale option covers weak GPUs.
 - **Audio:** the listener orientation, set every frame, only crosses into JS when it changes.
+
+## 2026-11-20 — Session 25 (exp/worker-thread): the worker build is as fast as the normal one
+
+Branch `exp/worker-thread`, not merged. Measured in headless Edge (RX 580) with a new GXWORK log:
+the average time the game's frame function takes, every 5 s, on whichever thread runs it.
+
+- **"4x slower" was frame pacing, not work.** With the frame cap off, Session 23 compared frames
+  per second. A worker's frames are clocked differently: its game thread sat 57% idle at
+  ~180 fps. Work per frame was close all along; with the 60 fps cap on both run at 60.
+- **Remaining overhead, removed** (worker build unless noted):
+  - Audio play/stop/volume/pan/position/orientation calls with only numbers in and nothing out
+    go to the page as MAIN_THREAD_ASYNC_EM_ASM (queued) instead of blocking round trips. Calls
+    handing over sound data or reading results back stay synchronous; proxied calls run in order.
+  - The page's edge-scroll settings are read about every 2 s instead of twice a frame (both builds).
+  - The canvas size (a DOM-selector lookup) is read once a frame instead of per viewport (both).
+  - Fixed 2 GB heap: with shared memory and ALLOW_MEMORY_GROWTH the JS glue re-checks its heap
+    views on every access (growMemViews).
+- **Thread safety.** The game's operator new/delete are memory pools that are not thread-safe.
+  `GX_Network_PushPacket` built its packet on the main thread with std::vector; in a two-player
+  LAN game that corrupted the pools (POOL-DOUBLE-FREE in UDP::Read, then "memory access out of
+  bounds" ~30 times a second until the guest dropped). Now every page-called export that touches
+  game state re-sends itself to the game thread with emscripten_dispatch_to_thread_async (runs
+  between frames): PushPacket (bytes copied with malloc first), GX_Network_EnableVirtual,
+  GX_OnCanvasResize, EmscriptenInput_OnPointerLockChange, GX_TickHidden, AIL_trigger_sample_eos.
+  GX_FlushIdbfs_Tab is page JS only and stays on the main thread.
+- **Saved game files on the private server.** The page serves saved archives to its own sync XHR
+  through an XMLHttpRequest override that a worker never sees. The worker asks the page for each
+  archive's blob: URL (`window.gxSavedFileUrl`, which the private server's page patch must add;
+  see the worker variant of patch_game_page.py), retrying every 5 s until the file is saved.
+  Tested: with the lookup in place, loading a game sent no requests for that archive to the server.
+- **Render scale** still applies live: the game thread checks the setting about once a second and
+  resizes its canvas (the page can't, the canvas is transferred).
+
+| 60 fps cap on, work per frame | normal | worker |
+|---|---|---|
+| menu (shell-map battle) | 1.04-1.21 ms | 0.80-0.99 ms |
+| LAN game, still | 2.21-2.61 ms | 2.27-2.95 ms |
+| LAN game, panning | 2.33-2.94 ms | 2.29-2.59 ms |
+| 3v3 replay, minutes 2-5 | 4.3-5.9 ms | 4.0-5.0 ms |
+
+Verified on the worker build: menu, LAN game, 3v3 replay, live render scale, and a two-player LAN
+match in two tabs (`?virtual_net`) with the guest tab hidden. Deploying it would also need the
+private server to send COOP/COEP headers (`Cross-Origin-Opener-Policy: same-origin`,
+`Cross-Origin-Embedder-Policy: require-corp`) and the page patch's `gxSavedFileUrl` line.
+What it gains is the main thread: map loading's synchronous downloads no longer freeze the page,
+and page work (GC, input) no longer competes with frames. Frame rate is the same.

@@ -7,6 +7,13 @@
 #include <stdio.h>
 #include <math.h>
 #include <emscripten.h>
+// Page calls with only numbers in and nothing out (play, stop, volume, position): in the
+// worker build they are queued to the page instead of waiting on it each time.
+#ifdef __EMSCRIPTEN_PTHREADS__
+#define GX_PAGE_ASYNC(code, ...) MAIN_THREAD_ASYNC_EM_ASM(code, ##__VA_ARGS__)
+#else
+#define GX_PAGE_ASYNC(code, ...) EM_ASM(code, ##__VA_ARGS__)
+#endif
 #ifdef __EMSCRIPTEN_PTHREADS__
 #include <emscripten/threading.h>
 #endif
@@ -603,6 +610,12 @@ static Sample3DState g_samples3D[MAX_SAMPLES];
 static StreamState g_streams[MAX_STREAMS];
 
 extern "C" EMSCRIPTEN_KEEPALIVE void AIL_trigger_sample_eos(int id, int type) {
+#ifdef __EMSCRIPTEN_PTHREADS__
+  if (GX_OffGameThread()) { // called by the page; the callbacks touch game state
+    emscripten_dispatch_to_thread_async(GX_GameThread, EM_FUNC_SIG_VII, (void *)AIL_trigger_sample_eos, nullptr, id, type);
+    return;
+  }
+#endif
     if (type == 0) {
         if (id >= 1 && id <= MAX_SAMPLES) {
             SampleState* s = &g_samples[id - 1];
@@ -646,7 +659,7 @@ float __stdcall AIL_3D_sample_volume(H3DSAMPLE sample) {
 void __stdcall AIL_set_3D_sample_volume(H3DSAMPLE sample, float volume) {
     Sample3DState* s = (Sample3DState*)sample;
     s->volume = volume;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         let s = window.AILBridge.getSample($0);
         s.volume = $1;
         if (s.gainNode) {
@@ -666,7 +679,7 @@ void __stdcall AIL_resume_3D_sample(H3DSAMPLE sample) {
 void __stdcall AIL_stop_3D_sample(H3DSAMPLE sample) {
     Sample3DState* s = (Sample3DState*)sample;
     s->is_playing = false;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         let s = window.AILBridge.getSample($0);
         if (s.source) {
             try { s.source.stop(); } catch(e) {}
@@ -679,7 +692,7 @@ void __stdcall AIL_stop_3D_sample(H3DSAMPLE sample) {
 void __stdcall AIL_start_3D_sample(H3DSAMPLE sample) {
     Sample3DState* s = (Sample3DState*)sample;
     s->is_playing = true;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         window.AILBridge.play($0, 1, $1);
     }, s->id, s->loop_count == 0 || s->loop_count > 1);
 }
@@ -769,7 +782,7 @@ void __stdcall AIL_stream_ms_position(HSTREAM sample, S32* total_milliseconds, S
 
 void __stdcall AIL_set_stream_ms_position(HSTREAM stream, int pos) {
     StreamState* s = (StreamState*)stream;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         let s = window.AILBridge.getSample($0 + 1000);
         if (s.audio) {
             try { s.audio.currentTime = $1 / 1000.0; } catch(e) {}
@@ -798,7 +811,7 @@ int __stdcall AIL_stream_volume(HSTREAM stream) {
 void __stdcall AIL_set_stream_volume(HSTREAM stream, int volume) {
     StreamState* s = (StreamState*)stream;
     s->volume = (float)volume / 127.0f;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         let s = window.AILBridge.getSample($0 + 1000);
         s.volume = $1;
         if (s.gainNode) {
@@ -815,7 +828,7 @@ int __stdcall AIL_stream_pan(HSTREAM stream) {
 void __stdcall AIL_set_stream_pan(HSTREAM stream, int pan) {
     StreamState* s = (StreamState*)stream;
     s->pan = (float)pan / 127.0f;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         let s = window.AILBridge.getSample($0 + 1000);
         s.pan = $1;
         if (s.pannerNode && s.pannerNode.pan) {
@@ -827,7 +840,7 @@ void __stdcall AIL_set_stream_pan(HSTREAM stream, int pan) {
 void __stdcall AIL_close_stream(HSTREAM stream) {
     StreamState* s = (StreamState*)stream;
     s->allocated = false;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         let s = window.AILBridge.getSample($0 + 1000);
         if (s.audio) {
             try { s.audio.pause(); } catch(e) {}
@@ -852,7 +865,7 @@ void __stdcall AIL_close_stream(HSTREAM stream) {
 void __stdcall AIL_pause_stream(HSTREAM stream, int onoff) {
     StreamState* s = (StreamState*)stream;
     if (onoff) {
-        EM_ASM({
+        GX_PAGE_ASYNC({
             let s = window.AILBridge.getSample($0 + 1000);
             if (s.audio) {
                 try { s.audio.pause(); } catch(e) {}
@@ -904,7 +917,7 @@ void __stdcall AIL_start_stream(HSTREAM stream) {
     GX_TRACE_LOG("[web_audio_bridge] AIL_start_stream: stream=%p, id=%d, filename='%s', loop_count=%d\n",
            (void*)stream, s ? s->id : -1, s ? s->filename : "NULL", s ? s->loop_count : -1);
     s->is_playing = true;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         window.AILBridge.play($0 + 1000, 0, $1);
     }, s->id, s->loop_count == 0 || s->loop_count > 1);
 }
@@ -947,7 +960,7 @@ int __stdcall AIL_sample_volume(HSAMPLE sample) {
 void __stdcall AIL_set_sample_volume(HSAMPLE sample, int volume) {
     SampleState* s = (SampleState*)sample;
     s->volume = (float)volume / 127.0f;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         let s = window.AILBridge.getSample($0);
         s.volume = $1;
         if (s.gainNode) {
@@ -964,7 +977,7 @@ int __stdcall AIL_sample_pan(HSAMPLE sample) {
 void __stdcall AIL_set_sample_pan(HSAMPLE sample, int pan) {
     SampleState* s = (SampleState*)sample;
     s->pan = (float)pan / 127.0f;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         let s = window.AILBridge.getSample($0);
         s.pan = $1;
         if (s.pannerNode && s.pannerNode.pan) {
@@ -984,7 +997,7 @@ void __stdcall AIL_resume_sample(HSAMPLE sample) {
 void __stdcall AIL_stop_sample(HSAMPLE sample) {
     SampleState* s = (SampleState*)sample;
     s->is_playing = false;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         let s = window.AILBridge.getSample($0);
         if (s.source) {
             try { s.source.stop(); } catch(e) {}
@@ -999,7 +1012,7 @@ void __stdcall AIL_start_sample(HSAMPLE sample) {
     GX_TRACE_LOG("[web_audio_bridge] AIL_start_sample: sample=%p, id=%d, loop_count=%d\n",
            (void*)sample, s ? s->id : -1, s ? s->loop_count : -1);
     s->is_playing = true;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         window.AILBridge.play($0, 0, $1);
     }, s->id, s->loop_count == 0 || s->loop_count > 1);
 }
@@ -1025,7 +1038,7 @@ void __stdcall AIL_set_3D_sample_distances(H3DSAMPLE sample, float max_dist, flo
     Sample3DState* s = (Sample3DState*)sample;
     s->max_dist = max_dist;
     s->min_dist = min_dist;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         let s = window.AILBridge.getSample($0);
         s.max_dist = $1;
         s.min_dist = $2;
@@ -1050,7 +1063,7 @@ void __stdcall AIL_set_3D_position(H3DPOBJECT obj, float X, float Y, float Z) {
         static float last_x = 1e30f, last_y, last_z;
         if (wa_x == last_x && wa_y == last_y && wa_z == last_z) return;
         last_x = wa_x; last_y = wa_y; last_z = wa_z;
-        EM_ASM({
+        GX_PAGE_ASYNC({
             if (window.AILBridge.audioContext) {
                 let listener = window.AILBridge.audioContext.listener;
                 if (listener.positionX) {
@@ -1066,7 +1079,7 @@ void __stdcall AIL_set_3D_position(H3DPOBJECT obj, float X, float Y, float Z) {
         Sample3DState* s = (Sample3DState*)obj;
         if (s->x == wa_x && s->y == wa_y && s->z == wa_z) return;
         s->x = wa_x; s->y = wa_y; s->z = wa_z;
-        EM_ASM({
+        GX_PAGE_ASYNC({
             let s = window.AILBridge.getSample($0);
             s.x = $1; s.y = $2; s.z = $3;
             if (s.pannerNode && s.pannerNode.positionX) {
@@ -1108,7 +1121,7 @@ void __stdcall AIL_set_3D_orientation(
         if (wa_face_x == last_fx && wa_face_z == last_fz) return;
         last_fx = wa_face_x; last_fz = wa_face_z;
 
-        EM_ASM({
+        GX_PAGE_ASYNC({
             if (window.AILBridge.audioContext) {
                 let listener = window.AILBridge.audioContext.listener;
                 if (listener.forwardX) {
@@ -1406,7 +1419,7 @@ void __stdcall AIL_set_sample_volume_pan(HSAMPLE sample, float volume, float pan
     SampleState* s = (SampleState*)sample;
     s->volume = volume;
     s->pan = pan;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         let s = window.AILBridge.getSample($0);
         s.volume = $1;
         s.pan = $2;
@@ -1423,7 +1436,7 @@ void __stdcall AIL_set_stream_volume_pan(HSTREAM stream, float volume, float pan
     StreamState* s = (StreamState*)stream;
     s->volume = volume;
     s->pan = pan;
-    EM_ASM({
+    GX_PAGE_ASYNC({
         let s = window.AILBridge.getSample($0 + 1000);
         s.volume = $1;
         s.pan = $2;

@@ -267,6 +267,12 @@ void GX_FlushIdbfs_Tab(const char *reason) {
 // ============================================================================
 extern "C" EMSCRIPTEN_KEEPALIVE
 void GX_OnCanvasResize(int physW, int physH, int logW, int logH) {
+#ifdef __EMSCRIPTEN_PTHREADS__
+  if (GX_OffGameThread()) { // called by the page; the canvas and display belong to the game thread
+    emscripten_dispatch_to_thread_async(GX_GameThread, EM_FUNC_SIG_VIIII, (void *)GX_OnCanvasResize, nullptr, physW, physH, logW, logH);
+    return;
+  }
+#endif
   if (physW <= 0 || physH <= 0) return;
   if (logW <= 0 || logH <= 0) {
     logW = EM_ASM_INT({
@@ -518,7 +524,14 @@ void AsyncEngineInit() {
   fprintf(stderr, "INFO: Async GameEngine::init() complete\n");
 }
 
+#ifdef __EMSCRIPTEN_PTHREADS__
+extern "C" { pthread_t GX_GameThread = 0; }
+#endif
+
 int main(int argc, char *argv[]) {
+#ifdef __EMSCRIPTEN_PTHREADS__
+  GX_GameThread = pthread_self(); // main() runs on the game thread (PROXY_TO_PTHREAD)
+#endif
   __argc = argc;
   __argv = argv;
 

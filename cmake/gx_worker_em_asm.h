@@ -13,3 +13,16 @@
 #define EM_ASM_INT(code, ...) MAIN_THREAD_EM_ASM_INT(code, ##__VA_ARGS__)
 #undef EM_ASM_DOUBLE
 #define EM_ASM_DOUBLE(code, ...) MAIN_THREAD_EM_ASM_DOUBLE(code, ##__VA_ARGS__)
+
+// Entry points the page calls (network, input, audio events, resize, hidden-tab ticks)
+// arrive on the main thread; the game state they touch lives on the game thread. They
+// re-send themselves there with emscripten_dispatch_to_thread_async, which runs between
+// frames when the game thread returns to its event loop.
+#ifdef __cplusplus
+#include <pthread.h>
+#include <emscripten/threading.h>
+extern "C" pthread_t GX_GameThread; // set at the top of main() (EmscriptenMain.cpp)
+static inline bool GX_OffGameThread() {
+  return GX_GameThread && !pthread_equal(pthread_self(), GX_GameThread);
+}
+#endif
