@@ -323,6 +323,13 @@
       <div id="gx-toast-bar"><div id="gx-toast-fill"></div></div>
     </div>
 
+    <div id="gx-lowend-note" role="alert" style="display:none;position:fixed;left:50%;top:16px;transform:translateX(-50%);max-width:640px;z-index:10000;background:var(--gx-bg);color:var(--gx-fg);border:1px solid var(--gx-accent);padding:10px 14px;font-size:12px;letter-spacing:.5px;line-height:1.5">
+      <b>No graphics acceleration:</b> the browser is drawing the game in software, so it will be
+      very slow. Turn on hardware acceleration in the browser's settings and restart it.
+      Render scale was set to 50% meanwhile (Settings).
+      <button type="button" style="margin-left:10px;background:none;border:1px solid var(--gx-mute);color:var(--gx-fg);cursor:pointer"
+        onclick="this.parentNode.style.display='none';try{localStorage.setItem('gxLowEndNoteDismissed','1')}catch(e){}">Got it</button>
+    </div>
     <div id="gx-browser-note" role="alert" style="display:none;position:fixed;left:50%;bottom:16px;transform:translateX(-50%);max-width:640px;z-index:10000;background:var(--gx-bg);color:var(--gx-fg);border:1px solid var(--gx-accent);padding:10px 14px;font-size:12px;letter-spacing:.5px;line-height:1.5">
       <b>Heads-up:</b> this Chrome version ships a known browser bug (a V8
       garbage-collector fault, fixed in newer builds) that can crash the tab in
@@ -1106,16 +1113,34 @@
           },
           settings: (function() {
             var defaults = { lockCursor: false, edgeScroll: true, edgeScrollZone: 20, renderScale: 1, multithread: true };
+            var parsed = null;
             try {
               var saved = localStorage.getItem('generalsx_settings');
-              if (saved) {
-                var parsed = JSON.parse(saved);
-                if (typeof parsed === 'object' && parsed !== null) {
-                  return Object.assign(defaults, parsed);
-                }
-              }
+              if (saved) parsed = JSON.parse(saved);
             } catch(e) {}
-            return defaults;
+            if (!parsed || typeof parsed !== 'object') parsed = {};
+            // Low-end defaults, only while the player hasn't picked a render scale: a software
+            // GPU draws at 50%, a machine with <= 2 cores or <= 2 GB at 75%.
+            if (parsed.renderScale === undefined) {
+              var renderer = '';
+              try {
+                var gl = document.createElement('canvas').getContext('webgl2');
+                var info = gl && gl.getExtension('WEBGL_debug_renderer_info');
+                renderer = gl ? String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER)) : '';
+                var lose = gl && gl.getExtension('WEBGL_lose_context');
+                if (lose) lose.loseContext();
+              } catch(e) {}
+              var software = /swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer);
+              var weak = (navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory || 8) <= 2;
+              if (software) defaults.renderScale = 0.5;
+              else if (weak) defaults.renderScale = 0.75;
+              if (software) {
+                var dismissed = false;
+                try { dismissed = !!localStorage.getItem('gxLowEndNoteDismissed'); } catch(e) {}
+                if (!dismissed) document.getElementById('gx-lowend-note').style.display = 'block';
+              }
+            }
+            return Object.assign(defaults, parsed);
           })()
         };
 

@@ -1836,3 +1836,44 @@ private server to send COOP/COEP headers (`Cross-Origin-Opener-Policy: same-orig
 `Cross-Origin-Embedder-Policy: require-corp`) and the page patch's `gxSavedFileUrl` line.
 What it gains is the main thread: map loading's synchronous downloads no longer freeze the page,
 and page work (GC, input) no longer competes with frames. Frame rate is the same.
+
+## 2026-11-21 — Session 27: Low-end hardware; choose multithreading before launch
+
+Branch `perf/low-end`, from `exp/worker-thread` (the live build since 2026-11-20). Low-end test
+setup: Edge pinned to 2 cores (`taskset -c 0,1`) with SwiftShader (software GL) as a stand-in for
+a very weak GPU; game-thread fps and work per frame from the GXFRAME/GXWORK logs.
+
+| low-end, LAN game on Alpine Assault | menu fps | in game fps |
+|---|---|---|
+| live worker build | 1.4 | 0.9-1.2 |
+| + shader variants, ps.1.1 compiled to GLSL | 1.3-2.2 | 1.1-1.5 |
+| + automatic 50% render scale (software GPU detected) | 6.3-6.7 | 3.5-4.7 |
+
+On the RX 580 everything holds 60 fps with the same picture.
+
+- **Shader variants.** Programs are keyed on lighting, fog, alpha test, screen-space vertices,
+  specular, the active stage count and the pixel shader (up to 1024), and compiled with matching
+  `#define`s (`GX_LIGHT`, `GX_FOG`, `GX_ATEST`, `GX_PRE`, `GX_SPEC`, `GX_PS`, `GX_STAGES`,
+  `GX_PSGEN`) that the shaders test instead of uniforms. ps.1.1 handles 1-15 are translated to
+  straight-line GLSL (`GLES3_PS_Generate_GLSL`) instead of the interpreter loop with dynamic register
+  indexing. GLSL has no int -> bool, so the flags are `true`/`false`. A variant that fails to
+  compile is not retried every draw. CPU per frame is ~0.5 ms higher in game (more program
+  switches, each re-sending its uniforms); a uniform buffer would remove that.
+- **16-bit textures were already 16-bit** on the GPU (RGB565 / RGB5_A1 / RGBA4); most textures are
+  DXT. Only rare L8/A8/A8L8 textures are expanded to RGBA8. No change.
+- **Worker heap 2 GB -> 1 GB.** New GXMEM log (sbrk top every 5 s): ~310 MB in a LAN game, ~410 MB
+  in the 3v3 replay at Very High after 13 game minutes.
+- **Automatic low-end defaults** (page, only while the player hasn't set a render scale): a
+  software renderer (SwiftShader/llvmpipe/Basic Render, via WEBGL_debug_renderer_info) -> render
+  scale 50% and a one-time note to turn on hardware acceleration; <= 2 cores or <= 2 GB -> 75%.
+- **Multithreaded build chosen before launch.** Settings drawer "Multithreaded", on by default where
+  the page is cross-origin isolated. emcc's `{{{ SCRIPT }}}` tag sits in an inert `<template>`; a
+  loader starts `mt/GeneralsZH.js` (the GX_WEB_WORKER build) or the normal build, falling back to
+  the normal build if `mt/` is missing. Changing it reloads the page. Asset URLs are now absolute
+  against the page so the build in `mt/` reads the same `assets/`. Deploy layout: normal build in
+  the web root, multithreaded build's .js/.wasm in `mt/`. Checked: isolated + default -> mt/,
+  isolated + off -> normal, not isolated -> normal (checkbox disabled); a LAN game started in each.
+
+Not done: the CPU-side items from the review (dynamic buffer uploads grouped, a uniform buffer,
+shadow code, vertex layout caching), each ~1-3% of an already ~60% idle frame on the RX 580; the
+uniform buffer is the one worth doing next, since variants made program switches more frequent.
