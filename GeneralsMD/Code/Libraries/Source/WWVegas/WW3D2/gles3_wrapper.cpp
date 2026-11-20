@@ -63,8 +63,8 @@ bool GLES3_Texture_Has_Mipmaps(GLuint tex) {
 
 
 // Shader manager statics
-GLuint GLES3_ShaderManager::cached_programs[256] = {0};
-GLES3_ProgramUniformLocations GLES3_ShaderManager::cached_locations[256];
+GLuint GLES3_ShaderManager::cached_programs[1024] = {0};
+GLES3_ProgramUniformLocations GLES3_ShaderManager::cached_locations[1024];
 
 struct GLES3_CachedUniformState {
     bool initialized;
@@ -114,7 +114,7 @@ struct GLES3_CachedUniformState {
     float tex_matrix[4][16];
 };
 
-static GLES3_CachedUniformState cached_uniform_states[256] = {};
+static GLES3_CachedUniformState cached_uniform_states[1024] = {};
 
 // ============================================================================
 // Helper: DX8 Blend Mode → GL Blend Factor
@@ -917,6 +917,59 @@ unsigned int GLES3_Create_Pixel_Shader(const unsigned int* t) {
     return (unsigned int)g_PixelShaders.size();
 }
 
+std::string GLES3_PS_Generate_GLSL(unsigned int handle) {
+    if (handle == 0 || handle > g_PixelShaders.size()) return std::string();
+    const GLES3_PSProgram& p = g_PixelShaders[handle - 1];
+    static const char* reg[16] = { "r0", "r1", "t0", "t1", "t2", "t3", "v0", "v1",
+        "u_PSConst[0]", "u_PSConst[1]", "u_PSConst[2]", "u_PSConst[3]",
+        "u_PSConst[4]", "u_PSConst[5]", "u_PSConst[6]", "u_PSConst[7]" };
+    auto src = [&](int e) {
+        std::string x = reg[e & 15];
+        int swz = (e >> 5) & 3, m = (e >> 8) & 15;
+        if (swz == 1) x += ".aaaa"; else if (swz == 2) x += ".bbbb";
+        switch (m) {
+            case 1: return "(-" + x + ")";
+            case 2: return "(" + x + " - 0.5)";
+            case 3: return "(0.5 - " + x + ")";
+            case 4: return "(" + x + " * 2.0 - 1.0)";
+            case 5: return "(1.0 - " + x + " * 2.0)";
+            case 6: return "(1.0 - " + x + ")";
+            case 7: return "(" + x + " * 2.0)";
+            case 8: return "(-" + x + " * 2.0)";
+            default: return x;
+        }
+    };
+    std::string g = "vec4 run_ps_gen() {\n vec4 r0 = vec4(0.0), r1 = vec4(0.0);\n"
+                    " vec4 t0 = sample_stage(0), t1 = sample_stage(1), t2 = sample_stage(2), t3 = sample_stage(3);\n"
+                    " vec4 v0 = v_Color, v1 = v_Specular;\n";
+    for (int i = 0; i < p.count; i++) {
+        const int* d = &p.data[i * 8];
+        int op = d[0] & 255;
+        if (op == 66) continue; // tex: t0-t3 sampled above
+        std::string s0 = src(d[2]), s1 = src(d[3]), s2 = src(d[4]), e;
+        switch (op) {
+            case 1: e = s0; break;
+            case 2: e = s0 + " + " + s1; break;
+            case 3: e = s0 + " - " + s1; break;
+            case 4: e = s0 + " * " + s1 + " + " + s2; break;
+            case 8: e = "vec4(dot(" + s0 + ".rgb, " + s1 + ".rgb))"; break;
+            case 9: e = "vec4(dot(" + s0 + ", " + s1 + "))"; break;
+            case 18: e = "mix(" + s2 + ", " + s1 + ", " + s0 + ")"; break;
+            default: e = s0 + " * " + s1; break;
+        }
+        int shift = (d[0] >> 12) & 15;
+        const char* sc = shift == 1 ? " * 2.0" : shift == 2 ? " * 4.0" : shift == 15 ? " * 0.5" : "";
+        const char* lim = ((d[0] >> 16) & 1) ? "0.0, 1.0" : "-1.0, 1.0"; // _sat, else ps.1.1 range
+        int mask = (d[0] >> 8) & 15;
+        std::string comps;
+        for (int c = 0; c < 4; c++) if (mask & (1 << c)) comps += "rgba"[c];
+        g += " { vec4 r = clamp((" + e + ")" + sc + ", " + lim + "); " + reg[d[1] & 15] +
+             (comps.size() == 4 ? std::string(" = r;") : "." + comps + " = r." + comps + ";") + " }\n";
+    }
+    g += " return clamp(r0, 0.0, 1.0);\n}\n";
+    return g;
+}
+
 void GLES3_Set_Pixel_Shader(unsigned int handle) {
     g_State.pixel_shader = handle <= g_PixelShaders.size() ? handle : 0;
 }
@@ -1400,7 +1453,7 @@ bool GLES3_ShaderManager::Init() {
 }
 
 void GLES3_ShaderManager::Shutdown() {
-    for (int i = 0; i < 256; i++) {
+    for (int i = 0; i < 1024; i++) {
         if (cached_programs[i]) {
             glDeleteProgram(cached_programs[i]);
             cached_programs[i] = 0;
@@ -1449,20 +1502,26 @@ GLuint GLES3_ShaderManager::Link_Program(GLuint vert, GLuint frag) {
 
 unsigned int GLES3_ShaderManager::Hash_Pipeline_Config(
         const GLES3_PipelineState& state) {
-    // Create a simple hash from the active texture stage ops + lighting/fog state
-    // This determines which shader variant to use
+    // Shader variant key: the states that change which code runs. Each variant is compiled
+    // with matching #defines (dx8_fixedfunction_shaders.cpp), so the GPU only runs the code
+    // that case needs; a weak or software GPU pays per pixel for every branch it keeps.
     unsigned int hash = 0;
     hash |= (state.lighting_enabled ? 1 : 0);
     hash |= (state.fog_enabled ? 2 : 0);
     hash |= (state.alpha_test_enabled ? 4 : 0);
-
-    // Texture stage count (how many stages are active)
-    for (int i = 0; i < 4; i++) {
-        if (state.bound_textures[i] != 0) {
-            hash |= (8 << i);
-        }
+    hash |= (state.pretransformed ? 8 : 0);
+    hash |= (state.render_states[GLES3_RS_SPECULARENABLE] ? 16 : 0);
+    if (state.pixel_shader) {
+        hash |= 32; // a ps.1.1 program replaces the stages
+        // Handles 1-15 get their own variant with the program compiled to GLSL; others
+        // use the interpreter (GX_PSGEN 0).
+        if (state.pixel_shader <= 15) hash |= state.pixel_shader << 6;
+    } else {
+        unsigned int stages = 0; // stages before the first DISABLE, as D3D runs them
+        while (stages < 4 && state.texture_stage_state[stages][GLES3_TSS_COLOROP] > 1) stages++;
+        hash |= stages << 6;
     }
-    return hash & 0xFF; // 256 variants max
+    return hash; // < 1024
 }
 
 GLint GLES3_ShaderManager::Get_Instancing_Uniform_Location(const GLES3_PipelineState &state) {
@@ -1552,6 +1611,10 @@ GLuint GLES3_ShaderManager::Get_Program(const GLES3_PipelineState& state) {
     if (cached_programs[hash] != 0) {
         return cached_programs[hash];
     }
+    // A variant that failed to compile stays 0; don't recompile it on every draw.
+    static bool tried[1024];
+    if (tried[hash]) return 0;
+    tried[hash] = true;
 
     // Compile shader variant for this pipeline configuration
     const char* vs_src = GLES3_Get_Vertex_Shader_Source(hash);

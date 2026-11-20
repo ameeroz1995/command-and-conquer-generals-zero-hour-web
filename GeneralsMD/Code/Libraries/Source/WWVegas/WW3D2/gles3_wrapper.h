@@ -34,6 +34,7 @@
 #include <GLES2/gl2ext.h>
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#include <string>
 
 #ifndef GL_COMPRESSED_RGB_S3TC_DXT1_EXT
 #define GL_COMPRESSED_RGB_S3TC_DXT1_EXT 0x83F0
@@ -347,8 +348,8 @@ private:
 
   // Shader cache (keyed by texture stage configuration hash)
   // Avoids recompiling shaders every frame
-  static GLuint cached_programs[256];
-  static GLES3_ProgramUniformLocations cached_locations[256];
+  static GLuint cached_programs[1024];
+  static GLES3_ProgramUniformLocations cached_locations[1024];
   static unsigned int Hash_Pipeline_Config(const GLES3_PipelineState &state);
 };
 
@@ -490,6 +491,9 @@ void GLES3_Set_Back_Buffer_Size(int w, int h);
 // (texbem and the like): the caller then keeps the fixed-function stages, as before.
 unsigned int GLES3_Create_Pixel_Shader(const unsigned int* tokens);
 void GLES3_Set_Pixel_Shader(unsigned int handle);
+// GLSL for a ps.1.1 program (a function `vec4 run_ps_gen()`), so a variant runs it as
+// straight-line code instead of the interpreter loop. Empty if the handle is unknown.
+std::string GLES3_PS_Generate_GLSL(unsigned int handle);
 void GLES3_Set_Pixel_Shader_Constants(unsigned int first, const float* data, unsigned int count);
 void GLES3_Set_Material(const GLES3_Material* mat);
 void GLES3_Set_Fog(bool enable, float r, float g, float b,

@@ -32,6 +32,10 @@
 */
 
 #if defined(__EMSCRIPTEN__)
+#include <string>
+#include <cstring>
+#include <cstdio>
+#include "gles3_wrapper.h"
 
 // ============================================================================
 // Vertex Shader — DX8 Fixed-Function Pipeline Emulation
@@ -147,7 +151,7 @@ vec3 stage_texcoord(int i, vec3 eyePos, vec3 eyeNormal) {
 
 void main() {
     vec4 vertexColor = a_Color.bgra;
-    if (u_PreTransformed) {
+    if (GX_PRE) {
         float w = a_Position.w > 0.0 ? 1.0 / a_Position.w : 1.0;
         // D3D pixel centres are at integer coordinates, GL's at +0.5.
         vec2 p = (a_Position.xy + 0.5 - u_ViewportRect.xy) / u_ViewportRect.zw;
@@ -184,7 +188,7 @@ void main() {
     v_TexCoord3 = stage_texcoord(3, viewPos.xyz, eyeNormal);
 
     // Compute lighting
-    if (u_LightingEnabled) {
+    if (GX_LIGHT) {
         mat3 worldNormalMatrix = mat3(worldMat);
         vec3 worldNormal = normalize(worldNormalMatrix * a_Normal);
 
@@ -253,7 +257,7 @@ void main() {
     }
 
     // Fog factor (linear fog in eye space)
-    if (u_FogEnabled && u_FogEnd > u_FogStart) {
+    if (GX_FOG && u_FogEnd > u_FogStart) {
         float eyeDist = abs(viewPos.z); // D3D vertex fog uses eye-space z (no RANGEFOGENABLE)
         v_FogFactor = clamp((u_FogEnd - eyeDist) / (u_FogEnd - u_FogStart), 0.0, 1.0);
     } else {
@@ -437,14 +441,22 @@ vec4 run_pixel_shader() {
     return clamp(R[0], 0.0, 1.0);
 }
 
+#if GX_PSGEN
+vec4 run_ps_gen(); // generated from the ps.1.1 program, appended after main
+#endif
+
 void main() {
     vec4 diffuse = v_Color;
     vec4 color = v_Color; // CURRENT: the diffuse colour at stage 0
 
-    if (u_PSCount > 0) {
+    if (GX_PS) {
+#if GX_PSGEN
+        color = run_ps_gen();
+#else
         color = run_pixel_shader();
+#endif
     } else {
-        for (int s = 0; s < 4; s++) {
+        for (int s = 0; s < GX_STAGES; s++) {
             int cop = u_StageOps[s * 2], aop = u_StageOps[s * 2 + 1];
             if (cop <= 1) break; // D3DTOP_DISABLE ends the chain here
             vec4 tex = sample_stage(s);
@@ -461,16 +473,16 @@ void main() {
             }
             color.rgb = rgb;
         }
-        if (u_SpecularEnable) color.rgb = clamp(color.rgb + v_Specular.rgb, 0.0, 1.0);
+        if (GX_SPEC) color.rgb = clamp(color.rgb + v_Specular.rgb, 0.0, 1.0);
     }
 
     // --- Alpha test ---
-    if (!alpha_test(color.a)) {
+    if (GX_ATEST && !alpha_test(color.a)) {
         discard;
     }
 
     // --- Fog blending ---
-    if (u_FogEnabled) {
+    if (GX_FOG) {
         color.rgb = mix(u_FogColor, color.rgb, v_FogFactor);
     }
 
@@ -496,14 +508,37 @@ void main() {
 
 extern "C" {
 
+// Each variant (GLES3_ShaderManager::Hash_Pipeline_Config) gets #defines right after the
+// #version line; the shaders test them instead of uniforms, so the compiler drops the code a
+// variant never runs.
+static const char* Variant_Source(const char* base, unsigned int h, std::string* cache, bool is_fragment) {
+    std::string& s = cache[h & 1023];
+    if (s.empty()) {
+        const char* body = strchr(base, '\n') + 1; // after "#version 300 es"
+        char defs[256];
+        auto b = [](bool v) { return v ? "true" : "false"; }; // GLSL has no int -> bool
+        bool ps = (h & 32) != 0;
+        unsigned int psgen = ps ? (h >> 6) & 15 : 0; // ps.1.1 handle compiled to GLSL
+        snprintf(defs, sizeof(defs),
+                 "#version 300 es\n#define GX_LIGHT %s\n#define GX_FOG %s\n#define GX_ATEST %s\n"
+                 "#define GX_PRE %s\n#define GX_SPEC %s\n#define GX_PS %s\n#define GX_STAGES %d\n"
+                 "#define GX_PSGEN %d\n",
+                 b(h & 1), b(h & 2), b(h & 4), b(h & 8), b(h & 16), b(ps), ps ? 0 : (int)((h >> 6) & 7),
+                 is_fragment && psgen ? 1 : 0);
+        s = std::string(defs) + body;
+        if (is_fragment && psgen) s += GLES3_PS_Generate_GLSL(psgen);
+    }
+    return s.c_str();
+}
+
 const char* GLES3_Get_Vertex_Shader_Source(unsigned int config_hash) {
-    (void)config_hash;  // All configs use the same shader in v1
-    return g_VertexShaderSource;
+    static std::string cache[1024];
+    return Variant_Source(g_VertexShaderSource, config_hash, cache, false);
 }
 
 const char* GLES3_Get_Fragment_Shader_Source(unsigned int config_hash) {
-    (void)config_hash;
-    return g_FragmentShaderSource;
+    static std::string cache[1024];
+    return Variant_Source(g_FragmentShaderSource, config_hash, cache, true);
 }
 
 } // extern "C"
