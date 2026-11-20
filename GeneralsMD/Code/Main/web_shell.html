@@ -443,6 +443,14 @@
         <div style="font-size: 9px; color: var(--gx-mute); margin-top: 3px;">Draw below the game resolution and upscale: faster, softer</div>
       </div>
 
+      <div style="margin-bottom: 14px;">
+        <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;">
+          <input type="checkbox" id="gx-setting-multithread" style="margin-right: 8px; accent-color: var(--gx-fg);" checked>
+          MULTITHREADED
+        </label>
+        <div id="gx-setting-multithread-note" style="font-size: 9px; color: var(--gx-mute); margin-left: 20px; margin-top: 3px;">Game on its own thread: loading doesn't freeze the page. Reloads the page.</div>
+      </div>
+
       <button id="gx-btn-fullscreen" type="button" style="
         width: 100%;
         padding: 8px;
@@ -1097,7 +1105,7 @@
             if (toast) toast.classList.remove('gx-show');
           },
           settings: (function() {
-            var defaults = { lockCursor: false, edgeScroll: true, edgeScrollZone: 20, renderScale: 1 };
+            var defaults = { lockCursor: false, edgeScroll: true, edgeScrollZone: 20, renderScale: 1, multithread: true };
             try {
               var saved = localStorage.getItem('generalsx_settings');
               if (saved) {
@@ -1588,6 +1596,17 @@
           edgeScrollCb.checked = !!window.GeneralsX.settings.edgeScroll;
           edgeZoneSlider.value = window.GeneralsX.settings.edgeScrollZone;
           edgeZoneVal.textContent = window.GeneralsX.settings.edgeScrollZone + 'px';
+          var multithreadCb = document.getElementById('gx-setting-multithread');
+          multithreadCb.checked = window.GeneralsX.settings.multithread !== false && window.crossOriginIsolated === true;
+          if (window.crossOriginIsolated !== true) {
+            multithreadCb.disabled = true;
+            document.getElementById('gx-setting-multithread-note').textContent = 'Not available here (the page is not cross-origin isolated).';
+          }
+          multithreadCb.addEventListener('change', function() {
+            window.GeneralsX.settings.multithread = multithreadCb.checked;
+            saveSettings();
+            location.reload(); // the build is chosen before it loads
+          });
           var renderScaleSel = document.getElementById('gx-setting-render-scale');
           renderScaleSel.value = String(window.GeneralsX.settings.renderScale || 1);
           renderScaleSel.addEventListener('change', function() {
@@ -1663,6 +1682,26 @@
       })();
     </script>
 
-    {{{ SCRIPT }}}
+    <!-- The build is chosen before it loads (settings: Multithreaded). emcc's script tag sits in
+         an inert template; the loader below starts either it or the multithreaded build in mt/. -->
+    <template id="gx-script">{{{ SCRIPT }}}</template>
+    <script>
+      (function () {
+        var tag = document.getElementById('gx-script').content.querySelector('script');
+        var src = tag.getAttribute('src');
+        var st = (window.GeneralsX && window.GeneralsX.settings) || {};
+        // The multithreaded build needs SharedArrayBuffer, i.e. a cross-origin isolated page.
+        var mt = st.multithread !== false && window.crossOriginIsolated === true;
+        var load = function (url, fallback) {
+          var s = document.createElement('script');
+          s.async = true;
+          s.src = url;
+          if (fallback) s.onerror = function () { window.gxMultithread = false; load(fallback); };
+          document.body.appendChild(s);
+        };
+        window.gxMultithread = mt;
+        if (mt) load('mt/' + src, src); else load(src);
+      })();
+    </script>
   </body>
 </html>

@@ -13,6 +13,9 @@
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include <cstdio>
+#include <unistd.h>
+#include <cstdint>
+#include <emscripten/heap.h>
 #include <cmath>
 
 // ============================================================================
@@ -109,6 +112,10 @@ static void emscripten_main_loop_callback() {
         if (work_t0 == 0) work_t0 = work_end;
         if (work_end - work_t0 >= 5000.0) {
             printf("GXWORK ms=%.2f frames=%d\n", work_sum / work_n, work_n);
+            // Heap in use (top of the sbrk heap) vs. the wasm memory size, for sizing the
+            // fixed heap of the worker build; GXMEM lines.
+            printf("GXMEM used=%u MB of %u MB\n", (unsigned)((uintptr_t)sbrk(0) >> 20),
+                   (unsigned)(emscripten_get_heap_size() >> 20));
             work_sum = 0; work_n = 0; work_t0 = work_end;
         }
     }

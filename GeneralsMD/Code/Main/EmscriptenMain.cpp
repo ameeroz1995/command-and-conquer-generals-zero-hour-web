@@ -683,7 +683,10 @@ int main(int argc, char *argv[]) {
     // We do this before the game engine starts, but theoretically it could also be async.
     GX_ReportProgress("boot", 5, 6, "Connecting asset stream");
     fprintf(stderr, "INFO: Initializing BigVFS asset system...\n");
-    const char *asset_base_url = "assets/";
+    // Absolute, against the page: a relative "assets/" resolves against the game script, and
+    // the multithreaded build is served from mt/ (its XHRs run on the game thread).
+    char *page_assets = (char *)EM_ASM_PTR({ return stringToNewUTF8(new URL('assets/', location.href).href); });
+    const char *asset_base_url = page_assets ? page_assets : "assets/";
     if (BigVFS::Init(asset_base_url)) {
       // Note: GameEngine::init() calls
       //   `if (!TheAudio->isMusicAlreadyLoaded()) setQuitting(TRUE);`

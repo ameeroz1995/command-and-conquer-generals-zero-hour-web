@@ -160,7 +160,7 @@ if(EMSCRIPTEN)
         # JS-callable C entry points. EMSCRIPTEN_KEEPALIVE attributes alone
         # *should* be enough, but listing them explicitly is defensive.
         "-sEXPORTED_FUNCTIONS=['_main','_EmscriptenInput_OnPointerLockChange','_EmscriptenInput_GetVirtualMouseX','_EmscriptenInput_GetVirtualMouseY','_GX_FlushIdbfs_Tab','_GX_OnCanvasResize','_AIL_trigger_sample_eos','_GX_Network_EnableVirtual','_GX_Network_PushPacket','_GX_Network_SetVirtualIP','_GX_TickHidden','_malloc','_free']"
-        "-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=['$registerPointerlockErrorEventCallback','$stringToUTF8']"
+        "-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=['$registerPointerlockErrorEventCallback','$stringToUTF8','$stringToNewUTF8']"
     )
 
     # Custom HTML shell — provides a themed loading screen + the
@@ -175,7 +175,9 @@ if(EMSCRIPTEN)
     if(GX_WEB_WORKER)
         # Fixed heap for the worker build: with shared memory, ALLOW_MEMORY_GROWTH makes the
         # JS glue re-check the heap views on every access (growMemViews in profiles).
-        list(APPEND EMSCRIPTEN_ASYNC_FLAGS "-sALLOW_MEMORY_GROWTH=0" "-sINITIAL_MEMORY=2147483648")
+        # 1 GB: peak use measured at ~310 MB in a LAN game and ~410 MB in a 13-minute 3v3 replay
+        # at Very High (GXMEM log); 2 GB could fail to allocate on low-memory machines.
+        list(APPEND EMSCRIPTEN_ASYNC_FLAGS "-sALLOW_MEMORY_GROWTH=0" "-sINITIAL_MEMORY=1073741824")
     endif()
     target_link_options(z_generals PRIVATE ${EMSCRIPTEN_ASYNC_FLAGS})
     target_compile_options(z_generals PRIVATE "-sUSE_SDL=2")

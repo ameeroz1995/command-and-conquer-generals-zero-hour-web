@@ -26,3 +26,5 @@ static inline bool GX_OffGameThread() {
   return GX_GameThread && !pthread_equal(pthread_self(), GX_GameThread);
 }
 #endif
+#undef EM_ASM_PTR
+#define EM_ASM_PTR(code, ...) MAIN_THREAD_EM_ASM_PTR(code, ##__VA_ARGS__)
