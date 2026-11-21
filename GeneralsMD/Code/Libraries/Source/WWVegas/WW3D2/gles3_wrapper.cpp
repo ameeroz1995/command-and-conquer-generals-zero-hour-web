@@ -400,8 +400,11 @@ static GLuint g_Fbo = 0, g_FboColor = 0, g_FboDepth = 0;
 static int g_FboW = 0, g_FboH = 0;
 static struct { bool color, zs; float r, g, b, a, z; unsigned int stencil; } g_FrameClear = {};
 
+void GLES3_Precompile_Programs();
 void GLES3_Begin_Scene() {
     g_CanvasSizeStale = true;
+    static bool precompiled = false; // the programs the last sessions needed (item 21)
+    if (!precompiled) { precompiled = true; GLES3_Precompile_Programs(); }
     static double next_check = 0;
     const double now = emscripten_get_now();
     if (now >= next_check && g_BackBufferW > 0) {
@@ -856,7 +859,14 @@ void GLES3_Apply_Texture_Stage_Parameters(unsigned int stage) {
     } else if (mip == 1) {
         gl_min_filter = (min == 1) ? GL_NEAREST_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_NEAREST;
     } else {
-        gl_min_filter = (min == 1) ? GL_NEAREST_MIPMAP_LINEAR : GL_LINEAR_MIPMAP_LINEAR;
+        // Low-end machines (window.gxLowEnd: software GPU, <= 2 cores or <= 2 GB) sample one
+        // mip level instead of blending two (bilinear, not trilinear): half the texel reads
+        // for every textured pixel, which a software renderer pays on the CPU. No anisotropic
+        // filtering is used anywhere, so there is none to turn off.
+        static int low = -1;
+        if (low < 0) low = MAIN_THREAD_EM_ASM_INT({ return (typeof window !== 'undefined' && window.gxLowEnd) ? 1 : 0; });
+        if (low) gl_min_filter = (min == 1) ? GL_NEAREST_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_NEAREST;
+        else gl_min_filter = (min == 1) ? GL_NEAREST_MIPMAP_LINEAR : GL_LINEAR_MIPMAP_LINEAR;
     }
 
     GLuint smp = Sampler_For(wrap_s, wrap_t, gl_mag, gl_min_filter);
@@ -1770,6 +1780,72 @@ struct FFKeyHash {
 struct FFKeyEq {
     bool operator()(const GLES3_FFKey& a, const GLES3_FFKey& b) const { return memcmp(&a, &b, sizeof(a)) == 0; }
 };
+static std::unordered_map<GLES3_FFKey, unsigned short, FFKeyHash, FFKeyEq> g_Slots;
+// The slot for a stage setup; a new one gets the next free slot (out of slots: the
+// interpreter variant, hash, still draws it right).
+static unsigned int Intern_Slot(const GLES3_FFKey& k, unsigned int hash) {
+    auto it = g_Slots.find(k);
+    if (it != g_Slots.end()) return it->second;
+    unsigned int slot = g_SlotCount < GLES3_PROGRAM_SLOTS ? (unsigned int)g_SlotCount++ : hash;
+    if (slot >= 1024) { g_SlotKey[slot] = k; gx_ff_slots++; }
+    g_Slots.emplace(k, (unsigned short)slot);
+    return slot;
+}
+
+// Item 21 of the low-end plan. Programs compile the first time a draw needs one, which can
+// stall a match (one 410 ms hitch measured mid-match; 30 programs, 528 ms in all over a lobby,
+// a map load and 2 minutes of play). So every program this browser compiles is logged to
+// /userdata/gx_shaders.bin (IDBFS, kept with Options.ini), and the next start compiles the
+// logged ones before the menu (GLES3_Precompile_Programs). Keys and variant numbers belong to
+// one build: the file starts with the build's date and time, and another build ignores it.
+// Pixel-shader variants are left out: their handles are numbered as the game creates them.
+struct GXShaderRecord { unsigned short hash; unsigned char has_key; GLES3_FFKey key; };
+static std::vector<GXShaderRecord> g_ShaderLog;
+static bool g_ShaderLogReplay = false;
+static const char g_ShaderLogStamp[32] = "GXS1 " __DATE__ " " __TIME__;
+static void Log_Program(unsigned int hash) {
+    if (g_ShaderLogReplay) return;
+    GXShaderRecord r;
+    memset(&r, 0, sizeof(r));
+    if (hash >= 1024) {
+        r.has_key = 1;
+        r.key = g_SlotKey[hash];
+        if ((r.key.base_lo | r.key.base_hi << 8) & 32) return;
+    } else {
+        if (hash & 32) return;
+        r.hash = (unsigned short)hash;
+    }
+    g_ShaderLog.push_back(r);
+    if (FILE* f = fopen("/userdata/gx_shaders.bin", "wb")) { // a few KB, rewritten per new program
+        fwrite(g_ShaderLogStamp, sizeof(g_ShaderLogStamp), 1, f);
+        fwrite(g_ShaderLog.data(), sizeof(GXShaderRecord), g_ShaderLog.size(), f);
+        fclose(f);
+    }
+}
+void GLES3_Precompile_Programs() {
+    FILE* f = fopen("/userdata/gx_shaders.bin", "rb");
+    if (!f) return;
+    char stamp[sizeof(g_ShaderLogStamp)];
+    if (fread(stamp, sizeof(stamp), 1, f) != 1 || memcmp(stamp, g_ShaderLogStamp, sizeof(stamp)) != 0) {
+        fclose(f);
+        printf("GXSHADERS log from another build, ignored\n");
+        return;
+    }
+    GXShaderRecord r;
+    std::vector<GXShaderRecord> recs;
+    while (fread(&r, sizeof(r), 1, f) == 1) recs.push_back(r);
+    fclose(f);
+    const double t0 = emscripten_get_now();
+    int n = 0;
+    g_ShaderLogReplay = true;
+    for (const GXShaderRecord& rec : recs) {
+        const unsigned int slot = rec.has_key ? Intern_Slot(rec.key, rec.key.base_lo | rec.key.base_hi << 8) : rec.hash;
+        if (slot < GLES3_PROGRAM_SLOTS && GLES3_ShaderManager::Get_Program(slot)) n++;
+    }
+    g_ShaderLogReplay = false;
+    g_ShaderLog = recs; // still logged: new programs are added to these
+    printf("GXSHADERS precompiled %d of %d programs in %.0f ms\n", n, (int)recs.size(), emscripten_get_now() - t0);
+}
 
 unsigned int GLES3_ShaderManager::Program_Slot(const GLES3_PipelineState& state, unsigned int hash) {
     const bool ps = (hash & 32) != 0;
@@ -1834,17 +1910,7 @@ unsigned int GLES3_ShaderManager::Program_Slot(const GLES3_PipelineState& state,
     static GLES3_FFKey last;
     static unsigned int last_slot = ~0u;
     if (last_slot != ~0u && memcmp(&k, &last, sizeof(k)) == 0) return last_slot;
-    static std::unordered_map<GLES3_FFKey, unsigned short, FFKeyHash, FFKeyEq> slots;
-    auto it = slots.find(k);
-    unsigned int slot;
-    if (it != slots.end()) {
-        slot = it->second;
-    } else {
-        // Out of slots: the interpreter variant still draws it right.
-        slot = g_SlotCount < GLES3_PROGRAM_SLOTS ? (unsigned int)g_SlotCount++ : hash;
-        if (slot >= 1024) { g_SlotKey[slot] = k; gx_ff_slots++; }
-        slots.emplace(k, (unsigned short)slot);
-    }
+    const unsigned int slot = Intern_Slot(k, hash);
     last = k;
     last_slot = slot;
     return slot;
@@ -1927,6 +1993,7 @@ GLuint GLES3_ShaderManager::Get_Program(unsigned int hash) {
             GLuint block = glGetUniformBlockIndex(cached_programs[hash], "GXScene");
             if (block != GL_INVALID_INDEX) glUniformBlockBinding(cached_programs[hash], block, 0);
             Populate_Locations(cached_programs[hash], hash);
+            Log_Program(hash);
         }
     }
 
