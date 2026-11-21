@@ -2140,3 +2140,27 @@ Low-end setup, normal build, LAN game, 400x300 canvas; WebGL patched at runtime
 - Diff-only review: pass; its two should-fixes (silent loss of the shroud when slots run out or
   the texture is missing) are fixed by the fallback above. Known, small: a half-transparent
   bridge or prop edge in fog is darkened twice (their own shroud pass over folded terrain).
+
+## 2026-11-22 — Uncapped RX 580 numbers for the shroud fold (0fb301f)
+
+Measured on the RX 580 (headless Edge, ANGLE on OpenGL), vsync and frame-rate limit off
+(`--disable-gpu-vsync --disable-frame-rate-limit`), game resolution 1920x1080, Very High detail,
+normal (single-thread) build. Builds: a67de4d (before) and 0fb301f (shroud fold + terrain tile
+culling), 3 alternating runs each (`~/generals-bench/uncap.sh`). Scenes: LAN game on Alpine
+Assault (camera still at the base, then panning), the 3v3 battle replay with the camera on the
+fighting (3 minutes, 5-second windows, first 15 s skipped). Median / worst 5-second fps:
+
+| run (load average) | build | menu | LAN still | LAN panning | battle | battle CPU per frame |
+|---|---|---|---|---|---|---|
+| 1 (17) | a67de4d | 614 | 308 / 300 | 265 / 186 | 184 / 108 | 5.0 ms |
+| 1 (8) | 0fb301f | 1274 | 757 / 684 | 610 / 393 | 255 / 171 | 3.5 ms |
+| 2 (4) | a67de4d | 1359 | 474 / 452 | 353 / 228 | 218 / 101 | 4.0 ms |
+| 2 (7) | 0fb301f | 747 | 423 / 422 | 404 / 366 | 159 / 101 | 5.6 ms |
+| 3 (12) | a67de4d | 748 | 335 / 322 | 322 / 195 | 156 / 90 | 6.0 ms |
+| 3 (13) | 0fb301f | 763 | 340 / 248 | 324 / 220 | 152 / 95 | 5.7 ms |
+
+- No measurable difference on the RX 580: uncapped, it is limited by CPU and browser work, and
+  the numbers follow the machine's load (other sessions' builds and benchmarks), not the build:
+  the same build's menu runs 614-1359 fps. The pair at equal load (run 3) is within a few percent
+  in every scene. The fold and culling remove GPU vertex and pixel work, which the RX 580 has to
+  spare; their gain is on weak or software GPUs (low-end setup 16-17 -> 21-22 fps, Session 36).
