@@ -1959,3 +1959,20 @@ under other load (load average 7-22), so fps figures there move by ~1 fps betwee
   off volumetric shadows, uses the simple water and the lowest particle cap, so low-end players
   already get those; the per-frame canvas lookup (`querySelector` / `findEventTarget`, one per
   frame from SetViewport) is 0.0-0.1% of a frame now.
+
+## 2026-11-21 — Session 30: The larger items, measured first (none needed)
+
+Big battle = the 3v3 replay at Very High, 1600x1200, camera on the fighting, normal build.
+
+- **Batching / instancing unit meshes: not done.** Draws per frame in the battle are 217-437
+  (minutes 1-4), under the 500 that would justify reworking the W3D mesh renderer.
+- **Simulation on another thread: not done.** Inclusive profile of the battle: `GameLogic::update`
+  3.0% of the time, `W3DDisplay::draw` 24.5%, the whole `GameEngine::update` 29.5%. The simulation
+  is about a tenth of the game's frame work, and the engine's lockstep simulation was never built
+  for threads.
+- **Smaller textures on low-memory devices: already the default.** First-start detail is Low, and
+  Low already loads every texture one mip level smaller (`WW3D::Get_Texture_Reduction()` = 1,
+  logged on a fresh profile). A change that forced it on <= 2 GB devices at higher detail was
+  reverted: it only mattered for players who choose a higher level themselves.
+- Seen in passing: ~7 textures are created per frame in the battle (~28 `texParameteri` per
+  frame, likely the game's text strings); texture uploads are ~0.2% of the profile, so left as is.
