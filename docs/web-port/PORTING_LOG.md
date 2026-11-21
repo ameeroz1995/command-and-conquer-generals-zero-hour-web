@@ -2054,3 +2054,24 @@ A variant's vertex shader is compiled once and shared by its slots. GXLAYOUT log
   interpreter and compiled 410 random setups in WebGL2. Nits left: a vertex shader that fails
   to compile is retried for each slot of its variant (log noise only); the shared vertex shaders
   are not freed at Shutdown (never called again today).
+
+## 2026-11-21 — Session 33: Vertex shader specialised; download paused during matches
+
+- **Vertex setup in the program key.** Each stage's texture-coordinate mode, uv set, transform
+  count and projection, the four light types and the material colour sources (COLORVERTEX) join
+  the stage setup in `GLES3_FFKey`; `GLES3_VS_Generate_GLSL` emits `gx_tc0..3` and the lights
+  unrolled with fixed types (`GX_VGEN`, `GX_CV`). Compiled shaders are shared between slots: a
+  vertex shader per variant + vertex setup, a fragment shader per variant + stage setup.
+  Programs: 10 in a LAN game, 14 over 4 minutes of the 3v3 battle replay; no WebGL errors.
+- Low-end (2 cores + SwiftShader), in game, still, four back-to-back pairs: 11.2 -> 15.7,
+  13.2 -> 13.8, 14.0 -> 15.0, 13.6 -> 14.0 fps. Ahead every time but modest (~5-15%);
+  panning within noise. On software GL the vertex cost is mostly the vertex count, not the
+  branching. RX 580 unchanged (2.6 ms in game). Picture: LAN game diff vs live shows only
+  moving things.
+- Diff-only review: pass (600 random states x 96 vertices through transform feedback, old vs
+  generated, max relative difference 2.4e-7; 684 generated vertex shaders compiled in WebGL2).
+  Its should-fix (identical fragment shaders compiled per slot) is done.
+- **Private server (not in this repo):** the page tells `sw.js` to pause the background download
+  of game archives while a match runs (the game's TICK-DIAG line, `inGame=1`), aborting the file
+  in progress; it resumes in the menu. Checked: pause sent once at match start; on a throttled
+  test server the download stopped within a second and resumed afterwards.

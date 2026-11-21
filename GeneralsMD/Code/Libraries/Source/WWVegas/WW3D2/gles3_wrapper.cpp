@@ -24,6 +24,7 @@
 #include <emscripten/html5.h>
 #include <emscripten/em_asm.h>
 #include <cstring>
+#include <cstddef>
 #include <cstdio>
 #include <cmath>
 #include <vector>
@@ -1723,12 +1724,36 @@ struct FFKeyEq {
 unsigned int GLES3_ShaderManager::Program_Slot(const GLES3_PipelineState& state, unsigned int hash) {
     const bool ps = (hash & 32) != 0;
     const int stages = ps ? 0 : (int)((hash >> 6) & 7);
-    if (stages == 0 && !state.alpha_test_enabled) return hash; // nothing to specialise
+    const bool pre = (hash & 8) != 0;
+    if (pre && stages == 0 && !state.alpha_test_enabled) return hash; // nothing to specialise
     GLES3_FFKey k;
     memset(&k, 0, sizeof(k));
     k.base_lo = hash & 255;
     k.base_hi = hash >> 8;
     if (state.alpha_test_enabled) k.afunc = state.alpha_func <= 8 ? state.alpha_func : 8;
+    if (!pre) {
+        // Vertex side: texture coordinates of the stages the variant runs (all four for a
+        // pixel shader), light types and material colour sources, as the uniforms carried them.
+        for (int s = 0; s < 4; s++) {
+            if (!ps && s >= stages) break;
+            unsigned int tci = state.texture_stage_state[s][GLES3_TSS_TEXCOORDINDEX];
+            unsigned int ttf = state.texture_stage_state[s][GLES3_TSS_TEXTURETRANSFORMFLAGS];
+            unsigned int mode = tci >> 16, count = ttf & 0xff;
+            k.vtex[s] = (unsigned char)((mode <= 3 ? mode : 0) | (tci & 3) << 2 | (count <= 7 ? count : 7) << 4
+                                        | ((ttf & 256) ? 128 : 0));
+        }
+        if (state.lighting_enabled) {
+            for (int i = 0; i < 4; i++) {
+                unsigned int t = state.lights[i].type;
+                if (state.light_enabled[i]) k.lights |= (t >= 1 && t <= 3 ? t : 1) << (i * 2);
+            }
+            if (state.render_states[GLES3_RS_COLORVERTEX] && state.vertex_has_color) {
+                if (state.render_states[GLES3_RS_AMBIENTMATERIALSOURCE] == 1) k.cvert |= 1;
+                if (state.render_states[GLES3_RS_DIFFUSEMATERIALSOURCE] == 1) k.cvert |= 2;
+                if (state.render_states[GLES3_RS_EMISSIVEMATERIALSOURCE] == 1) k.cvert |= 4;
+            }
+        }
+    }
     auto clip = [](unsigned int v) { return (unsigned char)(v <= 255 ? v : 255); };
     for (int s = 0; s < stages; s++) {
         const unsigned int* t = state.texture_stage_state[s];
@@ -1772,7 +1797,7 @@ GLint GLES3_ShaderManager::Get_Instancing_Uniform_Location(const GLES3_PipelineS
 
 // Forward declaration — defined with extern "C" in dx8_fixedfunction_shaders.cpp
 // Defined in dx8_fixedfunction_shaders.cpp. key: nullptr = the stages run by the interpreter.
-std::string GLES3_Get_Vertex_Shader_Source(unsigned int config_hash);
+std::string GLES3_Get_Vertex_Shader_Source(unsigned int config_hash, const GLES3_FFKey* key);
 std::string GLES3_Get_Fragment_Shader_Source(unsigned int config_hash, const GLES3_FFKey* key);
 
 void GLES3_ShaderManager::Populate_Locations(GLuint program, unsigned int hash) {
@@ -1816,15 +1841,22 @@ GLuint GLES3_ShaderManager::Get_Program(unsigned int hash) {
     if (tried[hash]) return 0;
     tried[hash] = true;
 
-    // Compile shader variant for this pipeline configuration. The vertex shader depends only
-    // on the variant, so slots of one variant share one compiled vertex shader.
+    // Compile shader variant for this pipeline configuration. Slots share compiled shaders:
+    // a vertex shader per variant + vertex setup, a fragment shader per variant + stage setup.
     const GLES3_FFKey* key = hash >= 1024 ? &g_SlotKey[hash] : nullptr;
     unsigned int base = key ? (key->base_lo | (key->base_hi << 8)) : hash;
-    static GLuint vertex_shaders[1024];
-    if (!vertex_shaders[base])
-        vertex_shaders[base] = Compile_Shader(GL_VERTEX_SHADER, GLES3_Get_Vertex_Shader_Source(base).c_str());
-    GLuint vs = vertex_shaders[base];
-    GLuint fs = Compile_Shader(GL_FRAGMENT_SHADER, GLES3_Get_Fragment_Shader_Source(base, key).c_str());
+    unsigned long long vkey = base;
+    if (key) vkey |= 1ull << 62 | (unsigned long long)key->vtex[0] << 10 | (unsigned long long)key->vtex[1] << 18
+                  | (unsigned long long)key->vtex[2] << 26 | (unsigned long long)key->vtex[3] << 34
+                  | (unsigned long long)key->lights << 42 | (unsigned long long)key->cvert << 50;
+    static std::unordered_map<unsigned long long, GLuint> vertex_shaders;
+    GLuint& vs = vertex_shaders[vkey];
+    if (!vs) vs = Compile_Shader(GL_VERTEX_SHADER, GLES3_Get_Vertex_Shader_Source(base, key).c_str());
+    std::string fkey = key ? std::string((const char*)key, offsetof(GLES3_FFKey, vtex))
+                           : "i" + std::to_string(base); // the fields before vtex are the fragment side
+    static std::unordered_map<std::string, GLuint> fragment_shaders;
+    GLuint& fs = fragment_shaders[fkey];
+    if (!fs) fs = Compile_Shader(GL_FRAGMENT_SHADER, GLES3_Get_Fragment_Shader_Source(base, key).c_str());
 
     if (vs && fs) {
         cached_programs[hash] = Link_Program(vs, fs);
@@ -1834,8 +1866,6 @@ GLuint GLES3_ShaderManager::Get_Program(unsigned int hash) {
             Populate_Locations(cached_programs[hash], hash);
         }
     }
-
-    if (fs) glDeleteShader(fs);
 
     return cached_programs[hash];
 }

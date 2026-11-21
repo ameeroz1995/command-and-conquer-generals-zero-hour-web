@@ -305,8 +305,14 @@ struct GLES3_FFKey {
   unsigned char bound;            // bit n: stage n has a texture
   unsigned char op[4][2];         // COLOROP, ALPHAOP of the stages that run
   unsigned char arg[4][6];        // COLORARG0/1/2, ALPHAARG0/1/2 (0 where the op ignores it)
+  // Vertex side (0 for screen-space vertices): per stage, texture coordinates as
+  // mode | uv set << 2 | transform count << 4 | projected << 7; light types (2 bits each,
+  // 0 off, 1 point, 2 spot, 3 directional); D3DRS_COLORVERTEX material sources (3 bits).
+  unsigned char vtex[4];
+  unsigned char lights, cvert;
 };
 std::string GLES3_FF_Generate_GLSL(const GLES3_FFKey &key);
+std::string GLES3_VS_Generate_GLSL(const GLES3_FFKey &key);
 
 // ============================================================================
 // Fixed-Function Emulation Shader Manager

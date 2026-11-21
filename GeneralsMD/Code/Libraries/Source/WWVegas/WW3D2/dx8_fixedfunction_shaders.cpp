@@ -105,6 +105,17 @@ uniform float u_MatPower;
 // D3DRS_*MATERIALSOURCE = D3DMCS_COLOR1 and a diffuse vertex colour):
 // bit 0 ambient, bit 1 diffuse, bit 2 emissive. Otherwise the material is used.
 uniform int u_ColorVertex;
+#if GX_VGEN
+#define GX_CVX GX_CV
+vec3 gx_tc0(vec3 eyePos, vec3 eyeNormal); // generated per vertex setup, appended after main
+vec3 gx_tc1(vec3 eyePos, vec3 eyeNormal);
+vec3 gx_tc2(vec3 eyePos, vec3 eyeNormal);
+vec3 gx_tc3(vec3 eyePos, vec3 eyeNormal);
+void gx_lights(vec3 worldNormal, vec3 worldPos, vec3 toEye, vec4 matDiff,
+               inout vec4 totalDiffuse, inout vec4 lightAmbient, inout vec4 totalSpecular);
+#else
+#define GX_CVX u_ColorVertex
+#endif
 
 
 // Outputs to fragment shader
@@ -172,10 +183,17 @@ void main() {
     // Only the stages this variant runs (a pixel shader may read all four); the conditions
     // are compile-time constants, so the others cost nothing per vertex.
     const vec3 unused = vec3(0.0, 0.0, 1.0);
+#if GX_VGEN
+    v_TexCoord0 = (GX_PS || GX_STAGES > 0) ? gx_tc0(viewPos.xyz, eyeNormal) : unused;
+    v_TexCoord1 = (GX_PS || GX_STAGES > 1) ? gx_tc1(viewPos.xyz, eyeNormal) : unused;
+    v_TexCoord2 = (GX_PS || GX_STAGES > 2) ? gx_tc2(viewPos.xyz, eyeNormal) : unused;
+    v_TexCoord3 = (GX_PS || GX_STAGES > 3) ? gx_tc3(viewPos.xyz, eyeNormal) : unused;
+#else
     v_TexCoord0 = (GX_PS || GX_STAGES > 0) ? stage_texcoord(0, viewPos.xyz, eyeNormal) : unused;
     v_TexCoord1 = (GX_PS || GX_STAGES > 1) ? stage_texcoord(1, viewPos.xyz, eyeNormal) : unused;
     v_TexCoord2 = (GX_PS || GX_STAGES > 2) ? stage_texcoord(2, viewPos.xyz, eyeNormal) : unused;
     v_TexCoord3 = (GX_PS || GX_STAGES > 3) ? stage_texcoord(3, viewPos.xyz, eyeNormal) : unused;
+#endif
 
     // Compute lighting
     if (GX_LIGHT) {
@@ -183,11 +201,11 @@ void main() {
         vec3 worldNormal = normalize(worldNormalMatrix * a_Normal);
 
         // Start with emissive material color
-        vec4 totalDiffuse = (u_ColorVertex & 4) != 0 ? vertexColor : u_MatEmissive;
+        vec4 totalDiffuse = (GX_CVX & 4) != 0 ? vertexColor : u_MatEmissive;
 
         // Global ambient contribution
-        vec4 matAmb = (u_ColorVertex & 1) != 0 ? vertexColor : u_MatAmbient;
-        vec4 matDiff = (u_ColorVertex & 2) != 0 ? vertexColor : u_MatDiffuse;
+        vec4 matAmb = (GX_CVX & 1) != 0 ? vertexColor : u_MatAmbient;
+        vec4 matDiff = (GX_CVX & 2) != 0 ? vertexColor : u_MatDiffuse;
         vec4 lightAmbient = u_GlobalAmbient; // D3D: global + sum of attenuated light ambients
         vec4 totalSpecular = vec4(0.0);
         // Camera position in world space, for the local-viewer half vector.
@@ -195,6 +213,9 @@ void main() {
         vec3 toEye = normalize(camPos - worldPos.xyz);
 
         // Per-light contribution
+#if GX_VGEN
+        gx_lights(worldNormal, worldPos.xyz, toEye, matDiff, totalDiffuse, lightAmbient, totalSpecular);
+#else
         for (int i = 0; i < 4; i++) {
             Light L = u_Lights[i];
             int type = int(L.atten.w);
@@ -238,6 +259,7 @@ void main() {
                 totalSpecular += L.specular * pow(NdotH, max(u_MatPower, 0.0001)) * attenuation;
             }
         }
+#endif
 
         v_Color = clamp(totalDiffuse + matAmb * lightAmbient, 0.0, 1.0);
         v_Color.a = matDiff.a;
@@ -508,10 +530,11 @@ extern "C" {
 
 // Each variant (GLES3_ShaderManager::Hash_Pipeline_Config) gets #defines right after the
 // #version line; the shaders test them instead of uniforms, so the compiler drops the code a
-// variant never runs. key (fragment only): the texture stage setup to compile in, or nullptr.
+// variant never runs. key: the setup to compile in (stages and alpha test for the fragment
+// shader, texture coordinates, lights and colour sources for the vertex shader), or nullptr.
 static std::string Variant_Source(const char* base, unsigned int h, bool is_fragment, const GLES3_FFKey* key) {
     const char* body = strchr(base, '\n') + 1; // after "#version 300 es"
-    char defs[320];
+    char defs[384];
     auto b = [](bool v) { return v ? "true" : "false"; }; // GLSL has no int -> bool
     bool ps = (h & 32) != 0;
     unsigned int psgen = ps ? (h >> 6) & 15 : 0; // ps.1.1 handle compiled to GLSL
@@ -520,22 +543,76 @@ static std::string Variant_Source(const char* base, unsigned int h, bool is_frag
     int n = snprintf(defs, sizeof(defs),
              "#version 300 es\n#define GX_LIGHT %s\n#define GX_FOG %s\n#define GX_ATEST %s\n"
              "#define GX_PRE %s\n#define GX_SPEC %s\n#define GX_PS %s\n#define GX_STAGES %d\n"
-             "#define GX_PSGEN %d\n#define GX_FFGEN %d\n",
+             "#define GX_PSGEN %d\n#define GX_FFGEN %d\n#define GX_VGEN %d\n",
              b(h & 1), b(h & 2), b(h & 4), b(h & 8), b(h & 16), b(ps), stages,
-             is_fragment && psgen ? 1 : 0, ffgen ? 1 : 0);
+             is_fragment && psgen ? 1 : 0, ffgen ? 1 : 0, !is_fragment && key ? 1 : 0);
     if (is_fragment && key && key->afunc) snprintf(defs + n, sizeof(defs) - n, "#define GX_AFUNC %d\n", key->afunc);
+    if (!is_fragment && key) snprintf(defs + n, sizeof(defs) - n, "#define GX_CV %d\n", key->cvert);
     std::string s = std::string(defs) + body;
     if (is_fragment && psgen) s += GLES3_PS_Generate_GLSL(psgen);
     if (ffgen) s += GLES3_FF_Generate_GLSL(*key);
+    if (!is_fragment && key) s += GLES3_VS_Generate_GLSL(*key);
     return s;
 }
 
-std::string GLES3_Get_Vertex_Shader_Source(unsigned int config_hash) {
-    return Variant_Source(g_VertexShaderSource, config_hash, false, nullptr);
+std::string GLES3_Get_Vertex_Shader_Source(unsigned int config_hash, const GLES3_FFKey* key) {
+    return Variant_Source(g_VertexShaderSource, config_hash, false, key);
 }
 
 std::string GLES3_Get_Fragment_Shader_Source(unsigned int config_hash, const GLES3_FFKey* key) {
     return Variant_Source(g_FragmentShaderSource, config_hash, true, key);
+}
+
+// The vertex side of one setup as straight-line GLSL: texture coordinates per stage (same
+// rules as stage_texcoord) and the lights unrolled with their types fixed (same maths as the
+// loop in main). Matrices, colours and ranges still come from uniforms.
+std::string GLES3_VS_Generate_GLSL(const GLES3_FFKey& k) {
+    std::string s = "\n";
+    for (int i = 0; i < 4; i++) {
+        const int v = k.vtex[i], mode = v & 3, set = (v >> 2) & 3, count = (v >> 4) & 7;
+        const bool proj = (v & 128) != 0;
+        const std::string n(1, (char)('0' + i));
+        s += "vec3 gx_tc" + n + "(vec3 eyePos, vec3 eyeNormal) {\n    vec4 c = ";
+        s += mode == 1 ? "vec4(eyeNormal, 1.0)" : mode == 2 ? "vec4(eyePos, 1.0)"
+           : mode == 3 ? "vec4(reflect(normalize(eyePos), eyeNormal), 1.0)"
+           : "vec4(a_TexCoord" + std::string(1, (char)('0' + set)) + ", 1.0, 0.0)";
+        s += ";\n";
+        if (count == 0) {
+            s += "    return vec3(c.xy, 1.0);\n}\n";
+        } else {
+            s += "    vec4 t = u_TexMatrix[" + n + "] * c;\n    return vec3(t.xy, ";
+            s += !proj ? "1.0" : count == 4 ? "t.w" : count == 3 ? "t.z" : "t.y";
+            s += ");\n}\n";
+        }
+    }
+    s += "void gx_lights(vec3 worldNormal, vec3 worldPos, vec3 toEye, vec4 matDiff,\n"
+         "               inout vec4 totalDiffuse, inout vec4 lightAmbient, inout vec4 totalSpecular) {\n";
+    for (int i = 0; i < 4; i++) {
+        const int type = (k.lights >> (i * 2)) & 3;
+        if (type == 0) continue;
+        s += "    {\n        Light L = u_Lights[" + std::string(1, (char)('0' + i)) + "];\n"
+             "        vec3 lightDir;\n        float attenuation = 1.0;\n        bool lit = true;\n";
+        if (type == 3) {
+            s += "        lightDir = normalize(-L.direction.xyz);\n";
+        } else {
+            s += "        vec3 toLight = L.position.xyz - worldPos;\n"
+                 "        float dist = length(toLight);\n"
+                 "        lit = !(dist > L.position.w);\n"
+                 "        lightDir = dist > 0.0 ? toLight / dist : vec3(0.0, 0.0, 1.0);\n"
+                 "        attenuation = 1.0 / (L.atten.x + L.atten.y * dist + L.atten.z * dist * dist);\n";
+            if (type == 2)
+                s += "        attenuation *= smoothstep(0.0, 1.0, dot(-lightDir, normalize(L.direction.xyz)));\n";
+        }
+        s += "        if (lit) {\n"
+             "            float NdotL = max(dot(worldNormal, lightDir), 0.0);\n"
+             "            totalDiffuse += matDiff * L.diffuse * NdotL * attenuation;\n"
+             "            lightAmbient += L.ambient * attenuation;\n"
+             "            if (GX_SPEC && NdotL > 0.0) {\n"
+             "                float NdotH = max(dot(worldNormal, normalize(lightDir + toEye)), 0.0);\n"
+             "                totalSpecular += L.specular * pow(NdotH, max(u_MatPower, 0.0001)) * attenuation;\n"
+             "            }\n        }\n    }\n";
+    }
+    return s + "}\n";
 }
 
 // One D3D texture stage argument (D3DTA_*) as a GLSL expression; same rules as stage_arg().
