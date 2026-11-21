@@ -1976,3 +1976,56 @@ Big battle = the 3v3 replay at Very High, 1600x1200, camera on the fighting, nor
   reverted: it only mattered for players who choose a higher level themselves.
 - Seen in passing: ~7 textures are created per frame in the battle (~28 `texParameteri` per
   frame, likely the game's text strings); texture uploads are ~0.2% of the profile, so left as is.
+
+## 2026-11-21 — Session 31: Where the low-end frame goes (research, no code change)
+
+Low-end setup as before (Edge on 2 cores + SwiftShader, normal build, 50% render scale = a
+400x300 canvas, LAN game on Alpine Assault). Method: WebGL2 draw calls patched at runtime
+(`~/generals-bench/exp.js`, `exp2.js`; `cdp.py inject` does not work: the script is dropped when
+the DevTools connection closes). Cutting a draw's pixels = drawing it with a 1x1 scissor (vertex
+work kept); fps from GXFRAME. ~195 draws, ~62k triangles per frame.
+
+| low-end, in game | fps | ms/frame |
+|---|---|---|
+| as is (live 00024) | 4.6 | ~215 |
+| no pixels for any draw | ~17 | ~60 |
+| no draws at all | ~40 | ~25 |
+| no pixels for the 67 blended draws | 13.5 | ~74 |
+| no pixels for the 128 opaque draws | 5.3 | ~190 |
+
+Blended draws by blend function and depth test:
+
+| group | draws, triangles / frame | pixels cut -> fps | cost |
+|---|---|---|---|
+| multiply (ZERO, SRC_COLOR), depth EQUAL: the shroud pass, terrain drawn again | 15, 30k | 4.7 -> 7.3 | ~75 ms |
+| alpha blend, depth ALWAYS: 2D UI | 44, 143 | 4.7 -> 6.3 | ~55 ms |
+| the rest | | no change | |
+
+- **Cause: the fixed-function fragment shader interprets the texture stages per pixel.** Ops and
+  arguments come from uniforms (`u_StageOps`, `u_StageArgs`): a ~25-way `if` chain per op, six
+  argument selects per stage, and `sample_stage(s)` with a dynamic `s`. A software rasterizer
+  runs every branch for every pixel (masked), including all four texture lookups. The terrain is
+  cheap because its pixel shader is already straight-line GLSL (Session 27); the shroud pass and
+  the UI go through the interpreter.
+- **Test** (throwaway build, not committed): any variant with stages computes
+  `texture0 * diffuse` straight-line. Low-end **4.6 -> 11.5 fps (2.5x)**; the picture was the
+  same except what that shortcut ignores (minimap camera outline, a health bar).
+
+Candidates, ranked for weak machines:
+1. **Texture stages compiled to straight-line GLSL**, like ps.1.1: the stage ops and arguments
+   go into the program key and are emitted as `#define`d code. Expected close to the test's
+   2.5x on software GL; on weak integrated GPUs less, unmeasured. Watch the variant count (the
+   UI, shroud and units use a handful of stage setups) and first-use compile hitches.
+2. **Shroud folded into the terrain pass** as one more texture stage (camera-space texgen is
+   already supported): the 30k-triangle second terrain pass goes. After 1, the shroud's pixels
+   are ~13 ms of ~87 and its vertex work about as much: ~1.3-1.4x more.
+3. **Vertex shader specialised the same way** (light types, texgen modes from uniforms). Vertex
+   and setup are ~35 ms of the low-end frame for ~62k triangles; not tested.
+4. **Background download of all 2.2 GB of archives** (private server's sw.js) runs during
+   matches, ~900 MB of it speech/music/audio. On a slow link or 2 cores it competes with the
+   game; unmeasured. Pausing it while a match runs is the cheap version.
+5. **1 GB reserved at start** by both builds against 310-410 MB measured use; may fail on
+   32-bit browsers or 2 GB devices. A page-provided smaller memory for weak devices; unmeasured.
+
+Not worth it: blended draws other than the shroud and UI (no change when cut); ~25 ms per frame
+is fixed overhead with no draws (clears, presenting, compositing).
