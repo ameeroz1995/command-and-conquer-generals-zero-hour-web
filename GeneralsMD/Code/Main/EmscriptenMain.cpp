@@ -477,6 +477,8 @@ static bool GameWebFrameCallback(float /*delta_time_ms*/) {
       // scale Auto and the private server's background download follow it.
       const int inMatch = TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() && !TheGameLogic->isLoadingMap();
       EM_ASM({ Module.gxInMatch = $0; }, inMatch);
+      extern int gx_in_match; // gles3_mainloop.cpp: 30 fps pacing applies only in a match
+      gx_in_match = inMatch;
     }
     if (TheGameLogic && TheFramePacer) {
       fprintf(stderr,

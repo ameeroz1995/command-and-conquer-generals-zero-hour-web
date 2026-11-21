@@ -60,6 +60,35 @@ void Yield_Ms(int ms) {
 
 } // namespace WebTiming
 
+// Steady 30 fps (item 19 of the low-end plan). A match that can't hold 60 but runs at 25-50
+// fps alternates long and short frames, which looks worse than an even 30. Then draw on every
+// second display refresh (EM_TIMING_RAF 2; 33 ms timeouts when not on rAF). Every 30 s it tries
+// 60 again, and drops back to 60 at once if it falls under 22 (pacing can't help there: a frame
+// that misses one slot waits for the next pair). Called every ~500 ms with the measured rate.
+// gx_in_match is set by EmscriptenMain; ?pace=0 turns pacing off (for measuring).
+int gx_in_match = 0;
+static void GX_PaceFrames(float fps) {
+    static int enabled = -1, halved = 0, steady = 0;
+    static double since = 0;
+    if (enabled < 0) {
+        enabled = MAIN_THREAD_EM_ASM_INT({ try { return location.search.indexOf('pace=0') >= 0 ? 0 : 1; } catch (e) { return 1; } });
+    }
+    if (!enabled) return;
+    int mode = 0, value = 0;
+    emscripten_get_main_loop_timing(&mode, &value);
+    const double now = WebTiming::Now_Ms();
+    int want = halved;
+    if (!gx_in_match) { want = 0; steady = 0; }
+    else if (!halved) { steady = (fps >= 25.0f && fps <= 50.0f) ? steady + 1 : 0; if (steady >= 6) want = 1; }
+    else if (fps < 22.0f || now - since > 30000.0) { want = 0; steady = 0; }
+    if (want == halved) return;
+    halved = want;
+    since = now;
+    if (mode == EM_TIMING_RAF) emscripten_set_main_loop_timing(EM_TIMING_RAF, halved ? 2 : 1);
+    else emscripten_set_main_loop_timing(EM_TIMING_SETTIMEOUT, halved ? 33 : 16);
+    printf("GXPACE %s (%.1f fps)\n", halved ? "30" : "60", fps);
+}
+
 // ============================================================================
 // Per-frame callback — called by Emscripten's requestAnimationFrame
 // ============================================================================
@@ -95,6 +124,7 @@ static void emscripten_main_loop_callback() {
         g_Loop.fps = (float)g_Loop.fps_frame_count / (g_Loop.fps_accumulator / 1000.0f);
         g_Loop.fps_accumulator = 0.0f;
         g_Loop.fps_frame_count = 0;
+        GX_PaceFrames(g_Loop.fps);
     }
 
     // Run game frame
