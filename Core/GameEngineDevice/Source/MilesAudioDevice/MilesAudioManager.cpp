@@ -65,6 +65,9 @@
 #include "GameLogic/TerrainLogic.h"
 
 #include "Common/file.h"
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 
 enum { INFINITE_LOOP_COUNT = 1000000 };
@@ -2933,8 +2936,21 @@ void MilesAudioManager::initSamplePools()
 		return;
 	}
 
+	int count2D = getAudioSettings()->m_sampleCount2D, count3D = getAudioSettings()->m_sampleCount3D;
+#ifdef __EMSCRIPTEN__
+	// Low-end machines (software GPU, <= 2 cores or <= 2 GB; window.gxLowEnd, set by the page)
+	// mix fewer sounds at once: each voice is a Web Audio graph the browser runs on a 2-core
+	// CPU too. The quietest, oldest sounds are the ones the pool drops first.
+	if (MAIN_THREAD_EM_ASM_INT({ return (typeof window !== 'undefined' && window.gxLowEnd) ? 1 : 0; })) {
+		if (count2D > 4) count2D = 4;
+		if (count3D > 12) count3D = 12;
+	}
+	printf("[MilesAudio] voices: %d 2D, %d 3D (settings %d, %d)\n", count2D, count3D,
+		getAudioSettings()->m_sampleCount2D, getAudioSettings()->m_sampleCount3D);
+#endif
+
 	int i = 0;
-	for (i = 0; i < getAudioSettings()->m_sampleCount2D; ++i) {
+	for (i = 0; i < count2D; ++i) {
 		HSAMPLE sample = AIL_allocate_sample_handle(m_digitalHandle);
 		DEBUG_ASSERTCRASH(sample, ("Couldn't get %d 2D samples", i + 1));
 		if (sample) {
@@ -2945,7 +2961,7 @@ void MilesAudioManager::initSamplePools()
 		}
 	}
 
-	for (i = 0; i < getAudioSettings()->m_sampleCount3D; ++i) {
+	for (i = 0; i < count3D; ++i) {
 		H3DSAMPLE sample = AIL_allocate_3D_sample_handle(m_provider3D[m_selectedProvider].id);
 		DEBUG_ASSERTCRASH(sample, ("Couldn't get %d 3D samples", i + 1));
 		if (sample) {

@@ -1147,9 +1147,13 @@
               // full-size canvas costs it more than the smaller 3D pass saves (Session 29).
               window.gxSoftwareGL = software;
               var weak = (navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory || 8) <= 2;
+              window.gxLowEnd = software || weak; // read by the engine (fewer sound voices)
               defaults.renderScale = 'auto';
               window.gxAutoScale = software ? 0.5 : weak ? 0.75 : 1;
               if ((software || weak) && parsed.antialias === undefined) defaults.antialias = false;
+              // The multithreaded build reserves a fixed 1 GB heap; on a <= 2 GB device the normal
+              // build, which starts at 512 MB and grows only when a battle needs it, is safer.
+              if ((navigator.deviceMemory || 8) <= 2) defaults.multithread = false;
               if (software && parsed.renderScale === undefined) {
                 var dismissed = false;
                 try { dismissed = !!localStorage.getItem('gxLowEndNoteDismissed'); } catch(e) {}
@@ -1239,6 +1243,26 @@
           gxAutoLow = gxAutoHigh = 0;
           gxLockCanvasBacking();
         }, 1000);
+
+        // Whole-page memory (wasm heap, JS, GPU-side copies the browser counts), once a minute,
+        // where the browser can measure it (Chromium, cross-origin isolated pages): GXPAGEMEM
+        // lines in the log and window.gxPageMem (last 2 hours), to catch slow leaks across
+        // matches. The engine's GXMEM lines give the wasm heap alone.
+        if (window.crossOriginIsolated === true && performance.measureUserAgentSpecificMemory) {
+          window.gxPageMem = [];
+          let gxMemBusy = false;
+          setInterval(function () {
+            if (gxMemBusy || document.hidden) return;
+            gxMemBusy = true;
+            performance.measureUserAgentSpecificMemory().then(function (r) {
+              const M = window.Module || {}, mb = Math.round(r.bytes / 1048576);
+              const heap = M.HEAPU8 ? Math.round(M.HEAPU8.length / 1048576) : 0;
+              window.gxPageMem.push({ t: Date.now(), mb: mb, inMatch: !!M.gxInMatch });
+              if (window.gxPageMem.length > 120) window.gxPageMem.shift();
+              console.log('GXPAGEMEM total=' + mb + ' MB wasm=' + heap + ' MB match=' + (M.gxInMatch ? 1 : 0));
+            }).catch(function () {}).then(function () { gxMemBusy = false; });
+          }, 60000);
+        }
 
         // ------------------------------------------------------------------
         // WebGL context loss — the browser may drop the GL context if the GPU

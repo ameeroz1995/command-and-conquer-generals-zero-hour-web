@@ -142,11 +142,11 @@ if(EMSCRIPTEN)
         # ("ArrayBufferView value must not be resizable"). Keep the classic
         # replace-the-buffer growth strategy. GeneralsX @build WebPort 2026-07-06
         "-sGROWABLE_ARRAYBUFFERS=0"
-        # 1GB initial (grow to 2GB): matches the battle-tested link_mac.sh
-        # profile. Growing from a smaller heap forces allocate-and-copy spikes
-        # (old+new buffers coexist) which are worse under memory pressure than
-        # the upfront commit. GeneralsX @build WebPort 2026-07-07
-        "-sINITIAL_MEMORY=1073741824"
+        # 512 MB initial, growing to 2 GB only when needed: peak use measured at ~310 MB in a
+        # LAN game and ~410 MB in a 13-minute 3v3 replay at Very High (GXMEM lines), so most
+        # matches never grow, and a 2 GB device no longer has to find 1 GB up front. A grow
+        # copies the heap once (old + new buffers briefly coexist).
+        "-sINITIAL_MEMORY=536870912"
         "-sMAXIMUM_MEMORY=2147483648"
         "-sSTACK_SIZE=4194304"
         "-sFETCH=1"
