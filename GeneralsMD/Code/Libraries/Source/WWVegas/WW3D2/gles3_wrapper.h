@@ -295,6 +295,19 @@ struct GLES3_ProgramUniformLocations {
 };
 
 
+// A program slot: 0-1023 are the Hash_Pipeline_Config variants with the texture stages run
+// by the shader's interpreter; 1024 and up each pair a variant with one texture stage setup
+// (and alpha test function) compiled to straight-line GLSL (GLES3_FF_Generate_GLSL).
+enum { GLES3_PROGRAM_SLOTS = 2048 };
+struct GLES3_FFKey {
+  unsigned char base_lo, base_hi; // the variant (Hash_Pipeline_Config bits)
+  unsigned char afunc;            // D3DCMPFUNC with alpha test on, else 0
+  unsigned char bound;            // bit n: stage n has a texture
+  unsigned char op[4][2];         // COLOROP, ALPHAOP of the stages that run
+  unsigned char arg[4][6];        // COLORARG0/1/2, ALPHAARG0/1/2 (0 where the op ignores it)
+};
+std::string GLES3_FF_Generate_GLSL(const GLES3_FFKey &key);
+
 // ============================================================================
 // Fixed-Function Emulation Shader Manager
 // Compiles and manages the GLSL shaders that emulate DX8's fixed-function
@@ -306,7 +319,7 @@ public:
   static void Shutdown();
 
   // Get/compile the appropriate shader variant for current pipeline state
-  static GLuint Get_Program(unsigned int hash); // hash: Hash_Pipeline_Config
+  static GLuint Get_Program(unsigned int hash); // hash: a slot from Hash_Pipeline_Config
 
   // Upload uniforms to match current DX8 state
   static void Apply_Uniforms(unsigned int hash, const GLES3_PipelineState &state);
@@ -321,10 +334,12 @@ private:
 
   // Shader cache (keyed by texture stage configuration hash)
   // Avoids recompiling shaders every frame
-  static GLuint cached_programs[1024];
-  static GLES3_ProgramUniformLocations cached_locations[1024];
+  static GLuint cached_programs[GLES3_PROGRAM_SLOTS];
+  static GLES3_ProgramUniformLocations cached_locations[GLES3_PROGRAM_SLOTS];
 public:
-  static unsigned int Hash_Pipeline_Config(const GLES3_PipelineState &state);
+  static unsigned int Hash_Pipeline_Config(const GLES3_PipelineState &state); // a program slot
+private:
+  static unsigned int Program_Slot(const GLES3_PipelineState &state, unsigned int hash);
 };
 
 // ============================================================================

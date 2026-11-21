@@ -318,17 +318,23 @@ uniform vec4 u_PSConst[8];
 // Output
 out vec4 fragColor;
 
-// Alpha test comparison
+// Alpha test comparison. A program from GLES3_FF_Generate_GLSL has the function as a constant
+// (GX_AFUNC), so only its own comparison is compiled.
+#ifdef GX_AFUNC
+#define GX_AF GX_AFUNC
+#else
+#define GX_AF u_AlphaFunc
+#endif
 bool alpha_test(float alpha) {
     // D3DCMPFUNC values
-    if (u_AlphaFunc == 1) return false;                             // NEVER
-    if (u_AlphaFunc == 2) return alpha < u_AlphaRef;                // LESS
-    if (u_AlphaFunc == 3) return abs(alpha - u_AlphaRef) < 0.004;   // EQUAL
-    if (u_AlphaFunc == 4) return alpha <= u_AlphaRef;               // LESSEQUAL
-    if (u_AlphaFunc == 5) return alpha > u_AlphaRef;                // GREATER
-    if (u_AlphaFunc == 6) return abs(alpha - u_AlphaRef) >= 0.004;  // NOTEQUAL
-    if (u_AlphaFunc == 7) return alpha >= u_AlphaRef;               // GREATEREQUAL
-    if (u_AlphaFunc == 8) return true;                              // ALWAYS
+    if (GX_AF == 1) return false;                             // NEVER
+    if (GX_AF == 2) return alpha < u_AlphaRef;                // LESS
+    if (GX_AF == 3) return abs(alpha - u_AlphaRef) < 0.004;   // EQUAL
+    if (GX_AF == 4) return alpha <= u_AlphaRef;               // LESSEQUAL
+    if (GX_AF == 5) return alpha > u_AlphaRef;                // GREATER
+    if (GX_AF == 6) return abs(alpha - u_AlphaRef) >= 0.004;  // NOTEQUAL
+    if (GX_AF == 7) return alpha >= u_AlphaRef;               // GREATEREQUAL
+    if (GX_AF == 8) return true;                              // ALWAYS
     return true;
 }
 
@@ -427,6 +433,9 @@ vec4 run_pixel_shader() {
 #if GX_PSGEN
 vec4 run_ps_gen(); // generated from the ps.1.1 program, appended after main
 #endif
+#if GX_FFGEN
+vec4 run_ff(vec4 diffuse); // the texture stages as straight-line code, appended after main
+#endif
 
 void main() {
     vec4 diffuse = v_Color;
@@ -439,6 +448,9 @@ void main() {
         color = run_pixel_shader();
 #endif
     } else {
+#if GX_FFGEN
+        color = run_ff(diffuse);
+#else
         for (int s = 0; s < GX_STAGES; s++) {
             int cop = u_StageOps[s * 2], aop = u_StageOps[s * 2 + 1];
             if (cop <= 1) break; // D3DTOP_DISABLE ends the chain here
@@ -456,6 +468,7 @@ void main() {
             }
             color.rgb = rgb;
         }
+#endif
         if (GX_SPEC) color.rgb = clamp(color.rgb + v_Specular.rgb, 0.0, 1.0);
     }
 
@@ -491,39 +504,99 @@ void main() {
 
 extern "C" {
 
+} // extern "C"
+
 // Each variant (GLES3_ShaderManager::Hash_Pipeline_Config) gets #defines right after the
 // #version line; the shaders test them instead of uniforms, so the compiler drops the code a
-// variant never runs.
-static const char* Variant_Source(const char* base, unsigned int h, std::string* cache, bool is_fragment) {
-    std::string& s = cache[h & 1023];
-    if (s.empty()) {
-        const char* body = strchr(base, '\n') + 1; // after "#version 300 es"
-        char defs[256];
-        auto b = [](bool v) { return v ? "true" : "false"; }; // GLSL has no int -> bool
-        bool ps = (h & 32) != 0;
-        unsigned int psgen = ps ? (h >> 6) & 15 : 0; // ps.1.1 handle compiled to GLSL
-        snprintf(defs, sizeof(defs),
-                 "#version 300 es\n#define GX_LIGHT %s\n#define GX_FOG %s\n#define GX_ATEST %s\n"
-                 "#define GX_PRE %s\n#define GX_SPEC %s\n#define GX_PS %s\n#define GX_STAGES %d\n"
-                 "#define GX_PSGEN %d\n",
-                 b(h & 1), b(h & 2), b(h & 4), b(h & 8), b(h & 16), b(ps), ps ? 0 : (int)((h >> 6) & 7),
-                 is_fragment && psgen ? 1 : 0);
-        s = std::string(defs) + body;
-        if (is_fragment && psgen) s += GLES3_PS_Generate_GLSL(psgen);
+// variant never runs. key (fragment only): the texture stage setup to compile in, or nullptr.
+static std::string Variant_Source(const char* base, unsigned int h, bool is_fragment, const GLES3_FFKey* key) {
+    const char* body = strchr(base, '\n') + 1; // after "#version 300 es"
+    char defs[320];
+    auto b = [](bool v) { return v ? "true" : "false"; }; // GLSL has no int -> bool
+    bool ps = (h & 32) != 0;
+    unsigned int psgen = ps ? (h >> 6) & 15 : 0; // ps.1.1 handle compiled to GLSL
+    int stages = ps ? 0 : (int)((h >> 6) & 7);
+    bool ffgen = is_fragment && key && stages > 0;
+    int n = snprintf(defs, sizeof(defs),
+             "#version 300 es\n#define GX_LIGHT %s\n#define GX_FOG %s\n#define GX_ATEST %s\n"
+             "#define GX_PRE %s\n#define GX_SPEC %s\n#define GX_PS %s\n#define GX_STAGES %d\n"
+             "#define GX_PSGEN %d\n#define GX_FFGEN %d\n",
+             b(h & 1), b(h & 2), b(h & 4), b(h & 8), b(h & 16), b(ps), stages,
+             is_fragment && psgen ? 1 : 0, ffgen ? 1 : 0);
+    if (is_fragment && key && key->afunc) snprintf(defs + n, sizeof(defs) - n, "#define GX_AFUNC %d\n", key->afunc);
+    std::string s = std::string(defs) + body;
+    if (is_fragment && psgen) s += GLES3_PS_Generate_GLSL(psgen);
+    if (ffgen) s += GLES3_FF_Generate_GLSL(*key);
+    return s;
+}
+
+std::string GLES3_Get_Vertex_Shader_Source(unsigned int config_hash) {
+    return Variant_Source(g_VertexShaderSource, config_hash, false, nullptr);
+}
+
+std::string GLES3_Get_Fragment_Shader_Source(unsigned int config_hash, const GLES3_FFKey* key) {
+    return Variant_Source(g_FragmentShaderSource, config_hash, true, key);
+}
+
+// One D3D texture stage argument (D3DTA_*) as a GLSL expression; same rules as stage_arg().
+static std::string FF_Arg(int a) {
+    int sel = a & 15;
+    std::string v = sel == 0 ? "diffuse" : sel == 2 ? "tex" : sel == 3 ? "u_TextureFactor"
+                  : sel == 4 ? "v_Specular" : "cur"; // 1 CURRENT; 5 TEMP as CURRENT
+    if (a & 16) v = "(vec4(1.0) - " + v + ")";
+    if (a & 32) v = "vec4((" + v + ").a)";
+    return v;
+}
+
+// One D3DTEXTUREOP as a GLSL expression; same formulas as tex_op().
+static std::string FF_Op(int op, const std::string& a1, const std::string& a2, const std::string& a0) {
+    switch (op) {
+        case 2: return a1;
+        case 3: return a2;
+        case 5: return "(" + a1 + " * " + a2 + " * 2.0)";
+        case 6: return "(" + a1 + " * " + a2 + " * 4.0)";
+        case 7: return "(" + a1 + " + " + a2 + ")";
+        case 8: return "(" + a1 + " + " + a2 + " - 0.5)";
+        case 9: return "((" + a1 + " + " + a2 + " - 0.5) * 2.0)";
+        case 10: return "(" + a1 + " - " + a2 + ")";
+        case 11: return "(" + a1 + " + " + a2 + " - " + a1 + " * " + a2 + ")";
+        case 12: return "mix(" + a2 + ", " + a1 + ", diffuse.a)";
+        case 13: return "mix(" + a2 + ", " + a1 + ", tex.a)";
+        case 14: return "mix(" + a2 + ", " + a1 + ", u_TextureFactor.a)";
+        case 15: return "(" + a1 + " + " + a2 + " * (1.0 - tex.a))";
+        case 16: return "mix(" + a2 + ", " + a1 + ", cur.a)";
+        case 18: return "(" + a1 + " + (" + a1 + ").a * " + a2 + ")";
+        case 19: return "(" + a1 + " * " + a2 + " + (" + a1 + ").a)";
+        case 20: return "((1.0 - (" + a1 + ").a) * " + a2 + " + " + a1 + ")";
+        case 21: return "((vec4(1.0) - " + a1 + ") * " + a2 + " + (" + a1 + ").a)";
+        case 22: case 23: return a2;
+        case 24: return "vec4(4.0 * dot((" + a1 + ").rgb - 0.5, (" + a2 + ").rgb - 0.5))";
+        case 25: return "(" + a0 + " + " + a1 + " * " + a2 + ")";
+        case 26: return "mix(" + a2 + ", " + a1 + ", " + a0 + ")";
+        default: return "(" + a1 + " * " + a2 + ")"; // MODULATE, PREMODULATE
     }
-    return s.c_str();
 }
 
-const char* GLES3_Get_Vertex_Shader_Source(unsigned int config_hash) {
-    static std::string cache[1024];
-    return Variant_Source(g_VertexShaderSource, config_hash, cache, false);
+// The texture stages of one setup as straight-line GLSL: run_ff(), called by main instead of
+// the interpreter loop. Each stage reads the colour before it (cur) for both its colour and
+// alpha, and D3D saturates every stage, as in the loop.
+std::string GLES3_FF_Generate_GLSL(const GLES3_FFKey& k) {
+    std::string s = "\nvec4 run_ff(vec4 diffuse) {\n    vec4 color = diffuse;\n";
+    for (int st = 0; st < 4 && k.op[st][0] > 1; st++) {
+        const char n = (char)('0' + st);
+        s += "    {\n        vec4 cur = color;\n        vec4 tex = ";
+        s += (k.bound & (1 << st))
+            ? std::string("texture(u_Texture") + n + ", v_TexCoord" + n + ".xy / v_TexCoord" + n + ".z, u_LodBias);\n"
+            : std::string("vec4(1.0);\n");
+        const unsigned char* a = k.arg[st];
+        s += "        color.rgb = clamp(" + FF_Op(k.op[st][0], FF_Arg(a[1]), FF_Arg(a[2]), FF_Arg(a[0])) + ", 0.0, 1.0).rgb;\n";
+        if (k.op[st][1] > 1) {
+            auto x = [](int v) { return "vec4(" + FF_Arg(v) + ".a)"; };
+            s += "        color.a = clamp(" + FF_Op(k.op[st][1], x(a[4]), x(a[5]), x(a[3])) + ", 0.0, 1.0).a;\n";
+        }
+        s += "    }\n";
+    }
+    return s + "    return color;\n}\n";
 }
-
-const char* GLES3_Get_Fragment_Shader_Source(unsigned int config_hash) {
-    static std::string cache[1024];
-    return Variant_Source(g_FragmentShaderSource, config_hash, cache, true);
-}
-
-} // extern "C"
 
 #endif // __EMSCRIPTEN__

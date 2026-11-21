@@ -69,8 +69,8 @@ bool GLES3_Texture_Has_Mipmaps(GLuint tex) {
 
 
 // Shader manager statics
-GLuint GLES3_ShaderManager::cached_programs[1024] = {0};
-GLES3_ProgramUniformLocations GLES3_ShaderManager::cached_locations[1024];
+GLuint GLES3_ShaderManager::cached_programs[GLES3_PROGRAM_SLOTS] = {0};
+GLES3_ProgramUniformLocations GLES3_ShaderManager::cached_locations[GLES3_PROGRAM_SLOTS];
 
 struct GLES3_CachedUniformState { // per program; scene values live in GXScene
     bool initialized;
@@ -93,7 +93,7 @@ struct GLES3_CachedUniformState { // per program; scene values live in GXScene
     float tex_matrix[4][16];
 };
 
-static GLES3_CachedUniformState cached_uniform_states[1024] = {};
+static GLES3_CachedUniformState cached_uniform_states[GLES3_PROGRAM_SLOTS] = {};
 
 // ============================================================================
 // Helper: DX8 Blend Mode → GL Blend Factor
@@ -1631,7 +1631,7 @@ bool GLES3_ShaderManager::Init() {
 }
 
 void GLES3_ShaderManager::Shutdown() {
-    for (int i = 0; i < 1024; i++) {
+    for (int i = 0; i < GLES3_PROGRAM_SLOTS; i++) {
         if (cached_programs[i]) {
             glDeleteProgram(cached_programs[i]);
             cached_programs[i] = 0;
@@ -1699,7 +1699,70 @@ unsigned int GLES3_ShaderManager::Hash_Pipeline_Config(
         while (stages < 4 && state.texture_stage_state[stages][GLES3_TSS_COLOROP] > 1) stages++;
         hash |= stages << 6;
     }
-    return hash; // < 1024
+    return Program_Slot(state, hash);
+}
+
+// Texture stage setups compiled to straight-line GLSL get their own program slot (1024 and up).
+// Through the interpreter, a software or weak GPU runs every branch of every op, argument and
+// texture lookup for every pixel; the UI and the shroud pass cost most of a low-end frame there.
+static GLES3_FFKey g_SlotKey[GLES3_PROGRAM_SLOTS];
+static int g_SlotCount = 1024;
+int gx_ff_slots = 0; // GXLAYOUT log line
+struct FFKeyHash {
+    size_t operator()(const GLES3_FFKey& k) const {
+        const unsigned char* b = (const unsigned char*)&k;
+        size_t h = 2166136261u;
+        for (size_t i = 0; i < sizeof(k); i++) h = (h ^ b[i]) * 16777619u;
+        return h;
+    }
+};
+struct FFKeyEq {
+    bool operator()(const GLES3_FFKey& a, const GLES3_FFKey& b) const { return memcmp(&a, &b, sizeof(a)) == 0; }
+};
+
+unsigned int GLES3_ShaderManager::Program_Slot(const GLES3_PipelineState& state, unsigned int hash) {
+    const bool ps = (hash & 32) != 0;
+    const int stages = ps ? 0 : (int)((hash >> 6) & 7);
+    if (stages == 0 && !state.alpha_test_enabled) return hash; // nothing to specialise
+    GLES3_FFKey k;
+    memset(&k, 0, sizeof(k));
+    k.base_lo = hash & 255;
+    k.base_hi = hash >> 8;
+    if (state.alpha_test_enabled) k.afunc = state.alpha_func <= 8 ? state.alpha_func : 8;
+    auto clip = [](unsigned int v) { return (unsigned char)(v <= 255 ? v : 255); };
+    for (int s = 0; s < stages; s++) {
+        const unsigned int* t = state.texture_stage_state[s];
+        if (state.bound_textures[s]) k.bound |= 1 << s;
+        for (int c = 0; c < 2; c++) { // colour, then alpha
+            unsigned int op = t[c ? GLES3_TSS_ALPHAOP : GLES3_TSS_COLOROP];
+            if (c && op <= 1) { k.op[s][1] = 1; continue; } // alpha unchanged: args unused
+            k.op[s][c] = clip(op);
+            unsigned int a0 = t[c ? GLES3_TSS_ALPHAARG0 : GLES3_TSS_COLORARG0];
+            unsigned int a1 = t[c ? GLES3_TSS_ALPHAARG1 : GLES3_TSS_COLORARG1];
+            unsigned int a2 = t[c ? GLES3_TSS_ALPHAARG2 : GLES3_TSS_COLORARG2];
+            // Only the arguments the op reads, so setups that differ in unused ones share a program.
+            k.arg[s][c * 3 + 0] = (op == 25 || op == 26) ? (a0 & 63) : 0;
+            k.arg[s][c * 3 + 1] = op == 3 ? 0 : (a1 & 63);
+            k.arg[s][c * 3 + 2] = op == 2 ? 0 : (a2 & 63);
+        }
+    }
+    static GLES3_FFKey last;
+    static unsigned int last_slot = ~0u;
+    if (last_slot != ~0u && memcmp(&k, &last, sizeof(k)) == 0) return last_slot;
+    static std::unordered_map<GLES3_FFKey, unsigned short, FFKeyHash, FFKeyEq> slots;
+    auto it = slots.find(k);
+    unsigned int slot;
+    if (it != slots.end()) {
+        slot = it->second;
+    } else {
+        // Out of slots: the interpreter variant still draws it right.
+        slot = g_SlotCount < GLES3_PROGRAM_SLOTS ? (unsigned int)g_SlotCount++ : hash;
+        if (slot >= 1024) { g_SlotKey[slot] = k; gx_ff_slots++; }
+        slots.emplace(k, (unsigned short)slot);
+    }
+    last = k;
+    last_slot = slot;
+    return slot;
 }
 
 GLint GLES3_ShaderManager::Get_Instancing_Uniform_Location(const GLES3_PipelineState &state) {
@@ -1708,8 +1771,9 @@ GLint GLES3_ShaderManager::Get_Instancing_Uniform_Location(const GLES3_PipelineS
 }
 
 // Forward declaration — defined with extern "C" in dx8_fixedfunction_shaders.cpp
-extern "C" const char* GLES3_Get_Vertex_Shader_Source(unsigned int config_hash);
-extern "C" const char* GLES3_Get_Fragment_Shader_Source(unsigned int config_hash);
+// Defined in dx8_fixedfunction_shaders.cpp. key: nullptr = the stages run by the interpreter.
+std::string GLES3_Get_Vertex_Shader_Source(unsigned int config_hash);
+std::string GLES3_Get_Fragment_Shader_Source(unsigned int config_hash, const GLES3_FFKey* key);
 
 void GLES3_ShaderManager::Populate_Locations(GLuint program, unsigned int hash) {
     GLES3_ProgramUniformLocations& locs = cached_locations[hash];
@@ -1748,16 +1812,19 @@ GLuint GLES3_ShaderManager::Get_Program(unsigned int hash) {
         return cached_programs[hash];
     }
     // A variant that failed to compile stays 0; don't recompile it on every draw.
-    static bool tried[1024];
+    static bool tried[GLES3_PROGRAM_SLOTS];
     if (tried[hash]) return 0;
     tried[hash] = true;
 
-    // Compile shader variant for this pipeline configuration
-    const char* vs_src = GLES3_Get_Vertex_Shader_Source(hash);
-    const char* fs_src = GLES3_Get_Fragment_Shader_Source(hash);
-
-    GLuint vs = Compile_Shader(GL_VERTEX_SHADER, vs_src);
-    GLuint fs = Compile_Shader(GL_FRAGMENT_SHADER, fs_src);
+    // Compile shader variant for this pipeline configuration. The vertex shader depends only
+    // on the variant, so slots of one variant share one compiled vertex shader.
+    const GLES3_FFKey* key = hash >= 1024 ? &g_SlotKey[hash] : nullptr;
+    unsigned int base = key ? (key->base_lo | (key->base_hi << 8)) : hash;
+    static GLuint vertex_shaders[1024];
+    if (!vertex_shaders[base])
+        vertex_shaders[base] = Compile_Shader(GL_VERTEX_SHADER, GLES3_Get_Vertex_Shader_Source(base).c_str());
+    GLuint vs = vertex_shaders[base];
+    GLuint fs = Compile_Shader(GL_FRAGMENT_SHADER, GLES3_Get_Fragment_Shader_Source(base, key).c_str());
 
     if (vs && fs) {
         cached_programs[hash] = Link_Program(vs, fs);
@@ -1768,7 +1835,6 @@ GLuint GLES3_ShaderManager::Get_Program(unsigned int hash) {
         }
     }
 
-    if (vs) glDeleteShader(vs);
     if (fs) glDeleteShader(fs);
 
     return cached_programs[hash];

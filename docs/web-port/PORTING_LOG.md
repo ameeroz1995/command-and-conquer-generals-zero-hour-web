@@ -2029,3 +2029,28 @@ Candidates, ranked for weak machines:
 
 Not worth it: blended draws other than the shroud and UI (no change when cut); ~25 ms per frame
 is fixed overhead with no draws (clears, presenting, compositing).
+
+## 2026-11-21 — Session 32: Texture stages compiled to straight-line GLSL
+
+Candidate 1 from Session 31. Each distinct texture stage setup (colour/alpha ops, the arguments
+the ops read, which stages have a texture) and the alpha test function get their own program
+slot (1024-2047, `GLES3_ShaderManager::Program_Slot`), whose fragment shader has the stages as
+straight-line code (`GLES3_FF_Generate_GLSL`, `run_ff`) and the alpha function as `GX_AFUNC`.
+Slots 0-1023 are the old variants with the interpreter, still used if the slots ever run out.
+A variant's vertex shader is compiled once and shared by its slots. GXLAYOUT log: `ffprograms`.
+
+| low-end (2 cores + SwiftShader, multithreaded build), two runs each | live 00024 | this |
+|---|---|---|
+| menu | 6.3-7.3 fps | 33.8-36.4 fps |
+| in game, still | 3.4-4.3 fps | 11.9-13.4 fps |
+| in game, panning | 3.5-4.8 fps | 10.7-13.8 fps |
+
+- 9 stage setups in a LAN game, so 9 extra programs compiled.
+- RX 580: unchanged (menu 0.9 ms, in game 2.7 -> 2.9 ms, panning 2.2 -> 2.0 ms: noise).
+- Picture: screenshot diff against live in the LAN game shows only moving things (radar dish,
+  dozer, a minimap blip); UI, terrain, shroud and the minimap outline identical. No WebGL
+  errors; the 3 shader messages are the known water shaders, also on live.
+- Diff-only review: pass. It checked all 11,250 op/argument expressions numerically against the
+  interpreter and compiled 410 random setups in WebGL2. Nits left: a vertex shader that fails
+  to compile is retried for each slot of its variant (log noise only); the shared vertex shaders
+  are not freed at Shutdown (never called again today).
