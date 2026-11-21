@@ -69,20 +69,20 @@ void Yield_Ms(int ms) {
 // After such a drop it waits 1 minute before pacing again, doubling each time (up to 8 min), so a
 // machine that swings between 15 and 45 fps doesn't flip back and forth (seen on the low-end
 // setup: 4-5 switches a run). Called every ~500 ms with the measured rate.
-// gx_in_match is set by EmscriptenMain; ?pace=0 turns pacing off (for measuring).
+// gx_in_match is set by EmscriptenMain. The page's setting "Steady 30 fps" (or ?pace=0, for
+// measuring) turns pacing off; read about once a second with the other page switches.
 int gx_in_match = 0;
 static void GX_PaceFrames(float fps) {
-    static int enabled = -1, halved = 0, steady = 0;
+    static int halved = 0, steady = 0;
     static double since = 0, blockedUntil = 0, backoff = 60000.0;
-    if (enabled < 0) {
-        enabled = MAIN_THREAD_EM_ASM_INT({ try { return location.search.indexOf('pace=0') >= 0 ? 0 : 1; } catch (e) { return 1; } });
-    }
-    if (!enabled) return;
+    extern int GLES3_Page_Switches();
+    const bool enabled = (GLES3_Page_Switches() & 4) != 0;
+    if (!enabled && !halved) return;
     int mode = 0, value = 0;
     emscripten_get_main_loop_timing(&mode, &value);
     const double now = WebTiming::Now_Ms();
     int want = halved;
-    if (!gx_in_match) { want = 0; steady = 0; }
+    if (!enabled || !gx_in_match) { want = 0; steady = 0; }
     else if (!halved) {
         steady = (fps >= 33.0f && fps <= 50.0f && now >= blockedUntil) ? steady + 1 : 0;
         if (steady >= 10) want = 1;
@@ -151,6 +151,11 @@ static void emscripten_main_loop_callback() {
         static double work_sum = 0, work_t0 = 0; static int work_n = 0;
         double work_end = WebTiming::Now_Ms();
         work_sum += work_end - work_start; work_n++;
+        // Average over the last second, for the page's frame-rate overlay (Module.gxWorkMs).
+        { extern double gx_work_ms_1s; static double s1 = 0, t1 = 0; static int n1 = 0;
+          s1 += work_end - work_start; n1++;
+          if (t1 == 0) t1 = work_end;
+          if (work_end - t1 >= 1000.0) { gx_work_ms_1s = s1 / n1; s1 = 0; n1 = 0; t1 = work_end; } }
         if (work_t0 == 0) work_t0 = work_end;
         if (work_end - work_t0 >= 5000.0) {
             printf("GXWORK ms=%.2f frames=%d\n", work_sum / work_n, work_n);

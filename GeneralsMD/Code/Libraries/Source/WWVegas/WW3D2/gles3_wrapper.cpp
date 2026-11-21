@@ -48,7 +48,8 @@ static bool g_Initialized = false;
 static bool g_SceneDirty = true; // GXScene inputs changed since the last upload (Upload_Scene_Block)
 static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
 static int g_SwapCount = 0;         // frames presented, for Module.gxFps (render scale Auto)
-static int g_PageSwitches = 3;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off)
+double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gles3_mainloop) -> Module.gxWorkMs
+static int g_PageSwitches = 7;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -411,8 +412,12 @@ void GLES3_Begin_Scene() {
         last_check = now;
         g_SwapCount = 0;
         next_check = now + 1000.0;
-        double sc = EM_ASM_DOUBLE({ Module.gxFps = $0; return Module.gxRenderScale || 1; }, fps);
-        g_PageSwitches = EM_ASM_INT({ return (Module.gxShroudFold === 0 ? 0 : 1) | (Module.gxTerrainCull === 0 ? 0 : 2); });
+        double sc = EM_ASM_DOUBLE({ Module.gxFps = $0; Module.gxWorkMs = $1; return Module.gxRenderScale || 1; }, fps, gx_work_ms_1s);
+        g_PageSwitches = EM_ASM_INT({
+            var st = window.GeneralsX && window.GeneralsX.settings;
+            var pace = location.search.indexOf('pace=0') < 0 && !(st && st.steady30 === false);
+            return (Module.gxShroudFold === 0 ? 0 : 1) | (Module.gxTerrainCull === 0 ? 0 : 2) | (pace ? 4 : 0);
+        });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__
         // Worker build: the canvas belongs to this thread, so the page can't resize it.

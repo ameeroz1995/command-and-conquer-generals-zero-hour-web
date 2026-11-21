@@ -2164,3 +2164,18 @@ fighting (3 minutes, 5-second windows, first 15 s skipped). Median / worst 5-sec
   the same build's menu runs 614-1359 fps. The pair at equal load (run 3) is within a few percent
   in every scene. The fold and culling remove GPU vertex and pixel work, which the RX 580 has to
   spare; their gain is on weak or software GPUs (low-end setup 16-17 -> 21-22 fps, Session 36).
+
+## 2026-11-22 — Frame-rate overlay; Steady 30 fps setting
+
+- **Show frame rate** (settings drawer, off by default): a line at the top left with frames per
+  second, ms per frame, the game's own CPU work per frame, the render scale in use (and whether
+  it is Auto), the graphics chip and the build (multithreaded or not). The engine reports
+  `Module.gxFps` and `Module.gxWorkMs` (1-second average from gles3_mainloop) with its
+  once-a-second render scale read. Made for reading real weak machines without tools. Checked:
+  RX 580 overlay 60.0 fps with the engine's GXFRAME at 60.0; low-end 12-14 fps against GXFRAME
+  12.1-12.8.
+- **Steady 30 fps** (settings drawer, on by default): the 30 fps pacing (79a1ea7) now follows it,
+  read about once a second with the page switches (bit 2 of `GLES3_Page_Switches`, also off with
+  `?pace=0`), so it applies without a reload; unticking while paced returns to 60 at once.
+  Checked with SwiftShader on all cores (match at ~35-43 fps): pacing engaged, unticking went back
+  to 60 within 3 s and it stayed off, ticking again re-engaged it.

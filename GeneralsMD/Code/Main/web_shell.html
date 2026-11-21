@@ -462,6 +462,22 @@
 
       <div style="margin-bottom: 14px;">
         <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;">
+          <input type="checkbox" id="gx-setting-steady30" style="margin-right: 8px; accent-color: var(--gx-fg);" checked>
+          STEADY 30 FPS
+        </label>
+        <div style="font-size: 9px; color: var(--gx-mute); margin-left: 20px; margin-top: 3px;">When a match can't hold 60 but stays above about 33 fps, show an even 30 instead of an uneven rate. Applies at once.</div>
+      </div>
+
+      <div style="margin-bottom: 14px;">
+        <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;">
+          <input type="checkbox" id="gx-setting-fps" style="margin-right: 8px; accent-color: var(--gx-fg);">
+          SHOW FRAME RATE
+        </label>
+        <div style="font-size: 9px; color: var(--gx-mute); margin-left: 20px; margin-top: 3px;">Frames per second, time per frame, the game's own work per frame, render scale and graphics chip, top left.</div>
+      </div>
+
+      <div style="margin-bottom: 14px;">
+        <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;">
           <input type="checkbox" id="gx-setting-multithread" style="margin-right: 8px; accent-color: var(--gx-fg);" checked>
           MULTITHREADED
         </label>
@@ -1220,6 +1236,38 @@
         // misses an Emscripten-side write. Cheap (1Hz, two int compares).
         setInterval(gxLockCanvasBacking, 1000);
 
+        // Frame-rate overlay (settings: Show frame rate), so a real weak machine can be measured
+        // without tools: the engine's frames per second and game work per frame (Module.gxFps,
+        // Module.gxWorkMs, about once a second), the render scale in use and the renderer.
+        let gxFpsEl = null, gxRendererName = null;
+        setInterval(function () {
+          const st = window.GeneralsX && window.GeneralsX.settings, M = window.Module || {};
+          const on = !!(st && st.showFps && M.gxFps);
+          if (!on) { if (gxFpsEl) gxFpsEl.style.display = 'none'; return; }
+          if (!gxFpsEl) {
+            gxFpsEl = document.createElement('div');
+            gxFpsEl.id = 'gx-fps';
+            gxFpsEl.style.cssText = 'position:fixed;left:6px;top:6px;z-index:9999;pointer-events:none;' +
+              'font:11px/1.4 monospace;color:#f0d27a;background:rgba(0,0,0,.6);padding:3px 6px;white-space:pre';
+            document.body.appendChild(gxFpsEl);
+          }
+          if (gxRendererName === null) {
+            gxRendererName = '';
+            try {
+              const gl = document.createElement('canvas').getContext('webgl2');
+              const info = gl && gl.getExtension('WEBGL_debug_renderer_info');
+              gxRendererName = gl ? String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER)) : '';
+              const lose = gl && gl.getExtension('WEBGL_lose_context');
+              if (lose) lose.loseContext();
+            } catch (e) {}
+            gxRendererName = gxRendererName.replace(/^ANGLE \((.*)\)$/, '$1').slice(0, 60);
+          }
+          gxFpsEl.style.display = 'block';
+          gxFpsEl.textContent = M.gxFps.toFixed(1) + ' fps  ' + (1000 / M.gxFps).toFixed(1) + ' ms/frame  game ' +
+            (M.gxWorkMs || 0).toFixed(1) + ' ms  scale ' + Math.round((M.gxRenderScale || 1) * 100) + '%' +
+            (st.renderScale === 'auto' ? ' (auto)' : '') + '\n' + gxRendererName + '  ' + (window.gxMultithread ? 'multithreaded' : 'single thread');
+        }, 1000);
+
         // Render scale Auto: the engine reports its frame rate (Module.gxFps) and whether a
         // match is on (Module.gxInMatch: not the menu's shell map, not loading), about once a
         // second. During a match, 3 s in a row below 24 fps drop the scale 10%, 3 s above 45
@@ -1706,6 +1754,18 @@
             window.GeneralsX.settings.antialias = antialiasCb.checked;
             saveSettings();
             location.reload(); // the WebGL context is made with or without it
+          });
+          var steadyCb = document.getElementById('gx-setting-steady30');
+          steadyCb.checked = window.GeneralsX.settings.steady30 !== false;
+          steadyCb.addEventListener('change', function() {
+            window.GeneralsX.settings.steady30 = steadyCb.checked; // the engine reads it about once a second
+            saveSettings();
+          });
+          var fpsCb = document.getElementById('gx-setting-fps');
+          fpsCb.checked = window.GeneralsX.settings.showFps === true;
+          fpsCb.addEventListener('change', function() {
+            window.GeneralsX.settings.showFps = fpsCb.checked;
+            saveSettings();
           });
           var renderScaleSel = document.getElementById('gx-setting-render-scale');
           renderScaleSel.value = String(window.GeneralsX.settings.renderScale || 1);
