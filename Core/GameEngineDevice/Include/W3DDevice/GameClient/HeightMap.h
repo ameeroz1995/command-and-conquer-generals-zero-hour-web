@@ -100,6 +100,18 @@ protected:
 	Int	m_numBlockColumnsInLastVB;///<a VB tile may be partially filled, this indicates how many 2x2 vertex blocks are filled.
 	Int	m_numBlockRowsInLastVB;///<a VB tile may be partially filled, this indicates how many 2x2 vertex blocks are filled.
 
+	// GeneralsX @performance WebPort 2026-11-21: per tile, an index buffer that draws blocks of
+	// cells whose vertices are all affine across the block (flat or evenly sloped ground with one
+	// colour and continuous texture coordinates) as one fan instead of 2 triangles per cell. The
+	// picture is the same; on a software GPU the cost follows the triangle count.
+	DX8IndexBufferClass **m_tileIndexBuffers;	///< per VB tile, merged triangles (nullptr: not built)
+	Int *m_tileTriangles;			///< per VB tile, triangles in m_tileIndexBuffers
+	Bool *m_tileMergeDirty;			///< per VB tile, vertices changed since the merge was built
+	UnsignedInt *m_tileLitStamp;	///< per VB tile, m_lightStamp when dynamic lights last recoloured it
+	UnsignedInt m_lightStamp;		///< bumped once per On_Frame_Update
+	void buildMergedIndices(Int tile);
+	void drawTileTriangles(Int x, Int y);	///< draws one VB tile (merged when possible); its VB is set
+
 	DX8VertexBufferClass *getVertexBufferTile(Int x, Int y);
 	VERTEX_FORMAT *getVertexBufferBackup(Int x, Int y);
 	UnsignedInt doTheDynamicLight(VERTEX_FORMAT *vb, VERTEX_FORMAT *vbMirror, Vector3*light, Vector3*normal, W3DDynamicLight *pLights[], Int numLights);

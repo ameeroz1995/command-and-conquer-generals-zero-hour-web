@@ -90,6 +90,11 @@
 #include "W3DDevice/GameClient/W3DCustomScene.h"
 
 #include "Common/UnitTimings.h" //Contains the DO_UNIT_TIMINGS define jba.
+#include <functional>
+#include <math.h>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 
 #define no_OPTIMIZED_HEIGHTMAP_LIGHTING	01
@@ -125,6 +130,19 @@ inline Int IABS(Int x) {	if (x>=0) return x; return -x;};
 void HeightMapRenderObjClass::freeIndexVertexBuffers()
 {
 	REF_PTR_RELEASE(m_indexBuffer);
+
+	if (m_tileIndexBuffers) {
+		for (int i=0; i<m_numVertexBufferTiles; i++)
+			REF_PTR_RELEASE(m_tileIndexBuffers[i]);
+		delete[] m_tileIndexBuffers;
+		m_tileIndexBuffers = nullptr;
+	}
+	delete[] m_tileTriangles;
+	m_tileTriangles = nullptr;
+	delete[] m_tileMergeDirty;
+	m_tileMergeDirty = nullptr;
+	delete[] m_tileLitStamp;
+	m_tileLitStamp = nullptr;
 
 	if (m_vertexBufferTiles) {
 		for (int i=0; i<m_numVertexBufferTiles; i++)
@@ -314,6 +332,10 @@ Int HeightMapRenderObjClass::updateVB(DX8VertexBufferClass	*pVB, VERTEX_FORMAT *
 	constexpr const Int cellOffset = 1;
 
 	REF_PTR_SET(m_map, pMap);	//update our heightmap pointer in case it changed since last call.
+	if (m_tileMergeDirty && m_vertexBufferBackup && data >= m_vertexBufferBackup) {
+		const Int tile = (Int)((data - m_vertexBufferBackup) / HEIGHTMAP_VERTEX_NUM);
+		if (tile < m_numVertexBufferTiles) m_tileMergeDirty[tile] = true;	// merge rebuilt before its next draw
+	}
 	if (m_vertexBufferTiles && pMap)
 	{
 #ifdef RTS_DEBUG
@@ -1053,7 +1075,12 @@ m_numVBTilesX(0),
 m_numVBTilesY(0),
 m_numVertexBufferTiles(0),
 m_numBlockColumnsInLastVB(0),
-m_numBlockRowsInLastVB(0)
+m_numBlockRowsInLastVB(0),
+m_tileIndexBuffers(nullptr),
+m_tileTriangles(nullptr),
+m_tileMergeDirty(nullptr),
+m_tileLitStamp(nullptr),
+m_lightStamp(0)
 {
 	TheHeightMap = this;
 }
@@ -1331,6 +1358,16 @@ Int HeightMapRenderObjClass::initHeightData(Int x, Int y, WorldHeightMap *pMap, 
 			m_vertexBufferTiles[i] = NEW_REF(DX8VertexBufferClass,(DX8_VERTEX_FORMAT,HEIGHTMAP_VERTEX_NUM,DX8VertexBufferClass::USAGE_DEFAULT));
 #endif
 		}
+		m_tileIndexBuffers = NEW DX8IndexBufferClass*[m_numVertexBufferTiles];
+		m_tileTriangles = NEW Int[m_numVertexBufferTiles];
+		m_tileMergeDirty = NEW Bool[m_numVertexBufferTiles];
+		m_tileLitStamp = NEW UnsignedInt[m_numVertexBufferTiles];
+		for (i=0; i<m_numVertexBufferTiles; i++) {
+			m_tileIndexBuffers[i] = nullptr;
+			m_tileTriangles[i] = 0;
+			m_tileMergeDirty[i] = true;
+			m_tileLitStamp[i] = 0;
+		}
 
 		//go with a preset material for now.
 	}
@@ -1352,6 +1389,7 @@ Int HeightMapRenderObjClass::initHeightData(Int x, Int y, WorldHeightMap *pMap, 
 void HeightMapRenderObjClass::On_Frame_Update()
 {
 	BaseHeightMapRenderObjClass::On_Frame_Update();
+	m_lightStamp++;	// tiles recoloured by dynamic lights below carry this stamp for this frame's draws
 	Int i,j,k;
 	Int originX,originY;
 	if (Scene==nullptr) return;
@@ -1523,6 +1561,7 @@ void HeightMapRenderObjClass::On_Frame_Update()
 				}
 				DX8VertexBufferClass *pVB = getVertexBufferTile(i, j);
 				VERTEX_FORMAT *pData = getVertexBufferBackup(i, j);
+				if (m_tileLitStamp) m_tileLitStamp[j*m_numVBTilesX+i] = m_lightStamp;	// drawn unmerged this frame
 				updateVBForLight(pVB, pData, xMin, yMin, xMax, yMax, originX,originY, enabledLights, numDynaLights);
 			}
 		}
@@ -2032,7 +2071,7 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 				}
 #endif
 				if (Is_Hidden() == 0) {
-					DX8Wrapper::Draw_Triangles(0, HEIGHTMAP_POLYGON_NUM, 0, HEIGHTMAP_VERTEX_NUM);
+					drawTileTriangles(i, j);
 				}
 
 			}
@@ -2131,6 +2170,163 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 
 
 
+//=============================================================================
+// HeightMapRenderObjClass::buildMergedIndices
+//=============================================================================
+/** GeneralsX @performance WebPort 2026-11-21: fewer triangles for flat ground.
+The tile's vertices stay as they are (4 per cell; every writer keeps updating all of them).
+Only the indices change: a block of 4x4 cells or more (quadtree, up to the whole 32x32 tile)
+whose every vertex is affine across the block -- position, texture and blend coordinates, one
+colour -- is drawn as a fan from its centre vertex over every grid point on its border. Affine
+attributes interpolate the same over any triangulation, so the picture is unchanged, and the
+border keeps every grid point, so neighbours of any size meet without cracks. The test reads
+the in-memory copy, which holds the static lighting (dynamic lights only write the GPU copy). */
+//=============================================================================
+void HeightMapRenderObjClass::buildMergedIndices(Int tile)
+{
+	enum { N = VERTEX_BUFFER_TILE_LENGTH, MIN_BLOCK = 4 };
+	const VERTEX_FORMAT *v = m_vertexBufferBackup + tile*HEIGHTMAP_VERTEX_NUM;
+
+	// Vertex index of each cell's corners by position (FLIP_TRIANGLES rotates the 4 slots):
+	// 0 = (x, y), 1 = (x+1, y), 2 = (x+1, y+1), 3 = (x, y+1).
+	static UnsignedShort corner[N*N][4];
+	for (Int c=0; c<N*N; c++) {
+		const Int base = c*4;
+		float minX = v[base].x, maxX = v[base].x, minY = v[base].y, maxY = v[base].y;
+		for (Int k=1; k<4; k++) {
+			const float px = v[base+k].x, py = v[base+k].y;
+			if (px < minX) minX = px;
+			if (px > maxX) maxX = px;
+			if (py < minY) minY = py;
+			if (py > maxY) maxY = py;
+		}
+		Bool seen[4] = {false, false, false, false};
+		Bool ok = maxX > minX && maxY > minY;
+		for (Int k=0; ok && k<4; k++) {
+			const Bool hx = v[base+k].x > minX, hy = v[base+k].y > minY;
+			const Int pos = hy ? (hx ? 2 : 3) : (hx ? 1 : 0);
+			if (seen[pos]) ok = false;
+			seen[pos] = true;
+			corner[c][pos] = (UnsignedShort)(base+k);
+		}
+		if (!ok) {	// degenerate cell (outside the map): never merged, slots as they are
+			for (Int k=0; k<4; k++) corner[c][k] = (UnsignedShort)(base+k);
+		}
+	}
+
+	auto cell = [](Int x, Int y) { return y*N + x; };
+	auto vert = [&](Int x, Int y, Int k) -> const VERTEX_FORMAT & { return v[corner[cell(x, y)][k]]; };
+
+	// Is every vertex of the s x s block at (bx, by) affine across it?
+	auto affine = [&](Int bx, Int by, Int s) -> Bool {
+		const VERTEX_FORMAT &A = vert(bx, by, 0), &B = vert(bx+s-1, by, 1), &D = vert(bx, by+s-1, 3);
+		if (!(B.x > A.x) || !(D.y > A.y)) return false;	// degenerate or wrapped block
+		Bool blend = false;
+		for (Int y=by; y<by+s && !blend; y++)
+			for (Int x=bx; x<bx+s && !blend; x++)
+				for (Int k=0; k<4; k++)
+					if (vert(x, y, k).diffuse & 0xff000000) { blend = true; break; }
+		const float posEps = 1e-3f, uvEps = 2e-5f;	// world units; atlas texels are ~5e-4
+		for (Int y=by; y<by+s; y++) {
+			for (Int x=bx; x<bx+s; x++) {
+				for (Int k=0; k<4; k++) {
+					const VERTEX_FORMAT &p = vert(x, y, k);
+					if (p.diffuse != A.diffuse) return false;
+					const float fi = (float)(x-bx + (k==1 || k==2)) / s, fj = (float)(y-by + (k>=2)) / s;
+					auto off = [&](float a, float b, float d, float got, float eps) {
+						return fabsf(a + (b-a)*fi + (d-a)*fj - got) > eps;
+					};
+					if (off(A.x, B.x, D.x, p.x, posEps) || off(A.y, B.y, D.y, p.y, posEps) ||
+							off(A.z, B.z, D.z, p.z, posEps) ||
+							off(A.u1, B.u1, D.u1, p.u1, uvEps) || off(A.v1, B.v1, D.v1, p.v1, uvEps))
+						return false;
+					// Blend coordinates matter only where the blend alpha isn't 0.
+					if (blend && (off(A.u2, B.u2, D.u2, p.u2, uvEps) || off(A.v2, B.v2, D.v2, p.v2, uvEps)))
+						return false;
+				}
+			}
+		}
+		return true;
+	};
+
+	static UnsignedShort indices[HEIGHTMAP_POLYGON_NUM*3];
+	Int count = 0;
+	auto emit = [&](Int a, Int b, Int c) {
+		indices[count++] = (UnsignedShort)a; indices[count++] = (UnsignedShort)b; indices[count++] = (UnsignedShort)c;
+	};
+	// Quadtree over the tile; blocks that don't merge split until single cells, which keep the
+	// original two triangles (same slots as m_indexBuffer, so flipped cells stay flipped).
+	std::function<void(Int, Int, Int)> walk = [&](Int bx, Int by, Int s) {
+		if (s >= MIN_BLOCK && affine(bx, by, s)) {
+			// Border grid points counter-clockwise from (0,0), as the cells' own triangles wind.
+			const Int center = corner[cell(bx+s/2, by+s/2)][0];
+			Int first = -1, prev = -1;
+			auto point = [&](Int idx) {
+				if (prev >= 0) emit(center, prev, idx); else first = idx;
+				prev = idx;
+			};
+			for (Int i=0; i<s; i++) point(corner[cell(bx+i, by)][0]);			// bottom, (i, 0)
+			for (Int j=0; j<s; j++) point(corner[cell(bx+s-1, by+j)][1]);		// right, (s, j)
+			for (Int i=s; i>0; i--) point(corner[cell(bx+i-1, by+s-1)][2]);	// top, (i, s)
+			for (Int j=s; j>0; j--) point(corner[cell(bx, by+j-1)][3]);		// left, (0, j)
+			emit(center, prev, first);
+			return;
+		}
+		if (s > 1) {
+			const Int h = s/2;
+			walk(bx, by, h); walk(bx+h, by, h); walk(bx, by+h, h); walk(bx+h, by+h, h);
+			return;
+		}
+		const Int base = cell(bx, by)*4;
+		emit(base, base+2, base+3);
+		emit(base, base+1, base+2);
+	};
+	walk(0, 0, N);
+
+	if (!m_tileIndexBuffers[tile])
+		m_tileIndexBuffers[tile] = NEW_REF(DX8IndexBufferClass, (HEIGHTMAP_POLYGON_NUM*3));
+	{
+		DX8IndexBufferClass::WriteLockClass lock(m_tileIndexBuffers[tile]);
+		memcpy(lock.Get_Index_Array(), indices, count*sizeof(UnsignedShort));
+	}
+	m_tileTriangles[tile] = count/3;
+	m_tileMergeDirty[tile] = false;
+}
+
+//=============================================================================
+// HeightMapRenderObjClass::drawTileTriangles
+//=============================================================================
+/** Draws VB tile (x, y), whose vertex buffer is set: merged when the tile's colours are its
+static lighting this frame, else (dynamic lights recoloured it) every cell. */
+//=============================================================================
+void HeightMapRenderObjClass::drawTileTriangles(Int x, Int y)
+{
+	// Off by default: on real maps few blocks qualify (random tile variants break the texture
+	// coordinates, and the ground and its baked lighting vary at the 4x4 scale): ~2% fewer
+	// triangles in a LAN game on Alpine Assault, no measurable fps (porting log, "Terrain mesh merging").
+	// Module.gxTerrainMerge = true turns it on, read about once a second (in the worker build
+	// EM_ASM is a blocking call to the main thread).
+	static Bool merge = false;
+#ifdef __EMSCRIPTEN__
+	static double nextCheck = 0;
+	const double now = emscripten_get_now();
+	if (now >= nextCheck) {
+		nextCheck = now + 1000.0;
+		merge = EM_ASM_INT({ return Module.gxTerrainMerge === true ? 1 : 0; }) != 0;
+	}
+#endif
+	const Int tile = y*m_numVBTilesX + x;
+	if (merge && m_tileIndexBuffers && m_tileLitStamp[tile] != m_lightStamp) {
+		if (m_tileMergeDirty[tile])
+			buildMergedIndices(tile);
+		DX8Wrapper::Set_Index_Buffer(m_tileIndexBuffers[tile], 0);
+		DX8Wrapper::Draw_Triangles(0, m_tileTriangles[tile], 0, HEIGHTMAP_VERTEX_NUM);
+		return;
+	}
+	DX8Wrapper::Set_Index_Buffer(m_indexBuffer, 0);
+	DX8Wrapper::Draw_Triangles(0, HEIGHTMAP_POLYGON_NUM, 0, HEIGHTMAP_VERTEX_NUM);
+}
+
 ///Performs additional terrain rendering pass, blending in the black shroud texture.
 void HeightMapRenderObjClass::renderTerrainPass(CameraClass *pCamera)
 {
@@ -2162,7 +2358,7 @@ void HeightMapRenderObjClass::renderTerrainPass(CameraClass *pCamera)
 			}
 #endif
 			if (Is_Hidden() == 0) {
-				DX8Wrapper::Draw_Triangles(0, HEIGHTMAP_POLYGON_NUM, 0, HEIGHTMAP_VERTEX_NUM);
+				drawTileTriangles(i, j);
 			}
 		}
 }

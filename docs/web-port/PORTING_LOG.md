@@ -2114,3 +2114,40 @@ Low-end setup, normal build, LAN game, 400x300 canvas; WebGL patched at runtime
   the menu, 1 in a LAN game. Untested: a real weak GPU, where Auto should matter most.
 - The private server's download pause (Session 33) now uses `Module.gxInMatch` too: the
   TICK-DIAG `inGame` flag also counts the menu's shell map.
+
+## 2026-11-21 — Terrain mesh merging (branch exp/terrain-mesh): measured, not worth it
+
+Question: on a software GPU the frame cost follows the triangle count, and the terrain is ~32.8k
+triangles drawn twice (base + shroud pass: a 4x4 window of 32x32-cell tiles, 2 triangles per
+cell). Can flat ground be drawn with fewer, larger triangles without changing the picture?
+
+- **Built** (kept on this branch, off by default; `Module.gxTerrainMerge = true` turns it on):
+  per vertex-buffer tile, an index buffer from a quadtree over the tile's in-memory vertices. A
+  block of >= 4x4 cells merges only if every vertex is affine across it (position, atlas UV,
+  blend UV where blend alpha isn't 0, one colour), so any triangulation interpolates the same:
+  drawn as a fan from its centre over every border grid point (no T-junction cracks against
+  neighbours). Vertex buffers and all their writers are unchanged; tiles rewritten by `updateVB`
+  rebuild before their next draw, tiles recoloured by dynamic lights draw unmerged that frame.
+  Picture: merge on vs off in the same LAN game on the RX 580 differs only in moving things.
+- **Result, LAN game on Alpine Assault:** 66.8k -> 65.2k triangles per frame (RX 580), 63.8-65.4k
+  -> 62.8-64.1k (low-end), ~2%. Low-end fps (2 cores + SwiftShader, normal build, machine at load
+  average 16-19): off 6.4-8.4, on 4.7-6.8 — no measurable gain.
+- **Why so little** (terrain vertex buffers captured from WebGL, `~/generals-bench-terrain/vbcap.sh`,
+  analysed offline with `ana/merge.py`): of 1,024 4x4 blocks in view, 553 aren't flat, and of the
+  ~470 flat ones 390 have discontinuous atlas UVs — Zero Hour paints terrain with random tile
+  variants (neighbouring cells alternate between two copies of the texture 320 px apart), so a
+  merged block would really change the ground. Even ignoring texture coordinates entirely (what
+  per-pixel tile lookup instead of per-vertex UVs would allow), the baked lighting colour varies
+  per vertex: with height tolerance 2.6 and colour tolerance 12 the ceiling is 7% fewer triangles.
+- EA's own reduced terrain (`FlatHeightMapRenderObjClass` / `W3DTerrainBackground`, used below
+  terrain LOD 7; the web build forces 7) merges only exactly level regions and bakes the textures
+  at 8 px per cell instead of 32 — a visibly different picture, not this task's goal.
+
+- Diff-only review: pass. Two reasons beyond the small gain to leave it off: passes that redraw
+  cell geometry over the terrain with LEQUAL (shorelines, 3-texture blend tiles) could speckle
+  where they lie on a merged block (different triangles, depth off by one), and per-vertex fog
+  clamped at its start/end isn't linear, so it shifts across a long fan.
+
+Conclusion: terrain triangle merging can't pay on real maps with the picture unchanged. Bigger
+terrain wins on the low-end setup are folding the shroud pass into the base pass (halves the
+terrain triangles) and drawing fewer tiles (draw distance), both on perf/low-end's list.
