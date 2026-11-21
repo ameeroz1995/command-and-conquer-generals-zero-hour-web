@@ -126,6 +126,10 @@ out vec3 v_TexCoord1;
 out vec3 v_TexCoord2;
 out vec3 v_TexCoord3;
 out float v_FogFactor;
+#if GX_SHROUD
+uniform mat4 u_ShroudMatrix; // camera-space position -> shroud uv (GLES3_Set_Shroud_Fold)
+out vec2 v_ShroudUV;
+#endif
 
 vec3 stage_texcoord(int i, vec3 eyePos, vec3 eyeNormal) {
     int tci = u_TexCoordIndex[i];
@@ -193,6 +197,9 @@ void main() {
     v_TexCoord1 = (GX_PS || GX_STAGES > 1) ? stage_texcoord(1, viewPos.xyz, eyeNormal) : unused;
     v_TexCoord2 = (GX_PS || GX_STAGES > 2) ? stage_texcoord(2, viewPos.xyz, eyeNormal) : unused;
     v_TexCoord3 = (GX_PS || GX_STAGES > 3) ? stage_texcoord(3, viewPos.xyz, eyeNormal) : unused;
+#endif
+#if GX_SHROUD
+    v_ShroudUV = (u_ShroudMatrix * vec4(viewPos.xyz, 1.0)).xy;
 #endif
 
     // Compute lighting
@@ -321,6 +328,10 @@ uniform int u_TexBound;
 
 
 in vec4 v_Specular; // added after the stages when D3DRS_SPECULARENABLE (GX_SPEC)
+#if GX_SHROUD
+uniform sampler2D u_ShroudTex; // unit 4
+in vec2 v_ShroudUV;
+#endif
 
 // Optional render scale: sampling with u_FogParams.z as the bias picks the mip level the
 // full-size frame would, so a smaller buffer doesn't drop to tiny mips (the terrain atlas's
@@ -505,6 +516,11 @@ void main() {
     }
 
     fragColor = color;
+#if GX_SHROUD
+    // The shroud pass multiplied the frame by the shroud texture after everything at
+    // terrain depth was drawn; for draws linear in their colour, doing it per draw is the same.
+    fragColor.rgb *= texture(u_ShroudTex, v_ShroudUV).rgb;
+#endif
 }
 )GLSL";
 
@@ -543,9 +559,9 @@ static std::string Variant_Source(const char* base, unsigned int h, bool is_frag
     int n = snprintf(defs, sizeof(defs),
              "#version 300 es\n#define GX_LIGHT %s\n#define GX_FOG %s\n#define GX_ATEST %s\n"
              "#define GX_PRE %s\n#define GX_SPEC %s\n#define GX_PS %s\n#define GX_STAGES %d\n"
-             "#define GX_PSGEN %d\n#define GX_FFGEN %d\n#define GX_VGEN %d\n",
+             "#define GX_PSGEN %d\n#define GX_FFGEN %d\n#define GX_VGEN %d\n#define GX_SHROUD %d\n",
              b(h & 1), b(h & 2), b(h & 4), b(h & 8), b(h & 16), b(ps), stages,
-             is_fragment && psgen ? 1 : 0, ffgen ? 1 : 0, !is_fragment && key ? 1 : 0);
+             is_fragment && psgen ? 1 : 0, ffgen ? 1 : 0, !is_fragment && key ? 1 : 0, key && key->fold ? 1 : 0);
     if (is_fragment && key && key->afunc) snprintf(defs + n, sizeof(defs) - n, "#define GX_AFUNC %d\n", key->afunc);
     if (!is_fragment && key) snprintf(defs + n, sizeof(defs) - n, "#define GX_CV %d\n", key->cvert);
     std::string s = std::string(defs) + body;

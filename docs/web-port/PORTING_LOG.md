@@ -2114,3 +2114,29 @@ Low-end setup, normal build, LAN game, 400x300 canvas; WebGL patched at runtime
   the menu, 1 in a LAN game. Untested: a real weak GPU, where Auto should matter most.
 - The private server's download pause (Session 33) now uses `Module.gxInMatch` too: the
   TICK-DIAG `inGame` flag also counts the menu's shell map.
+
+## 2026-11-21 — Session 36: Shroud folded into the terrain draws; off-screen terrain tiles culled
+
+- **Shroud fold** (`HeightMap.cpp` `Set_Shroud_Fold`, shim `GLES3_Set_Shroud_Fold`): the shroud
+  pass drew the whole terrain again (~16 draws, ~32k triangles), multiplying everything at
+  terrain depth. Now the terrain-level draws (terrain, shorelines, extra blend tiles, roads,
+  scorches, tracks; not props and bridges, which shroud themselves) multiply their colour by the
+  shroud texture at their camera-space position (`GX_SHROUD` in the program key, sampler unit 4,
+  same matrix as `ShroudTextureShader::set`) and the pass is skipped. Only for draws linear in
+  their colour (blend factors ZERO/ONE/SRCALPHA/INVSRCALPHA); multiplicative draws are already
+  right over a shrouded destination. If the shim can't fold (no texture, program slots nearly
+  used up), it says so and the pass is drawn as before. Pitfall found: WW3D applies the camera's
+  view at the next draw, so the view must be read after `Apply_Render_State_Changes()`.
+- **Terrain tile culling** (`isTileCulled`): per-tile bounds from the in-memory vertex copy,
+  recomputed after `updateVB`; tiles outside the camera are skipped in both passes.
+- Page switches for testing, read about once a second: `Module.gxShroudFold = 0`,
+  `Module.gxTerrainCull = 0`.
+- Picture: same camera, fold on vs off: 75-135 pixels differ (minimap blips) at scrolled views
+  including the shroud edge; at the start view the differences are moving units and UI
+  animation. Draws per frame (RX 580): start 210 -> 192, scrolled 78 -> 62, 94 -> 78.
+- Low-end, one session, same camera (normal build): neither ~13.8 fps, culling only ~13.7,
+  fold only ~15.7, both ~17.9. Multithreaded build vs live 00027, two pairs: 16.0-17.1 ->
+  20.9-21.8 fps (+28%). RX 580 unchanged (2.5 ms in game).
+- Diff-only review: pass; its two should-fixes (silent loss of the shroud when slots run out or
+  the texture is missing) are fixed by the fallback above. Known, small: a half-transparent
+  bridge or prop edge in fog is darkened twice (their own shroud pass over folded terrain).

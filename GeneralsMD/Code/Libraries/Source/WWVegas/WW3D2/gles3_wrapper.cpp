@@ -48,6 +48,8 @@ static bool g_Initialized = false;
 static bool g_SceneDirty = true; // GXScene inputs changed since the last upload (Upload_Scene_Block)
 static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
 static int g_SwapCount = 0;         // frames presented, for Module.gxFps (render scale Auto)
+static int g_PageSwitches = 3;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off)
+int GLES3_Page_Switches() { return g_PageSwitches; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
@@ -93,6 +95,7 @@ struct GLES3_CachedUniformState { // per program; scene values live in GXScene
     int tex_coord_index[4];
     int tex_transform[4];
     float tex_matrix[4][16];
+    float shroud_matrix[16];
 };
 
 static GLES3_CachedUniformState cached_uniform_states[GLES3_PROGRAM_SLOTS] = {};
@@ -409,6 +412,7 @@ void GLES3_Begin_Scene() {
         g_SwapCount = 0;
         next_check = now + 1000.0;
         double sc = EM_ASM_DOUBLE({ Module.gxFps = $0; return Module.gxRenderScale || 1; }, fps);
+        g_PageSwitches = EM_ASM_INT({ return (Module.gxShroudFold === 0 ? 0 : 1) | (Module.gxTerrainCull === 0 ? 0 : 2); });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__
         // Worker build: the canvas belongs to this thread, so the page can't resize it.
@@ -865,6 +869,37 @@ void GLES3_Set_Texture(unsigned int stage, GLuint gl_texture) {
     if (gl_texture) GLES3_Apply_Texture_Stage_Parameters(stage);
 }
 
+void GLES3_Bind_Shroud_Unit();
+int GLES3_Free_Program_Slots();
+bool GLES3_Set_Shroud_Fold(GLuint tex, const float* d3d_matrix) {
+    // A folded draw needs its own program; if the slots are nearly used up (they are never
+    // freed), refuse, so the engine draws the separate shroud pass instead of no shroud.
+    if (tex && GLES3_Free_Program_Slots() < 64) tex = 0;
+    g_State.shroud_tex = tex;
+    if (!tex) return false;
+    if (d3d_matrix) memcpy(g_State.shroud_matrix, d3d_matrix, sizeof(g_State.shroud_matrix));
+    // Unit 4 (the stages use 0-3): the shroud pass sampled it bilinear, edges clamped to the
+    // border texels the shroud fills.
+    GLES3_Bind_Shroud_Unit();
+    return true;
+}
+
+// Texture uploads bind on the active unit and forget what it held, so a folded draw checks
+// that unit 4 still has the shroud (Apply_Pipeline_State), and the active unit goes back.
+void GLES3_Bind_Shroud_Unit() {
+    const GLuint tex = g_State.shroud_tex;
+    if (!tex) return;
+    if (g_UnitTexture[4] != tex) {
+        const GLuint was = g_ActiveUnit;
+        Active_Unit(4);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        g_UnitTexture[4] = tex;
+        if (was < 8) Active_Unit(was);
+    }
+    GLuint smp = Sampler_For(GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_LINEAR, GL_LINEAR);
+    if (g_UnitSampler[4] != smp) { glBindSampler(4, smp); g_UnitSampler[4] = smp; }
+}
+
 void GLES3_Set_Texture_Stage_State(unsigned int stage, unsigned int state,
                                     unsigned int value) {
     if (stage >= 8 || state >= GLES3_TSS_MAX) return;
@@ -1207,6 +1242,7 @@ void GLES3_Set_Fog(bool enable, float r, float g, float b,
 ** This is where the DX8 fixed-function pipeline gets translated to GLSL.
 */
 static void Apply_Pipeline_State() {
+    if (g_State.shroud_tex) GLES3_Bind_Shroud_Unit();
     unsigned int hash = GLES3_ShaderManager::Hash_Pipeline_Config(g_State);
     GLuint program = GLES3_ShaderManager::Get_Program(hash);
     if (program != g_State.active_program) {
@@ -1717,6 +1753,7 @@ unsigned int GLES3_ShaderManager::Hash_Pipeline_Config(
 static GLES3_FFKey g_SlotKey[GLES3_PROGRAM_SLOTS];
 static int g_SlotCount = 1024;
 int gx_ff_slots = 0; // GXLAYOUT log line
+int GLES3_Free_Program_Slots() { return GLES3_PROGRAM_SLOTS - g_SlotCount; }
 struct FFKeyHash {
     size_t operator()(const GLES3_FFKey& k) const {
         const unsigned char* b = (const unsigned char*)&k;
@@ -1733,12 +1770,22 @@ unsigned int GLES3_ShaderManager::Program_Slot(const GLES3_PipelineState& state,
     const bool ps = (hash & 32) != 0;
     const int stages = ps ? 0 : (int)((hash >> 6) & 7);
     const bool pre = (hash & 8) != 0;
+    // Shroud fold: only when the draw's result is linear in its colour (alpha blending,
+    // additive, opaque). A multiplicative draw (dst * src) is already right with the
+    // shrouded destination.
+    bool fold = false;
+    if (state.shroud_tex && !pre) {
+        auto linear = [](unsigned int f) { return f == 1 || f == 2 || f == 5 || f == 6; }; // ZERO ONE SRCALPHA INVSRCALPHA
+        fold = !state.render_states[GLES3_RS_ALPHABLENDENABLE] ||
+               (linear(state.render_states[GLES3_RS_SRCBLEND]) && linear(state.render_states[GLES3_RS_DESTBLEND]));
+    }
     if (pre && stages == 0 && !state.alpha_test_enabled) return hash; // nothing to specialise
     GLES3_FFKey k;
     memset(&k, 0, sizeof(k));
     k.base_lo = hash & 255;
     k.base_hi = hash >> 8;
     if (state.alpha_test_enabled) k.afunc = state.alpha_func <= 8 ? state.alpha_func : 8;
+    k.fold = fold ? 1 : 0;
     if (!pre) {
         // Vertex side: texture coordinates of the stages the variant runs (all four for a
         // pixel shader), light types and material colour sources, as the uniforms carried them.
@@ -1836,6 +1883,8 @@ void GLES3_ShaderManager::Populate_Locations(GLuint program, unsigned int hash) 
     locs.u_TexCoordIndex = glGetUniformLocation(program, "u_TexCoordIndex");
     locs.u_TexTransform = glGetUniformLocation(program, "u_TexTransform");
     locs.u_TexMatrix = glGetUniformLocation(program, "u_TexMatrix");
+    locs.u_ShroudTex = glGetUniformLocation(program, "u_ShroudTex");
+    locs.u_ShroudMatrix = glGetUniformLocation(program, "u_ShroudMatrix");
 }
 
 
@@ -1856,7 +1905,8 @@ GLuint GLES3_ShaderManager::Get_Program(unsigned int hash) {
     unsigned long long vkey = base;
     if (key) vkey |= 1ull << 62 | (unsigned long long)key->vtex[0] << 10 | (unsigned long long)key->vtex[1] << 18
                   | (unsigned long long)key->vtex[2] << 26 | (unsigned long long)key->vtex[3] << 34
-                  | (unsigned long long)key->lights << 42 | (unsigned long long)key->cvert << 50;
+                  | (unsigned long long)key->lights << 42 | (unsigned long long)key->cvert << 50
+                  | (unsigned long long)key->fold << 53;
     static std::unordered_map<unsigned long long, GLuint> vertex_shaders;
     GLuint& vs = vertex_shaders[vkey];
     if (!vs) vs = Compile_Shader(GL_VERTEX_SHADER, GLES3_Get_Vertex_Shader_Source(base, key).c_str());
@@ -2080,6 +2130,16 @@ void GLES3_ShaderManager::Apply_Uniforms(unsigned int hash,
         if (locs.u_TexMatrix != -1 && (!cache.initialized || memcmp(cache.tex_matrix, tm, sizeof(tm)) != 0)) {
             glUniformMatrix4fv(locs.u_TexMatrix, 4, GL_FALSE, &tm[0][0]);
             memcpy(cache.tex_matrix, tm, sizeof(tm));
+        }
+    }
+
+    if (locs.u_ShroudTex != -1 && !cache.initialized) glUniform1i(locs.u_ShroudTex, 4);
+    if (locs.u_ShroudMatrix != -1) {
+        float sm[16];
+        GLES3_Helpers::Matrix4x4_To_GL(state.shroud_matrix, sm);
+        if (!cache.initialized || memcmp(cache.shroud_matrix, sm, sizeof(sm)) != 0) {
+            glUniformMatrix4fv(locs.u_ShroudMatrix, 1, GL_FALSE, sm);
+            memcpy(cache.shroud_matrix, sm, sizeof(sm));
         }
     }
 

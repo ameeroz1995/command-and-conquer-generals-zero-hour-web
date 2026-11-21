@@ -91,6 +91,8 @@ protected:
 	Int m_extraBlendTilePositionsSize; //<total size of array including unused memory.
 	DX8VertexBufferClass **m_vertexBufferTiles; ///<collection of smaller vertex buffers that make up 1 heightmap
 	VERTEX_FORMAT *m_vertexBufferBackup; ///< In memory copy of the vertex buffer data for quick update of dynamic lighting.
+	Real *m_tileBounds;			///< per vertex buffer tile: min x,y,z then max x,y,z of its vertices (frustum culling)
+	Bool *m_tileBoundsDirty;	///< per tile: its vertices changed since m_tileBounds was computed
 	Int m_originX; ///<  Origin point in the grid.  Slides around.
 	Int m_originY; ///< Origin point in the grid.  Slides around.
 	DX8IndexBufferClass			*m_indexBuffer;	///<indices defining triangles in a VB tile.
@@ -102,6 +104,7 @@ protected:
 
 	DX8VertexBufferClass *getVertexBufferTile(Int x, Int y);
 	VERTEX_FORMAT *getVertexBufferBackup(Int x, Int y);
+	Bool isTileCulled(Int x, Int y, const CameraClass &camera, const Matrix3D &world);
 	UnsignedInt doTheDynamicLight(VERTEX_FORMAT *vb, VERTEX_FORMAT *vbMirror, Vector3*light, Vector3*normal, W3DDynamicLight *pLights[], Int numLights);
 	Int getXWithOrigin(Int x);
 	Int getYWithOrigin(Int x);

@@ -245,6 +245,8 @@ struct GLES3_PipelineState {
   bool pretransformed;   // current FVF is D3DFVF_XYZRHW (screen-space positions)
   unsigned int pixel_shader;   // GLES3_Create_Pixel_Shader handle, 0 = fixed function
   float ps_const[8][4];        // pixel shader constants c0-c7
+  GLuint shroud_tex;           // GLES3_Set_Shroud_Fold: 0 = off
+  float shroud_matrix[16];     // camera-space position -> shroud texture uv (D3D layout)
 
   // Alpha test (emulated in fragment shader since GLES3 removed it)
   bool alpha_test_enabled;
@@ -292,6 +294,8 @@ struct GLES3_ProgramUniformLocations {
   GLint u_TexCoordIndex;
   GLint u_TexTransform;
   GLint u_TexMatrix;
+  GLint u_ShroudTex;
+  GLint u_ShroudMatrix;
 };
 
 
@@ -303,6 +307,7 @@ struct GLES3_FFKey {
   unsigned char base_lo, base_hi; // the variant (Hash_Pipeline_Config bits)
   unsigned char afunc;            // D3DCMPFUNC with alpha test on, else 0
   unsigned char bound;            // bit n: stage n has a texture
+  unsigned char fold;             // multiply by the shroud texture (GLES3_Set_Shroud_Fold)
   unsigned char op[4][2];         // COLOROP, ALPHAOP of the stages that run
   unsigned char arg[4][6];        // COLORARG0/1/2, ALPHAARG0/1/2 (0 where the op ignores it)
   // Vertex side (0 for screen-space vertices): per stage, texture coordinates as
@@ -313,6 +318,14 @@ struct GLES3_FFKey {
 };
 std::string GLES3_FF_Generate_GLSL(const GLES3_FFKey &key);
 std::string GLES3_VS_Generate_GLSL(const GLES3_FFKey &key);
+// Shroud folded into the draws (HeightMapRenderObjClass::Render): while tex != 0, each
+// non-screen-space draw whose blending is linear in its colour multiplies its colour by
+// tex sampled at its camera-space position through d3d_matrix (as the shroud pass's
+// texture stage did), so the separate multiplicative shroud pass can be skipped.
+bool GLES3_Set_Shroud_Fold(GLuint tex, const float *d3d_matrix); // false: not folded (draw the pass)
+// Page switches read about once a second (GLES3_Begin_Scene), for comparing on and off in one
+// session: bit 0 shroud fold (Module.gxShroudFold), bit 1 terrain tile culling (gxTerrainCull).
+int GLES3_Page_Switches();
 
 // ============================================================================
 // Fixed-Function Emulation Shader Manager

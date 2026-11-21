@@ -657,6 +657,14 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
     }
 };
 
+// Shroud folded into the terrain draws (GLES3_Set_Shroud_Fold): takes the shroud texture as
+// D3D, so an update made since its last bind is uploaded first (as SetTexture does).
+inline bool GX_Set_Shroud_Fold(IDirect3DBaseTexture8 *pTexture, const float *d3d_matrix) {
+    Emscripten_IDirect3DTexture8 *t = static_cast<Emscripten_IDirect3DTexture8 *>(pTexture);
+    if (t && (t->gl_tex_id == 0 || t->dirty)) t->Upload_To_GL();
+    return GLES3_Set_Shroud_Fold(t ? t->gl_tex_id : 0, d3d_matrix);
+}
+
 inline Emscripten_IDirect3DSurface8::Emscripten_IDirect3DSurface8()
     : Width(0), Height(0), BytesPerPixel(4), Format(D3DFMT_A8R8G8B8) {}
 

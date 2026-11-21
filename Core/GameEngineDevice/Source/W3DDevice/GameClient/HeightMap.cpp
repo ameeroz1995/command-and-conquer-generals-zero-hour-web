@@ -57,6 +57,7 @@
 #include <coltest.h>
 #include <rinfo.h>
 #include <camera.h>
+#include "aabox.h"
 #include <d3dx8core.h>
 #include "Common/GlobalData.h"
 #include "Common/PerfTimer.h"
@@ -135,6 +136,10 @@ void HeightMapRenderObjClass::freeIndexVertexBuffers()
 
 	delete[] m_vertexBufferBackup;
 	m_vertexBufferBackup = nullptr;
+	delete[] m_tileBounds;
+	m_tileBounds = nullptr;
+	delete[] m_tileBoundsDirty;
+	m_tileBoundsDirty = nullptr;
 
 	m_numVertexBufferTiles = 0;
 }
@@ -163,6 +168,41 @@ DX8VertexBufferClass *HeightMapRenderObjClass::getVertexBufferTile(Int x, Int y)
 VERTEX_FORMAT *HeightMapRenderObjClass::getVertexBufferBackup(Int x, Int y)
 {
 	return m_vertexBufferBackup + y*m_numVBTilesX*HEIGHTMAP_VERTEX_NUM + x*HEIGHTMAP_VERTEX_NUM;
+}
+
+//=============================================================================
+// GeneralsX @performance 21/11/2026 A tile entirely outside the camera's view is skipped,
+// in the terrain passes and the shroud pass. The engine drew all tiles of its draw window
+// (4x4 tiles of 2048 triangles) every pass; on a weak or software GPU the vertex work of
+// the off-screen ones costs as much as the visible ones. Bounds come from the tile's
+// in-memory vertex copy and are recomputed after updateVB rewrites it.
+Bool HeightMapRenderObjClass::isTileCulled(Int x, Int y, const CameraClass &camera, const Matrix3D &world)
+{
+	if (!m_tileBounds || !m_tileBoundsDirty) return false;
+#ifdef __EMSCRIPTEN__
+	if (!(GLES3_Page_Switches() & 2)) return false;
+#endif
+	const Int t = y*m_numVBTilesX + x;
+	Real *b = m_tileBounds + t*6;
+	if (m_tileBoundsDirty[t]) {
+		const VERTEX_FORMAT *v = getVertexBufferBackup(x, y);
+		b[0] = b[1] = b[2] = 1e30f;
+		b[3] = b[4] = b[5] = -1e30f;
+		for (Int k = 0; k < HEIGHTMAP_VERTEX_NUM; k++, v++) {
+			if (v->x < b[0]) b[0] = v->x;
+			if (v->y < b[1]) b[1] = v->y;
+			if (v->z < b[2]) b[2] = v->z;
+			if (v->x > b[3]) b[3] = v->x;
+			if (v->y > b[4]) b[4] = v->y;
+			if (v->z > b[5]) b[5] = v->z;
+		}
+		m_tileBoundsDirty[t] = false;
+	}
+	if (b[0] > b[3]) return false;
+	AABoxClass box;
+	box.Init_Min_Max(Vector3(b[0], b[1], b[2]), Vector3(b[3], b[4], b[5]));
+	box.Transform(world);
+	return camera.Cull_Box(box);
 }
 
 //=============================================================================
@@ -323,6 +363,8 @@ Int HeightMapRenderObjClass::updateVB(DX8VertexBufferClass	*pVB, VERTEX_FORMAT *
 		DX8VertexBufferClass::WriteLockClass lockVtxBuffer(pVB);
 		VERTEX_FORMAT *vbHardware = (VERTEX_FORMAT*)lockVtxBuffer.Get_Vertex_Array();
 		VERTEX_FORMAT *vBase = data;
+		if (m_tileBoundsDirty && m_vertexBufferBackup && data >= m_vertexBufferBackup)
+			m_tileBoundsDirty[(data - m_vertexBufferBackup) / HEIGHTMAP_VERTEX_NUM] = true; // positions change: bounds again
 		// Note that we are building the vertex buffer data in the memory buffer, data.
 		// At the bottom, we will copy the final vertex data for one cell into the
 		// hardware vertex buffer.
@@ -1046,6 +1088,8 @@ m_numVisibleExtraBlendTiles(0),
 m_extraBlendTilePositionsSize(0),
 m_vertexBufferTiles(nullptr),
 m_vertexBufferBackup(nullptr),
+m_tileBounds(nullptr),
+m_tileBoundsDirty(nullptr),
 m_originX(0),
 m_originY(0),
 m_indexBuffer(nullptr),
@@ -1323,6 +1367,9 @@ Int HeightMapRenderObjClass::initHeightData(Int x, Int y, WorldHeightMap *pMap, 
 
 		m_vertexBufferTiles = NEW DX8VertexBufferClass*[m_numVertexBufferTiles];
 		m_vertexBufferBackup = NEW VERTEX_FORMAT [m_numVertexBufferTiles * HEIGHTMAP_VERTEX_NUM];
+		m_tileBounds = NEW Real [m_numVertexBufferTiles * 6];
+		m_tileBoundsDirty = NEW Bool [m_numVertexBufferTiles];
+		for (i=0; i<m_numVertexBufferTiles; i++) m_tileBoundsDirty[i] = true;
 
 		for (i=0; i<m_numVertexBufferTiles; i++) {
 #ifdef USE_NORMALS
@@ -1852,6 +1899,38 @@ void HeightMapRenderObjClass::updateCenter(CameraClass *camera , RefRenderObjLis
 //=============================================================================
 //DECLARE_PERF_TIMER(Terrain_Render)
 
+#ifdef __EMSCRIPTEN__
+// GeneralsX @performance 21/11/2026 The shroud pass drew the whole terrain a second time
+// (multiply, depth EQUAL) over everything at terrain depth. On the web the terrain-level
+// draws multiply by the shroud themselves instead (GLES3_Set_Shroud_Fold) and the pass is
+// skipped: half the terrain triangles on a GPU where triangles are the cost. Same texture
+// coordinates as ShroudTextureShader::set (camera-space position through this matrix).
+static Bool Set_Shroud_Fold(W3DShroud *shroud, WorldHeightMap *map, Bool on)
+{
+	if (!on || !shroud || !shroud->getShroudTexture()) {
+		GX_Set_Shroud_Fold(nullptr, nullptr);
+		return false;
+	}
+	D3DXMATRIX curView, inv, scale, offset;
+	float det;
+	// WW3D applies the camera's view at the next draw; before the terrain's first draw of the
+	// frame the device still holds the previous one (ShroudTextureShader::set does the same).
+	DX8Wrapper::Apply_Render_State_Changes();
+	DX8Wrapper::_Get_DX8_Transform(D3DTS_VIEW, curView);
+	D3DXMatrixInverse(&inv, &det, &curView);
+	float xoffset = 0, yoffset = 0;
+	Real width = shroud->getCellWidth(), height = shroud->getCellHeight();
+	if (map) {
+		xoffset = -(float)shroud->getDrawOriginX() + width;
+		yoffset = -(float)shroud->getDrawOriginY() + height;
+	}
+	D3DXMatrixTranslation(&offset, xoffset, yoffset, 0);
+	D3DXMatrixScaling(&scale, 1.0f / (width * shroud->getTextureWidth()), 1.0f / (height * shroud->getTextureHeight()), 1);
+	curView = (inv * offset) * scale;
+	return GX_Set_Shroud_Fold(shroud->getShroudTexture()->Peek_D3D_Texture(), (const float *)&curView);
+}
+#endif
+
 void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 {
 	//USE_PERF_TIMER(Terrain_Render)
@@ -1996,6 +2075,19 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 			DX8Wrapper::Set_DX8_Render_State(D3DRS_COLORWRITEENABLE,D3DCOLORWRITEENABLE_BLUE|D3DCOLORWRITEENABLE_GREEN|D3DCOLORWRITEENABLE_RED);
 	}
 
+#ifdef __EMSCRIPTEN__
+	// The shim says whether it folded; if not, the separate shroud pass is drawn as before.
+	// (Debug builds with fog of war on draw the shroud alpha-blended, which can't be folded.)
+	const Bool foldShroud = Set_Shroud_Fold(m_shroud, m_map,
+		(GLES3_Page_Switches() & 1) && !doMultiPassWireFrame && m_shroud && rinfo.Additional_Pass_Count() &&
+		!ShaderClass::Is_Backface_Culling_Inverted() && m_shroud->getShroudTexture()
+#if defined(RTS_DEBUG)
+		&& !(TheGlobalData && TheGlobalData->m_fogOfWarOn)
+#endif
+		);
+#else
+	const Bool foldShroud = false;
+#endif
 	Int pass;
  	for (pass=0; pass<devicePasses; pass++) {
 #ifdef TIMING_TESTS
@@ -2031,7 +2123,7 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 					DX8Wrapper::_Get_D3D_Device8()->SetVertexShader(D3DFVF_XYZRHW |D3DFVF_DIFFUSE|D3DFVF_TEX2);
 				}
 #endif
-				if (Is_Hidden() == 0) {
+				if (Is_Hidden() == 0 && !isTileCulled(i, j, rinfo.Camera, tm)) {
 					DX8Wrapper::Draw_Triangles(0, HEIGHTMAP_POLYGON_NUM, 0, HEIGHTMAP_VERTEX_NUM);
 				}
 
@@ -2078,9 +2170,16 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 			}
 		}
 	#endif
+	// Props and bridges apply the shroud themselves.
+#ifdef __EMSCRIPTEN__
+	if (foldShroud) Set_Shroud_Fold(m_shroud, m_map, false);
+#endif
 	if (m_propBuffer) {
 		m_propBuffer->drawProps(rinfo);
 	}
+#ifdef __EMSCRIPTEN__
+	if (foldShroud) Set_Shroud_Fold(m_shroud, m_map, true);
+#endif
 	#ifdef DO_SCORCH
 		DX8Wrapper::Set_Texture(0,nullptr);
 		DX8Wrapper::Set_Texture(1,nullptr);
@@ -2097,12 +2196,21 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 		ShaderClass::Invalidate();
 		DX8Wrapper::Apply_Render_State_Changes();
 
+#ifdef __EMSCRIPTEN__
+		if (foldShroud) Set_Shroud_Fold(m_shroud, m_map, false);
+#endif
 		m_bridgeBuffer->drawBridges(&rinfo.Camera, m_disableTextures, doCloud?m_stageTwoTexture:nullptr);
 
+#ifdef __EMSCRIPTEN__
+		if (foldShroud) Set_Shroud_Fold(m_shroud, m_map, true);
+#endif
 		if (TheTerrainTracksRenderObjClassSystem)
 			TheTerrainTracksRenderObjClassSystem->flush();
+#ifdef __EMSCRIPTEN__
+		if (foldShroud) Set_Shroud_Fold(m_shroud, m_map, false);
+#endif
 
-		if (m_shroud && rinfo.Additional_Pass_Count())
+		if (m_shroud && rinfo.Additional_Pass_Count() && !foldShroud)
 		{
 			rinfo.Peek_Additional_Pass(0)->Install_Materials();
 			renderTerrainPass(&rinfo.Camera);
@@ -2161,7 +2269,7 @@ void HeightMapRenderObjClass::renderTerrainPass(CameraClass *pCamera)
 				DX8Wrapper::_Get_D3D_Device8()->SetVertexShader(D3DFVF_XYZRHW |D3DFVF_DIFFUSE|D3DFVF_TEX2);
 			}
 #endif
-			if (Is_Hidden() == 0) {
+			if (Is_Hidden() == 0 && !(pCamera && isTileCulled(i, j, *pCamera, Matrix3D(true)))) {
 				DX8Wrapper::Draw_Triangles(0, HEIGHTMAP_POLYGON_NUM, 0, HEIGHTMAP_VERTEX_NUM);
 			}
 		}
