@@ -22,6 +22,7 @@
 
 #include "gles3_wrapper.h"
 #include <emscripten/html5.h>
+#include <emscripten/em_asm.h>
 #include <cstring>
 #include <cstdio>
 #include <cmath>
@@ -44,6 +45,9 @@ extern SDL_Window *TheSDL3Window;
 static GLES3_PipelineState g_State;
 static bool g_Initialized = false;
 static bool g_SceneDirty = true; // GXScene inputs changed since the last upload (Upload_Scene_Block)
+static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
+static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
+static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
 static std::unordered_map<GLuint, bool> g_TextureHasMipmaps;
 
@@ -225,7 +229,12 @@ bool GLES3_Init(void* hwnd, bool lite) {
     attrs.alpha = false;
     attrs.depth = true;
     attrs.stencil = true;
-    attrs.antialias = true;
+    // Page setting "Antialiasing" (web_shell.html; off by default on software or weak GPUs,
+    // where multisampling multiplies the cost of every pixel).
+    attrs.antialias = EM_ASM_INT({
+        var s = window.GeneralsX && window.GeneralsX.settings;
+        return s && s.antialias === false ? 0 : 1;
+    });
     attrs.premultipliedAlpha = false;
     attrs.preserveDrawingBuffer = false;
     attrs.powerPreference = EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
@@ -236,6 +245,14 @@ bool GLES3_Init(void* hwnd, bool lite) {
         return false;
     }
     emscripten_webgl_make_context_current(ctx);
+    {
+        GLint samples = 0;
+        glGetIntegerv(GL_SAMPLES, &samples);
+        // Not on a software GPU: there a full-size canvas costs more than the smaller 3D
+        // pass saves (2-core SwiftShader: 1-2 fps vs 3-7 with the whole canvas scaled).
+        g_Scaled3D = samples == 0 && !EM_ASM_INT({ return window.gxSoftwareGL ? 1 : 0; });
+        EM_ASM({ Module.gxScaled3D = $0; if (window.gxRepinCanvas) window.gxRepinCanvas(); }, g_Scaled3D ? 1 : 0);
+    }
 
     fprintf(stderr, "INFO: WebGL 2.0 context created successfully\n");
     fprintf(stderr, "INFO: GL_RENDERER: %s\n", glGetString(GL_RENDERER));
@@ -356,31 +373,106 @@ void GLES3_Shutdown() {
 #endif
 
 static int g_BackBufferW = 0, g_BackBufferH = 0;
-static bool g_CanvasSizeStale = true; // canvas size re-read once a frame (GLES3_Set_Viewport)
+static bool g_CanvasSizeStale = true; // canvas size re-read once a frame (Canvas_Size)
+static int g_CanvasW = 800, g_CanvasH = 600;
+static void Canvas_Size() {
+    // Looked up once a frame (GLES3_Begin_Scene marks it stale): it goes through a DOM selector.
+    if (g_CanvasSizeStale) {
+        emscripten_get_canvas_element_size("#canvas", &g_CanvasW, &g_CanvasH);
+        g_CanvasSizeStale = false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Optional render scale (page setting). Without multisampling the canvas stays at the
+// display size: the 3D views (W3DDisplay::draw's drawViews, between GLES3_Begin_3D and
+// GLES3_End_3D) draw into an offscreen framebuffer at the scale, which is then scaled up
+// into the canvas, and the UI, text and cursor draw over it at full size, sharp. With a
+// multisampled context (a blit can't target it) the whole canvas is scaled instead.
+// ---------------------------------------------------------------------------
+static GLuint g_Fbo = 0, g_FboColor = 0, g_FboDepth = 0;
+static int g_FboW = 0, g_FboH = 0;
+static struct { bool color, zs; float r, g, b, a, z; unsigned int stencil; } g_FrameClear = {};
+
 void GLES3_Begin_Scene() {
     g_CanvasSizeStale = true;
+    static double next_check = 0;
+    const double now = emscripten_get_now();
+    if (now >= next_check && g_BackBufferW > 0) {
+        next_check = now + 1000.0;
+        double sc = EM_ASM_DOUBLE({ return Module.gxRenderScale || 1; });
+        g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__
-    // Worker build: the canvas belongs to this thread, so the page can't apply a new render
-    // scale; check the setting about once a second and resize here (viewports follow).
-    {
-        static double next_check = 0;
-        static double last_scale = 0;
-        const double now = emscripten_get_now();
-        if (now >= next_check && g_BackBufferW > 0) {
-            next_check = now + 1000.0;
-            double sc = MAIN_THREAD_EM_ASM_DOUBLE({ return Module.gxRenderScale || 1; });
-            if (sc != last_scale) {
-                last_scale = sc;
-                emscripten_set_canvas_element_size("#canvas", (int)(g_BackBufferW * sc + 0.5), (int)(g_BackBufferH * sc + 0.5));
-            }
+        // Worker build: the canvas belongs to this thread, so the page can't resize it.
+        static double last_canvas_scale = 0;
+        const double canvas_scale = g_Scaled3D ? 1.0 : g_RenderScale;
+        if (canvas_scale != last_canvas_scale) {
+            last_canvas_scale = canvas_scale;
+            emscripten_set_canvas_element_size("#canvas", (int)(g_BackBufferW * canvas_scale + 0.5),
+                                               (int)(g_BackBufferH * canvas_scale + 0.5));
         }
-    }
 #endif
+    }
     g_State.draw_calls = 0;
     g_State.triangles_drawn = 0;
 }
 
+static void Reapply_Viewport() {
+    const GLES3_Viewport v = g_State.viewport;
+    GLES3_Set_Viewport(v.x, v.y, v.width, v.height, v.min_z, v.max_z);
+}
+
+void GLES3_Begin_3D() {
+    if (!g_Scaled3D || g_RenderScale >= 0.999 || g_In3DPass) return;
+    Canvas_Size();
+    int w = (int)(g_CanvasW * g_RenderScale + 0.5), h = (int)(g_CanvasH * g_RenderScale + 0.5);
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+    if (!g_Fbo) {
+        glGenFramebuffers(1, &g_Fbo);
+        glGenRenderbuffers(1, &g_FboColor);
+        glGenRenderbuffers(1, &g_FboDepth);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, g_Fbo);
+    if (w != g_FboW || h != g_FboH) {
+        glBindRenderbuffer(GL_RENDERBUFFER, g_FboColor);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, w, h);
+        glBindRenderbuffer(GL_RENDERBUFFER, g_FboDepth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, g_FboColor);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, g_FboDepth);
+        g_FboW = w; g_FboH = h;
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            fprintf(stderr, "GLES3: offscreen 3D framebuffer incomplete; drawing at full size\n");
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            g_Scaled3D = false;
+            EM_ASM({ Module.gxScaled3D = 0; if (window.gxRepinCanvas) window.gxRepinCanvas(); });
+            return;
+        }
+    }
+    g_In3DPass = true;
+    Reapply_Viewport();
+    // The frame's clear (WW3D::Begin_Render) went to the canvas; the views expect it here too.
+    GLES3_Clear(g_FrameClear.color, g_FrameClear.zs, g_FrameClear.r, g_FrameClear.g,
+                g_FrameClear.b, g_FrameClear.a, g_FrameClear.z, g_FrameClear.stencil);
+}
+
+void GLES3_End_3D() {
+    if (!g_In3DPass) return;
+    Canvas_Size();
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, g_Fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    const bool scissor = glIsEnabled(GL_SCISSOR_TEST);
+    if (scissor) glDisable(GL_SCISSOR_TEST);
+    glBlitFramebuffer(0, 0, g_FboW, g_FboH, 0, 0, g_CanvasW, g_CanvasH, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    if (scissor) glEnable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    g_In3DPass = false;
+    Reapply_Viewport();
+}
+
 void GLES3_End_Scene(bool flip_frame) {
+    GLES3_End_3D(); // in case a frame ended inside the 3D pass
     if (flip_frame && TheSDL3Window && !GLES3_WORKER_BUILD) {
         SDL_GL_SwapWindow(TheSDL3Window);
     }
@@ -412,6 +504,11 @@ void GLES3_Clear(bool clear_color, bool clear_z_stencil,
         mask |= GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
     }
     if (!mask) return;
+    if (!g_In3DPass) {
+        g_FrameClear.color = clear_color; g_FrameClear.zs = clear_z_stencil;
+        g_FrameClear.r = r; g_FrameClear.g = g; g_FrameClear.b = b; g_FrameClear.a = a;
+        g_FrameClear.z = z; g_FrameClear.stencil = stencil;
+    }
     // D3D's Clear ignores the render states; GL's obeys its write masks and scissor.
     const unsigned int* rs = g_State.render_states;
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -640,13 +737,10 @@ void GLES3_Set_Viewport(unsigned int x, unsigned int y,
     g_State.viewport = { x, y, w, h, min_z, max_z };
     g_SceneDirty = true; // viewport rect and lod bias
     
-    // Canvas size: looked up once a frame (GLES3_Begin_Scene marks it stale). The lookup
-    // goes through a DOM selector, and the engine sets viewports many times a frame.
-    static int canvas_w = 800, canvas_h = 600;
-    if (g_CanvasSizeStale) {
-        emscripten_get_canvas_element_size("#canvas", &canvas_w, &canvas_h);
-        g_CanvasSizeStale = false;
-    }
+    // Drawing target: the offscreen 3D framebuffer during the 3D pass, else the canvas.
+    Canvas_Size();
+    const int canvas_w = g_In3DPass ? g_FboW : g_CanvasW;
+    const int canvas_h = g_In3DPass ? g_FboH : g_CanvasH;
     
     // Direct3D viewport Y coordinate starts at top-left.
     // OpenGL viewport Y coordinate starts at bottom-left.
@@ -688,6 +782,14 @@ static GLuint g_UnitSampler[8] = { ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u, ~0u };
 
 static void Active_Unit(unsigned int stage) {
     if (g_ActiveUnit != stage) { glActiveTexture(GL_TEXTURE0 + stage); g_ActiveUnit = stage; }
+}
+
+void GLES3_Bind_Texture_For_Upload(GLuint tex) {
+    if (g_ActiveUnit >= 8) Active_Unit(0);
+    if (g_UnitTexture[g_ActiveUnit] != tex) {
+        glBindTexture(GL_TEXTURE_2D, tex);
+        g_UnitTexture[g_ActiveUnit] = tex;
+    }
 }
 
 // Texture uploads bind on the active unit and put the old binding back, but by GL id
@@ -1496,9 +1598,9 @@ void GLES3_TextureConverter::Update_Texture(GLuint gl_tex_id,
                                             unsigned int mip_levels,
                                             const void* data) {
     if (!gl_tex_id || !data) return;
-    GLint prev_tex = 0;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_tex);
-    glBindTexture(GL_TEXTURE_2D, gl_tex_id);
+    // Bound on the active unit and left there: the binding shadow records it, so the next
+    // SetTexture on that unit rebinds only if it needs another texture (no glGet, no restore).
+    GLES3_Bind_Texture_For_Upload(gl_tex_id);
 
     GLenum src_fmt, src_type;
     std::vector<unsigned char> temp_buffer;
@@ -1512,7 +1614,6 @@ void GLES3_TextureConverter::Update_Texture(GLuint gl_tex_id,
     if (mip_levels > 1) {
         glGenerateMipmap(GL_TEXTURE_2D);
     }
-    glBindTexture(GL_TEXTURE_2D, (GLuint)prev_tex);
 }
 
 

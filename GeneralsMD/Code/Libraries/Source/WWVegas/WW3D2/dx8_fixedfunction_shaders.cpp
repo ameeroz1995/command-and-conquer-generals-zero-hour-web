@@ -169,10 +169,13 @@ void main() {
     // We need to swap R and B channels.
 
     vec3 eyeNormal = normalize(mat3(u_View) * (mat3(worldMat) * a_Normal));
-    v_TexCoord0 = stage_texcoord(0, viewPos.xyz, eyeNormal);
-    v_TexCoord1 = stage_texcoord(1, viewPos.xyz, eyeNormal);
-    v_TexCoord2 = stage_texcoord(2, viewPos.xyz, eyeNormal);
-    v_TexCoord3 = stage_texcoord(3, viewPos.xyz, eyeNormal);
+    // Only the stages this variant runs (a pixel shader may read all four); the conditions
+    // are compile-time constants, so the others cost nothing per vertex.
+    const vec3 unused = vec3(0.0, 0.0, 1.0);
+    v_TexCoord0 = (GX_PS || GX_STAGES > 0) ? stage_texcoord(0, viewPos.xyz, eyeNormal) : unused;
+    v_TexCoord1 = (GX_PS || GX_STAGES > 1) ? stage_texcoord(1, viewPos.xyz, eyeNormal) : unused;
+    v_TexCoord2 = (GX_PS || GX_STAGES > 2) ? stage_texcoord(2, viewPos.xyz, eyeNormal) : unused;
+    v_TexCoord3 = (GX_PS || GX_STAGES > 3) ? stage_texcoord(3, viewPos.xyz, eyeNormal) : unused;
 
     // Compute lighting
     if (GX_LIGHT) {

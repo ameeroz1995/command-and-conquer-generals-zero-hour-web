@@ -31,6 +31,11 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+#ifdef __EMSCRIPTEN__
+void GLES3_Begin_3D(); // gles3_wrapper.cpp
+void GLES3_End_3D();
+#endif
+
 static void drawFramerateBar();
 
 // SYSTEM INCLUDES ////////////////////////////////////////////////////////////
@@ -1798,7 +1803,15 @@ AGAIN:
 					Debug_Statistics::Record_DX8_Polys_And_Vertices(numRenderTargetPolygons,numRenderTargetVertices,ShaderClass::_PresetOpaqueShader);
 
 				// draw all views of the world
+#ifdef __EMSCRIPTEN__
+				// GeneralsX @perf WebPort 2026-11-21 — at a render scale below 100% the 3D views
+				// draw offscreen at that scale; the UI below draws over them at full size.
+				GLES3_Begin_3D();
 				drawViews();
+				GLES3_End_3D();
+#else
+				drawViews();
+#endif
 
 				// draw the user interface
 				TheInGameUI->DRAW();

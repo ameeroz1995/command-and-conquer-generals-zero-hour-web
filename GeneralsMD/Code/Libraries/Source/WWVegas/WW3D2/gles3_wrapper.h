@@ -452,6 +452,10 @@ void GLES3_Set_Pretransformed(bool pretransformed);
 void GLES3_Bind_Array_Buffer(GLuint buffer);
 void GLES3_Bind_Element_Buffer(GLuint buffer);
 void GLES3_Delete_Buffer(GLuint* buffer);
+// The 3D views of a frame (W3DDisplay::draw); at a render scale below 100% they draw offscreen.
+void GLES3_Begin_3D();
+void GLES3_End_3D();
+void GLES3_Bind_Texture_For_Upload(GLuint tex); // binds on the active unit, through the shadow
 // Cached VAO per vertex layout (gles3_wrapper.cpp). Bind_Layout returns false when it made a
 // new VAO, which the caller then sets up; every other attribute setup needs the default VAO.
 bool GLES3_Bind_Layout(GLuint vbo, GLuint ibo, unsigned int fvf, unsigned int stride, unsigned int base);

@@ -1926,3 +1926,36 @@ High, 1600x1200, camera on the fighting.
 - Picture unchanged (screenshot diff vs. the live build: only the dozer's smoke animation); no
   WebGL errors. Reviewed by a separate diff-only review: no must-fix; its one should-fix (an
   indexed draw before any FVF did not bind its index buffer) is fixed.
+
+## 2026-11-21 — Session 29: Antialiasing setting, sharp UI at a render scale, smaller items
+
+Low-end test setup as before (Edge on 2 cores + SwiftShader, multithreaded build); the machine was
+under other load (load average 7-22), so fps figures there move by ~1 fps between runs.
+
+- **Antialiasing setting** (settings drawer, reloads the page): the WebGL context was always made
+  with `antialias: true`. Off by default on a software GPU or a machine with <= 2 cores or <= 2 GB
+  (only while the player hasn't chosen). SwiftShader honoured it (4 samples); turning it off at 50%
+  scale changed nothing measurable there (menu 7.1-7.6 -> 7.3-7.5 fps, game 4.2-4.4 -> 4.0-4.6): at
+  that size it is bound by per-draw work, not pixels. On a real integrated GPU MSAA costs memory
+  bandwidth; not measurable on this machine (the RX 580's headless context gets 0 samples anyway).
+- **Sharp UI at a render scale** (hardware GPUs, antialiasing off): the canvas stays at the
+  display size; the 3D views (`drawViews` in W3DDisplay::draw, between GLES3_Begin_3D/End_3D) draw
+  into an offscreen framebuffer at the scale (RGBA8 + depth24/stencil8 renderbuffers, the frame's
+  clear replayed into it), which is blitted (linear) into the canvas; UI, text and cursor then
+  draw at full size with lod bias 0. Viewports follow the bound target. A multisampled canvas
+  can't be a blit target, so with antialiasing on the whole canvas is scaled as before. New 40%
+  option. RX 580 at 50%: correct picture, UI sharp, 3D soft; ~1.1 ms menu, 2.4-2.6 ms in game.
+  **Not on a software GPU**: on SwiftShader it was far slower (menu 1.9-2.3 fps, game 1.1-1.4, at
+  both 50% and 40%, against 5.7-6.7 and 3.0-3.8 with the canvas scaled) — there the full-size
+  canvas (clear, blit, UI and presenting it) costs more than the smaller 3D pass saves; at 100%
+  the old build was ~1-1.4 fps too. The page tells the engine (`gxSoftwareGL`), which then keeps
+  scaling the whole canvas. The renderer check now runs on every load.
+- **Vertex shader**: texture coordinates are computed only for the stages the variant runs (all
+  four when a pixel shader reads them); the conditions are compile-time constants.
+- **Texture updates** (`Update_Texture`) bind through the binding shadow instead of
+  `glGetIntegerv` + restore. Mipmaps are still regenerated: texture uploads are ~0.1% of a frame
+  and skipping them could leave stale mips on screen.
+- **Checked, left as is**: first-start detail is already Low (`StaticGameLOD = Low`), which turns
+  off volumetric shadows, uses the simple water and the lowest particle cap, so low-end players
+  already get those; the per-frame canvas lookup (`querySelector` / `findEventTarget`, one per
+  frame from SetViewport) is 0.0-0.1% of a frame now.
