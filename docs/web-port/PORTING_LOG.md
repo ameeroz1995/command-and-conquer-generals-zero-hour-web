@@ -2075,3 +2075,42 @@ A variant's vertex shader is compiled once and shared by its slots. GXLAYOUT log
   of game archives while a match runs (the game's TICK-DIAG line, `inGame=1`), aborting the file
   in progress; it resumes in the menu. Checked: pause sent once at match start; on a throttled
   test server the download stopped within a second and resumed afterwards.
+
+## 2026-11-21 — Session 34: The fixed per-frame cost, measured (no change)
+
+Low-end setup, normal build, LAN game, 400x300 canvas; WebGL patched at runtime
+(`~/generals-bench/exp3.js`, `expmeas3.sh`). One clear per frame (colour + depth + stencil).
+
+| low-end, in game | fps |
+|---|---|
+| as is | 12.0-13.5 |
+| no draws | 32-34 |
+| no draws, no clears | 60 (vsync) |
+| exact CSS size, no browser scaling | 12.9-14.4 |
+| no depth clear / no stencil clear / no colour clear | 12.3-12.8 / 11.6-12.5 / 10.8-12.9 |
+| no clears at all | 11.6-12.3 |
+
+- Clears cost nothing measurable in a real frame; the 60 fps with neither draws nor clears is the
+  software renderer having nothing to do. Skipping the depth clear (idea 23) and an exact-size
+  canvas instead of CSS scaling (idea 37) gain nothing; not done.
+- **Battle, low-end** (3v3 replay, default Low detail, `expbat.sh` + `exp4.js`): 10.5-11.1 fps;
+  cutting the pixels of the ~103 blended world draws per frame (particles, smoke, effects; idea 9)
+  10.3-11.2; skipping the ~7.8 texture uploads per frame incl. the shroud copy (idea 33)
+  10.0-11.0. Neither is worth changing.
+
+## 2026-11-21 — Session 35: Render scale Auto
+
+- Pixels are now ~1/3 of the low-end frame (LAN game: as is ~12.5 fps, no pixels ~18.8, no draws
+  ~33). But on software GL **40% measured slower than 50%** (two pairs: 10.4-12.6 vs 12.0-13.7
+  fps): its cost is per triangle more than per pixel there.
+- **Render scale "Auto"** (settings drawer; the default for players who haven't picked a scale):
+  the engine reports its frame rate (`Module.gxFps`, with the once-a-second render scale read in
+  `GLES3_Begin_Scene`) and whether a match is on (`Module.gxInMatch` from EmscriptenMain:
+  `isInGame && !isInShellGame && !isLoadingMap`). During a match, 3 s in a row under 24 fps drop
+  the scale 10%, 3 s over 45 raise it 5%, at most one step per 4 s, between 100% and 40% (50% on
+  a software GPU). Starts at 50% on software GL, 75% on <= 2 cores / <= 2 GB, else 100%.
+- Checked: RX 580 stays at 100% at 60 fps; with the reported fps held at 10 it stepped
+  100 -> 40% in 24 s and climbed back when held at 60; low-end stays at 50%; `gxInMatch` 0 in
+  the menu, 1 in a LAN game. Untested: a real weak GPU, where Auto should matter most.
+- The private server's download pause (Session 33) now uses `Module.gxInMatch` too: the
+  TICK-DIAG `inGame` flag also counts the menu's shell map.

@@ -47,6 +47,7 @@ static GLES3_PipelineState g_State;
 static bool g_Initialized = false;
 static bool g_SceneDirty = true; // GXScene inputs changed since the last upload (Upload_Scene_Block)
 static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
+static int g_SwapCount = 0;         // frames presented, for Module.gxFps (render scale Auto)
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
@@ -400,8 +401,14 @@ void GLES3_Begin_Scene() {
     static double next_check = 0;
     const double now = emscripten_get_now();
     if (now >= next_check && g_BackBufferW > 0) {
+        // Frames presented since the last check go out as Module.gxFps, which the page's
+        // render scale Auto follows.
+        static double last_check = 0;
+        const double fps = last_check > 0 ? g_SwapCount * 1000.0 / (now - last_check) : 0;
+        last_check = now;
+        g_SwapCount = 0;
         next_check = now + 1000.0;
-        double sc = EM_ASM_DOUBLE({ return Module.gxRenderScale || 1; });
+        double sc = EM_ASM_DOUBLE({ Module.gxFps = $0; return Module.gxRenderScale || 1; }, fps);
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__
         // Worker build: the canvas belongs to this thread, so the page can't resize it.
@@ -486,6 +493,7 @@ void GLES3_Swap_Buffers() {
     double now = emscripten_get_now();
     if (t0 == 0) t0 = now;
     if (++n, now - t0 >= 5000.0) { printf("GXFRAME fps=%.1f\n", n * 1000.0 / (now - t0)); t0 = now; n = 0; }
+    g_SwapCount++;
     if (TheSDL3Window && !GLES3_WORKER_BUILD) {
         SDL_GL_SwapWindow(TheSDL3Window);
     }

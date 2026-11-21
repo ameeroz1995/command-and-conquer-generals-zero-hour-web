@@ -472,6 +472,12 @@ static bool GameWebFrameCallback(float /*delta_time_ms*/) {
             gx_d3d_setstreamsource_calls, gx_d3d_setstreamsource_null,
             gx_d3d_setindices_calls, gx_d3d_setindices_null,
             gx_dx8_buftype_dyn_dx8);
+    if (TheGameLogic) {
+      // For the page: a match is on (not the menu's shell map, not loading a map). Render
+      // scale Auto and the private server's background download follow it.
+      const int inMatch = TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() && !TheGameLogic->isLoadingMap();
+      EM_ASM({ Module.gxInMatch = $0; }, inMatch);
+    }
     if (TheGameLogic && TheFramePacer) {
       fprintf(stderr,
               "TICK-DIAG: logicFrame=%u inGame=%d isPaused=%d "

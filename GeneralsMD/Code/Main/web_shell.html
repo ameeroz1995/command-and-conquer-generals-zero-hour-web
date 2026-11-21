@@ -326,7 +326,7 @@
     <div id="gx-lowend-note" role="alert" style="display:none;position:fixed;left:50%;top:16px;transform:translateX(-50%);max-width:640px;z-index:10000;background:var(--gx-bg);color:var(--gx-fg);border:1px solid var(--gx-accent);padding:10px 14px;font-size:12px;letter-spacing:.5px;line-height:1.5">
       <b>No graphics acceleration:</b> the browser is drawing the game in software, so it will be
       very slow. Turn on hardware acceleration in the browser's settings and restart it.
-      Render scale was set to 50% meanwhile (Settings).
+      Render scale is on Auto meanwhile, starting at 50% (Settings).
       <button type="button" style="margin-left:10px;background:none;border:1px solid var(--gx-mute);color:var(--gx-fg);cursor:pointer"
         onclick="this.parentNode.style.display='none';try{localStorage.setItem('gxLowEndNoteDismissed','1')}catch(e){}">Got it</button>
     </div>
@@ -441,6 +441,7 @@
         <div style="display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 1px; margin-bottom: 4px;">
           <span>RENDER SCALE</span>
           <select id="gx-setting-render-scale" style="background: transparent; color: var(--gx-fg); border: 1px solid var(--gx-fg); font-family: inherit; font-size: 10px;">
+            <option value="auto">Auto</option>
             <option value="1">100%</option>
             <option value="0.85">85%</option>
             <option value="0.75">75%</option>
@@ -448,7 +449,7 @@
             <option value="0.4">40%</option>
           </select>
         </div>
-        <div style="font-size: 9px; color: var(--gx-mute); margin-top: 3px;">3D drawn below the game resolution and upscaled: faster, softer. With antialiasing off, menus and text stay sharp (not with software graphics).</div>
+        <div style="font-size: 9px; color: var(--gx-mute); margin-top: 3px;">3D drawn below the game resolution and upscaled: faster, softer. Auto lowers it (down to 40%, 50% with software graphics) while a match runs under 24 fps and raises it again above 45. With antialiasing off, menus and text stay sharp (not with software graphics).</div>
       </div>
 
       <div style="margin-bottom: 14px;">
@@ -1128,9 +1129,10 @@
               if (saved) parsed = JSON.parse(saved);
             } catch(e) {}
             if (!parsed || typeof parsed !== 'object') parsed = {};
-            // Low-end defaults, only for settings the player hasn't picked: a software GPU draws
-            // at 50%, a machine with <= 2 cores or <= 2 GB at 75%; both start without
-            // antialiasing (multisampling multiplies the cost of every pixel).
+            // Defaults, only for settings the player hasn't picked: render scale Auto (below),
+            // starting at 50% on a software GPU, 75% on a machine with <= 2 cores or <= 2 GB and
+            // 100% elsewhere; the weak ones start without antialiasing (multisampling multiplies
+            // the cost of every pixel).
             var renderer = '';
             {
               try {
@@ -1145,8 +1147,8 @@
               // full-size canvas costs it more than the smaller 3D pass saves (Session 29).
               window.gxSoftwareGL = software;
               var weak = (navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory || 8) <= 2;
-              if (software && parsed.renderScale === undefined) defaults.renderScale = 0.5;
-              else if (weak && parsed.renderScale === undefined) defaults.renderScale = 0.75;
+              defaults.renderScale = 'auto';
+              window.gxAutoScale = software ? 0.5 : weak ? 0.75 : 1;
               if ((software || weak) && parsed.antialias === undefined) defaults.antialias = false;
               if (software && parsed.renderScale === undefined) {
                 var dismissed = false;
@@ -1191,7 +1193,8 @@
           // Optional render scale (settings). Without antialiasing the engine draws the 3D views
           // offscreen at the scale and keeps the canvas (and the UI) at full size
           // (Module.gxScaled3D); otherwise the canvas itself is smaller and CSS-upscaled.
-          M.gxRenderScale = (window.GeneralsX && window.GeneralsX.settings && +window.GeneralsX.settings.renderScale) || 1;
+          const rs = window.GeneralsX && window.GeneralsX.settings && window.GeneralsX.settings.renderScale;
+          M.gxRenderScale = rs === 'auto' ? (window.gxAutoScale || 1) : (+rs || 1);
           const s = M.gxScaled3D ? 1 : M.gxRenderScale;
           const w = Math.max(1, Math.round((M.gxCanvasW || GX_FIXED_W) * s));
           const h = Math.max(1, Math.round((M.gxCanvasH || GX_FIXED_H) * s));
@@ -1212,6 +1215,30 @@
         // Belt-and-braces: setInterval to repin in case ResizeObserver
         // misses an Emscripten-side write. Cheap (1Hz, two int compares).
         setInterval(gxLockCanvasBacking, 1000);
+
+        // Render scale Auto: the engine reports its frame rate (Module.gxFps) and whether a
+        // match is on (Module.gxInMatch: not the menu's shell map, not loading), about once a
+        // second. During a match, 3 s in a row below 24 fps drop the scale 10%, 3 s above 45
+        // raise it 5%, at most one step every 4 s, between 100% and 40% (50% on a software GPU,
+        // where 40% measured slower than 50%: its cost is per triangle more than per pixel).
+        let gxAutoChanged = 0, gxAutoLow = 0, gxAutoHigh = 0;
+        setInterval(function () {
+          const st = window.GeneralsX && window.GeneralsX.settings, M = window.Module || {};
+          const fps = M.gxFps;
+          if (!st || st.renderScale !== 'auto' || !fps || !M.gxInMatch || document.hidden) { gxAutoLow = gxAutoHigh = 0; return; }
+          gxAutoLow = fps < 24 ? gxAutoLow + 1 : 0;
+          gxAutoHigh = fps > 45 ? gxAutoHigh + 1 : 0;
+          const now = performance.now(), cur = window.gxAutoScale || 1, floor = window.gxSoftwareGL ? 0.5 : 0.4;
+          if (now - gxAutoChanged < 4000) return;
+          let next = cur;
+          if (gxAutoLow >= 3 && cur > floor) next = Math.max(floor, Math.round((cur - 0.1) * 100) / 100);
+          else if (gxAutoHigh >= 3 && cur < 1) next = Math.min(1, Math.round((cur + 0.05) * 100) / 100);
+          if (next === cur) return;
+          window.gxAutoScale = next;
+          gxAutoChanged = now;
+          gxAutoLow = gxAutoHigh = 0;
+          gxLockCanvasBacking();
+        }, 1000);
 
         // ------------------------------------------------------------------
         // WebGL context loss — the browser may drop the GL context if the GPU
@@ -1659,7 +1686,7 @@
           var renderScaleSel = document.getElementById('gx-setting-render-scale');
           renderScaleSel.value = String(window.GeneralsX.settings.renderScale || 1);
           renderScaleSel.addEventListener('change', function() {
-            window.GeneralsX.settings.renderScale = parseFloat(renderScaleSel.value) || 1;
+            window.GeneralsX.settings.renderScale = renderScaleSel.value === 'auto' ? 'auto' : parseFloat(renderScaleSel.value) || 1;
             saveSettings();
             if (typeof gxLockCanvasBacking === 'function') gxLockCanvasBacking(); // applies live
           });
