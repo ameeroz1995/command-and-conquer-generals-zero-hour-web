@@ -37,6 +37,29 @@
 #include <cstdio>
 #include "gles3_wrapper.h"
 
+
+// Scene uniforms shared by every program (GLES3_ShaderManager::Apply_Uniforms, binding 0):
+// uploaded once when they change instead of per program, since variants switch programs often.
+#define GX_SCENE_BLOCK \
+"struct Light {\n" \
+"    vec4 diffuse;\n" \
+"    vec4 ambient;\n" \
+"    vec4 specular;\n" \
+"    vec4 position;  // xyz, w = range (point/spot: no light beyond it)\n" \
+"    vec4 direction; // xyz\n" \
+"    vec4 atten;     // attenuation0-2, w = type: 0 off, 1 point, 2 spot, 3 directional\n" \
+"};\n" \
+"layout(std140) uniform GXScene {\n" \
+"    mat4 u_View;\n" \
+"    mat4 u_Projection;\n" \
+"    vec4 u_GlobalAmbient;\n" \
+"    vec4 u_FogColor;     // rgb\n" \
+"    vec4 u_FogParams;    // start, end, lod bias (log2(drawing buffer / back buffer), <= 0)\n" \
+"    vec4 u_ViewportRect; // x, y, width, height in pixels\n" \
+"    vec4 u_TextureFactor;\n" \
+"    Light u_Lights[4];\n" \
+"};\n"
+
 // ============================================================================
 // Vertex Shader — DX8 Fixed-Function Pipeline Emulation
 // ============================================================================
@@ -47,7 +70,7 @@ static const char* g_VertexShaderSource = R"GLSL(#version 300 es
 ** BGRA vertex color swizzle (DX8 uses BGRA byte order)
 */
 precision highp float;
-
+)GLSL" GX_SCENE_BLOCK R"GLSL(
 // Vertex attributes (matching FVF decoder attribute locations)
 layout(location = 0) in vec4 a_Position;  // xyz (w defaults to 1), or XYZRHW
 layout(location = 1) in vec3 a_Normal;
@@ -59,10 +82,8 @@ layout(location = 6) in vec2 a_TexCoord3;
 layout(location = 7) in mat4 a_InstanceWorld; // Instanced matrix layout locations 7, 8, 9, 10
 layout(location = 11) in vec4 a_Specular;     // DX8 SPECULAR (BGRA), 0 when the FVF has none
 
-// Transform matrices
+// Transform matrices (view and projection are in GXScene)
 uniform mat4 u_World;
-uniform mat4 u_View;
-uniform mat4 u_Projection;
 uniform bool u_InstancingEnabled;
 
 // Per-stage texture coordinates, as D3D8 fixed function builds them:
@@ -80,45 +101,11 @@ uniform vec4 u_MatSpecular;
 uniform vec4 u_MatEmissive;
 uniform float u_MatPower;
 
-// Lighting
-uniform bool u_LightingEnabled;
-
-struct Light {
-    vec4 diffuse;
-    vec3 position;
-    vec3 direction;
-    bool enabled;
-    int type;          // 1=point, 2=spot, 3=directional
-    float attenuation0;
-    float attenuation1;
-    float attenuation2;
-    vec4 ambient;
-    float range;       // point/spot: no light beyond this distance
-    vec4 specular;
-};
-uniform Light u_Lights[4];
-
-// D3DFVF_XYZRHW: positions are already in render-target pixels, with 1/w.
-// D3D skips transform, lighting and vertex fog for them.
-uniform bool u_PreTransformed;
-uniform vec4 u_ViewportRect; // x, y, width, height in pixels
-
-// Global ambient light (DX8 D3DRS_AMBIENT default)
-uniform vec4 u_GlobalAmbient;
-
-// Fog
-uniform bool u_FogEnabled;
-uniform float u_FogStart;
-uniform float u_FogEnd;
-
 // Which material colours come from the vertex colour (D3DRS_COLORVERTEX with
 // D3DRS_*MATERIALSOURCE = D3DMCS_COLOR1 and a diffuse vertex colour):
 // bit 0 ambient, bit 1 diffuse, bit 2 emissive. Otherwise the material is used.
 uniform int u_ColorVertex;
 
-// D3DRS_SPECULARENABLE: lit vertices get Blinn-Phong highlights (local viewer, D3D's
-// default), unlit ones pass the vertex specular colour; the pixel stage adds it.
-uniform bool u_SpecularEnable;
 
 // Outputs to fragment shader
 out vec4 v_Color;
@@ -206,44 +193,46 @@ void main() {
 
         // Per-light contribution
         for (int i = 0; i < 4; i++) {
-            if (!u_Lights[i].enabled) continue;
+            Light L = u_Lights[i];
+            int type = int(L.atten.w);
+            if (type == 0) continue;
 
             vec3 lightDir;
             float attenuation = 1.0;
 
-            if (u_Lights[i].type == 3) {
+            if (type == 3) {
                 // Directional light — direction is towards the light source
-                lightDir = normalize(-u_Lights[i].direction);
-            } else if (u_Lights[i].type == 1) {
+                lightDir = normalize(-L.direction.xyz);
+            } else if (type == 1) {
                 // Point light — direction from vertex to light
-                vec3 toLight = u_Lights[i].position - worldPos.xyz;
+                vec3 toLight = L.position.xyz - worldPos.xyz;
                 float dist = length(toLight);
-                if (dist > u_Lights[i].range) continue;
+                if (dist > L.position.w) continue;
                 lightDir = dist > 0.0 ? toLight / dist : vec3(0.0, 0.0, 1.0);
-                attenuation = 1.0 / (u_Lights[i].attenuation0
-                    + u_Lights[i].attenuation1 * dist
-                    + u_Lights[i].attenuation2 * dist * dist);
+                attenuation = 1.0 / (L.atten.x
+                    + L.atten.y * dist
+                    + L.atten.z * dist * dist);
             } else {
                 // Spot light — simplified as point with direction check
-                vec3 toLight = u_Lights[i].position - worldPos.xyz;
+                vec3 toLight = L.position.xyz - worldPos.xyz;
                 float dist = length(toLight);
-                if (dist > u_Lights[i].range) continue;
+                if (dist > L.position.w) continue;
                 lightDir = dist > 0.0 ? toLight / dist : vec3(0.0, 0.0, 1.0);
-                attenuation = 1.0 / (u_Lights[i].attenuation0
-                    + u_Lights[i].attenuation1 * dist
-                    + u_Lights[i].attenuation2 * dist * dist);
+                attenuation = 1.0 / (L.atten.x
+                    + L.atten.y * dist
+                    + L.atten.z * dist * dist);
                 // Spot cone falloff
-                float cosAngle = dot(-lightDir, normalize(u_Lights[i].direction));
+                float cosAngle = dot(-lightDir, normalize(L.direction.xyz));
                 attenuation *= smoothstep(0.0, 1.0, cosAngle);
             }
 
             float NdotL = max(dot(worldNormal, lightDir), 0.0);
 
-            totalDiffuse += matDiff * u_Lights[i].diffuse * NdotL * attenuation;
-            lightAmbient += u_Lights[i].ambient * attenuation;
-            if (u_SpecularEnable && NdotL > 0.0) {
+            totalDiffuse += matDiff * L.diffuse * NdotL * attenuation;
+            lightAmbient += L.ambient * attenuation;
+            if (GX_SPEC && NdotL > 0.0) {
                 float NdotH = max(dot(worldNormal, normalize(lightDir + toEye)), 0.0);
-                totalSpecular += u_Lights[i].specular * pow(NdotH, max(u_MatPower, 0.0001)) * attenuation;
+                totalSpecular += L.specular * pow(NdotH, max(u_MatPower, 0.0001)) * attenuation;
             }
         }
 
@@ -257,9 +246,9 @@ void main() {
     }
 
     // Fog factor (linear fog in eye space)
-    if (GX_FOG && u_FogEnd > u_FogStart) {
+    if (GX_FOG && u_FogParams.y > u_FogParams.x) {
         float eyeDist = abs(viewPos.z); // D3D vertex fog uses eye-space z (no RANGEFOGENABLE)
-        v_FogFactor = clamp((u_FogEnd - eyeDist) / (u_FogEnd - u_FogStart), 0.0, 1.0);
+        v_FogFactor = clamp((u_FogParams.y - eyeDist) / (u_FogParams.y - u_FogParams.x), 0.0, 1.0);
     } else {
         v_FogFactor = 1.0;
     }
@@ -276,7 +265,7 @@ static const char* g_FragmentShaderSource = R"GLSL(#version 300 es
 ** Handles: multi-texture blending, alpha test, fog
 */
 precision highp float;
-
+)GLSL" GX_SCENE_BLOCK R"GLSL(
 // Inputs from vertex shader
 in vec4 v_Color;
 in vec3 v_TexCoord0;
@@ -291,17 +280,11 @@ uniform sampler2D u_Texture1;
 uniform sampler2D u_Texture2;
 uniform sampler2D u_Texture3;
 
-// Fog
-uniform bool u_FogEnabled;
-uniform vec3 u_FogColor;
 
 // Alpha test emulation (removed in GLES3, emulated here)
-uniform bool u_AlphaTestEnabled;
 uniform float u_AlphaRef;         // 0.0 - 1.0 (normalized from DX8's 0-255)
 uniform int u_AlphaFunc;          // D3DCMPFUNC enum value
 
-// D3DRS_TEXTUREFACTOR
-uniform vec4 u_TextureFactor;
 
 // Texture stages 0-3, as D3D8 fixed function runs them. u_StageOps: COLOROP, ALPHAOP per
 // stage (D3DTEXTUREOP). u_StageArgs: COLORARG0/1/2, ALPHAARG0/1/2 per stage (D3DTA_*: low
@@ -311,14 +294,13 @@ uniform int u_StageOps[8];
 uniform int u_StageArgs[24];
 uniform int u_TexBound;
 
-// Optional render scale: log2(drawing buffer / back buffer), <= 0. Sampling with this
-// bias picks the mip level the full-size frame would, so a smaller buffer doesn't drop to
-// tiny mips (the terrain atlas's tile borders bleed there) and textures stay sharp.
-uniform float u_LodBias;
 
-// D3DRS_SPECULARENABLE: add the specular colour after the stages.
-uniform bool u_SpecularEnable;
-in vec4 v_Specular;
+in vec4 v_Specular; // added after the stages when D3DRS_SPECULARENABLE (GX_SPEC)
+
+// Optional render scale: sampling with u_FogParams.z as the bias picks the mip level the
+// full-size frame would, so a smaller buffer doesn't drop to tiny mips (the terrain atlas's
+// tile borders bleed there) and textures stay sharp.
+#define u_LodBias u_FogParams.z
 
 // A ps.1.1 pixel shader set with SetPixelShader replaces the stages (u_PSCount > 0).
 // Two ivec4 per instruction (encoded by GLES3_Create_Pixel_Shader):
@@ -335,8 +317,6 @@ out vec4 fragColor;
 
 // Alpha test comparison
 bool alpha_test(float alpha) {
-    if (!u_AlphaTestEnabled) return true;
-
     // D3DCMPFUNC values
     if (u_AlphaFunc == 1) return false;                             // NEVER
     if (u_AlphaFunc == 2) return alpha < u_AlphaRef;                // LESS
@@ -483,7 +463,7 @@ void main() {
 
     // --- Fog blending ---
     if (GX_FOG) {
-        color.rgb = mix(u_FogColor, color.rgb, v_FogFactor);
+        color.rgb = mix(u_FogColor.rgb, color.rgb, v_FogFactor);
     }
 
     fragColor = color;

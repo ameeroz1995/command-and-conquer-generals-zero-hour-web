@@ -116,6 +116,8 @@ static void emscripten_main_loop_callback() {
             // fixed heap of the worker build; GXMEM lines.
             printf("GXMEM used=%u MB of %u MB\n", (unsigned)((uintptr_t)sbrk(0) >> 20),
                    (unsigned)(emscripten_get_heap_size() >> 20));
+            extern int gx_layout_misses, gx_layout_clears;
+            printf("GXLAYOUT new=%d flushes=%d\n", gx_layout_misses, gx_layout_clears);
             work_sum = 0; work_n = 0; work_t0 = work_end;
         }
     }

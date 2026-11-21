@@ -134,7 +134,6 @@ if(EMSCRIPTEN)
         "-sUSE_SDL=2"
         "-sUSE_SDL_IMAGE=2"
         "-sUSE_WEBGL2=1"
-        "-sFULL_ES3=1"
         "-sMIN_WEBGL_VERSION=2"
         "-sMAX_WEBGL_VERSION=2"
         "-sALLOW_MEMORY_GROWTH=1"

@@ -18,6 +18,9 @@
 #include <vector>
 #include <cstdint>
 #include <cstring>
+#ifdef __wasm_simd128__
+#include <wasm_simd128.h>
+#endif
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -729,12 +732,41 @@ struct Emscripten_BufferData {
         if (lo < dirty_lo) dirty_lo = lo;
         if (hi > dirty_hi) dirty_hi = hi;
     }
+    // Buffers re-uploaded after their first fill (the engine's dynamic buffers) keep a copy of
+    // the bytes last sent, and only the span that actually changed goes to WebGL: the 2D UI
+    // and other dynamic geometry rewrite the same bytes at the same offsets every frame.
+    std::vector<uint8_t> sent;
+    static bool Same16(const uint8_t* a, const uint8_t* b) {
+#ifdef __wasm_simd128__
+        return wasm_i8x16_all_true(wasm_i8x16_eq(wasm_v128_load(a), wasm_v128_load(b)));
+#else
+        uint64_t a0, a1, b0, b1;
+        memcpy(&a0, a, 8); memcpy(&a1, a + 8, 8); memcpy(&b0, b, 8); memcpy(&b1, b + 8, 8);
+        return a0 == b0 && a1 == b1;
+#endif
+    }
+    // Trims [dirty_lo, dirty_hi) to the changed bytes; false when nothing changed.
+    bool Changed_Span(size_t& lo, size_t& hi) {
+        lo = dirty_lo; hi = dirty_hi;
+        if (sent.size() != data.size()) { sent = data; return true; } // first re-upload
+        const uint8_t* x = data.data();
+        const uint8_t* y = sent.data();
+        // 16 bytes per step (big dynamic spans are scanned every frame), then bytes.
+        while (lo + 16 <= hi && Same16(x + lo, y + lo)) lo += 16;
+        while (lo < hi && x[lo] == y[lo]) lo++;
+        while (hi >= lo + 16 && Same16(x + hi - 16, y + hi - 16)) hi -= 16;
+        while (hi > lo && x[hi - 1] == y[hi - 1]) hi--;
+        if (lo == hi) return false;
+        memcpy(sent.data() + lo, x + lo, hi - lo);
+        return true;
+    }
     void Upload(GLenum target) {
+        size_t lo, hi;
         if (!allocated) {
             glBufferData(target, (GLsizeiptr)data.size(), data.data(), GL_DYNAMIC_DRAW);
             allocated = true;
-        } else if (dirty_hi > dirty_lo) {
-            glBufferSubData(target, (GLintptr)dirty_lo, (GLsizeiptr)(dirty_hi - dirty_lo), data.data() + dirty_lo);
+        } else if (dirty_hi > dirty_lo && Changed_Span(lo, hi)) {
+            glBufferSubData(target, (GLintptr)lo, (GLsizeiptr)(hi - lo), data.data() + lo);
         }
         dirty_lo = dirty_hi = 0;
     }
@@ -800,10 +832,17 @@ struct Emscripten_IDirect3DIndexBuffer8 : public IDirect3DIndexBuffer8 {
     }
     virtual HRESULT Unlock() override { return 0; }
 
-    GLuint Upload_And_Bind() {
+    // Upload the locked bytes. Not bound here: the element buffer is VAO state, and the
+    // draw's cached layout VAO (GLES3_Bind_Layout) carries it.
+    GLuint Upload() {
         if (!gl_ibo) glGenBuffers(1, &gl_ibo);
-        GLES3_Bind_Element_Buffer(gl_ibo);
-        buf.Upload(GL_ELEMENT_ARRAY_BUFFER);
+        size_t lo, hi;
+        if (!buf.allocated)
+            GLES3_Upload_Index_Data(gl_ibo, buf.data.data(), 0, 0, buf.data.size(), true);
+        else if (buf.dirty_hi > buf.dirty_lo && buf.Changed_Span(lo, hi))
+            GLES3_Upload_Index_Data(gl_ibo, buf.data.data(), lo, hi, buf.data.size(), false);
+        buf.allocated = true;
+        buf.dirty_lo = buf.dirty_hi = 0;
         return gl_ibo;
     }
 };
@@ -1067,10 +1106,16 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
     // dynamic VBO (which would be whoever wrote first this frame).
     // D3D applies BaseVertexIndex (SetIndices) to DrawIndexedPrimitive only; the
     // non-indexed and UP draws pass use_base = false.
+    UINT _stride(UINT stride_override) const {
+        UINT stride = stride_override ? stride_override : current_stride;
+        return stride ? stride : GLES3_FVFDecoder::Get_FVF_Vertex_Size(current_fvf);
+    }
     void _setup_vertex_attribs(UINT stride_override, bool use_base) {
         if (!current_fvf) return;
-        GLES3_FVFDecoder dec;
-        dec.Decode(current_fvf);
+        // The FVF decode is cached: draws mostly repeat the last vertex format.
+        static GLES3_FVFDecoder dec;
+        static DWORD dec_fvf = 0;
+        if (dec_fvf != current_fvf) { dec.Decode(current_fvf); dec_fvf = current_fvf; }
         UINT stride = stride_override ? stride_override : current_stride;
         if (stride == 0) stride = dec.Get_FVF_Size();
         const UINT base_offset_bytes = use_base ? (UINT)base_vtx_index * stride : 0;
@@ -1080,6 +1125,7 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
     virtual HRESULT DrawPrimitive(D3DPRIMITIVETYPE PrimType, UINT StartVertex,
                                 UINT PrimCount) override {
         if (!current_vb || current_vb->buf.data.empty()) return 0;
+        GLES3_Bind_Default_VAO();
         current_vb->Upload_And_Bind();
         _setup_vertex_attribs(0, false);
         GLES3_Draw_Arrays((unsigned int)PrimType, StartVertex, PrimCount);
@@ -1104,6 +1150,7 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
         // One streaming buffer re-filled per call (was a new GL buffer created and deleted).
         static GLuint up_vbo = 0;
         if (!up_vbo) glGenBuffers(1, &up_vbo);
+        GLES3_Bind_Default_VAO();
         GLES3_Bind_Array_Buffer(up_vbo);
         glBufferData(GL_ARRAY_BUFFER,
                      (GLsizeiptr)(vertex_count * VertexStreamZeroStride),
@@ -1125,8 +1172,21 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
         if (!current_ib) { ++gx_d3d_dip_no_ib; return 0; }
         if (current_ib->buf.data.empty()) { ++gx_d3d_dip_empty_ib; return 0; }
         current_vb->Upload_And_Bind();
-        current_ib->Upload_And_Bind();
-        _setup_vertex_attribs(0, true);
+        current_ib->Upload();
+        if (current_fvf) {
+            const UINT stride = _stride(0);
+            if (GLES3_Bind_Layout(current_vb->gl_vbo, current_ib->gl_ibo, current_fvf, stride,
+                                  (UINT)base_vtx_index * stride)) {
+                // Cached layout: only the shader inputs that follow the FVF.
+                GLES3_Set_Vertex_Has_Color((current_fvf & D3DFVF_DIFFUSE) != 0);
+                GLES3_Set_Pretransformed((current_fvf & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW);
+            } else {
+                _setup_vertex_attribs(0, true);
+            }
+        } else {
+            GLES3_Bind_Default_VAO(); // no vertex format yet: still draw from this index buffer
+            GLES3_Bind_Element_Buffer(current_ib->gl_ibo);
+        }
         GLES3_Draw_Triangles((unsigned int)PrimType, StartIndex, PrimCount,
                              MinIndex, NumVertices);
         ++gx_d3d_dip_drew;
@@ -1152,6 +1212,7 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
         // Upload vertices
         static GLuint up_vbo = 0, up_ibo = 0;
         if (!up_vbo) { glGenBuffers(1, &up_vbo); glGenBuffers(1, &up_ibo); }
+        GLES3_Bind_Default_VAO();
         GLES3_Bind_Array_Buffer(up_vbo);
         glBufferData(GL_ARRAY_BUFFER,
                      (GLsizeiptr)(NumVertices * VertexStreamZeroStride),

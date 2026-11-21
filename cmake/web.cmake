@@ -24,8 +24,10 @@ message(STATUS "=== Configuring GeneralsX Web Port (Emscripten + WebGL 2.0) ==="
 # ============================================================================
 
 # WebGL 2.0 = OpenGL ES 3.0
-add_compile_options(-sUSE_WEBGL2=1 -sFULL_ES3=1)
-add_link_options(-sUSE_WEBGL2=1 -sFULL_ES3=1)
+# No -sFULL_ES3: every draw reads GL buffers (UP draws use streaming buffers), and its
+# client-side-array emulation cost JS work on every draw and VAO bind.
+add_compile_options(-sUSE_WEBGL2=1)
+add_link_options(-sUSE_WEBGL2=1)
 add_link_options(-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2)
 
 # OpenAL → WebAudio

@@ -43,6 +43,8 @@ extern SDL_Window *TheSDL3Window;
 
 static GLES3_PipelineState g_State;
 static bool g_Initialized = false;
+static bool g_SceneDirty = true; // GXScene inputs changed since the last upload (Upload_Scene_Block)
+static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
 static std::unordered_map<GLuint, bool> g_TextureHasMipmaps;
 
 void GLES3_Register_Texture(GLuint tex, bool has_mipmaps) {
@@ -66,49 +68,22 @@ bool GLES3_Texture_Has_Mipmaps(GLuint tex) {
 GLuint GLES3_ShaderManager::cached_programs[1024] = {0};
 GLES3_ProgramUniformLocations GLES3_ShaderManager::cached_locations[1024];
 
-struct GLES3_CachedUniformState {
+struct GLES3_CachedUniformState { // per program; scene values live in GXScene
     bool initialized;
     float world_matrix[16];
-    float view_matrix[16];
-    float projection_matrix[16];
     float material_diffuse[4];
     float material_ambient[4];
     float material_specular[4];
     float material_emissive[4];
     float material_power;
-    int lighting_enabled;
-    float global_ambient[4];
-    struct {
-        float diffuse[4];
-        float position[3];
-        float direction[3];
-        int enabled;
-        int type;
-        float attenuation0;
-        float attenuation1;
-        float attenuation2;
-        float ambient[4];
-        float range;
-    } lights[4];
-    int fog_enabled;
-    float fog_color[3];
-    float fog_start;
-    float fog_end;
-    int alpha_test_enabled;
     float alpha_ref;
     int alpha_func;
     int stage_ops[8];
-    float lod_bias;
-    int specular_enable;
     unsigned int pixel_shader;
     float ps_const[8][4];
-    float light_specular[4][4];
     int color_vertex;
     int stage_args[24];
     int tex_bound;
-    int pretransformed;
-    float viewport_rect[4];
-    float texture_factor[4];
     int tex_coord_index[4];
     int tex_transform[4];
     float tex_matrix[4][16];
@@ -329,6 +304,7 @@ bool GLES3_Init(void* hwnd, bool lite) {
     // Create VAO (required in OpenGL ES 3.0 / WebGL 2.0)
     glGenVertexArrays(1, &g_State.vao);
     glBindVertexArray(g_State.vao);
+    g_BoundVAO = g_State.vao;
 
     // Default GL state matching DX8 defaults
     glEnable(GL_DEPTH_TEST);
@@ -463,6 +439,9 @@ void GLES3_Set_Render_State(unsigned int state, unsigned int value) {
     // which starts at 0x12345678 while this one starts at 0, so a skip here lost the
     // engine's first "set to 0" (TEXTUREFACTOR, AMBIENT) and kept our start values.
     g_State.render_states[state] = value;
+    if (state == GLES3_RS_FOGCOLOR || state == GLES3_RS_FOGSTART || state == GLES3_RS_FOGEND ||
+        state == GLES3_RS_AMBIENT || state == GLES3_RS_TEXTUREFACTOR)
+        g_SceneDirty = true;
 
     switch (state) {
         case GLES3_RS_ZENABLE:
@@ -629,6 +608,7 @@ void GLES3_Set_Transform(unsigned int type, const float* matrix_row_major) {
     }
     if (target) {
         memcpy(target, matrix_row_major, 16 * sizeof(float));
+        if (type == GLES3_TS_VIEW || type == GLES3_TS_PROJECTION) g_SceneDirty = true;
     }
 }
 
@@ -658,6 +638,7 @@ void GLES3_Set_Viewport(unsigned int x, unsigned int y,
                          unsigned int w, unsigned int h,
                          float min_z, float max_z) {
     g_State.viewport = { x, y, w, h, min_z, max_z };
+    g_SceneDirty = true; // viewport rect and lod bias
     
     // Canvas size: looked up once a frame (GLES3_Begin_Scene marks it stale). The lookup
     // goes through a DOM selector, and the engine sets viewports many times a frame.
@@ -796,6 +777,7 @@ void GLES3_Set_Texture_Stage_State(unsigned int stage, unsigned int state,
 void GLES3_Set_Light(unsigned int index, const GLES3_Light* light) {
     if (index >= 4) return;
     memcpy(&g_State.lights[index], light, sizeof(GLES3_Light));
+    g_SceneDirty = true;
 }
 
 void GLES3_Set_Vertex_Has_Color(bool has_color) {
@@ -822,6 +804,90 @@ void GLES3_Attrib_Shadow_Reset() {
     g_ArrayBuffer = g_ElementBuffer = ~0u;
 }
 
+// ---------------------------------------------------------------------------
+// Vertex array objects cached per vertex layout: (vertex buffer, index buffer, FVF, stride,
+// base vertex offset). Each draw used to re-point ~5 attributes, because the base vertex is
+// baked into the pointer offsets (WebGL2 has no base-vertex draw); a cached layout is one
+// bindVertexArray. Attribute arrays and the element buffer are per-VAO state, so the shadow
+// above is reset whenever the bound VAO changes; the constant attribute values are context
+// state and always the same per location (gles3_fvf.cpp). Index buffers are uploaded through
+// GL_COPY_WRITE_BUFFER so an upload never rebinds the element buffer of the bound VAO.
+// ---------------------------------------------------------------------------
+struct GLES3_LayoutKey {
+    GLuint vbo, ibo; unsigned int fvf, stride, base;
+    bool operator==(const GLES3_LayoutKey& o) const {
+        return vbo == o.vbo && ibo == o.ibo && fvf == o.fvf && stride == o.stride && base == o.base;
+    }
+};
+struct GLES3_LayoutHash {
+    size_t operator()(const GLES3_LayoutKey& k) const {
+        size_t h = k.vbo * 0x9E3779B1u;
+        h ^= k.ibo * 0x85EBCA77u + (h << 6) + (h >> 2);
+        h ^= k.fvf * 0xC2B2AE3Du + (h << 6) + (h >> 2);
+        h ^= k.stride + (h << 6) + (h >> 2);
+        h ^= k.base * 0x27D4EB2Fu + (h << 6) + (h >> 2);
+        return h;
+    }
+};
+static std::unordered_map<GLES3_LayoutKey, GLuint, GLES3_LayoutHash> g_Layouts;
+static GLuint g_CopyWriteBuffer = ~0u; // index uploads (GLES3_Upload_Index_Data)
+int gx_layout_misses = 0, gx_layout_clears = 0; // GXLAYOUT log (gles3_mainloop.cpp)
+
+static void Bind_VAO(GLuint vao, GLuint element_buffer) {
+    if (vao == g_BoundVAO) return;
+    glBindVertexArray(vao);
+    g_BoundVAO = vao;
+    for (auto& a : g_Attrib) a.enabled = -1;
+    g_ElementBuffer = element_buffer;
+}
+
+void GLES3_Bind_Default_VAO() { Bind_VAO(g_State.vao, ~0u); }
+
+static void GLES3_Layouts_Clear() {
+    if (g_Layouts.empty()) return;
+    GLES3_Bind_Default_VAO();
+    for (auto& kv : g_Layouts) glDeleteVertexArrays(1, &kv.second);
+    g_Layouts.clear();
+    gx_layout_clears++;
+}
+
+bool GLES3_Bind_Layout(GLuint vbo, GLuint ibo, unsigned int fvf, unsigned int stride, unsigned int base) {
+    GLES3_LayoutKey k = { vbo, ibo, fvf, stride, base };
+    static GLES3_LayoutKey last_key = {};
+    static GLuint last_vao = 0;
+    if (last_vao && last_vao == g_BoundVAO && k == last_key) return true; // same layout as the last draw
+    auto it = g_Layouts.find(k);
+    if (it != g_Layouts.end()) {
+        Bind_VAO(it->second, ibo);
+        last_key = k; last_vao = it->second;
+        return true;
+    }
+    // ponytail: flush when full; an LRU if a scene ever cycles through more layouts than this.
+    if (g_Layouts.size() >= 4096) GLES3_Layouts_Clear();
+    GLuint vao = 0;
+    glGenVertexArrays(1, &vao);
+    g_Layouts.emplace(k, vao);
+    Bind_VAO(vao, ~0u);
+    last_key = k; last_vao = vao;
+    GLES3_Bind_Array_Buffer(vbo);
+    GLES3_Bind_Element_Buffer(ibo);
+    gx_layout_misses++;
+    return false; // the caller sets the attributes up, into this new VAO
+}
+
+void GLES3_Upload_Index_Data(GLuint ibo, const void* data, size_t lo, size_t hi, size_t total, bool allocate) {
+    if (allocate) {
+        // WebGL types a buffer by its first binding: it must be ELEMENT_ARRAY_BUFFER (a buffer
+        // first bound to COPY_WRITE could never be an index buffer). Done in the default VAO.
+        GLES3_Bind_Default_VAO();
+        GLES3_Bind_Element_Buffer(ibo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)total, data, GL_DYNAMIC_DRAW);
+        return;
+    }
+    if (g_CopyWriteBuffer != ibo) { glBindBuffer(GL_COPY_WRITE_BUFFER, ibo); g_CopyWriteBuffer = ibo; }
+    glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)lo, (GLsizeiptr)(hi - lo), (const unsigned char*)data + lo);
+}
+
 void GLES3_Bind_Array_Buffer(GLuint buffer) {
     if (buffer != g_ArrayBuffer) { glBindBuffer(GL_ARRAY_BUFFER, buffer); g_ArrayBuffer = buffer; }
 }
@@ -832,8 +898,16 @@ void GLES3_Bind_Element_Buffer(GLuint buffer) {
 
 void GLES3_Delete_Buffer(GLuint* buffer) {
     if (!buffer || !*buffer) return;
-    glDeleteBuffers(1, buffer);
+    // A reused id must not find a VAO made for the old buffer.
+    for (auto it = g_Layouts.begin(); it != g_Layouts.end();) {
+        if (it->first.vbo != *buffer && it->first.ibo != *buffer) { ++it; continue; }
+        if (g_BoundVAO == it->second) GLES3_Bind_Default_VAO();
+        glDeleteVertexArrays(1, &it->second);
+        it = g_Layouts.erase(it);
+    }
+    glDeleteBuffers(1, buffer); // also unbinds it from COPY_WRITE, and the id can be reused
     *buffer = 0;
+    g_CopyWriteBuffer = ~0u;
     GLES3_Attrib_Shadow_Reset();
 }
 
@@ -988,6 +1062,7 @@ static void GLES3_Upload_Pixel_Shader(const GLES3_ProgramUniformLocations& locs,
 void GLES3_Enable_Light(unsigned int index, bool enable) {
     if (index >= 4) return;
     g_State.light_enabled[index] = enable;
+    g_SceneDirty = true;
 }
 
 void GLES3_Set_Material(const GLES3_Material* mat) {
@@ -1002,6 +1077,7 @@ void GLES3_Set_Material(const GLES3_Material* mat) {
 void GLES3_Set_Fog(bool enable, float r, float g, float b,
                     float start, float end) {
     g_State.fog_enabled = enable;
+    g_SceneDirty = true;
     g_State.fog_color[0] = r;
     g_State.fog_color[1] = g;
     g_State.fog_color[2] = b;
@@ -1020,12 +1096,13 @@ void GLES3_Set_Fog(bool enable, float r, float g, float b,
 ** This is where the DX8 fixed-function pipeline gets translated to GLSL.
 */
 static void Apply_Pipeline_State() {
-    GLuint program = GLES3_ShaderManager::Get_Program(g_State);
+    unsigned int hash = GLES3_ShaderManager::Hash_Pipeline_Config(g_State);
+    GLuint program = GLES3_ShaderManager::Get_Program(hash);
     if (program != g_State.active_program) {
         glUseProgram(program);
         g_State.active_program = program;
     }
-    GLES3_ShaderManager::Apply_Uniforms(program, g_State);
+    GLES3_ShaderManager::Apply_Uniforms(hash, g_State);
 }
 
 /*
@@ -1536,47 +1613,11 @@ extern "C" const char* GLES3_Get_Fragment_Shader_Source(unsigned int config_hash
 void GLES3_ShaderManager::Populate_Locations(GLuint program, unsigned int hash) {
     GLES3_ProgramUniformLocations& locs = cached_locations[hash];
     locs.u_World = glGetUniformLocation(program, "u_World");
-    locs.u_View = glGetUniformLocation(program, "u_View");
-    locs.u_Projection = glGetUniformLocation(program, "u_Projection");
     locs.u_MatDiffuse = glGetUniformLocation(program, "u_MatDiffuse");
     locs.u_MatAmbient = glGetUniformLocation(program, "u_MatAmbient");
     locs.u_MatSpecular = glGetUniformLocation(program, "u_MatSpecular");
     locs.u_MatEmissive = glGetUniformLocation(program, "u_MatEmissive");
     locs.u_MatPower = glGetUniformLocation(program, "u_MatPower");
-    locs.u_LightingEnabled = glGetUniformLocation(program, "u_LightingEnabled");
-    locs.u_GlobalAmbient = glGetUniformLocation(program, "u_GlobalAmbient");
-
-    for (int i = 0; i < 4; i++) {
-        char name[64];
-        snprintf(name, sizeof(name), "u_Lights[%d].diffuse", i);
-        locs.u_Lights[i].diffuse = glGetUniformLocation(program, name);
-        snprintf(name, sizeof(name), "u_Lights[%d].position", i);
-        locs.u_Lights[i].position = glGetUniformLocation(program, name);
-        snprintf(name, sizeof(name), "u_Lights[%d].direction", i);
-        locs.u_Lights[i].direction = glGetUniformLocation(program, name);
-        snprintf(name, sizeof(name), "u_Lights[%d].enabled", i);
-        locs.u_Lights[i].enabled = glGetUniformLocation(program, name);
-        snprintf(name, sizeof(name), "u_Lights[%d].type", i);
-        locs.u_Lights[i].type = glGetUniformLocation(program, name);
-        snprintf(name, sizeof(name), "u_Lights[%d].attenuation0", i);
-        locs.u_Lights[i].attenuation0 = glGetUniformLocation(program, name);
-        snprintf(name, sizeof(name), "u_Lights[%d].attenuation1", i);
-        locs.u_Lights[i].attenuation1 = glGetUniformLocation(program, name);
-        snprintf(name, sizeof(name), "u_Lights[%d].attenuation2", i);
-        locs.u_Lights[i].attenuation2 = glGetUniformLocation(program, name);
-        snprintf(name, sizeof(name), "u_Lights[%d].ambient", i);
-        locs.u_Lights[i].ambient = glGetUniformLocation(program, name);
-        snprintf(name, sizeof(name), "u_Lights[%d].range", i);
-        locs.u_Lights[i].range = glGetUniformLocation(program, name);
-        snprintf(name, sizeof(name), "u_Lights[%d].specular", i);
-        locs.u_Lights[i].specular = glGetUniformLocation(program, name);
-    }
-
-    locs.u_FogEnabled = glGetUniformLocation(program, "u_FogEnabled");
-    locs.u_FogColor = glGetUniformLocation(program, "u_FogColor");
-    locs.u_FogStart = glGetUniformLocation(program, "u_FogStart");
-    locs.u_FogEnd = glGetUniformLocation(program, "u_FogEnd");
-    locs.u_AlphaTestEnabled = glGetUniformLocation(program, "u_AlphaTestEnabled");
     locs.u_AlphaRef = glGetUniformLocation(program, "u_AlphaRef");
     locs.u_AlphaFunc = glGetUniformLocation(program, "u_AlphaFunc");
 
@@ -1587,17 +1628,12 @@ void GLES3_ShaderManager::Populate_Locations(GLuint program, unsigned int hash) 
     }
 
     locs.u_StageOps = glGetUniformLocation(program, "u_StageOps");
-    locs.u_SpecularEnable = glGetUniformLocation(program, "u_SpecularEnable");
     locs.u_PSCount = glGetUniformLocation(program, "u_PSCount");
     locs.u_PS = glGetUniformLocation(program, "u_PS");
     locs.u_PSConst = glGetUniformLocation(program, "u_PSConst");
-    locs.u_LodBias = glGetUniformLocation(program, "u_LodBias");
     locs.u_ColorVertex = glGetUniformLocation(program, "u_ColorVertex");
     locs.u_StageArgs = glGetUniformLocation(program, "u_StageArgs");
     locs.u_TexBound = glGetUniformLocation(program, "u_TexBound");
-    locs.u_PreTransformed = glGetUniformLocation(program, "u_PreTransformed");
-    locs.u_ViewportRect = glGetUniformLocation(program, "u_ViewportRect");
-    locs.u_TextureFactor = glGetUniformLocation(program, "u_TextureFactor");
     locs.u_InstancingEnabled = glGetUniformLocation(program, "u_InstancingEnabled");
     locs.u_TexCoordIndex = glGetUniformLocation(program, "u_TexCoordIndex");
     locs.u_TexTransform = glGetUniformLocation(program, "u_TexTransform");
@@ -1605,8 +1641,7 @@ void GLES3_ShaderManager::Populate_Locations(GLuint program, unsigned int hash) 
 }
 
 
-GLuint GLES3_ShaderManager::Get_Program(const GLES3_PipelineState& state) {
-    unsigned int hash = Hash_Pipeline_Config(state);
+GLuint GLES3_ShaderManager::Get_Program(unsigned int hash) {
 
     if (cached_programs[hash] != 0) {
         return cached_programs[hash];
@@ -1626,6 +1661,8 @@ GLuint GLES3_ShaderManager::Get_Program(const GLES3_PipelineState& state) {
     if (vs && fs) {
         cached_programs[hash] = Link_Program(vs, fs);
         if (cached_programs[hash] != 0) {
+            GLuint block = glGetUniformBlockIndex(cached_programs[hash], "GXScene");
+            if (block != GL_INVALID_INDEX) glUniformBlockBinding(cached_programs[hash], block, 0);
             Populate_Locations(cached_programs[hash], hash);
         }
     }
@@ -1636,9 +1673,75 @@ GLuint GLES3_ShaderManager::Get_Program(const GLES3_PipelineState& state) {
     return cached_programs[hash];
 }
 
-void GLES3_ShaderManager::Apply_Uniforms(GLuint program,
+// GXScene (dx8_fixedfunction_shaders.cpp) in std140 layout: every member is a vec4 or mat4.
+struct GXSceneStd140 {
+    float view[16], projection[16];
+    float global_ambient[4], fog_color[4], fog_params[4], viewport_rect[4], texture_factor[4];
+    struct { float diffuse[4], ambient[4], specular[4], position[4], direction[4], atten[4]; } lights[4];
+};
+static_assert(sizeof(GXSceneStd140) == 2 * 64 + 5 * 16 + 4 * 96, "GXScene std140 layout");
+
+// Fill the scene block from the state and upload it when it changed: one bufferSubData
+// shared by every program, instead of the same values re-sent to each program it switches to.
+static void Upload_Scene_Block(const GLES3_PipelineState& state) {
+    if (!g_SceneDirty) return; // set by every writer of these fields (all in this file)
+    g_SceneDirty = false;
+    static GLuint ubo = 0;
+    static GXSceneStd140 sent;
+    static bool have_sent = false;
+    GXSceneStd140 b;
+    memset(&b, 0, sizeof(b));
+    memcpy(b.view, state.view_matrix, sizeof(b.view));
+    memcpy(b.projection, state.projection_matrix, sizeof(b.projection));
+    memcpy(b.global_ambient, state.global_ambient, sizeof(b.global_ambient));
+    memcpy(b.fog_color, state.fog_color, sizeof(state.fog_color));
+    b.fog_params[0] = state.fog_start;
+    b.fog_params[1] = state.fog_end;
+    b.fog_params[2] = g_LodBias;
+    b.viewport_rect[0] = (float)state.viewport.x;
+    b.viewport_rect[1] = (float)state.viewport.y;
+    b.viewport_rect[2] = (float)(state.viewport.width ? state.viewport.width : 1);
+    b.viewport_rect[3] = (float)(state.viewport.height ? state.viewport.height : 1);
+    memcpy(b.texture_factor, state.texture_factor, sizeof(b.texture_factor));
+    for (int i = 0; i < 4; i++) {
+        if (!state.light_enabled[i]) continue; // type 0: off (values left 0 so they don't cause uploads)
+        const GLES3_Light& l = state.lights[i];
+        auto& o = b.lights[i];
+        memcpy(o.diffuse, l.diffuse, sizeof(o.diffuse));
+        memcpy(o.ambient, l.ambient, sizeof(o.ambient));
+        memcpy(o.specular, l.specular, sizeof(o.specular));
+        memcpy(o.position, l.position, sizeof(l.position));
+        o.position[3] = l.range;
+        memcpy(o.direction, l.direction, sizeof(l.direction));
+        o.atten[0] = l.attenuation0;
+        o.atten[1] = l.attenuation1;
+        o.atten[2] = l.attenuation2;
+        o.atten[3] = (float)(l.type >= 1 && l.type <= 3 ? l.type : 1);
+    }
+    if (!ubo) {
+        glGenBuffers(1, &ubo);
+        glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+        glBufferData(GL_UNIFORM_BUFFER, sizeof(b), &b, GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_UNIFORM_BUFFER, 0, ubo); // also leaves it bound to GL_UNIFORM_BUFFER
+    } else if (!have_sent || memcmp(&b, &sent, sizeof(b)) != 0) {
+        // Only the changed span (usually one matrix or one light).
+        const unsigned char* x = (const unsigned char*)&b;
+        const unsigned char* y = (const unsigned char*)&sent;
+        size_t lo = 0, hi = sizeof(b);
+        if (have_sent) {
+            while (lo < hi && x[lo] == y[lo]) lo++;
+            while (hi > lo && x[hi - 1] == y[hi - 1]) hi--;
+            lo &= ~(size_t)15;
+        }
+        glBufferSubData(GL_UNIFORM_BUFFER, (GLintptr)lo, (GLsizeiptr)(hi - lo), x + lo);
+    }
+    sent = b;
+    have_sent = true;
+}
+
+void GLES3_ShaderManager::Apply_Uniforms(unsigned int hash,
                                           const GLES3_PipelineState& state) {
-    unsigned int hash = Hash_Pipeline_Config(state);
+    Upload_Scene_Block(state);
     const GLES3_ProgramUniformLocations& locs = cached_locations[hash];
     GLES3_CachedUniformState& cache = cached_uniform_states[hash];
 
@@ -1649,18 +1752,6 @@ void GLES3_ShaderManager::Apply_Uniforms(GLuint program,
     if (locs.u_World != -1 && (!cache.initialized || memcmp(cache.world_matrix, gl_matrix, sizeof(gl_matrix)) != 0)) {
         glUniformMatrix4fv(locs.u_World, 1, GL_FALSE, gl_matrix);
         memcpy(cache.world_matrix, gl_matrix, sizeof(gl_matrix));
-    }
-
-    GLES3_Helpers::Matrix4x4_To_GL(state.view_matrix, gl_matrix);
-    if (locs.u_View != -1 && (!cache.initialized || memcmp(cache.view_matrix, gl_matrix, sizeof(gl_matrix)) != 0)) {
-        glUniformMatrix4fv(locs.u_View, 1, GL_FALSE, gl_matrix);
-        memcpy(cache.view_matrix, gl_matrix, sizeof(gl_matrix));
-    }
-
-    GLES3_Helpers::Matrix4x4_To_GL(state.projection_matrix, gl_matrix);
-    if (locs.u_Projection != -1 && (!cache.initialized || memcmp(cache.projection_matrix, gl_matrix, sizeof(gl_matrix)) != 0)) {
-        glUniformMatrix4fv(locs.u_Projection, 1, GL_FALSE, gl_matrix);
-        memcpy(cache.projection_matrix, gl_matrix, sizeof(gl_matrix));
     }
 
     // Material
@@ -1685,97 +1776,7 @@ void GLES3_ShaderManager::Apply_Uniforms(GLuint program,
         cache.material_power = state.material.power;
     }
 
-    // Lighting
-    int l_enabled = state.lighting_enabled ? 1 : 0;
-    if (locs.u_LightingEnabled != -1 && (!cache.initialized || cache.lighting_enabled != l_enabled)) {
-        glUniform1i(locs.u_LightingEnabled, l_enabled);
-        cache.lighting_enabled = l_enabled;
-    }
-    if (locs.u_GlobalAmbient != -1 && (!cache.initialized || memcmp(cache.global_ambient, state.global_ambient, sizeof(state.global_ambient)) != 0)) {
-        glUniform4fv(locs.u_GlobalAmbient, 1, state.global_ambient);
-        memcpy(cache.global_ambient, state.global_ambient, sizeof(state.global_ambient));
-    }
-    for (int i = 0; i < 4; i++) {
-        if (state.light_enabled[i]) {
-            if (locs.u_Lights[i].diffuse != -1 && (!cache.initialized || memcmp(cache.lights[i].diffuse, state.lights[i].diffuse, sizeof(state.lights[i].diffuse)) != 0)) {
-                glUniform4fv(locs.u_Lights[i].diffuse, 1, state.lights[i].diffuse);
-                memcpy(cache.lights[i].diffuse, state.lights[i].diffuse, sizeof(state.lights[i].diffuse));
-            }
-            if (locs.u_Lights[i].position != -1 && (!cache.initialized || memcmp(cache.lights[i].position, state.lights[i].position, sizeof(state.lights[i].position)) != 0)) {
-                glUniform3fv(locs.u_Lights[i].position, 1, state.lights[i].position);
-                memcpy(cache.lights[i].position, state.lights[i].position, sizeof(state.lights[i].position));
-            }
-            if (locs.u_Lights[i].direction != -1 && (!cache.initialized || memcmp(cache.lights[i].direction, state.lights[i].direction, sizeof(state.lights[i].direction)) != 0)) {
-                glUniform3fv(locs.u_Lights[i].direction, 1, state.lights[i].direction);
-                memcpy(cache.lights[i].direction, state.lights[i].direction, sizeof(state.lights[i].direction));
-            }
-            if (locs.u_Lights[i].enabled != -1 && (!cache.initialized || cache.lights[i].enabled != 1)) {
-                glUniform1i(locs.u_Lights[i].enabled, 1);
-                cache.lights[i].enabled = 1;
-            }
-            if (locs.u_Lights[i].type != -1 && (!cache.initialized || cache.lights[i].type != (int)state.lights[i].type)) {
-                glUniform1i(locs.u_Lights[i].type, (int)state.lights[i].type);
-                cache.lights[i].type = (int)state.lights[i].type;
-            }
-            if (locs.u_Lights[i].attenuation0 != -1 && (!cache.initialized || cache.lights[i].attenuation0 != state.lights[i].attenuation0)) {
-                glUniform1f(locs.u_Lights[i].attenuation0, state.lights[i].attenuation0);
-                cache.lights[i].attenuation0 = state.lights[i].attenuation0;
-            }
-            if (locs.u_Lights[i].attenuation1 != -1 && (!cache.initialized || cache.lights[i].attenuation1 != state.lights[i].attenuation1)) {
-                glUniform1f(locs.u_Lights[i].attenuation1, state.lights[i].attenuation1);
-                cache.lights[i].attenuation1 = state.lights[i].attenuation1;
-            }
-            if (locs.u_Lights[i].attenuation2 != -1 && (!cache.initialized || cache.lights[i].attenuation2 != state.lights[i].attenuation2)) {
-                glUniform1f(locs.u_Lights[i].attenuation2, state.lights[i].attenuation2);
-                cache.lights[i].attenuation2 = state.lights[i].attenuation2;
-            }
-            if (locs.u_Lights[i].ambient != -1 && (!cache.initialized || memcmp(cache.lights[i].ambient, state.lights[i].ambient, sizeof(state.lights[i].ambient)) != 0)) {
-                glUniform4fv(locs.u_Lights[i].ambient, 1, state.lights[i].ambient);
-                memcpy(cache.lights[i].ambient, state.lights[i].ambient, sizeof(state.lights[i].ambient));
-            }
-            if (locs.u_Lights[i].range != -1 && (!cache.initialized || cache.lights[i].range != state.lights[i].range)) {
-                glUniform1f(locs.u_Lights[i].range, state.lights[i].range);
-                cache.lights[i].range = state.lights[i].range;
-            }
-            if (locs.u_Lights[i].specular != -1 && (!cache.initialized || memcmp(cache.light_specular[i], state.lights[i].specular, sizeof(state.lights[i].specular)) != 0)) {
-                glUniform4fv(locs.u_Lights[i].specular, 1, state.lights[i].specular);
-                memcpy(cache.light_specular[i], state.lights[i].specular, sizeof(state.lights[i].specular));
-            }
-        } else {
-            if (locs.u_Lights[i].enabled != -1 && (!cache.initialized || cache.lights[i].enabled != 0)) {
-                glUniform1i(locs.u_Lights[i].enabled, 0);
-                cache.lights[i].enabled = 0;
-            }
-        }
-    }
-
-    // Fog
-    int f_enabled = state.fog_enabled ? 1 : 0;
-    if (locs.u_FogEnabled != -1 && (!cache.initialized || cache.fog_enabled != f_enabled)) {
-        glUniform1i(locs.u_FogEnabled, f_enabled);
-        cache.fog_enabled = f_enabled;
-    }
-    if (state.fog_enabled) {
-        if (locs.u_FogColor != -1 && (!cache.initialized || memcmp(cache.fog_color, state.fog_color, sizeof(state.fog_color)) != 0)) {
-            glUniform3fv(locs.u_FogColor, 1, state.fog_color);
-            memcpy(cache.fog_color, state.fog_color, sizeof(state.fog_color));
-        }
-        if (locs.u_FogStart != -1 && (!cache.initialized || cache.fog_start != state.fog_start)) {
-            glUniform1f(locs.u_FogStart, state.fog_start);
-            cache.fog_start = state.fog_start;
-        }
-        if (locs.u_FogEnd != -1 && (!cache.initialized || cache.fog_end != state.fog_end)) {
-            glUniform1f(locs.u_FogEnd, state.fog_end);
-            cache.fog_end = state.fog_end;
-        }
-    }
-
     // Alpha test (emulated in shader)
-    int at_enabled = state.alpha_test_enabled ? 1 : 0;
-    if (locs.u_AlphaTestEnabled != -1 && (!cache.initialized || cache.alpha_test_enabled != at_enabled)) {
-        glUniform1i(locs.u_AlphaTestEnabled, at_enabled);
-        cache.alpha_test_enabled = at_enabled;
-    }
     float at_ref = state.alpha_ref / 255.0f;
     if (locs.u_AlphaRef != -1 && (!cache.initialized || cache.alpha_ref != at_ref)) {
         glUniform1f(locs.u_AlphaRef, at_ref);
@@ -1804,18 +1805,9 @@ void GLES3_ShaderManager::Apply_Uniforms(GLuint program,
             glUniform1iv(locs.u_StageOps, 8, ops);
             memcpy(cache.stage_ops, ops, sizeof(ops));
         }
-        int spec = state.render_states[GLES3_RS_SPECULARENABLE] ? 1 : 0;
-        if (locs.u_SpecularEnable != -1 && (!cache.initialized || cache.specular_enable != spec)) {
-            glUniform1i(locs.u_SpecularEnable, spec);
-            cache.specular_enable = spec;
-        }
         if (!cache.initialized || cache.pixel_shader != state.pixel_shader) {
             GLES3_Upload_Pixel_Shader(locs, state.pixel_shader);
             cache.pixel_shader = state.pixel_shader;
-        }
-        if (locs.u_LodBias != -1 && (!cache.initialized || cache.lod_bias != g_LodBias)) {
-            glUniform1f(locs.u_LodBias, g_LodBias);
-            cache.lod_bias = g_LodBias;
         }
         if (locs.u_PSConst != -1 && (!cache.initialized || memcmp(cache.ps_const, state.ps_const, sizeof(state.ps_const)) != 0)) {
             glUniform4fv(locs.u_PSConst, 8, &state.ps_const[0][0]);
@@ -1857,24 +1849,8 @@ void GLES3_ShaderManager::Apply_Uniforms(GLuint program,
             glUniform1i(locs.u_TexBound, bound);
             cache.tex_bound = bound;
         }
-        int pre = state.pretransformed ? 1 : 0;
-        if (locs.u_PreTransformed != -1 && (!cache.initialized || cache.pretransformed != pre)) {
-            glUniform1i(locs.u_PreTransformed, pre);
-            cache.pretransformed = pre;
-        }
-        float vp[4] = { (float)state.viewport.x, (float)state.viewport.y,
-                        (float)(state.viewport.width ? state.viewport.width : 1),
-                        (float)(state.viewport.height ? state.viewport.height : 1) };
-        if (locs.u_ViewportRect != -1 && (!cache.initialized || memcmp(cache.viewport_rect, vp, sizeof(vp)) != 0)) {
-            glUniform4fv(locs.u_ViewportRect, 1, vp);
-            memcpy(cache.viewport_rect, vp, sizeof(vp));
-        }
     }
 
-    if (locs.u_TextureFactor != -1 && (!cache.initialized || memcmp(cache.texture_factor, state.texture_factor, sizeof(state.texture_factor)) != 0)) {
-        glUniform4fv(locs.u_TextureFactor, 1, state.texture_factor);
-        memcpy(cache.texture_factor, state.texture_factor, sizeof(state.texture_factor));
-    }
     if (locs.u_InstancingEnabled != -1 && !cache.initialized) {
         glUniform1i(locs.u_InstancingEnabled, 0); // the instanced draw sets 1 and puts 0 back
     }

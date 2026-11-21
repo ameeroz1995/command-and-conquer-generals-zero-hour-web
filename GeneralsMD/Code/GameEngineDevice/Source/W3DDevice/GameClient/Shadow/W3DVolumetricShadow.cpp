@@ -1784,6 +1784,17 @@ void W3DVolumetricShadow::Update()
 		//buggies from being flagged as "flying".  We minimize the number of flying units because their shadow
 		//volumes are extruded longer to reach the lowest point on the map.  Regular shadows only extend far
 		//enough to reach the base of the model (presumes base is already touching the ground).
+		// GeneralsX @perf WebPort 2026-11-21 — cull first: every caster on the map came here each
+		// frame and paid a ground-height lookup before the visibility test. The airborne bound
+		// below (1.5x the extent) contains the grounded one, so this rejects exactly the casters
+		// that both branches reject.
+		{
+			Real extent = MAX_SHADOW_LENGTH_EXTRA_AIRBORNE_SCALE_FACTOR * m_robjExtent;
+			if (WWMath::Fabs(pos.X - bcX) > (beX + extent) ||
+				WWMath::Fabs(pos.Y - bcY) > (beY + extent) ||
+				WWMath::Fabs(pos.Z - bcZ) > (beZ + extent))
+				return;
+		}
 		Real groundHeight;
 		if (TheTerrainLogic)
 			groundHeight=TheTerrainLogic->getGroundHeight(pos.X,pos.Y);	//logic knows about bridges so use if available.

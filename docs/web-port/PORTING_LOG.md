@@ -1877,3 +1877,52 @@ On the RX 580 everything holds 60 fps with the same picture.
 Not done: the CPU-side items from the review (dynamic buffer uploads grouped, a uniform buffer,
 shadow code, vertex layout caching), each ~1-3% of an already ~60% idle frame on the RX 580; the
 uniform buffer is the one worth doing next, since variants made program switches more frequent.
+
+## 2026-11-21 — Session 28: CPU per draw: uniform block, cached vertex layouts, trimmed uploads
+
+Branch `perf/low-end`. Frame callback time (median) and WebGL calls per frame, normal build in
+headless Edge on the RX 580, LAN game on Alpine Assault; the big battle is the 3v3 replay at Very
+High, 1600x1200, camera on the fighting.
+
+| | live (Session 27) | + uniform block | + VAO cache, trimmed uploads, no FULL_ES3 |
+|---|---|---|---|
+| menu | 1.6 ms, 850 calls | 1.5 ms, 850 | 0.9-1.0 ms, 261 |
+| in game, still | 3.3 ms, 1187 | 3.2 ms, 1158 | 2.2-2.7 ms, 751 |
+| in game, panning | 2.9 ms, 906 | 2.9 ms, 896 | 1.8-2.2 ms, 491 |
+| big battle (4 min) | 4.1-5.3 ms, 1888-2743 | | 3.7-5.0 ms, 1072-1934 |
+
+- **Uniform block `GXScene`** (binding 0, std140): view, projection, the four lights, global
+  ambient, fog, lod bias, viewport and texture factor, shared by every program. It is rebuilt only
+  after one of those inputs changes (every writer is in gles3_wrapper.cpp and sets `g_SceneDirty`)
+  and only the changed span is uploaded. Before, each shader variant kept its own copy and a
+  program switch re-sent them. Uniforms the variant `#define`s replaced (lighting/fog/alpha-test/
+  specular/pre-transformed enables) are gone. The pipeline hash is computed once per draw.
+- **A VAO per vertex layout** (vertex buffer, index buffer, FVF, stride, base offset), for
+  DrawIndexedPrimitive: a known layout is one `bindVertexArray` instead of ~5
+  `vertexAttribPointer` (the base vertex is baked into the pointers, so they changed every draw).
+  ~900 layouts in a LAN game, ~2800 in the big battle; the cache flushes at 4096 (never reached).
+  Per-VAO state (arrays, pointers, element buffer) resets the attribute shadow on every VAO switch;
+  the other draw paths use the default VAO. Index buffers get their first fill through
+  ELEMENT_ARRAY_BUFFER on the default VAO (WebGL types a buffer by its first binding) and later
+  uploads through COPY_WRITE_BUFFER, so an upload never changes the bound VAO. Deleting a buffer
+  drops the VAOs that use it. FVF decodes are cached. GXLAYOUT log line: VAOs made, flushes.
+- **Dynamic uploads trimmed to the bytes that changed.** Buffers re-uploaded after their first fill
+  keep a copy of what was last sent; the dirty span is narrowed (16 bytes at a time, SIMD) to the
+  part that differs, and skipped when nothing does. The 2D UI rewrites identical quads every
+  frame: uploads per frame went 96 -> 18 in game and 196 -> 0 in the menu. Not done: grouping
+  uploads across draws, which would need draws deferred (each draw needs its data first).
+- **`-sFULL_ES3` removed**: its client-side-array emulation ran on every draw (a loop over all 16
+  attributes) and made each `bindVertexArray` call `getParameter`. Every draw reads GL buffers.
+- **Shadows**: volumetric shadow casters off screen are rejected before the ground-height lookup
+  (the airborne bound contains the grounded one, so the same casters are rejected). Shadows only
+  run above Low detail. `DoShadows` stays ~1% of the big battle: the rest is the engine's own
+  silhouette rebuild when a caster moves; left as is, as is the water grid (`drawTrapezoidWater`,
+  ~0.8%).
+- **Low-end** (2 cores + SwiftShader, multithreaded build): game-thread work per frame 2.2-3.2 ms
+  -> 2.2-2.5 ms in game. The frame rate there is set by software rasterization (~200 ms a frame),
+  and with the machine under other load (load average 17) the fps difference was within run-to-run
+  noise (one run: menu 6.3-6.7 -> 8.1-8.3 fps; a back-to-back pair: equal). Fewer WebGL calls also
+  means less GPU-process work, which shares the two cores with the rasterizer.
+- Picture unchanged (screenshot diff vs. the live build: only the dozer's smoke animation); no
+  WebGL errors. Reviewed by a separate diff-only review: no must-fix; its one should-fix (an
+  indexed draw before any FVF did not bind its index buffer) is fixed.

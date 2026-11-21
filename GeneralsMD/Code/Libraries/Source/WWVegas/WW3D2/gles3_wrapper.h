@@ -273,48 +273,21 @@ struct GLES3_PipelineState {
 // ============================================================================
 struct GLES3_ProgramUniformLocations {
   GLint u_World;
-  GLint u_View;
-  GLint u_Projection;
   GLint u_MatDiffuse;
   GLint u_MatAmbient;
   GLint u_MatSpecular;
   GLint u_MatEmissive;
   GLint u_MatPower;
-  GLint u_LightingEnabled;
-  GLint u_GlobalAmbient;
-  struct {
-    GLint diffuse;
-    GLint position;
-    GLint direction;
-    GLint enabled;
-    GLint type;
-    GLint attenuation0;
-    GLint attenuation1;
-    GLint attenuation2;
-    GLint ambient;
-    GLint range;
-    GLint specular;
-  } u_Lights[4];
-  GLint u_FogEnabled;
-  GLint u_FogColor;
-  GLint u_FogStart;
-  GLint u_FogEnd;
-  GLint u_AlphaTestEnabled;
   GLint u_AlphaRef;
   GLint u_AlphaFunc;
   GLint u_Texture[4];
   GLint u_StageOps;
-  GLint u_SpecularEnable;
   GLint u_PSCount;
   GLint u_PS;
   GLint u_PSConst;
-  GLint u_LodBias;
   GLint u_ColorVertex;
   GLint u_StageArgs;
   GLint u_TexBound;
-  GLint u_PreTransformed;
-  GLint u_ViewportRect;
-  GLint u_TextureFactor;
   GLint u_InstancingEnabled;
   GLint u_TexCoordIndex;
   GLint u_TexTransform;
@@ -333,10 +306,10 @@ public:
   static void Shutdown();
 
   // Get/compile the appropriate shader variant for current pipeline state
-  static GLuint Get_Program(const GLES3_PipelineState &state);
+  static GLuint Get_Program(unsigned int hash); // hash: Hash_Pipeline_Config
 
   // Upload uniforms to match current DX8 state
-  static void Apply_Uniforms(GLuint program, const GLES3_PipelineState &state);
+  static void Apply_Uniforms(unsigned int hash, const GLES3_PipelineState &state);
 
   // Get cached instancing uniform location
   static GLint Get_Instancing_Uniform_Location(const GLES3_PipelineState &state);
@@ -350,6 +323,7 @@ private:
   // Avoids recompiling shaders every frame
   static GLuint cached_programs[1024];
   static GLES3_ProgramUniformLocations cached_locations[1024];
+public:
   static unsigned int Hash_Pipeline_Config(const GLES3_PipelineState &state);
 };
 
@@ -478,6 +452,11 @@ void GLES3_Set_Pretransformed(bool pretransformed);
 void GLES3_Bind_Array_Buffer(GLuint buffer);
 void GLES3_Bind_Element_Buffer(GLuint buffer);
 void GLES3_Delete_Buffer(GLuint* buffer);
+// Cached VAO per vertex layout (gles3_wrapper.cpp). Bind_Layout returns false when it made a
+// new VAO, which the caller then sets up; every other attribute setup needs the default VAO.
+bool GLES3_Bind_Layout(GLuint vbo, GLuint ibo, unsigned int fvf, unsigned int stride, unsigned int base);
+void GLES3_Bind_Default_VAO();
+void GLES3_Upload_Index_Data(GLuint ibo, const void* data, size_t lo, size_t hi, size_t total, bool allocate);
 void GLES3_Attrib_Pointer(GLuint loc, GLint size, GLenum type, GLboolean norm, GLsizei stride, uintptr_t offset);
 void GLES3_Attrib_Constant(GLuint loc, float x, float y, float z, float w);
 void GLES3_Attrib_Shadow_Reset();
