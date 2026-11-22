@@ -35,12 +35,8 @@ add_link_options(-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2)
 # built-in (the USE_OPENAL port was removed). No flag needed.
 # add_link_options(-sUSE_OPENAL=1)
 
-# Memory: 256MB initial, grow to 512MB
-add_link_options(
-    -sINITIAL_MEMORY=268435456
-    -sALLOW_MEMORY_GROWTH=1
-    -sMAXIMUM_MEMORY=536870912
-)
+# Memory: set per build in GeneralsMD/Code/Main/CMakeLists.txt (512 MB growing to 2 GB; the
+# worker build a fixed 1 GB). A 256/512 MB pair here was overridden there and misled readers.
 
 # Fetch API (for HTTP Range requests to .big archives)
 add_link_options(-sFETCH=1)
