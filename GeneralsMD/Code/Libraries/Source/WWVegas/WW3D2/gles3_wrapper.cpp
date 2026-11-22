@@ -1663,7 +1663,9 @@ void GLES3_TextureConverter::Update_Texture(GLuint gl_tex_id,
     GLES3_Bind_Texture_For_Upload(gl_tex_id);
 
     GLenum src_fmt, src_type;
-    std::vector<unsigned char> temp_buffer;
+    // Kept between calls (game thread only): textures updated every frame, like the fog of
+    // war, no longer allocate a conversion buffer each time (item 45).
+    static std::vector<unsigned char> temp_buffer;
     const void* upload_data = To_GL_Pixels(dx8_format, width, height, data,
                                            temp_buffer, src_fmt, src_type);
 

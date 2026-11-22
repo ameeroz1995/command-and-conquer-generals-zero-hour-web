@@ -637,8 +637,13 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
     virtual HRESULT GetSurfaceLevel(UINT Level, IDirect3DSurface8 **ppS) override {
         if (!ppS) return 0;
         UINT idx = (Level < LevelCount) ? Level : 0;
-        Emscripten_IDirect3DSurface8 *surf =
-            new Emscripten_IDirect3DSurface8(levels[idx].w, levels[idx].h, Fmt);
+        // A level's surface reads and writes the texture's own level (LockRect goes through
+        // ParentTexture), so it gets no pixel buffer of its own: the old constructor zero-filled
+        // one that was never used, e.g. ~512 KB every frame for the fog of war (items 44/45).
+        Emscripten_IDirect3DSurface8 *surf = new Emscripten_IDirect3DSurface8();
+        surf->Width = levels[idx].w;
+        surf->Height = levels[idx].h;
+        surf->Format = Fmt;
         surf->ParentTexture = this;
         surf->ParentLevel = idx;
         this->AddRef();
