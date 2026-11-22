@@ -2190,3 +2190,35 @@ fighting (3 minutes, 5-second windows, first 15 s skipped). Median / worst 5-sec
   flagged weak, unchanged.
 - **No stencil buffer** (shadows are off at Low): 18.3-18.6 vs 18.6-18.9 fps, no gain; not done.
 - With the clears (Session 34) this closes item 5: clears and stencil no gain, desynchronized kept.
+
+## Ground cache: the terrain's base pass kept as an image while the view stands still (2026-11-23)
+
+Measured first, low-end setup (2 cores, SwiftShader, 50% scale, single-thread build), by skipping
+classes of draws with a runtime WebGL patch (~/generals-bench/hideprobe.js):
+- Blended draws, additive draws, stencil draws, the ~120 small opaque draws: no fps change.
+- The ~14 big opaque draws (terrain tiles, ~28k triangles): frame 53 ms -> 27 ms without them.
+  With only their pixels removed (1x1 scissor) 36 ms: about 17 ms is pixels, 9 ms triangles.
+- Cloud map + light map off (Custom detail): ~1 fps; the default low detail has them off already.
+
+So the terrain's base pass is half of a software frame. `GLES3_Ground_Cache_Begin/Again`
+(gles3_wrapper.cpp) wrap it in HeightMap.cpp: the draws are first fingerprinted instead of issued
+(whole pipeline state + buffer and texture content serials); an unchanged fingerprint copies the
+cached colour + depth in with glBlitFramebuffer, one seen twice in a row is drawn into the cache,
+anything else is drawn plainly. Only without antialiasing (the page's `antialias` setting);
+`Module.gxGroundCache = 0` turns it off; `Module.gxGCHits/gxGCCaptures/gxGCPlain` count.
+
+Two things had to change for it to hit at all / be right:
+- The fog of war texture was re-uploaded every frame with identical pixels. `Upload_To_GL`
+  (d3d8.h) now hashes a re-upload (<= 2 MB) and skips it when unchanged, which also saves the upload.
+- A first version pasted the image with a shader writing `gl_FragDepth` from a 32F depth texture:
+  objects standing on the ground (the player's building, units) disappeared, the depth came out
+  slightly nearer than a direct draw's. The blit copies the rasteriser's own depth and is right.
+
+Same match, camera still, cache toggled at runtime: 21.7-25.7 fps on vs 15.2-15.5 off (load ~15),
+every frame a hit. Pictures match except moving parts (dish, flag).
+- The target size comes from the context (`emscripten_webgl_get_drawing_buffer_size`): asking the
+  canvas element from the multithreaded build's game thread gave one frame of "framebuffer
+  incomplete" errors at start and once a match that never started.
+- Four runs side by side on their own core pairs (bench scripts take LANE=n now; the machine was
+  loaded, so only the ratios count): camera still, single-thread 3.9 -> 5.2 fps, multithreaded
+  3.8 -> 5.5; panning and menu unchanged; RX 580 with antialiasing (cache off) identical; no GL errors.

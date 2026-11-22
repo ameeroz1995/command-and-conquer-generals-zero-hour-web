@@ -2089,6 +2089,14 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 	const Bool foldShroud = false;
 #endif
 	Int pass;
+#ifdef __EMSCRIPTEN__
+	// Ground cache: the base passes are kept as an image and pasted back while the view, the
+	// lighting, the shroud and the terrain buffers are unchanged (see gles3_wrapper.cpp). Not
+	// for the water's mirror pass, which alternates with the main view every frame.
+	const bool groundCache = !doMultiPassWireFrame && !m_disableTextures &&
+		!ShaderClass::Is_Backface_Culling_Inverted() && GLES3_Ground_Cache_Begin();
+	do {
+#endif
  	for (pass=0; pass<devicePasses; pass++) {
 #ifdef TIMING_TESTS
 #endif
@@ -2129,6 +2137,9 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 
 			}
 	}
+#ifdef __EMSCRIPTEN__
+	} while (groundCache && GLES3_Ground_Cache_Again());
+#endif
 
 	if (!doMultiPassWireFrame)
 	{

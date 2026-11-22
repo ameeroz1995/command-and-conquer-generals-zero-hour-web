@@ -545,12 +545,24 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
     //
     // For uncompressed textures: Create_Texture uploads level 0 and calls
     // glGenerateMipmap to auto-generate the rest.
+    uint64_t sent_hash = 0; bool sent_valid = false; // pixels of the last re-upload (Upload_To_GL)
     GLuint Upload_To_GL() {
         if (levels.empty() || levels[0].pixels.empty()) return 0;
 
         bool dxt = _is_dxt(Fmt);
 
         if (gl_tex_id && !dxt) {
+            // A texture rewritten with the same pixels (the fog of war, every frame) is not
+            // sent again: the upload is saved, and the ground cache sees unchanged contents.
+            const std::vector<uint8_t>& px = levels[0].pixels;
+            if (px.size() <= (2u << 20)) {
+                uint64_t h = 1469598103934665603ull ^ px.size(), w;
+                size_t i = 0;
+                for (; i + 8 <= px.size(); i += 8) { memcpy(&w, px.data() + i, 8); h = (h ^ w) * 1099511628211ull; h ^= h >> 29; }
+                for (; i < px.size(); i++) h = (h ^ px[i]) * 1099511628211ull;
+                if (sent_valid && h == sent_hash) { dirty = false; return gl_tex_id; }
+                sent_hash = h; sent_valid = true;
+            } else sent_valid = false;
             GLES3_TextureConverter::Update_Texture(
                 gl_tex_id, Width, Height, (unsigned int)Fmt,
                 (unsigned int)LevelCount, levels[0].pixels.data());
@@ -773,13 +785,16 @@ struct Emscripten_BufferData {
         memcpy(sent.data() + lo, x + lo, hi - lo);
         return true;
     }
+    unsigned int serial = 0; // gx_content_serial at the last upload that changed bytes (ground cache)
     void Upload(GLenum target) {
         size_t lo, hi;
         if (!allocated) {
             glBufferData(target, (GLsizeiptr)data.size(), data.data(), GL_DYNAMIC_DRAW);
             allocated = true;
+            serial = ++gx_content_serial;
         } else if (dirty_hi > dirty_lo && Changed_Span(lo, hi)) {
             glBufferSubData(target, (GLintptr)lo, (GLsizeiptr)(hi - lo), data.data() + lo);
+            serial = ++gx_content_serial;
         }
         dirty_lo = dirty_hi = 0;
     }
@@ -1200,6 +1215,8 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
             GLES3_Bind_Default_VAO(); // no vertex format yet: still draw from this index buffer
             GLES3_Bind_Element_Buffer(current_ib->gl_ibo);
         }
+        GLES3_Ground_Cache_Mix(current_vb->gl_vbo, current_vb->buf.serial, current_ib->gl_ibo,
+                               current_ib->buf.serial, (unsigned int)base_vtx_index);
         GLES3_Draw_Triangles((unsigned int)PrimType, StartIndex, PrimCount,
                              MinIndex, NumVertices);
         ++gx_d3d_dip_drew;

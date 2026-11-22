@@ -49,11 +49,16 @@ static bool g_SceneDirty = true; // GXScene inputs changed since the last upload
 static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
 static int g_SwapCount = 0;         // frames presented, for Module.gxFps (render scale Auto)
 double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gles3_mainloop) -> Module.gxWorkMs
-static int g_PageSwitches = 7;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0)
+static int g_PageSwitches = 7;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
+// Ground cache (GLES3_Ground_Cache_Begin): every texture and buffer upload takes the next
+// serial, so "same texture id" also means "same contents" in a draw's fingerprint.
+unsigned int gx_content_serial = 0;
+static std::vector<unsigned int> g_TexSerial; // by GL texture id
+int gx_gc_hits = 0, gx_gc_captures = 0, gx_gc_plain = 0; // Module.gxGCHits / gxGCCaptures / gxGCPlain
 static std::unordered_map<GLuint, bool> g_TextureHasMipmaps;
 
 void GLES3_Register_Texture(GLuint tex, bool has_mipmaps) {
@@ -415,11 +420,14 @@ void GLES3_Begin_Scene() {
         last_check = now;
         g_SwapCount = 0;
         next_check = now + 1000.0;
-        double sc = EM_ASM_DOUBLE({ Module.gxFps = $0; Module.gxWorkMs = $1; return Module.gxRenderScale || 1; }, fps, gx_work_ms_1s);
+        double sc = EM_ASM_DOUBLE({ Module.gxFps = $0; Module.gxWorkMs = $1; Module.gxGCHits = $2; Module.gxGCCaptures = $3; Module.gxGCPlain = $4; return Module.gxRenderScale || 1; }, fps, gx_work_ms_1s, gx_gc_hits, gx_gc_captures, gx_gc_plain);
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
             var pace = location.search.indexOf('pace=0') < 0 && !!(st && st.steady30 === true);
-            return (Module.gxShroudFold === 0 ? 0 : 1) | (Module.gxTerrainCull === 0 ? 0 : 2) | (pace ? 4 : 0);
+            // Ground cache: only without antialiasing (its paste writes depth per pixel, which
+            // would lose the smoothed ground edges); Module.gxGroundCache = 0 turns it off.
+            var gc = Module.gxGroundCache !== 0 && !!st && st.antialias === false;
+            return (Module.gxShroudFold === 0 ? 0 : 1) | (Module.gxTerrainCull === 0 ? 0 : 2) | (pace ? 4 : 0) | (gc ? 8 : 0);
         });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__
@@ -807,6 +815,8 @@ static void Active_Unit(unsigned int stage) {
 
 void GLES3_Bind_Texture_For_Upload(GLuint tex) {
     if (g_ActiveUnit >= 8) Active_Unit(0);
+    if (tex >= g_TexSerial.size()) g_TexSerial.resize(tex + 64, 0);
+    g_TexSerial[tex] = ++gx_content_serial;
     if (g_UnitTexture[g_ActiveUnit] != tex) {
         glBindTexture(GL_TEXTURE_2D, tex);
         g_UnitTexture[g_ActiveUnit] = tex;
@@ -1256,6 +1266,164 @@ void GLES3_Set_Fog(bool enable, float r, float g, float b,
 ** Uploads the current DX8 state to the emulation shader as uniforms.
 ** This is where the DX8 fixed-function pipeline gets translated to GLSL.
 */
+// ============================================================================
+// Ground cache
+// ============================================================================
+// On software and weak GPUs the terrain's base pass is about half of a frame, and in a
+// strategy game the camera mostly stands still. So the pass is kept as an image (colour +
+// depth) and copied back while nothing that feeds it has changed.
+//
+// The caller wraps its ground draws:
+//     const bool gc = GLES3_Ground_Cache_Begin();
+//     do { ...the draws... } while (gc && GLES3_Ground_Cache_Again());
+// First time round the draws are not issued, only fingerprinted: all of the pipeline state
+// (matrices, lights, material, stage setup, viewport), which textures and buffers they use
+// and those objects' content serials. Then:
+//   - same fingerprint as the cached image: copy it in, done;
+//   - same as the previous frame's (the view just settled): draw again into the cache, copy;
+//   - anything else (panning, a light on the ground, the shroud moving): draw again, plainly.
+// The image is copied with glBlitFramebuffer, colour and depth, so the depth values are the
+// rasteriser's own (a shader paste through gl_FragDepth came out slightly nearer and hid
+// objects standing on the ground). A blit replaces the whole target, which is right because
+// the scene draws the terrain first, on the frame's clear; the cache starts from that clear.
+static struct {
+    int mode = 0; // 0 idle, 1 fingerprinting, 2 drawing into the cache, 3 drawing plainly
+    uint64_t probe = 0, last_probe = 0, cached = 0;
+    bool valid = false, unsafe = false, checked = false;
+    GLuint fbo = 0, color = 0, depth = 0;
+    int w = 0, h = 0, tw = 0, th = 0; // image size (-1: cache unusable here); this frame's target size
+} g_GC;
+
+static inline void GC_Mix(const void* data, size_t n) {
+    const unsigned char* p = (const unsigned char*)data;
+    uint64_t h = g_GC.probe;
+    for (size_t i = 0; i < n; i++) { h ^= p[i]; h *= 1099511628211ull; } // FNV-1a
+    g_GC.probe = h;
+}
+
+void GLES3_Ground_Cache_Mix(unsigned int a, unsigned int b, unsigned int c, unsigned int d, unsigned int e) {
+    if (g_GC.mode != 1) return;
+    const unsigned int v[5] = { a, b, c, d, e };
+    GC_Mix(v, sizeof(v));
+}
+
+// One suppressed draw's fingerprint. Stencil writes can't be replayed from the image.
+static void GC_Fingerprint(unsigned int a, unsigned int b, unsigned int c, unsigned int d, unsigned int e) {
+    if (g_State.render_states[GLES3_RS_STENCILENABLE] || g_State.pretransformed) g_GC.unsafe = true;
+    GC_Mix(&g_State, offsetof(GLES3_PipelineState, active_program));
+    unsigned int v[5 + 9] = { a, b, c, d, e };
+    for (int i = 0; i < 8; i++) {
+        const GLuint t = g_State.bound_textures[i];
+        v[5 + i] = t < g_TexSerial.size() ? g_TexSerial[t] : 0;
+    }
+    v[13] = g_State.shroud_tex < g_TexSerial.size() ? g_TexSerial[g_State.shroud_tex] : 0;
+    GC_Mix(v, sizeof(v));
+}
+
+static bool GC_Target() {
+    if (g_GC.w < 0) return false;
+    if (!g_GC.fbo) {
+        glGenFramebuffers(1, &g_GC.fbo);
+        glGenRenderbuffers(1, &g_GC.color);
+        glGenRenderbuffers(1, &g_GC.depth);
+    }
+    if (g_GC.w != g_GC.tw || g_GC.h != g_GC.th) {
+        g_GC.valid = false;
+        glBindFramebuffer(GL_FRAMEBUFFER, g_GC.fbo);
+        glBindRenderbuffer(GL_RENDERBUFFER, g_GC.color);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, g_GC.tw, g_GC.th);
+        glBindRenderbuffer(GL_RENDERBUFFER, g_GC.depth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, g_GC.tw, g_GC.th); // the targets' own depth format: a depth blit needs a match
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, g_GC.color);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, g_GC.depth);
+        const bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+        glBindFramebuffer(GL_FRAMEBUFFER, g_In3DPass ? g_Fbo : 0);
+        if (!ok) { fprintf(stderr, "GLES3: ground cache framebuffer incomplete; cache off\n"); g_GC.w = -1; return false; }
+        g_GC.w = g_GC.tw; g_GC.h = g_GC.th;
+    }
+    return true;
+}
+
+// Copies the cached ground (colour + depth) over the current target. False: this browser
+// refused the copy (its canvas depth format differs), and the cache is switched off.
+static bool GC_Copy() {
+    const GLuint target = g_In3DPass ? g_Fbo : 0;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, g_GC.fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target);
+    const bool scissor = glIsEnabled(GL_SCISSOR_TEST);
+    if (scissor) glDisable(GL_SCISSOR_TEST);
+    if (!g_GC.checked) while (glGetError() != GL_NO_ERROR) {}
+    glBlitFramebuffer(0, 0, g_GC.w, g_GC.h, 0, 0, g_GC.w, g_GC.h, GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    bool ok = true;
+    if (!g_GC.checked) { // once: asking for errors stalls the pipeline
+        g_GC.checked = true;
+        ok = glGetError() == GL_NO_ERROR;
+        if (!ok) { fprintf(stderr, "GLES3: ground cache copy refused; cache off\n"); g_GC.w = -1; }
+    }
+    if (scissor) glEnable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_FRAMEBUFFER, target);
+    return ok;
+}
+
+bool GLES3_Ground_Cache_Begin() {
+    if (!(g_PageSwitches & 8) || g_GC.mode || g_GC.w < 0) return false;
+    if (g_In3DPass) { g_GC.tw = g_FboW; g_GC.th = g_FboH; }
+    else {
+        // The drawing buffer's size, from the context: the canvas element can't be asked from
+        // the game thread of the multithreaded build (Canvas_Size goes through the page).
+        g_GC.tw = g_GC.th = 0;
+        emscripten_webgl_get_drawing_buffer_size(emscripten_webgl_get_current_context(), &g_GC.tw, &g_GC.th);
+    }
+    if (g_GC.tw < 1 || g_GC.th < 1) return false;
+    g_GC.mode = 1;
+    g_GC.unsafe = false;
+    g_GC.probe = 14695981039346656037ull;
+    const int v[3] = { g_GC.tw, g_GC.th, g_In3DPass ? 1 : 0 };
+    GC_Mix(v, sizeof(v));
+    GC_Mix(&g_FrameClear, sizeof(g_FrameClear)); // the image starts from the frame's clear
+    return true;
+}
+
+// After the caller's draws: true = run them once more (this time they are really drawn).
+bool GLES3_Ground_Cache_Again() {
+    if (g_GC.mode == 1) {
+        const uint64_t probe = g_GC.probe, last = g_GC.last_probe;
+        g_GC.last_probe = probe;
+        if (!g_GC.unsafe && g_GC.valid && probe == g_GC.cached && g_GC.w == g_GC.tw && g_GC.h == g_GC.th && GC_Copy()) {
+            g_GC.mode = 0;
+            gx_gc_hits++;
+            return false;
+        }
+        if (!g_GC.unsafe && probe == last && GC_Target()) {
+            // Start the image from the frame's clear, so the copy can replace the whole target.
+            glBindFramebuffer(GL_FRAMEBUFFER, g_GC.fbo);
+            const bool scissor = glIsEnabled(GL_SCISSOR_TEST);
+            if (scissor) glDisable(GL_SCISSOR_TEST);
+            glClearColor(g_FrameClear.r, g_FrameClear.g, g_FrameClear.b, g_FrameClear.a);
+            glClearDepthf(g_FrameClear.z);
+            glDepthMask(GL_TRUE);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            glDepthMask(g_State.render_states[GLES3_RS_ZWRITEENABLE] ? GL_TRUE : GL_FALSE);
+            if (scissor) glEnable(GL_SCISSOR_TEST);
+            g_GC.valid = false;
+            g_GC.cached = probe;
+            g_GC.mode = 2;
+            return true;
+        }
+        g_GC.mode = 3;
+        gx_gc_plain++;
+        return true;
+    }
+    if (g_GC.mode == 2) {
+        glBindFramebuffer(GL_FRAMEBUFFER, g_In3DPass ? g_Fbo : 0);
+        g_GC.valid = true;
+        gx_gc_captures++;
+        if (!GC_Copy()) { g_GC.valid = false; g_GC.mode = 3; return true; } // copy refused: draw plainly
+    }
+    g_GC.mode = 0;
+    return false;
+}
+
 static void Apply_Pipeline_State() {
     if (g_State.shroud_tex) GLES3_Bind_Shroud_Unit();
     unsigned int hash = GLES3_ShaderManager::Hash_Pipeline_Config(g_State);
@@ -1281,6 +1449,7 @@ void GLES3_Draw_Triangles(unsigned int prim_type,
                            unsigned int prim_count,
                            unsigned int min_vertex,
                            unsigned int num_vertices) {
+    if (g_GC.mode == 1) { GC_Fingerprint(prim_type, start_index, prim_count, min_vertex, num_vertices); return; }
     Apply_Pipeline_State();
 
     GLenum gl_prim = GLES3_Helpers::PrimType_To_GL(prim_type);
@@ -1310,6 +1479,7 @@ void GLES3_Draw_Triangles_Instanced(unsigned int prim_type,
                                     const float* world_matrices,
                                     unsigned int instance_count) {
     if (instance_count == 0) return;
+    if (g_GC.mode == 1) { g_GC.unsafe = true; return; } // not expected inside the ground pass
     Apply_Pipeline_State();
 
     GLenum gl_prim = GLES3_Helpers::PrimType_To_GL(prim_type);
@@ -1376,6 +1546,7 @@ void GLES3_Draw_Triangles_Instanced(unsigned int prim_type,
 void GLES3_Draw_Arrays(unsigned int prim_type,
                         unsigned int start_vertex,
                         unsigned int prim_count) {
+    if (g_GC.mode == 1) { g_GC.unsafe = true; return; } // not expected inside the ground pass
     Apply_Pipeline_State();
 
     GLenum gl_prim = GLES3_Helpers::PrimType_To_GL(prim_type);
