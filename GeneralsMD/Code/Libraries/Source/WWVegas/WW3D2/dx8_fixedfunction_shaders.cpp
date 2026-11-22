@@ -36,6 +36,7 @@
 #include <cstring>
 #include <cstdio>
 #include "gles3_wrapper.h"
+#include <emscripten/em_asm.h>
 
 
 // Scene uniforms shared by every program (GLES3_ShaderManager::Apply_Uniforms, binding 0):
@@ -565,6 +566,27 @@ static std::string Variant_Source(const char* base, unsigned int h, bool is_frag
     if (is_fragment && key && key->afunc) snprintf(defs + n, sizeof(defs) - n, "#define GX_AFUNC %d\n", key->afunc);
     if (!is_fragment && key) snprintf(defs + n, sizeof(defs) - n, "#define GX_CV %d\n", key->cvert);
     std::string s = std::string(defs) + body;
+    // Item 9 of the low-end plan: on weak machines (window.gxLowEnd) the fragment shader does
+    // its colour maths at mediump, which integrated and mobile GPUs run at 16 bits, faster.
+    // The scene block (shared with the vertex shader, so its precision must match) stays
+    // highp, and so do texture coordinates and the shroud uv: at mediump a 1024-texel texture
+    // would lose sub-texel position. ?mediump=0 / =1 forces it off / on for testing. Software
+    // renderers compute 32 bits either way.
+    static int mediump = -1;
+    if (mediump < 0) mediump = MAIN_THREAD_EM_ASM_INT({
+        try { const q = location.search; if (q.indexOf('mediump=1') >= 0) return 1; if (q.indexOf('mediump=0') >= 0) return 0; } catch (e) {}
+        return (typeof window !== 'undefined' && window.gxLowEnd) ? 1 : 0; });
+    if (is_fragment && mediump) {
+        const char* marks[][2] = {
+            {"// Inputs from vertex shader\n", "precision mediump float;\n// Inputs from vertex shader\n"},
+            {"in vec3 v_TexCoord0;", "in highp vec3 v_TexCoord0;"}, {"in vec3 v_TexCoord1;", "in highp vec3 v_TexCoord1;"},
+            {"in vec3 v_TexCoord2;", "in highp vec3 v_TexCoord2;"}, {"in vec3 v_TexCoord3;", "in highp vec3 v_TexCoord3;"},
+            {"in vec2 v_ShroudUV;", "in highp vec2 v_ShroudUV;"}};
+        for (auto& m : marks) {
+            size_t at = s.find(m[0]);
+            if (at != std::string::npos) s.replace(at, strlen(m[0]), m[1]);
+        }
+    }
     if (is_fragment && psgen) s += GLES3_PS_Generate_GLSL(psgen);
     if (ffgen) s += GLES3_FF_Generate_GLSL(*key);
     if (!is_fragment && key) s += GLES3_VS_Generate_GLSL(*key);
