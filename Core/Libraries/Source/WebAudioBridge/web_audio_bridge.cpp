@@ -295,6 +295,24 @@ EM_JS(void, AILBridge_init, (), {
                     isCompressed = isMP3 || isOgg;
                 }
 
+                // Decoded sounds are kept (item 46 of the low-end plan): every play of a sound
+                // used to copy the file and decode it again, which a 2-core machine pays for in
+                // battles. Key: the file image's address and size plus 64 sampled bytes (a freed
+                // address reused for another sound of the same size won't match). LRU, 64 MB of
+                // decoded audio at most.
+                let sig = 0;
+                for (let k = 0; k < 64; k++) sig = (sig * 31 + HEAPU8[file_ptr + Math.floor(k * totalSize / 64)]) | 0;
+                const key = file_ptr + ':' + totalSize + ':' + sig;
+                this.decoded = this.decoded || new Map();
+                this.decodedBytes = this.decodedBytes || 0;
+                const hit = this.decoded.get(key);
+                if (hit) {
+                    this.decoded.delete(key); this.decoded.set(key, hit); // most recently used
+                    s.buffer = hit;
+                    s.state = 'ready';
+                    return;
+                }
+
                 let audioBuffer;
                 if (isCompressed) {
                     window.gxAudioVerbose && console.log("[AILBridge] Detected wrapped compressed audio. Peeling 44-byte WAV header.");
@@ -309,6 +327,15 @@ EM_JS(void, AILBridge_init, (), {
                     window.gxAudioVerbose && console.log("[AILBridge] decodeAudioData success for sample id =", id, "duration =", buffer.duration);
                     s.buffer = buffer;
                     s.state = 'ready';
+                    if (!this.decoded.has(key)) {
+                        this.decoded.set(key, buffer);
+                        this.decodedBytes += buffer.length * buffer.numberOfChannels * 4;
+                        for (const [k, old] of this.decoded) {
+                            if (this.decodedBytes <= 64 * 1048576) break;
+                            this.decoded.delete(k);
+                            this.decodedBytes -= old.length * old.numberOfChannels * 4;
+                        }
+                    }
                     if (s.playWhenReady) {
                         window.gxAudioVerbose && console.log("[AILBridge] playing deferred sample id =", id);
                         this.play(id, is_3d, s.loop);

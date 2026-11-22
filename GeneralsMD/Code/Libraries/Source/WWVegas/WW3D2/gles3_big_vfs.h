@@ -146,6 +146,10 @@ private:
         unsigned int size;
         bool is_inactive;
         std::list<std::string>::iterator lru_it;
+        // Open handles reading this buffer (LocalFile wraps it with fmemopen). Evict_File only
+        // queues it for freeing when the last one closes, so a second handle on the same file
+        // never reads a freed buffer.
+        int opens = 1;
     };
     static std::unordered_map<std::string, CachedData> cache;
 

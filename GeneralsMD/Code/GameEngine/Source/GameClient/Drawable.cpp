@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include <unordered_map>
 
 #include "Common/AudioEventInfo.h"
 #include "Common/DynamicAudioEventInfo.h"
@@ -3494,7 +3495,22 @@ void Drawable::drawBombed(const IRegion2D* healthBarRegion)
 	// Bombed?
 	//
 	static NameKeyType key_StickyBombUpdate = NAMEKEY( "StickyBombUpdate" );
-	StickyBombUpdate *update = (StickyBombUpdate*)obj->findUpdateModule( key_StickyBombUpdate );
+	// Only sticky bombs have this module, and an object's modules come from its template, so
+	// remember per template whether to look: the module search makes a virtual call per module
+	// of every drawn unit, every frame (~0.7% of a battle frame). Item 50 of the low-end plan;
+	// drawing only, so lockstep multiplayer is unaffected.
+	static std::unordered_map<const ThingTemplate*, bool> s_hasStickyBomb;
+	StickyBombUpdate *update = nullptr;
+	{
+		const ThingTemplate *tmpl = obj->getTemplate();
+		auto known = s_hasStickyBomb.find( tmpl );
+		if( known == s_hasStickyBomb.end() || known->second )
+		{
+			update = (StickyBombUpdate*)obj->findUpdateModule( key_StickyBombUpdate );
+			if( known == s_hasStickyBomb.end() )
+				s_hasStickyBomb[ tmpl ] = update != nullptr;
+		}
+	}
 	if( update )
 	{
 		//This case is tricky. The object that is bombed doesn't know it... but the bomb itself does.

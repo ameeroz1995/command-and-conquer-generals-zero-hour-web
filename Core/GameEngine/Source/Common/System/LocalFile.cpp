@@ -383,17 +383,12 @@ void LocalFile::closeFile() {
 #if USE_BUFFERED_IO
   if (m_file) {
 #if defined(__EMSCRIPTEN__)
+    // Every closed archive file goes to the size-capped closed-file cache, not only models,
+    // textures and sounds: music, maps and settings files used to stay in the heap for the
+    // whole session (item 43 of the low-end plan). Files not read from an archive are
+    // ignored by Evict_File.
     const char* filename = getName();
-    if (filename) {
-      size_t len = strlen(filename);
-      if (len > 4) {
-        const char* ext = filename + len - 4;
-        if (strcasecmp(ext, ".w3d") == 0 || strcasecmp(ext, ".tga") == 0 || 
-            strcasecmp(ext, ".dds") == 0 || strcasecmp(ext, ".wav") == 0) {
-          Web_VFS_Evict_File(filename);
-        }
-      }
-    }
+    if (filename) Web_VFS_Evict_File(filename);
 #endif
     fclose(m_file);
     m_file = nullptr;

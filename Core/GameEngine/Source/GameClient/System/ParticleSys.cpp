@@ -1215,6 +1215,7 @@ ParticleSystem::ParticleSystem( const ParticleSystemTemplate *sysTemplate,
 	m_personalityStore = 0;
 	m_controlParticle = nullptr;
 
+	m_inManagerList = FALSE;
 	if ( m_systemID != INVALID_PARTICLE_SYSTEM_ID )
 	{
 		TheParticleSystemManager->friend_addParticleSystem(this);
@@ -3219,6 +3220,8 @@ void ParticleSystemManager::friend_addParticleSystem( ParticleSystem *particleSy
 {
 	DEBUG_ASSERTCRASH(particleSystemToAdd != nullptr, ("ParticleSystemManager::friend_addParticleSystem: ParticleSystem is null"));
 	m_allParticleSystemList.push_back(particleSystemToAdd);
+	particleSystemToAdd->m_managerListIt = std::prev(m_allParticleSystemList.end());
+	particleSystemToAdd->m_inManagerList = TRUE;
 	m_systemMap[particleSystemToAdd->getSystemID()] = particleSystemToAdd;
 	++m_particleSystemCount;
 }
@@ -3228,10 +3231,10 @@ void ParticleSystemManager::friend_addParticleSystem( ParticleSystem *particleSy
 // ------------------------------------------------------------------------------------------------
 void ParticleSystemManager::friend_removeParticleSystem( ParticleSystem *particleSystemToRemove )
 {
-	ParticleSystemListIt it = std::find(m_allParticleSystemList.begin(), m_allParticleSystemList.end(), particleSystemToRemove);
-	if (it != m_allParticleSystemList.end()) {
-		m_systemMap.erase((*it)->getSystemID());
-		m_allParticleSystemList.erase(it);
+	if (particleSystemToRemove && particleSystemToRemove->m_inManagerList) {
+		particleSystemToRemove->m_inManagerList = FALSE;
+		m_systemMap.erase(particleSystemToRemove->getSystemID());
+		m_allParticleSystemList.erase(particleSystemToRemove->m_managerListIt);
 		--m_particleSystemCount;
 	} else {
 		DEBUG_CRASH(("ParticleSystemManager::friend_removeParticleSystem: ParticleSystem to remove was not recognized"));

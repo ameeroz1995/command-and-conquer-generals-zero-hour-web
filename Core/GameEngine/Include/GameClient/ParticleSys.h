@@ -682,6 +682,11 @@ protected:
 
 	UnsignedInt				m_particleCount;								///< current count of particles for this system
 	ParticleSystemID	m_systemID;											///< unique id given to this system from the particle system manager
+	// Its place in ParticleSystemManager's list (a std::list, so the position stays valid):
+	// removal no longer searches all systems (item 48 of the low-end plan).
+	std::list<ParticleSystem*>::iterator m_managerListIt;
+	Bool m_inManagerList;
+	friend class ParticleSystemManager;
 
 	DrawableID				m_attachedToDrawableID;					///< if non-zero, system is parented to this Drawable
 	ObjectID					m_attachedToObjectID;						///< if non-zero, system is parented to this Object

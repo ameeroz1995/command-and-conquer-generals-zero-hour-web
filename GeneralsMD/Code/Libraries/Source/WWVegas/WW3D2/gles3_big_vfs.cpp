@@ -505,7 +505,9 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
       inactive_lru.erase(cache_it->second.lru_it);
       inactive_cache_bytes -= cache_it->second.size;
       cache_it->second.is_inactive = false;
+      cache_it->second.opens = 0;
     }
+    cache_it->second.opens++;
     *out_data = cache_it->second.data;
     *out_size = cache_it->second.size;
     return true;
@@ -604,6 +606,9 @@ void BigVFS::Evict_File(const char *path) {
 
   // If it is already inactive, do nothing
   if (it->second.is_inactive) return;
+  // Still open elsewhere: keep it active until the last handle closes.
+  if (--it->second.opens > 0) return;
+  it->second.opens = 0;
 
   // Don't queue preloaded buffers (they are never evicted anyway)
   const BigFileEntry *entry = Find_File(path);
@@ -620,8 +625,10 @@ void BigVFS::Evict_File(const char *path) {
   it->second.is_inactive = true;
   inactive_cache_bytes += it->second.size;
 
-  // If cache exceeds limit (128 MB), evict the oldest files (from the back of the queue)
-  const unsigned int INACTIVE_CACHE_LIMIT_BYTES = 128 * 1024 * 1024;
+  // If the closed files exceed 16 MB, free the oldest (from the back of the queue). It was
+  // 128 MB: textures and models already loaded sat in the heap a second time (item 42 of the
+  // low-end plan). A file read again comes back from the page's own read caches.
+  const unsigned int INACTIVE_CACHE_LIMIT_BYTES = 16 * 1024 * 1024;
   while (inactive_cache_bytes > INACTIVE_CACHE_LIMIT_BYTES && !inactive_lru.empty()) {
     std::string oldest = inactive_lru.back();
     inactive_lru.pop_back();
