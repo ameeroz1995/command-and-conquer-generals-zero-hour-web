@@ -575,7 +575,9 @@ static std::string Variant_Source(const char* base, unsigned int h, bool is_frag
     static int mediump = -1;
     if (mediump < 0) mediump = MAIN_THREAD_EM_ASM_INT({
         try { const q = location.search; if (q.indexOf('mediump=1') >= 0) return 1; if (q.indexOf('mediump=0') >= 0) return 0; } catch (e) {}
-        return (typeof window !== 'undefined' && window.gxLowEnd) ? 1 : 0; });
+        if (typeof window === 'undefined') return 0;
+        var o = window.GeneralsX && window.GeneralsX.opt; // performance switch: Lower shader precision
+        return (o ? o.mediump : window.gxLowEnd) ? 1 : 0; });
     if (is_fragment && mediump) {
         const char* marks[][2] = {
             {"// Inputs from vertex shader\n", "precision mediump float;\n// Inputs from vertex shader\n"},

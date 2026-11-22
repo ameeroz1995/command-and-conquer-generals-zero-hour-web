@@ -49,7 +49,7 @@ static bool g_SceneDirty = true; // GXScene inputs changed since the last upload
 static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
 static int g_SwapCount = 0;         // frames presented, for Module.gxFps (render scale Auto)
 double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gles3_mainloop) -> Module.gxWorkMs
-static int g_PageSwitches = 7;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off)
+static int g_PageSwitches = 7 | 16 | 32 | 64;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -409,7 +409,11 @@ void GLES3_Precompile_Programs();
 void GLES3_Begin_Scene() {
     g_CanvasSizeStale = true;
     static bool precompiled = false; // the programs the last sessions needed (item 21)
-    if (!precompiled) { precompiled = true; GLES3_Precompile_Programs(); }
+    if (!precompiled) {
+        precompiled = true;
+        if (MAIN_THREAD_EM_ASM_INT({ var o = typeof window !== 'undefined' && window.GeneralsX && window.GeneralsX.opt; return o && o.precompile === false ? 0 : 1; }))
+            GLES3_Precompile_Programs();
+    }
     static double next_check = 0;
     const double now = emscripten_get_now();
     if (now >= next_check && g_BackBufferW > 0) {
@@ -426,8 +430,12 @@ void GLES3_Begin_Scene() {
             var pace = location.search.indexOf('pace=0') < 0 && !!(st && st.steady30 === true);
             // Ground cache: only without antialiasing (its paste writes depth per pixel, which
             // would lose the smoothed ground edges); Module.gxGroundCache = 0 turns it off.
-            var gc = Module.gxGroundCache !== 0 && !!st && st.antialias === false;
-            return (Module.gxShroudFold === 0 ? 0 : 1) | (Module.gxTerrainCull === 0 ? 0 : 2) | (pace ? 4 : 0) | (gc ? 8 : 0);
+            // The page's performance switches (Settings; web_shell.html's gxPerf).
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            var gc = Module.gxGroundCache !== 0 && o.groundCache !== false && !!st && st.antialias === false;
+            return (Module.gxShroudFold === 0 || o.shroudFold === false ? 0 : 1) | (Module.gxTerrainCull === 0 || o.terrainCull === false ? 0 : 2)
+                 | (pace ? 4 : 0) | (gc ? 8 : 0) | (o.fastShaders === false ? 0 : 16) | (o.skipSameUploads === false ? 0 : 32)
+                 | (o.asyncSounds === false ? 0 : 64);
         });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__
@@ -874,7 +882,10 @@ void GLES3_Apply_Texture_Stage_Parameters(unsigned int stage) {
         // for every textured pixel, which a software renderer pays on the CPU. No anisotropic
         // filtering is used anywhere, so there is none to turn off.
         static int low = -1;
-        if (low < 0) low = MAIN_THREAD_EM_ASM_INT({ return (typeof window !== 'undefined' && window.gxLowEnd) ? 1 : 0; });
+        if (low < 0) low = MAIN_THREAD_EM_ASM_INT({
+            if (typeof window === 'undefined') return 0;
+            var o = window.GeneralsX && window.GeneralsX.opt; // performance switch: Simpler texture filtering
+            return (o ? o.bilinear : window.gxLowEnd) ? 1 : 0; });
         if (low) gl_min_filter = (min == 1) ? GL_NEAREST_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_NEAREST;
         else gl_min_filter = (min == 1) ? GL_NEAREST_MIPMAP_LINEAR : GL_LINEAR_MIPMAP_LINEAR;
     }
@@ -900,6 +911,7 @@ bool GLES3_Set_Shroud_Fold(GLuint tex, const float* d3d_matrix) {
     // A folded draw needs its own program; if the slots are nearly used up (they are never
     // freed), refuse, so the engine draws the separate shroud pass instead of no shroud.
     if (tex && GLES3_Free_Program_Slots() < 64) tex = 0;
+    if (!(g_PageSwitches & 16)) tex = 0; // specialised shaders switched off: only they can fold
     g_State.shroud_tex = tex;
     if (!tex) return false;
     if (d3d_matrix) memcpy(g_State.shroud_matrix, d3d_matrix, sizeof(g_State.shroud_matrix));
@@ -2021,6 +2033,7 @@ void GLES3_Precompile_Programs() {
 }
 
 unsigned int GLES3_ShaderManager::Program_Slot(const GLES3_PipelineState& state, unsigned int hash) {
+    if (!(g_PageSwitches & 16)) return hash; // performance switch: the general (interpreting) shaders
     const bool ps = (hash & 32) != 0;
     const int stages = ps ? 0 : (int)((hash >> 6) & 7);
     const bool pre = (hash & 8) != 0;

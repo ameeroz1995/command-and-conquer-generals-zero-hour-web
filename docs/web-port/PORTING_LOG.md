@@ -2222,3 +2222,20 @@ every frame a hit. Pictures match except moving parts (dish, flag).
 - Four runs side by side on their own core pairs (bench scripts take LANE=n now; the machine was
   loaded, so only the ratios count): camera still, single-thread 3.9 -> 5.2 fps, multithreaded
   3.8 -> 5.5; panning and menu unchanged; RX 580 with antialiasing (cache off) identical; no GL errors.
+
+## Performance switches in Settings (2026-11-23)
+
+Every optimisation that can be switched has a checkbox under Settings > Performance switches,
+built from `window.gxPerf` in web_shell.html; `GeneralsX.opt` holds the values in force (the
+player's choice, else the default) and is what the engine reads. Live (read about once a second
+through the page switches in gles3_wrapper.cpp): ground cache, shroud fold, terrain culling,
+specialised shaders (off = the general interpreting shaders, and no fold), skip unchanged texture
+re-uploads, sounds load in the background. At start (the page reloads): simpler texture filtering,
+lower shader precision, show frames immediately (desynchronized canvas), prepare shaders at start,
+keep game files in memory (256 MB vs 16 MB). The last three "weak machine" defaults (filtering,
+precision, desync) still default to window.gxLowEnd.
+
+Low-end setup, one match, each switch off in turn (picture unchanged each time, <= 0.4% of pixels,
+the moving parts): all on 25.5-27.7 fps; ground cache off 17.5; shroud fold off 17.9; terrain
+culling off 25.1 (nothing off screen in this view); specialised shaders off 4.1; skip unchanged
+uploads off 15.8 (the ground cache can't hit then); background sounds off 19.0.

@@ -555,7 +555,7 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
             // A texture rewritten with the same pixels (the fog of war, every frame) is not
             // sent again: the upload is saved, and the ground cache sees unchanged contents.
             const std::vector<uint8_t>& px = levels[0].pixels;
-            if (px.size() <= (2u << 20)) {
+            if (px.size() <= (2u << 20) && (GLES3_Page_Switches() & 32)) {
                 uint64_t h = 1469598103934665603ull ^ px.size(), w;
                 size_t i = 0;
                 for (; i + 8 <= px.size(); i += 8) { memcpy(&w, px.data() + i, 8); h = (h ^ w) * 1099511628211ull; h ^= h >> 29; }

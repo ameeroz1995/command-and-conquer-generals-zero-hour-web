@@ -684,7 +684,10 @@ void BigVFS::Evict_File(const char *path) {
   // freed first. It was cut to 16 MB to save heap (item 42), but then files were read again
   // from the browser mid-game; the user prefers the memory to be spent on speed.
   static const unsigned int INACTIVE_CACHE_LIMIT_BYTES =
-      (unsigned int)EM_ASM_INT({ return (navigator.deviceMemory || 8) <= 2 ? 32 : 256; }) * 1024u * 1024u;
+      (unsigned int)MAIN_THREAD_EM_ASM_INT({
+          var o = typeof window !== 'undefined' && window.GeneralsX && window.GeneralsX.opt; // performance switch: Keep game files in memory
+          if (o && o.bigFileCache === false) return 16;
+          return (navigator.deviceMemory || 8) <= 2 ? 32 : 256; }) * 1024u * 1024u;
   while (inactive_cache_bytes > INACTIVE_CACHE_LIMIT_BYTES && !inactive_lru.empty()) {
     std::string oldest = inactive_lru.back();
     inactive_lru.pop_back();

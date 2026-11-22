@@ -3205,7 +3205,8 @@ void *AudioFileCache::openFile( AudioEventRTS *eventToOpenFrom )
 	// Not in memory yet: read it in the background and skip this play instead of blocking the
 	// frame on a synchronous browser read (100+ ms hitches in battles). Sounds don't affect the
 	// game simulation, so lockstep multiplayer is unaffected. The next play finds it ready.
-	if (!Web_VFS_File_Ready(strToFind.str())) {
+	extern int GLES3_Page_Switches(); // bit 6: the page's switch "Load sounds in the background"
+	if ((GLES3_Page_Switches() & 64) && !Web_VFS_File_Ready(strToFind.str())) {
 		static int s_deferred = 0;
 		if ((++s_deferred & 63) == 1) printf("[MilesAudio] %d sounds deferred while loading (latest %s)\n", s_deferred, strToFind.str());
 		return nullptr;

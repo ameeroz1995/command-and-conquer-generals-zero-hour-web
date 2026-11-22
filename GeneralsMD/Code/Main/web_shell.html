@@ -468,6 +468,10 @@
         <div style="font-size: 9px; color: var(--gx-mute); margin-left: 20px; margin-top: 3px;">When a match can't hold 60 but stays above about 33 fps, show an even 30 instead of an uneven rate. Applies at once.</div>
       </div>
 
+      <!-- One switch per optimisation, built from gxPerf (script below). -->
+      <div style="margin: 18px 0 8px; font-size: 10px; letter-spacing: 2px; border-top: 1px solid var(--gx-mute); padding-top: 10px;">PERFORMANCE SWITCHES</div>
+      <div id="gx-perf-toggles"></div>
+
       <div style="margin-bottom: 14px;">
         <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;">
           <input type="checkbox" id="gx-setting-fps" style="margin-right: 8px; accent-color: var(--gx-fg);">
@@ -1168,7 +1172,7 @@
               // frames: the browser shows them with less copying (low-end setup ~19% faster). The
               // multithreaded build's canvas belongs to the game thread, which already presents
               // directly, so this only matters for the single-thread build.
-              if (window.gxLowEnd) {
+              if (parsed.desync === undefined ? window.gxLowEnd : !!parsed.desync) { // setting: Show frames immediately
                 var gxGetContext = HTMLCanvasElement.prototype.getContext;
                 HTMLCanvasElement.prototype.getContext = function (type, attrs) {
                   if (type === 'webgl2' && this.id === 'canvas') attrs = Object.assign({}, attrs || {}, { desynchronized: true });
@@ -1190,6 +1194,34 @@
             return Object.assign(defaults, parsed);
           })()
         };
+
+        // Performance switches (Settings): one per optimisation, so each can be turned off to
+        // compare or to work around a problem. `def` is the default when the player has not
+        // chosen; GeneralsX.opt holds the values in force and is what the engine reads
+        // (gles3_wrapper.cpp's page switches, the shader generator, the file cache).
+        // `reload`: decided when the game starts.
+        window.gxPerf = (function () {
+          var low = !!window.gxLowEnd;
+          return [
+            { key: 'groundCache', def: true, label: 'REUSE THE GROUND WHILE THE CAMERA IS STILL', note: 'Copies a saved picture of the ground instead of redrawing it. Works only with antialiasing off.' },
+            { key: 'shroudFold', def: true, label: 'FOG OF WAR DRAWN WITH THE GROUND', note: 'One pass instead of two over the terrain.' },
+            { key: 'terrainCull', def: true, label: 'SKIP GROUND THAT IS OFF SCREEN', note: 'Terrain tiles outside the view are not drawn.' },
+            { key: 'fastShaders', def: true, label: 'SPECIALISED SHADERS', note: 'One short shader per material instead of a general one. Off is much slower; also turns off the fog of war option above.' },
+            { key: 'skipSameUploads', def: true, label: 'DO NOT RE-SEND UNCHANGED TEXTURES', note: 'The fog of war texture is only sent to the graphics chip when it changes.' },
+            { key: 'bilinear', def: low, reload: true, label: 'SIMPLER TEXTURE FILTERING', note: 'One texture detail level per pixel instead of blending two. On by default on weak machines.' },
+            { key: 'mediump', def: low, reload: true, label: 'LOWER SHADER PRECISION', note: 'Colour maths at medium precision. On by default on weak machines.' },
+            { key: 'desync', def: low, reload: true, label: 'SHOW FRAMES IMMEDIATELY', note: 'Frames skip the browser\'s compositor (normal build only): more frames on weak machines, can look uneven. On by default on weak machines.' },
+            { key: 'precompile', def: true, reload: true, label: 'PREPARE SHADERS AT START', note: 'Compiles the shaders the last sessions used before the first frame, instead of mid-game.' },
+            { key: 'bigFileCache', def: true, reload: true, label: 'KEEP GAME FILES IN MEMORY', note: 'Up to 256 MB of closed files stay loaded so they are not read again. Off: 16 MB.' },
+            { key: 'asyncSounds', def: true, label: 'LOAD SOUNDS IN THE BACKGROUND', note: 'A sound that is not loaded yet is skipped once instead of freezing the game while it loads.' }
+          ];
+        })();
+        window.gxPerfApply = function () {
+          var st = window.GeneralsX.settings, o = {};
+          window.gxPerf.forEach(function (p) { o[p.key] = st[p.key] === undefined ? p.def : !!st[p.key]; });
+          window.GeneralsX.opt = o;
+        };
+        window.gxPerfApply();
 
         // ------------------------------------------------------------------
         // Canvas backing buffer is locked to 800x600 — the engine's
@@ -1772,6 +1804,29 @@
             window.GeneralsX.settings.steady30 = steadyCb.checked; // the engine reads it about once a second
             saveSettings();
           });
+          // Performance switches: one checkbox each, from window.gxPerf.
+          (function () {
+            var box = document.getElementById('gx-perf-toggles');
+            window.gxPerf.forEach(function (p) {
+              var wrap = document.createElement('div'); wrap.style.marginBottom = '12px';
+              var label = document.createElement('label');
+              label.style.cssText = 'display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;';
+              var cb = document.createElement('input'); cb.type = 'checkbox';
+              cb.style.cssText = 'margin-right: 8px; accent-color: var(--gx-fg);';
+              cb.checked = !!window.GeneralsX.opt[p.key];
+              var note = document.createElement('div');
+              note.style.cssText = 'font-size: 9px; color: var(--gx-mute); margin-left: 20px; margin-top: 3px;';
+              note.textContent = p.note + (p.reload ? ' Reloads the page.' : '');
+              label.appendChild(cb); label.appendChild(document.createTextNode(p.label));
+              wrap.appendChild(label); wrap.appendChild(note); box.appendChild(wrap);
+              cb.addEventListener('change', function () {
+                window.GeneralsX.settings[p.key] = cb.checked;
+                window.gxPerfApply(); // the engine reads GeneralsX.opt about once a second
+                saveSettings();
+                if (p.reload) location.reload();
+              });
+            });
+          })();
           var fpsCb = document.getElementById('gx-setting-fps');
           fpsCb.checked = window.GeneralsX.settings.showFps === true;
           fpsCb.addEventListener('change', function() {
