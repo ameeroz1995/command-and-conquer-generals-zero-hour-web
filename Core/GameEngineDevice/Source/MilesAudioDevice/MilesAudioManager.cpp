@@ -451,7 +451,16 @@ void MilesAudioManager::init()
 
 	// We should now know how many samples we want to load
 	openDevice();
-	m_audioCache->setMaxSize(getAudioSettings()->m_maxCacheSize);
+	UnsignedInt audioCacheBytes = getAudioSettings()->m_maxCacheSize;
+#ifdef __EMSCRIPTEN__
+	// The shipped AudioSettings.ini budget (AudioFootprintInBytes) is a few MB, so sounds are
+	// dropped and reopened constantly. On the web a reopen is a blocking read from the browser's
+	// file store, which showed up as 100+ ms hitches mid-battle once the archive layer stopped
+	// keeping closed files around (16 MB cap, item 42). Keep sounds here instead: 48 MB at least.
+	if (audioCacheBytes < 48u * 1024 * 1024) audioCacheBytes = 48u * 1024 * 1024;
+	printf("[MilesAudio] sound cache %u MB (setting %u KB)\n", audioCacheBytes >> 20, getAudioSettings()->m_maxCacheSize >> 10);
+#endif
+	m_audioCache->setMaxSize(audioCacheBytes);
 
 	// Now, set the file callbacks to load the streams from Biggie files
 	AIL_set_file_callbacks(streamingFileOpen, streamingFileClose, streamingFileSeek, streamingFileRead);
