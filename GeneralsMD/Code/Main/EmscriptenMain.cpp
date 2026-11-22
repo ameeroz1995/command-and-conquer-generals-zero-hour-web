@@ -95,6 +95,7 @@ extern "C" int gx_d3d_setindices_null;
 // build does not currently link libwwaudio (per build-html5/.../linkLibs.rsp)
 // — the audio path is stubbed via milesstub. When real WWAudio is wired up,
 // add #include "Threads.h", a `target_link_libraries(z_generals PRIVATE
+extern "C" void Web_VFS_Warm_Match_Files(); // gles3_big_vfs.cpp
 // z_wwaudio)` in Main/CMakeLists.txt, and a per-frame call to
 // WWAudioThreadsClass::Tick_Delayed_Release_Objects() right after
 // TheGameEngine->update().
@@ -478,6 +479,8 @@ static bool GameWebFrameCallback(float /*delta_time_ms*/) {
       const int inMatch = TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() && !TheGameLogic->isLoadingMap();
       EM_ASM({ Module.gxInMatch = $0; }, inMatch);
       extern int gx_in_match; // gles3_mainloop.cpp: 30 fps pacing applies only in a match
+      // Match just started: read the files earlier matches needed mid-game in the background.
+      if (inMatch && !gx_in_match) Web_VFS_Warm_Match_Files();
       gx_in_match = inMatch;
     }
     if (TheGameLogic && TheFramePacer) {

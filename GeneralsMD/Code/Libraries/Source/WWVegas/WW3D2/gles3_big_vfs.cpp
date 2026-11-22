@@ -17,6 +17,8 @@
 #include <cstring>
 #include <emscripten.h>
 #include <sys/stat.h>
+#include <set>
+#include <string>
 
 // Static members
 std::string BigVFS::base_url;
@@ -174,6 +176,57 @@ EM_JS(
         return 0; // 0 indicates network error or exception
       }
     });
+
+// ============================================================================
+// Range_Ready_JS — would Fetch_Range_JS answer this range from memory? If not, start an
+// asynchronous read that fills the same caches (1 MB windows for <= 512 KB, the range memo
+// up to 4 MB), so a later synchronous read doesn't wait on the browser. Returns 1 when ready
+// (or too big to prefetch: the caller then reads synchronously as before), 0 while loading.
+// For sounds (AudioFileCache), which may play a moment late but must not stall a frame.
+// ============================================================================
+EM_JS(int, Range_Ready_JS, (const char *url, unsigned int start, unsigned int end), {
+  const urlStr = UTF8ToString(url);
+  const reqLen = end - start + 1;
+  if (reqLen > 4194304) return 1;
+  const WIN = 1048576, SMALL = 524288;
+  let key, ready;
+  if (reqLen <= SMALL) {
+    const winStart = Math.floor(start / WIN) * WIN;
+    key = urlStr + '|' + winStart;
+    const win = Module.gxWin && Module.gxWin.map.get(key);
+    ready = win !== undefined && winStart + win.length - 1 >= end;
+    if (!ready) { start = winStart; end = Math.max(winStart + WIN - 1, end); }
+  } else {
+    key = urlStr + '|' + start + '|' + end;
+    ready = !!(Module.gxRC && Module.gxRC.map.has(key));
+  }
+  if (ready) return 1;
+  if (!Module.gxPending) Module.gxPending = new Set();
+  if (Module.gxPending.has(key)) return 0;
+  Module.gxPending.add(key);
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', urlStr, true);
+  xhr.responseType = 'arraybuffer';
+  xhr.setRequestHeader('Range', 'bytes=' + start + '-' + end);
+  xhr.onloadend = function () {
+    Module.gxPending.delete(key);
+    if ((xhr.status !== 200 && xhr.status !== 206) || !xhr.response) return;
+    const u8 = new Uint8Array(xhr.response);
+    const cache = reqLen <= SMALL ? (Module.gxWin = Module.gxWin || { map: new Map(), bytes: 0 })
+                                  : (Module.gxRC = Module.gxRC || { map: new Map(), bytes: 0 });
+    const cap = reqLen <= SMALL ? 100663296 : 50331648;
+    if (cache.map.has(key)) return;
+    cache.map.set(key, u8);
+    cache.bytes += u8.length;
+    while (cache.bytes > cap && cache.map.size > 0) {
+      const oldest = cache.map.keys().next().value;
+      cache.bytes -= cache.map.get(oldest).length;
+      cache.map.delete(oldest);
+    }
+  };
+  xhr.send(null);
+  return 0;
+});
 
 // ============================================================================
 // Byte order conversion (big-endian to host)
@@ -546,6 +599,8 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
   }
 
 
+  Note_Match_Read(norm);
+
   // Copy data into cache
   void *data_copy = malloc(entry->size);
   if (!data_copy) {
@@ -656,6 +711,60 @@ void BigVFS::Evict_File(const char *path) {
 extern "C" bool Web_VFS_Read_File_Sync(const char *path, void **out_data,
                                        unsigned int *out_size) {
   return BigVFS::Read_File_Sync(path, out_data, out_size);
+}
+
+// Files the game had to read during a match (first sound of a kind, a unit type's model
+// and textures the first time it appears) are remembered in /userdata/gx_matchfiles.txt
+// (kept with the settings), and read in the background when the next match starts
+// (Warm_Match_Files), so they come from memory instead of stalling a frame. Paths only, so
+// any build can use the list; at most 3000 entries.
+extern int gx_in_match; // gles3_mainloop.cpp
+static std::set<std::string> s_matchFiles;
+static bool s_matchFilesLoaded = false;
+static void Load_Match_Files() {
+  if (s_matchFilesLoaded) return;
+  s_matchFilesLoaded = true;
+  if (FILE *f = fopen("/userdata/gx_matchfiles.txt", "r")) {
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+      size_t n = strlen(line);
+      while (n && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = 0;
+      if (n) s_matchFiles.insert(line);
+    }
+    fclose(f);
+  }
+}
+void BigVFS::Note_Match_Read(const std::string &norm) {
+  if (!gx_in_match) return;
+  Load_Match_Files();
+  if (s_matchFiles.size() >= 3000 || !s_matchFiles.insert(norm).second) return;
+  if (FILE *f = fopen("/userdata/gx_matchfiles.txt", "a")) {
+    fprintf(f, "%s\n", norm.c_str());
+    fclose(f);
+  }
+}
+void BigVFS::Warm_Match_Files() {
+  Load_Match_Files();
+  int started = 0;
+  for (const std::string &p : s_matchFiles)
+    if (!File_Ready(p.c_str())) started++;
+  printf("GXWARM %d of %d remembered match files reading in the background\n", started, (int)s_matchFiles.size());
+}
+extern "C" void Web_VFS_Warm_Match_Files() { BigVFS::Warm_Match_Files(); }
+
+bool BigVFS::File_Ready(const char *path) {
+  if (!path) return true;
+  std::string norm = Normalize_Path(path);
+  if (cache.find(norm) != cache.end()) return true;
+  const BigFileEntry *entry = Find_File(norm.c_str());
+  if (!entry || entry->size == 0) return true; // missing or empty: let the normal path handle it
+  const BigArchive &archive = archives[entry->archive_index];
+  if (archive.preloaded_buffer) return true;
+  return Range_Ready_JS(GX_FETCH_URL(archive.url), entry->offset, entry->offset + entry->size - 1) != 0;
+}
+
+extern "C" bool Web_VFS_File_Ready(const char *path) {
+  return BigVFS::File_Ready(path);
 }
 
 extern "C" void Web_VFS_Evict_File(const char *path) {

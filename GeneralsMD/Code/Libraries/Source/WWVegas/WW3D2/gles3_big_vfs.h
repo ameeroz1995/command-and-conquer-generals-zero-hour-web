@@ -133,6 +133,11 @@ public:
     
     // Evict a file from the dynamic cache to reclaim memory
     static void Evict_File(const char* path);
+    // True when the file can be read without waiting on the browser; otherwise starts an
+    // asynchronous read and returns false (sounds skip that play instead of stalling a frame).
+    static bool File_Ready(const char *path);
+    static void Note_Match_Read(const std::string &norm);
+    static void Warm_Match_Files();
 
 private:
     static std::string base_url;

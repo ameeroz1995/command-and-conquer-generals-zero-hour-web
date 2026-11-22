@@ -67,6 +67,7 @@
 #include "Common/file.h"
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+extern "C" bool Web_VFS_File_Ready(const char *path);
 #endif
 
 
@@ -3200,6 +3201,16 @@ void *AudioFileCache::openFile( AudioEventRTS *eventToOpenFrom )
 		return it->second.m_file;
 	}
 
+#ifdef __EMSCRIPTEN__
+	// Not in memory yet: read it in the background and skip this play instead of blocking the
+	// frame on a synchronous browser read (100+ ms hitches in battles). Sounds don't affect the
+	// game simulation, so lockstep multiplayer is unaffected. The next play finds it ready.
+	if (!Web_VFS_File_Ready(strToFind.str())) {
+		static int s_deferred = 0;
+		if ((++s_deferred & 63) == 1) printf("[MilesAudio] %d sounds deferred while loading (latest %s)\n", s_deferred, strToFind.str());
+		return nullptr;
+	}
+#endif
 	// Couldn't find the file, so actually open it.
 	File *file = TheFileSystem->openFile(strToFind.str());
 	if (!file) {
