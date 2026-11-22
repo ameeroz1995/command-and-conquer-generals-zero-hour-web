@@ -410,6 +410,13 @@
       z-index: 8;
       transition: right 250ms ease-out;
       box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      /* Taller than the window once the performance switches were added: scroll inside. */
+      max-height: calc(100vh - 80px);
+      max-height: calc(100dvh - 80px);
+      box-sizing: border-box;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      touch-action: pan-y;
     ">
       <div style="font-size: 13px; font-weight: bold; margin-bottom: 12px; letter-spacing: 2px; text-transform: uppercase; color: var(--gx-accent); border-bottom: 1px solid var(--gx-mute); padding-bottom: 6px;">Settings</div>
       
