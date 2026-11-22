@@ -680,10 +680,11 @@ void BigVFS::Evict_File(const char *path) {
   it->second.is_inactive = true;
   inactive_cache_bytes += it->second.size;
 
-  // If the closed files exceed 16 MB, free the oldest (from the back of the queue). It was
-  // 128 MB: textures and models already loaded sat in the heap a second time (item 42 of the
-  // low-end plan). A file read again comes back from the page's own read caches.
-  const unsigned int INACTIVE_CACHE_LIMIT_BYTES = 16 * 1024 * 1024;
+  // Closed files stay in memory up to 256 MB (32 MB on a device reporting <= 2 GB), oldest
+  // freed first. It was cut to 16 MB to save heap (item 42), but then files were read again
+  // from the browser mid-game; the user prefers the memory to be spent on speed.
+  static const unsigned int INACTIVE_CACHE_LIMIT_BYTES =
+      (unsigned int)EM_ASM_INT({ return (navigator.deviceMemory || 8) <= 2 ? 32 : 256; }) * 1024u * 1024u;
   while (inactive_cache_bytes > INACTIVE_CACHE_LIMIT_BYTES && !inactive_lru.empty()) {
     std::string oldest = inactive_lru.back();
     inactive_lru.pop_back();

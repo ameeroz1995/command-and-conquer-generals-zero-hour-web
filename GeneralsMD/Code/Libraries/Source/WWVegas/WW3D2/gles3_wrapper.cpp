@@ -418,7 +418,7 @@ void GLES3_Begin_Scene() {
         double sc = EM_ASM_DOUBLE({ Module.gxFps = $0; Module.gxWorkMs = $1; return Module.gxRenderScale || 1; }, fps, gx_work_ms_1s);
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
-            var pace = location.search.indexOf('pace=0') < 0 && !(st && st.steady30 === false);
+            var pace = location.search.indexOf('pace=0') < 0 && !!(st && st.steady30 === true);
             return (Module.gxShroudFold === 0 ? 0 : 1) | (Module.gxTerrainCull === 0 ? 0 : 2) | (pace ? 4 : 0);
         });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;

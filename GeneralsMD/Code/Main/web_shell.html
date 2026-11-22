@@ -462,7 +462,7 @@
 
       <div style="margin-bottom: 14px;">
         <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;">
-          <input type="checkbox" id="gx-setting-steady30" style="margin-right: 8px; accent-color: var(--gx-fg);" checked>
+          <input type="checkbox" id="gx-setting-steady30" style="margin-right: 8px; accent-color: var(--gx-fg);">
           STEADY 30 FPS
         </label>
         <div style="font-size: 9px; color: var(--gx-mute); margin-left: 20px; margin-top: 3px;">When a match can't hold 60 but stays above about 33 fps, show an even 30 instead of an uneven rate. Applies at once.</div>
@@ -1767,7 +1767,7 @@
             location.reload(); // the WebGL context is made with or without it
           });
           var steadyCb = document.getElementById('gx-setting-steady30');
-          steadyCb.checked = window.GeneralsX.settings.steady30 !== false;
+          steadyCb.checked = window.GeneralsX.settings.steady30 === true; // off unless the player turns it on
           steadyCb.addEventListener('change', function() {
             window.GeneralsX.settings.steady30 = steadyCb.checked; // the engine reads it about once a second
             saveSettings();
