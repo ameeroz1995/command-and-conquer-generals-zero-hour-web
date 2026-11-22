@@ -2190,3 +2190,14 @@ fighting (3 minutes, 5-second windows, first 15 s skipped). Median / worst 5-sec
   flagged weak, unchanged.
 - **No stencil buffer** (shadows are off at Low): 18.3-18.6 vs 18.6-18.9 fps, no gain; not done.
 - With the clears (Session 34) this closes item 5: clears and stencil no gain, desynchronized kept.
+
+## Item 5 reverted: desynchronized canvas presented frames in pairs (2026-11-22)
+
+- Low-end (SwiftShader, 2 cores, single-thread build), runtime rAF probe over 20 s windows: with the
+  desynchronized canvas, rAF intervals were p10 16.6 / p50 16.7 / p90 117–267 ms: two frames about one
+  vsync apart, then a 100–270 ms stall. The other chat's clear-timestamp numbers agree (p90 120–147 ms,
+  vs p50 60 / p90 94–106 ms without desync at the same 15–16 fps).
+- A fence after each frame signalled 240–480 ms after the frame's JS, so SwiftShader runs several
+  frames behind; gl.finish() returned in ~0 ms and did not change the pairing. The +19% average was the
+  game queuing frames ahead in bursts, not more frames drawn, and it looked worse (~8–9 fps of stalls).
+- Removed the getContext wrapper from web_shell.html; frames go back to the normal compositor path.
