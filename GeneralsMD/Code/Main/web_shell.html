@@ -1164,6 +1164,17 @@
               window.gxSoftwareGL = software;
               var weak = (navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory || 8) <= 2;
               window.gxLowEnd = software || weak; // read by the engine (fewer sound voices)
+              // On weak or software graphics the single-thread build's canvas asks for desynchronized
+              // frames: the browser shows them with less copying (low-end setup ~19% faster). The
+              // multithreaded build's canvas belongs to the game thread, which already presents
+              // directly, so this only matters for the single-thread build.
+              if (window.gxLowEnd) {
+                var gxGetContext = HTMLCanvasElement.prototype.getContext;
+                HTMLCanvasElement.prototype.getContext = function (type, attrs) {
+                  if (type === 'webgl2' && this.id === 'canvas') attrs = Object.assign({}, attrs || {}, { desynchronized: true });
+                  return gxGetContext.call(this, type, attrs);
+                };
+              }
               defaults.renderScale = 'auto';
               window.gxAutoScale = software ? 0.5 : weak ? 0.75 : 1;
               if ((software || weak) && parsed.antialias === undefined) defaults.antialias = false;

@@ -2179,3 +2179,14 @@ fighting (3 minutes, 5-second windows, first 15 s skipped). Median / worst 5-sec
   `?pace=0`), so it applies without a reload; unticking while paced returns to 60 at once.
   Checked with SwiftShader on all cores (match at ~35-43 fps): pacing engaged, unticking went back
   to 60 within 3 s and it stayed off, ticking again re-engaged it.
+
+## 2026-11-22 — Desynchronized canvas on weak machines (item 5, the rest of it)
+
+- **Desynchronized frames** for the single-thread build's canvas when the page flags the machine
+  as weak or software GL (`gxLowEnd`): the browser shows them with less copying. Low-end setup,
+  single-thread build, two pairs against live 00031: 18.2-18.9 -> 22.0-22.4 fps (+19%); the
+  context reports `desynchronized: true`. The multithreaded build gained nothing (three pairs,
+  ~20.5 fps both): its canvas belongs to the game thread, which presents directly. RX 580 not
+  flagged weak, unchanged.
+- **No stencil buffer** (shadows are off at Low): 18.3-18.6 vs 18.6-18.9 fps, no gain; not done.
+- With the clears (Session 34) this closes item 5: clears and stencil no gain, desynchronized kept.
