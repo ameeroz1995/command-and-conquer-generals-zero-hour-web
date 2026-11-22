@@ -1482,7 +1482,25 @@ struct Emscripten_IDirect3D8 : public IDirect3D8 {
     }
     virtual HRESULT CheckDeviceFormat(UINT Adapter, DWORD DeviceType,
                                     DWORD AdapterFormat, DWORD Usage,
-                                    DWORD RType, DWORD CheckFormat) override { return 0; }
+                                    DWORD RType, DWORD CheckFormat) override {
+        // DXT1-5 (FOURCC 'DXT1'..'DXT5') need WEBGL_compressed_texture_s3tc, which most phone and
+        // tablet browsers lack. Without it, every compressed upload failed and drew black. Saying
+        // "not available" lets the game's texture loader decompress them while loading, as the
+        // original did on cards without DXT (item 80). ?nodxt=1 forces this for testing.
+        if (CheckFormat >= 0x31545844u && CheckFormat <= 0x35545844u) {
+            static int s3tc = -1;
+            if (s3tc < 0) {
+                s3tc = EM_ASM_INT({
+                    try { if (location.search.indexOf('nodxt=1') >= 0) return 0; } catch (e) {}
+                    var gl = (typeof GLctx !== 'undefined') ? GLctx : null;
+                    return gl && gl.getExtension('WEBGL_compressed_texture_s3tc') ? 1 : 0;
+                });
+                printf("[d3d8] DXT textures: %s\n", s3tc ? "compressed on the GPU" : "decompressed while loading (no S3TC)");
+            }
+            if (!s3tc) return D3DERR_NOTAVAILABLE;
+        }
+        return 0;
+    }
     virtual HRESULT CheckDeviceType(UINT Adapter, DWORD DeviceType,
                                   DWORD DisplayFormat, DWORD BackBufferFormat,
                                   int Windowed) override { return 0; }
