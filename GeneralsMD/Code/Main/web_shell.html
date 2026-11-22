@@ -1192,6 +1192,15 @@
               // The multithreaded build reserves a fixed 1 GB heap; on a <= 2 GB device the normal
               // build, which starts at 512 MB and grows only when a battle needs it, is safer.
               if ((navigator.deviceMemory || 8) <= 2) defaults.multithread = false;
+              // Weak machines (software graphics or <= 2 cores) also start single-threaded: on 2
+              // cores with software graphics the multithreaded build measured about half the
+              // speed (menu 17-22 vs 29-38 fps, match 8-15 vs 18-29), its threads competing for
+              // the cores the software renderer needs. Settings -> Multithreaded turns it back on.
+              if (software || (navigator.hardwareConcurrency || 8) <= 2) defaults.multithread = false;
+              // Saving any setting stores every value, so a stored multithread is only the
+              // player's choice if they used the checkbox (multithreadChosen); otherwise the
+              // default above applies, also to players who saved other settings before.
+              if (!parsed.multithreadChosen) delete parsed.multithread;
               if (software && parsed.renderScale === undefined) {
                 var dismissed = false;
                 try { dismissed = !!localStorage.getItem('gxLowEndNoteDismissed'); } catch(e) {}
@@ -1795,6 +1804,7 @@
           }
           multithreadCb.addEventListener('change', function() {
             window.GeneralsX.settings.multithread = multithreadCb.checked;
+            window.GeneralsX.settings.multithreadChosen = true;
             saveSettings();
             location.reload(); // the build is chosen before it loads
           });
