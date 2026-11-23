@@ -2302,3 +2302,19 @@ firing.
 400 tanks, same match: RX 580 4,985 -> 1,661 draws, 45 -> 60.6 fps (capped), moving 52.9 -> 61.3;
 low-end 4,645 -> ~1,550 draws, 4.2 -> 4.5-5.0 fps (the flashes above are most of what is left).
 Idle pictures match (0.10%). Sanity: both builds and the RX 580 run a match with no GL errors.
+
+## Infantry drawn together without GPU skinning (2026-11-23)
+
+A skin container already deforms all its visible meshes on the CPU into one dynamic vertex buffer
+(world space, identity world matrix) and then draws them one mesh at a time: 400 Rangers were
+~380 body draws. In DX8TextureCategoryClass::Render the skins of one category (same texture,
+shader, material) that stand in the same light (`Same_Lighting`) are now drawn with a single
+DrawIndexedPrimitive from a per-frame dynamic index buffer: each mesh's indices (read once per
+polygon renderer, `GX_Skin_Indices`) plus its base vertex offset. Up to 65535 indices a draw;
+alpha overrides, user data, scaled, sorted and additive meshes keep the old path. Same switch as
+the tank batching (`unitBatching`).
+
+400 Rangers by the camera, toggled in one match: RX 580 2,838 -> 2,440 draws idle (the rest is
+their muzzle flashes, visible only because of the test spawn) and 909 -> 244 with the group spread
+out; low-end 2,722 -> 2,330, 7.0 -> 7.4-8.3 fps. Pictures match within the idle animation (1.1%,
+same as two unbatched captures). Sanity: both builds and the RX 580, no GL errors.

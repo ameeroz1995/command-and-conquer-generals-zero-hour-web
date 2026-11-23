@@ -87,6 +87,7 @@ public:
 
 	unsigned							Get_Vertex_Offset()	{ return vertex_offset; }
 	unsigned							Get_Index_Offset()	{ return index_offset; }
+	unsigned							Get_Index_Count()	{ return index_count; }
 	unsigned						Get_Pass()	{ return pass; }
 
 	MeshModelClass*				Get_Mesh_Model_Class() { return mmc; }

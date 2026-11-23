@@ -41,6 +41,8 @@
 //#define ENABLE_STRIPING
 
 #include <vector>
+#include <unordered_map>
+#include <unordered_set>
 #include <algorithm>
 #include <cstdint>
 #include "dx8renderer.h"
@@ -100,6 +102,8 @@ typedef MultiListIterator<PolyRemover>		PolyRemoverListIterator;
 ** a pointer to the polygon renderer and the MeshClass instance that
 ** it is being rendered for.
 */
+static IndexBufferClass * gx_skin_merge_ib = nullptr;	// GeneralsX: see "Skins (infantry) drawn together" below
+
 class PolyRenderTaskClass : public AutoPoolClass<PolyRenderTaskClass, 256>
 {
 public:
@@ -1416,6 +1420,7 @@ void DX8SkinFVFCategoryContainer::Render()
 		DX8Wrapper::Set_Vertex_Buffer(vb);
 		DX8Wrapper::Set_Index_Buffer(index_buffer,0);
 
+		gx_skin_merge_ib = sorting ? nullptr : index_buffer;	// GeneralsX: the categories below may draw their skins together
 		//Flush the meshes which fit in the vertex buffer, applying all texture variations
 		for (unsigned pass=0;pass<passes;++pass) {
 			SNAPSHOT_SAY(("Pass: %d",pass));
@@ -1426,6 +1431,7 @@ void DX8SkinFVFCategoryContainer::Render()
 				it.Next();
 			}
 		}
+		gx_skin_merge_ib = nullptr;
 
 		Render_Procedural_Material_Passes();
 	}
@@ -1693,6 +1699,31 @@ unsigned DX8TextureCategoryClass::Add_Mesh(
 extern int GLES3_Page_Switches(); // bit 12: the page's switch "Draw identical unit parts together"
 #endif
 
+// GeneralsX @performance 23/11/2026 Skins (infantry) drawn together. A skin container deforms
+// all its visible meshes into one dynamic vertex buffer and then draws them one by one. The
+// meshes of one texture category share texture, shader and material, and their vertices are
+// already in world space, so those standing in the same light are drawn with a single call
+// from an index list put together for the frame (each mesh's indices plus its base vertex).
+// (gx_skin_merge_ib, defined near the top: the skin container's index buffer while it renders; nullptr = no merging)
+struct GXSkinIndices { unsigned offset, count; IndexBufferClass * ib; std::vector<unsigned short> idx; };
+static std::unordered_map<DX8PolygonRendererClass*, GXSkinIndices> gx_skin_indices;	// a renderer's indices, read once
+
+static const std::vector<unsigned short> & GX_Skin_Indices(DX8PolygonRendererClass * r)
+{
+	GXSkinIndices & e = gx_skin_indices[r];
+	if (e.ib != gx_skin_merge_ib || e.offset != r->Get_Index_Offset() || e.count != r->Get_Index_Count()) {
+		e.ib = gx_skin_merge_ib; e.offset = r->Get_Index_Offset(); e.count = r->Get_Index_Count();
+		e.idx.resize(e.count);
+		DX8Wrapper::Set_Index_Buffer(nullptr, 0);	// not in use by the device while it is read
+		{
+			IndexBufferClass::WriteLockClass l(gx_skin_merge_ib);
+			memcpy(e.idx.data(), l.Get_Index_Array() + e.offset, e.count * sizeof(unsigned short));
+		}
+		DX8Wrapper::Set_Index_Buffer(gx_skin_merge_ib, 0);
+	}
+	return e.idx;
+}
+
 // GeneralsX @performance 23/11/2026 Batching of identical meshes. Every unit has its own
 // LightEnvironmentClass, but units standing in the same light hold the same values, so two
 // environments are compared by what they contain: comparing the pointers never batched
@@ -1781,6 +1812,66 @@ void DX8TextureCategoryClass::Render()
 		for (size_t i = 0; i + 1 < order.size(); i++) order[i]->Set_Next_Visible(order[i + 1]);
 		order.back()->Set_Next_Visible(nullptr);
 		render_task_head = order.front();
+	}
+
+	// Skins: one draw for every mesh here that stands in the same light (see gx_skin_merge_ib).
+	for (int round = 0; batch_units && gx_skin_merge_ib && round < 8; round++) {
+		static std::vector<PolyRenderTaskClass*> group;
+		group.clear();
+		LightEnvironmentClass * lenv0 = nullptr;
+		unsigned total = 0;
+		for (PolyRenderTaskClass * t = render_task_head; t; t = t->Get_Next_Visible()) {
+			MeshClass * m = t->Peek_Mesh();
+			DX8PolygonRendererClass * r = t->Peek_Polygon_Renderer();
+			if (m->Get_Base_Vertex_Offset() == VERTEX_BUFFER_OVERFLOW) continue;
+			if (!m->Peek_Model()->Get_Flag(MeshModelClass::SKIN) || r->Is_Strip() || m->Get_Alpha_Override() != 1.0f || m->Is_Additive() ||
+			    m->Get_User_Data() || m->Get_ObjectScale() != 1.0f) continue;
+			if (m->Peek_Model()->Get_Flag(MeshGeometryClass::SORT) && WW3D::Is_Sorting_Enabled()) continue;
+			if (DX8RendererDebugger::Is_Enabled() && m->Is_Disabled_By_Debugger()) continue;
+			if (group.empty()) lenv0 = m->Get_Lighting_Environment();
+			else if (!Same_Lighting(m->Get_Lighting_Environment(), lenv0)) continue;
+			if (total + r->Get_Index_Count() > 65535) continue;	// one dynamic index buffer's worth
+			group.push_back(t);
+			total += r->Get_Index_Count();
+		}
+		if (group.size() < 2 || total < 3) break;
+		// Their indices, each moved to where its mesh sits in the shared vertex buffer.
+		unsigned min_v = 0xffffffff, max_v = 0;
+		for (size_t g = 0; g < group.size(); g++) GX_Skin_Indices(group[g]->Peek_Polygon_Renderer());	// (may lock the index buffer)
+		{
+			DynamicIBAccessClass ib(BUFFER_TYPE_DYNAMIC_DX8, (unsigned short)total);
+			{
+				DynamicIBAccessClass::WriteLockClass l(&ib);
+				unsigned short * dst = l.Get_Index_Array();
+				for (size_t g = 0; g < group.size(); g++) {
+					const std::vector<unsigned short> & src = GX_Skin_Indices(group[g]->Peek_Polygon_Renderer());
+					const unsigned base = (unsigned)group[g]->Peek_Mesh()->Get_Base_Vertex_Offset();
+					for (size_t k = 0; k < src.size(); k++) {
+						const unsigned v = src[k] + base;
+						if (v < min_v) min_v = v;
+						if (v > max_v) max_v = v;
+						*dst++ = (unsigned short)v;
+					}
+				}
+			}
+			if (lenv0 != nullptr) DX8Wrapper::Set_Light_Environment(lenv0);
+			DX8Wrapper::Set_World_Identity();
+			DX8Wrapper::Set_Index_Buffer(ib, 0);
+			DX8Wrapper::Draw_Triangles(0, (unsigned short)(total / 3), (unsigned short)min_v, (unsigned short)(max_v - min_v + 1));
+			DX8Wrapper::Set_Index_Buffer(gx_skin_merge_ib, 0);
+		}
+		// Take the drawn tasks out of the list.
+		static std::unordered_set<PolyRenderTaskClass*> drawn;
+		drawn.clear();
+		drawn.insert(group.begin(), group.end());
+		PolyRenderTaskClass * keep_head = nullptr, * keep_tail = nullptr;
+		for (PolyRenderTaskClass * t = render_task_head; t; ) {
+			PolyRenderTaskClass * next = t->Get_Next_Visible();
+			if (drawn.count(t)) { delete t; }
+			else { t->Set_Next_Visible(nullptr); if (keep_tail) keep_tail->Set_Next_Visible(t); else keep_head = t; keep_tail = t; }
+			t = next;
+		}
+		render_task_head = keep_head;
 	}
 
 	PolyRenderTaskClass * prt = render_task_head;
