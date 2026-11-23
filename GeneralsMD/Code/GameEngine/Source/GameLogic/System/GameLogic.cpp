@@ -3668,6 +3668,12 @@ void GameLogic::update()
 	USE_PERF_TIMER(GameLogic_update)
 
 	LatchRestore<Bool> inUpdateLatch(m_isInUpdate, TRUE);
+#ifdef __EMSCRIPTEN__
+	// web port, switch webgpuFlowFields: a route map due on this frame is still on the GPU; wait
+	// for it (this tick only draws) so the game plays the same however fast the GPU is
+	if (!m_startNewGame && TheAI && TheAI->pathfinder() && TheAI->pathfinder()->gxFlowFieldsHold())
+		return;
+#endif
 #ifdef DO_UNIT_TIMINGS
 	unitTimings();
 #endif

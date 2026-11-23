@@ -694,6 +694,8 @@ public:
 	Path *gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo,
 		PathfindCell *startCell, PathfindCell *goalCell, Bool isCrusher, Bool centerInCell );	///< web port: long ground paths from a shared field (switch flowFields)
 	static void gxObstaclesChanged();	///< web port: buildings placed or removed: shared fields are stale
+	Bool gxFlowFieldsHold();	///< web port: collect WebGPU fields; true = a field due this frame is not back yet, hold the logic frame
+	void gxWalkMask(unsigned char *out, LocomotorSurfaceTypeMask surfaces, Bool crusher);	///< web port: 1 per walkable ground cell over m_extent
 	PathfindCell *getCell( PathfindLayerEnum layer, const Coord3D *pos );				///< Given a position, return associated grid cell
 	PathfindCell *getClippedCell( PathfindLayerEnum layer, const Coord3D *pos );				///< Given a position, return associated grid cell
 	void clip(Coord3D *from, Coord3D *to);

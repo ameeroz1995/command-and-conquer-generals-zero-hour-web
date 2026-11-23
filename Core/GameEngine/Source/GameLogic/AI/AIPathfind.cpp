@@ -27,6 +27,7 @@
 // Author: Michael S. Booth, October 2001
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #include "Common/Recorder.h"
+#include <algorithm>
 
 #include "GameLogic/AIPathfind.h"
 
@@ -11286,24 +11287,331 @@ extern int GLES3_Page_Switches();
 extern "C" int GLES3_GPU_Flow_Fields(int n, int w, int h, const unsigned char* const* walks, const unsigned short* const* seeds, unsigned short* const* outs);
 extern "C" int gx_gpu_field_readbacks;
 #endif
+#ifdef __EMSCRIPTEN__
+#include <emscripten/em_js.h>
+#include <emscripten.h>
+// WebGPU flow fields (switch webgpuFlowFields, page bit 28). Runs on the game thread (EM_JS is not
+// routed to the page thread). relax: 16x16 tiles in workgroup memory, 24 sweeps per dispatch, integer
+// atomicMin back to the field; a per-dispatch flag says whether anything changed, read back with
+// mapAsync between rounds; dirs: one 4-bit step per cell (the CPU walk's choice), 8 cells per word.
+EM_JS(void, gx_wgpu_init, (), {
+  if (Module.gxW) return;
+  var W = Module.gxW = { state: 0, jobs: {}, batch: 24, readbacks: 0 };
+  var g = (typeof navigator !== "undefined") ? navigator.gpu : null;
+  if (!g) { W.state = -1; console.log("GXWGPU unavailable: no navigator.gpu"); return; }
+  g.requestAdapter({ powerPreference: "high-performance" }).then(function(a) {
+    if (!a) throw new Error("no adapter");
+    W.info = a.info ? (a.info.vendor + " " + a.info.architecture) : "?";
+    return a.requestDevice();
+  }).then(function(dev) {
+    var src = [
+      "struct P { w: u32, h: u32, n: u32, it: u32 };",
+      "@group(0) @binding(0) var<storage, read> walk: array<u32>;",
+      "@group(0) @binding(1) var<storage, read_write> dist: array<atomic<u32>>;",
+      "@group(0) @binding(2) var<storage, read_write> flags: array<atomic<u32>>;",
+      "@group(0) @binding(3) var<uniform> p: P;",
+      "@group(0) @binding(4) var<storage, read_write> outd: array<u32>;",
+      "const T: u32 = 16u; const S: u32 = 18u; const INF: u32 = 65535u;",
+      "var<workgroup> sd: array<u32, 324>; var<workgroup> sw: array<u32, 324>;",
+      "@compute @workgroup_size(16, 16)",
+      "fn relax(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) li: u32, @builtin(local_invocation_id) l: vec3u) {",
+      "  var dxs = array<i32, 8>(1, 0, -1, 0, 1, -1, -1, 1); var dys = array<i32, 8>(0, 1, 0, -1, 1, 1, -1, -1);",
+      "  let base = wg.z * p.w * p.h; let ox = i32(wg.x * T) - 1; let oy = i32(wg.y * T) - 1;",
+      "  for (var k = li; k < 324u; k += 256u) {",
+      "    let gx = ox + i32(k % S); let gy = oy + i32(k / S); var d = INF; var wk = 0u;",
+      "    if (gx >= 0 && gy >= 0 && gx < i32(p.w) && gy < i32(p.h)) { let i = base + u32(gy) * p.w + u32(gx); d = atomicLoad(&dist[i]); wk = walk[i]; }",
+      "    sd[k] = d; sw[k] = wk;",
+      "  }",
+      "  workgroupBarrier();",
+      "  let lx = i32(l.x) + 1; let ly = i32(l.y) + 1; let me = u32(ly) * S + u32(lx);",
+      "  let gx = wg.x * T + l.x; let gy = wg.y * T + l.y;",
+      "  let inside = gx < p.w && gy < p.h && sw[me] != 0u;",
+      "  var changed = false;",
+      "  for (var s = 0u; s < 24u; s++) {",
+      "    var best = sd[me];",
+      "    if (inside) {",
+      "      for (var n = 0; n < 8; n++) {",
+      "        let nx = lx + dxs[n]; let ny = ly + dys[n]; let nb = u32(ny) * S + u32(nx);",
+      "        if (sw[nb] == 0u) { continue; }",
+      "        if (n >= 4 && sw[u32(ly) * S + u32(nx)] == 0u && sw[u32(ny) * S + u32(lx)] == 0u) { continue; }",
+      "        let nd = sd[nb];",
+      "        if (nd != INF) { let c = nd + select(14u, 10u, n < 4); if (c < best) { best = c; } }",
+      "      }",
+      "    }",
+      "    workgroupBarrier();",
+      "    if (best < sd[me]) { sd[me] = best; changed = true; }",
+      "    workgroupBarrier();",
+      "  }",
+      "  if (changed) { atomicMin(&dist[base + gy * p.w + gx], sd[me]); atomicMax(&flags[p.it], 1u); }",
+      "}",
+      "@compute @workgroup_size(64)",
+      "fn dirs(@builtin(global_invocation_id) g: vec3u, @builtin(workgroup_id) wg: vec3u) {",
+      "  var dxs = array<i32, 8>(1, 0, -1, 0, 1, -1, -1, 1); var dys = array<i32, 8>(0, 1, 0, -1, 1, 1, -1, -1);",
+      "  let cells = p.w * p.h; let words = (cells + 7u) / 8u; let word = g.x;",
+      "  if (word >= words) { return; }",
+      "  let base = wg.y * cells; var packed = 0u;",
+      "  for (var j = 0u; j < 8u; j++) {",
+      "    let idx = word * 8u + j; if (idx >= cells) { break; }",
+      "    let x = i32(idx % p.w); let y = i32(idx / p.w); let d = atomicLoad(&dist[base + idx]);",
+      "    var code = 9u;",
+      "    if (d == INF) { code = 15u; } else if (d == 0u) { code = 8u; } else {",
+      "      var bd = d;",
+      "      for (var n = 0; n < 8; n++) {",
+      "        let nx = x + dxs[n]; let ny = y + dys[n];",
+      "        if (nx < 0 || ny < 0 || nx >= i32(p.w) || ny >= i32(p.h)) { continue; }",
+      "        let nd = atomicLoad(&dist[base + u32(ny) * p.w + u32(nx)]);",
+      "        if (nd < bd) { bd = nd; code = u32(n); }",
+      "      }",
+      "    }",
+      "    packed = packed | (code << (4u * j));",
+      "  }",
+      "  outd[wg.y * words + word] = packed;",
+      "}"].join("\n");
+    var mod = dev.createShaderModule({ code: src });
+    if (mod.getCompilationInfo) mod.getCompilationInfo().then(function(ci) { ci.messages.forEach(function(m) { console.log("GXWGPU shader " + m.type + " line " + m.lineNum + ": " + m.message); }); });
+    var C = GPUShaderStage.COMPUTE;
+    W.bgl = dev.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: C, buffer: { type: "read-only-storage" } },
+      { binding: 1, visibility: C, buffer: { type: "storage" } },
+      { binding: 2, visibility: C, buffer: { type: "storage" } },
+      { binding: 3, visibility: C, buffer: { type: "uniform", hasDynamicOffset: true } },
+      { binding: 4, visibility: C, buffer: { type: "storage" } } ] });
+    var pl = dev.createPipelineLayout({ bindGroupLayouts: [W.bgl] });
+    W.relax = dev.createComputePipeline({ layout: pl, compute: { module: mod, entryPoint: "relax" } });
+    W.dirs = dev.createComputePipeline({ layout: pl, compute: { module: mod, entryPoint: "dirs" } });
+    W.dev = dev;
+    dev.lost.then(function(i) { W.state = -1; console.log("GXWGPU device lost " + (i && i.message)); });
+    W.state = 1;
+    console.log("GXWGPU ready on " + W.info);
+  }).catch(function(e) { W.state = -1; console.log("GXWGPU unavailable: " + e); });
+});
+EM_JS(int, gx_wgpu_state, (), { return Module.gxW ? Module.gxW.state : -2; });
+EM_JS(int, gx_wgpu_readbacks, (), { return Module.gxW ? Module.gxW.readbacks : 0; });
+EM_JS(void, gx_wgpu_submit, (int id, int n, int w, int h, const unsigned char* const* walks, const unsigned short* const* seeds, int wantDist), {
+  var W = Module.gxW, dev = W.dev, U = GPUBufferUsage, cells = w * h, N = n * cells, MAXIT = 1024;
+  var walk = new Uint32Array(N), dist = new Uint32Array(N);
+  for (var t = 0; t < n; t++) {
+    var wp = HEAPU32[(walks >> 2) + t], dp = HEAPU32[(seeds >> 2) + t] >> 1;
+    walk.set(HEAPU8.subarray(wp, wp + cells), t * cells);
+    dist.set(HEAPU16.subarray(dp, dp + cells), t * cells);
+  }
+  var words = Math.ceil(cells / 8);
+  var bw = dev.createBuffer({ size: N * 4, usage: U.STORAGE | U.COPY_DST });
+  var bd = dev.createBuffer({ size: N * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+  var bf = dev.createBuffer({ size: MAXIT * 4, usage: U.STORAGE | U.COPY_SRC });
+  var bu = dev.createBuffer({ size: MAXIT * 256, usage: U.UNIFORM | U.COPY_DST });
+  var bo = dev.createBuffer({ size: n * words * 4, usage: U.STORAGE | U.COPY_SRC });
+  dev.queue.writeBuffer(bw, 0, walk); dev.queue.writeBuffer(bd, 0, dist);
+  var par = new Uint32Array(MAXIT * 64);
+  for (var i = 0; i < MAXIT; i++) { par[i * 64] = w; par[i * 64 + 1] = h; par[i * 64 + 2] = n; par[i * 64 + 3] = i; }
+  dev.queue.writeBuffer(bu, 0, par);
+  var bg = dev.createBindGroup({ layout: W.bgl, entries: [
+    { binding: 0, resource: { buffer: bw } }, { binding: 1, resource: { buffer: bd } }, { binding: 2, resource: { buffer: bf } },
+    { binding: 3, resource: { buffer: bu, size: 16 } }, { binding: 4, resource: { buffer: bo } } ] });
+  var gx = Math.ceil(w / 16), gy = Math.ceil(h / 16), it = 0;
+  var job = { done: 0, passes: 0, n: n, cells: cells, words: words }; W.jobs[id] = job;
+  var cleanup = function() { [bw, bd, bf, bu, bo].forEach(function(b) { b.destroy(); }); };
+  var fail = function(e) { if (job.done == 0) { job.done = -1; console.log("GXWGPU job failed: " + e); cleanup(); } };
+  var finish = function() {
+    job.passes = it; W.batch = Math.max(8, it);
+    var enc = dev.createCommandEncoder(), ps = enc.beginComputePass();
+    ps.setPipeline(W.dirs); ps.setBindGroup(0, bg, [0]); ps.dispatchWorkgroups(Math.ceil(words / 64), n); ps.end();
+    var rsz = n * words * 4, rb = dev.createBuffer({ size: rsz + (wantDist ? N * 4 : 0), usage: U.MAP_READ | U.COPY_DST });
+    enc.copyBufferToBuffer(bo, 0, rb, 0, rsz);
+    if (wantDist) enc.copyBufferToBuffer(bd, 0, rb, rsz, N * 4);
+    dev.queue.submit([enc.finish()]); W.readbacks++;
+    rb.mapAsync(GPUMapMode.READ).then(function() {
+      var all = rb.getMappedRange();
+      job.dirs = new Uint32Array(all.slice(0, rsz));
+      if (wantDist) job.dist = new Uint32Array(all.slice(rsz));
+      rb.unmap(); rb.destroy(); cleanup(); job.done = 1;
+    }).catch(fail);
+  };
+  var round = function(count) {
+    if (it + count > MAXIT) count = MAXIT - it;
+    var enc = dev.createCommandEncoder();
+    for (var k = 0; k < count; k++, it++) { var ps = enc.beginComputePass(); ps.setPipeline(W.relax); ps.setBindGroup(0, bg, [it * 256]); ps.dispatchWorkgroups(gx, gy, n); ps.end(); }
+    var rb = dev.createBuffer({ size: 4, usage: U.MAP_READ | U.COPY_DST });
+    enc.copyBufferToBuffer(bf, (it - 1) * 4, rb, 0, 4);
+    dev.queue.submit([enc.finish()]); W.readbacks++;
+    rb.mapAsync(GPUMapMode.READ).then(function() {
+      var changed = new Uint32Array(rb.getMappedRange())[0]; rb.unmap(); rb.destroy();
+      if (!changed) finish(); else if (it < MAXIT) round(Math.max(8, count >> 1)); else fail("no convergence in " + it + " dispatches");
+    }).catch(fail);
+  };
+  round(W.batch);
+});
+EM_JS(int, gx_wgpu_take, (int id, unsigned char* const* dirs, unsigned short* const* dists), {
+  var W = Module.gxW, job = W && W.jobs[id];
+  if (!job) return -1;
+  if (job.done == 0) return 0;
+  delete W.jobs[id];
+  if (job.done < 0) return -1;
+  for (var t = 0; t < job.n; t++) {
+    var op = HEAPU32[(dirs >> 2) + t], base = t * job.words;
+    for (var i = 0; i < job.cells; i++) HEAPU8[op + i] = (job.dirs[base + (i >> 3)] >>> ((i & 7) * 4)) & 15;
+    if (job.dist && dists) { var dp = HEAPU32[(dists >> 2) + t] >> 1; HEAPU16.set(job.dist.subarray(t * job.cells, (t + 1) * job.cells), dp); }
+  }
+  return job.passes;
+});
+#endif
 namespace {
 const int GX_FF_AREA = 3;			// areas are 8x8 cells
 const int GX_FF_MIN_CELLS = 24;	// shorter paths keep the original search
 const UnsignedInt GX_FF_LIFE = 600;	// frames a field may live
+const UnsignedInt GX_WGPU_DELAY = 3;	// WebGPU switch: a field requested on frame N is used from frame N+3
 struct GxField {
 	int ax, ay; LocomotorSurfaceTypeMask surfaces; Bool crusher;
 	unsigned serial; UnsignedInt born, used;
-	std::vector<unsigned short> dist;	// 0xffff = unreachable
+	std::vector<unsigned short> dist;	// while building (and in verification): 0xffff = unreachable
+	std::vector<unsigned char> dir;	// the walk's step per cell: 0-7 a neighbour, 8 in the goal area, 9 stuck, 15 unreachable
+	std::vector<unsigned char> sentWalk;	// WebGPU: the walkable cells as sent (the CPU fallback and the check use these, not today's map)
+	UnsignedInt due = 0;	// first frame it may be used (WebGPU switch)
+	int job = 0, jobIdx = 0;	// WebGPU build in flight, and this field's place in it
 };
 std::vector<GxField> s_fields;
 unsigned s_obstacleSerial = 1;
 int s_fieldHits = 0, s_fieldBuilds = 0, s_fieldMisses = 0;
 int s_gpuFields = 0, s_gpuBatches = 0, s_gpuVerifyFields = 0, s_gpuVerifyMismatchCells = 0;
+int s_wgpuJobs = 0, s_wgpuFields = 0, s_wgpuCpuFields = 0, s_wgpuWaits = 0, s_wgpuHolds = 0, s_wgpuNextJob = 0;
+double s_wgpuHoldStart = 0;
 bool s_inFieldPath = false;
 const int DX[8] = { 1, 0, -1, 0, 1, -1, -1, 1 }, DY[8] = { 0, 1, 0, -1, 1, 1, -1, -1 };	// straight first, then diagonals
+
+// seeds: every walkable cell of the field's area, distance 0
+void gxSeeds(GxField &f, const std::vector<unsigned char> &walk, int x0, int y0, int w, int h)
+{
+	f.dist.assign((size_t)w * h, 0xffff);
+	for (int y = f.ay << GX_FF_AREA; y < ((f.ay + 1) << GX_FF_AREA); ++y)
+		for (int x = f.ax << GX_FF_AREA; x < ((f.ax + 1) << GX_FF_AREA); ++x) {
+			const int lx = x - x0, ly = y - y0;
+			if (lx < 0 || ly < 0 || lx >= w || ly >= h || !walk[(size_t)ly * w + lx]) continue;
+			f.dist[(size_t)ly * w + lx] = 0;
+		}
+}
+// Dial's buckets: costs are small integers, so a circular array of lists is an exact Dijkstra
+void gxCpuField(std::vector<unsigned short> &dist, const std::vector<unsigned char> &walk, int w, int h)
+{
+	std::vector<std::vector<int>> buckets(15);
+	for (size_t i = 0; i < dist.size(); ++i) if (dist[i] == 0) buckets[0].push_back((int)i);
+	int pending = (int)buckets[0].size();
+	for (unsigned d = 0; pending > 0 && d < 0xfff0; ++d) {
+		std::vector<int> &b = buckets[d % 15];
+		for (size_t k = 0; k < b.size(); ++k) {
+			const int idx = b[k];
+			pending--;
+			if (dist[idx] != d) continue;	// a shorter way was found later
+			const int x = idx % w, y = idx / w;
+			for (int n = 0; n < 8; ++n) {
+				const int nx = x + DX[n], ny = y + DY[n];
+				if (nx < 0 || ny < 0 || nx >= w || ny >= h || !walk[(size_t)ny * w + nx]) continue;
+				if (n >= 4 && !walk[(size_t)y * w + nx] && !walk[(size_t)ny * w + x]) continue;	// A* corner rule: one side open
+				const unsigned nd = d + (n < 4 ? 10 : 14);
+				unsigned short &cur = dist[(size_t)ny * w + nx];
+				if (nd < cur) { cur = (unsigned short)nd; buckets[nd % 15].push_back(ny * w + nx); pending++; }
+			}
+		}
+		b.clear();
+	}
+}
+// the walk's choice per cell: the first neighbour (in DX order) with the lowest distance below its own
+void gxDirs(const std::vector<unsigned short> &dist, std::vector<unsigned char> &dir, int w, int h)
+{
+	dir.resize(dist.size());
+	for (int y = 0; y < h; ++y)
+		for (int x = 0; x < w; ++x) {
+			const unsigned short d = dist[(size_t)y * w + x];
+			unsigned char code = 9;
+			if (d == 0xffff) code = 15;
+			else if (d == 0) code = 8;
+			else {
+				unsigned short bd = d;
+				for (int n = 0; n < 8; ++n) {
+					const int nx = x + DX[n], ny = y + DY[n];
+					if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+					const unsigned short nd = dist[(size_t)ny * w + nx];
+					if (nd < bd) { bd = nd; code = (unsigned char)n; }
+				}
+			}
+			dir[(size_t)y * w + x] = code;
+		}
+}
 }
 
 void Pathfinder::gxObstaclesChanged() { s_obstacleSerial++; }
+
+void Pathfinder::gxWalkMask(unsigned char *out, LocomotorSurfaceTypeMask surfaces, Bool crusher)
+{
+	const int x0 = m_extent.lo.x, y0 = m_extent.lo.y, w = m_extent.hi.x - x0 + 1, h = m_extent.hi.y - y0 + 1;
+	for (int y = 0; y < h; ++y)
+		for (int x = 0; x < w; ++x) {
+			PathfindCell *c = getCell(LAYER_GROUND, x0 + x, y0 + y);
+			out[(size_t)y * w + x] = c && validMovementPosition(crusher, surfaces, c) ? 1 : 0;
+		}
+}
+
+// Called at the top of every logic frame: collects WebGPU fields that are back and holds the frame
+// (returns true) while a field due on it is still on the GPU, so the simulation never depends on
+// how fast the GPU is. A build that fails or takes over 3 s is redone on the CPU (same field).
+Bool Pathfinder::gxFlowFieldsHold()
+{
+#ifdef __EMSCRIPTEN__
+	if (!TheGameLogic) return false;
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	const int x0 = m_extent.lo.x, y0 = m_extent.lo.y, w = m_extent.hi.x - x0 + 1, h = m_extent.hi.y - y0 + 1;
+	const bool verify = (GLES3_Page_Switches() & 2097152) != 0;
+	bool hold = false;
+	for (size_t i = 0; i < s_fields.size(); ++i) {
+		const int job = s_fields[i].job;
+		if (!job) continue;
+		std::vector<GxField *> fs;
+		for (GxField &f : s_fields) if (f.job == job) fs.push_back(&f);
+		std::sort(fs.begin(), fs.end(), [](const GxField *a, const GxField *b) { return a->jobIdx < b->jobIdx; });	// submission order
+		std::vector<unsigned char *> dp; std::vector<unsigned short *> sp;
+		bool due = false;
+		for (GxField *f : fs) {
+			f->dir.resize((size_t)w * h); dp.push_back(f->dir.data());
+			if (verify) { f->dist.resize((size_t)w * h); sp.push_back(f->dist.data()); }
+			if (f->due <= frame + 1) due = true;
+		}
+		int r = gx_wgpu_take(job, dp.data(), verify ? sp.data() : nullptr);
+		if (r == 0 && due) {
+			if (!s_wgpuHoldStart) s_wgpuHoldStart = emscripten_get_now();
+			if (emscripten_get_now() - s_wgpuHoldStart < 3000) { hold = true; continue; }
+			printf("GXWGPU job %d not back after 3 s: built on the CPU\n", job);
+			r = -1;
+		}
+		if (r == 0) continue;
+		for (GxField *f : fs) {
+			f->job = 0;
+			if (r < 0 || verify) {	// the CPU field from the map as it was sent: the fallback, or the reference
+				const std::vector<unsigned char> &walk = f->sentWalk;
+				const std::vector<unsigned short> gpuDist = f->dist;
+				const std::vector<unsigned char> gpuDir = f->dir;
+				gxSeeds(*f, walk, x0, y0, w, h);
+				gxCpuField(f->dist, walk, w, h);
+				gxDirs(f->dist, f->dir, w, h);
+				if (r < 0) s_wgpuCpuFields++;
+				else {
+					int dd = 0, dr = 0;
+					for (size_t c = 0; c < f->dist.size(); ++c) { dd += f->dist[c] != gpuDist[c]; dr += f->dir[c] != gpuDir[c]; }
+					s_gpuVerifyFields++; s_gpuVerifyMismatchCells += dd + dr;
+					printf("GXWGPU field %d: %d passes, %d distances and %d steps of %d cells differ from the CPU (total differing so far %d)\n",
+						s_gpuVerifyFields, r, dd, dr, (int)f->dist.size(), s_gpuVerifyMismatchCells);
+				}
+			}
+			if (r > 0) s_wgpuFields++;
+			std::vector<unsigned short>().swap(f->dist);
+			std::vector<unsigned char>().swap(f->sentWalk);
+		}
+	}
+	if (!hold) s_wgpuHoldStart = 0;
+	else s_wgpuHolds++;
+	return hold;
+#else
+	return false;
+#endif
+}
 
 Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo,
 	PathfindCell *startCell, PathfindCell *goalCell, Bool isCrusher, Bool centerInCell )
@@ -11318,27 +11626,34 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 	const LocomotorSurfaceTypeMask surfaces = locomotorSet.getValidSurfaces();
 	const int ax = gx >> GX_FF_AREA, ay = gy >> GX_FF_AREA;
 	const UnsignedInt now = TheGameLogic->getFrame();
+	const bool wgpu = (GLES3_Page_Switches() & 268435456) != 0;
+	const bool gpu = !wgpu && (GLES3_Page_Switches() & 67108864) != 0;
 
 	// the shared field for this area, surfaces and crusher flag (built if missing or stale)
-	auto valid = [&](const GxField &f) { return f.ax >= 0 && f.serial == s_obstacleSerial && now - f.born < GX_FF_LIFE; };
+	auto fresh = [&](const GxField &f) { return f.ax >= 0 && f.serial == s_obstacleSerial && now - f.born < GX_FF_LIFE; };
+	auto valid = [&](const GxField &f) { return fresh(f) && !f.job && now >= f.due; };
 	GxField *field = nullptr, *slot = nullptr;
 	for (GxField &f : s_fields)
-		if (f.ax == ax && f.ay == ay && f.surfaces == surfaces && f.crusher == isCrusher) { if (valid(f)) field = &f; else slot = &f; break; }
+		if (f.ax == ax && f.ay == ay && f.surfaces == surfaces && f.crusher == isCrusher) {
+			if (valid(f)) field = &f;
+			else if (f.job || (fresh(f) && now < f.due)) { s_wgpuWaits++; return nullptr; }	// being built: the plain search until it is due
+			else slot = &f;
+			break;
+		}
 	if (!field) {
 		if (!slot && s_fields.size() < 32) { s_fields.push_back(GxField()); slot = &s_fields.back(); slot->ax = -1; slot->used = 0; }
-		if (!slot) {	// full: replace the least recently used
-			slot = &s_fields[0];
-			for (GxField &f : s_fields) if (f.used < slot->used) slot = &f;
+		if (!slot) {	// full: replace the least recently used (never one still on the GPU)
+			for (GxField &f : s_fields) if (!f.job && (!slot || f.used < slot->used)) slot = &f;
+			if (!slot) return nullptr;
 		}
 		slot->ax = ax; slot->ay = ay; slot->surfaces = surfaces; slot->crusher = isCrusher; slot->used = now;
 		std::vector<GxField *> todo(1, slot);
-		const bool gpu = (GLES3_Page_Switches() & 67108864) != 0;
-		if (gpu) {
+		if (gpu || wgpu) {
 			// batch: every other field that went stale and was used lately is rebuilt in the same GPU
 			// pass. A field depends only on the buildings on the map (s_obstacleSerial), so building
 			// it now gives exactly what building it at its next request would.
 			for (GxField &f : s_fields)
-				if (&f != slot && f.ax >= 0 && !valid(f) && now - f.used < 300 && todo.size() < 12) todo.push_back(&f);
+				if (&f != slot && f.ax >= 0 && !f.job && !fresh(f) && now - f.used < 300 && todo.size() < 12) todo.push_back(&f);
 		}
 		std::vector<std::vector<unsigned char>> walks;	// one walkability mask per surfaces/crusher pair
 		std::vector<std::pair<LocomotorSurfaceTypeMask, Bool>> walkKeys;
@@ -11350,47 +11665,40 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 			if (k == walkKeys.size()) {
 				walkKeys.push_back({ f.surfaces, f.crusher });
 				walks.emplace_back((size_t)w * h);
-				for (int y = 0; y < h; ++y)
-					for (int x = 0; x < w; ++x) {
-						PathfindCell *c = getCell(LAYER_GROUND, x0 + x, y0 + y);
-						walks[k][(size_t)y * w + x] = c && validMovementPosition(f.crusher, f.surfaces, c) ? 1 : 0;
-					}
+				gxWalkMask(walks[k].data(), f.surfaces, f.crusher);
 			}
 			walkOf[t] = (int)k;
-			// seeds: every walkable cell of the field's area, distance 0
-			f.dist.assign((size_t)w * h, 0xffff);
-			for (int y = f.ay << GX_FF_AREA; y < ((f.ay + 1) << GX_FF_AREA); ++y)
-				for (int x = f.ax << GX_FF_AREA; x < ((f.ax + 1) << GX_FF_AREA); ++x) {
-					const int lx = x - x0, ly = y - y0;
-					if (lx < 0 || ly < 0 || lx >= w || ly >= h || !walks[k][(size_t)ly * w + lx]) continue;
-					f.dist[(size_t)ly * w + lx] = 0;
-				}
-			f.serial = s_obstacleSerial; f.born = now;
+			gxSeeds(f, walks[k], x0, y0, w, h);
+			f.serial = s_obstacleSerial; f.born = now; f.due = 0; f.job = 0;
 		}
-		// Dial's buckets: costs are small integers, so a circular array of lists is an exact Dijkstra
-		auto cpuField = [&](std::vector<unsigned short> &dist, const std::vector<unsigned char> &walk) {
-			std::vector<std::vector<int>> buckets(15);
-			for (size_t i = 0; i < dist.size(); ++i) if (dist[i] == 0) buckets[0].push_back((int)i);
-			int pending = (int)buckets[0].size();
-			for (unsigned d = 0; pending > 0 && d < 0xfff0; ++d) {
-				std::vector<int> &b = buckets[d % 15];
-				for (size_t k = 0; k < b.size(); ++k) {
-					const int idx = b[k];
-					pending--;
-					if (dist[idx] != d) continue;	// a shorter way was found later
-					const int x = idx % w, y = idx / w;
-					for (int n = 0; n < 8; ++n) {
-						const int nx = x + DX[n], ny = y + DY[n];
-						if (nx < 0 || ny < 0 || nx >= w || ny >= h || !walk[(size_t)ny * w + nx]) continue;
-						if (n >= 4 && !walk[(size_t)y * w + nx] && !walk[(size_t)ny * w + x]) continue;	// A* corner rule: one side open
-						const unsigned nd = d + (n < 4 ? 10 : 14);
-						unsigned short &cur = dist[(size_t)ny * w + nx];
-						if (nd < cur) { cur = (unsigned short)nd; buckets[nd % 15].push_back(ny * w + nx); pending++; }
-					}
+		s_fieldBuilds += (int)todo.size();
+		if (wgpu) {
+			// WebGPU: used from a fixed later frame whether the GPU or the CPU builds it, so the game
+			// plays the same however fast the GPU is (gxFlowFieldsHold waits at that frame if needed)
+			gx_wgpu_init();
+			for (GxField *f : todo) f->due = now + GX_WGPU_DELAY;
+			if (gx_wgpu_state() == 1) {
+				const int job = ++s_wgpuNextJob;
+				std::vector<const unsigned char *> wp(todo.size());
+				std::vector<const unsigned short *> sp(todo.size());
+				for (size_t t = 0; t < todo.size(); ++t) { wp[t] = walks[walkOf[t]].data(); sp[t] = todo[t]->dist.data(); }
+				gx_wgpu_submit(job, (int)todo.size(), w, h, wp.data(), sp.data(), (GLES3_Page_Switches() & 2097152) ? 1 : 0);
+				for (size_t t = 0; t < todo.size(); ++t) { todo[t]->job = job; todo[t]->jobIdx = (int)t; todo[t]->sentWalk = walks[walkOf[t]]; std::vector<unsigned short>().swap(todo[t]->dist); }
+				s_wgpuJobs++;
+			} else {	// no WebGPU (yet): the same fields on the CPU, on the same schedule
+				for (size_t t = 0; t < todo.size(); ++t) {
+					gxCpuField(todo[t]->dist, walks[walkOf[t]], w, h);
+					gxDirs(todo[t]->dist, todo[t]->dir, w, h);
+					std::vector<unsigned short>().swap(todo[t]->dist);
 				}
-				b.clear();
+				s_wgpuCpuFields += (int)todo.size();
 			}
-		};
+			if ((s_wgpuJobs + s_wgpuCpuFields) % 50 == 1)
+				printf("GXWGPU state %d: %d jobs, %d fields back from the GPU, %d built on the CPU, %d searches waited for a field, %d frames held, %d read-backs\n",
+					gx_wgpu_state(), s_wgpuJobs, s_wgpuFields, s_wgpuCpuFields, s_wgpuWaits, s_wgpuHolds, gx_wgpu_readbacks());
+			s_wgpuWaits++;
+			return nullptr;	// this search: the plain way
+		}
 		bool built = false;
 		if (gpu) {	// GPU fields (switch gpuFlowFields): the same fields by integer relaxation, one batch
 			std::vector<const unsigned char *> wp(todo.size());
@@ -11403,7 +11711,7 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 				for (size_t t = 0; t < todo.size(); ++t) {
 					if (GLES3_Page_Switches() & 2097152) {	// verification: the CPU field must be identical, cell for cell
 						std::vector<unsigned short> c = todo[t]->dist;
-						cpuField(c, walks[walkOf[t]]);
+						gxCpuField(c, walks[walkOf[t]], w, h);
 						int diff = 0; for (size_t i = 0; i < c.size(); ++i) diff += c[i] != outs[t][i];
 						s_gpuVerifyFields++; s_gpuVerifyMismatchCells += diff;
 						printf("GXFLOW gpu field %d: batch of %d, %d passes, %d of %d cells differ from the CPU (total differing so far %d)\n",
@@ -11416,31 +11724,26 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 				s_gpuBatches++;
 			}
 		}
-		if (!built) {
-			for (size_t t = 0; t < todo.size(); ++t) cpuField(todo[t]->dist, walks[walkOf[t]]);
+		for (size_t t = 0; t < todo.size(); ++t) {
+			if (!built) gxCpuField(todo[t]->dist, walks[walkOf[t]], w, h);
+			gxDirs(todo[t]->dist, todo[t]->dir, w, h);
+			std::vector<unsigned short>().swap(todo[t]->dist);
 		}
-		s_fieldBuilds += (int)todo.size();
 		field = slot;
 	}
 	field->used = now;
 
 	// walk downhill from the start to the goal's area
 	int x = sx - x0, y = sy - y0;
-	if (x < 0 || y < 0 || x >= w || y >= h || field->dist[(size_t)y * w + x] == 0xffff) { s_fieldMisses++; return nullptr; }
+	if (x < 0 || y < 0 || x >= w || y >= h || field->dir[(size_t)y * w + x] == 15) { s_fieldMisses++; return nullptr; }
 	std::vector<ICoord2D> cells;
-	for (int steps = 0; field->dist[(size_t)y * w + x] != 0 && steps < w + h + 64; ++steps) {
-		int best = -1; unsigned short bd = field->dist[(size_t)y * w + x];
-		for (int n = 0; n < 8; ++n) {
-			const int nx = x + DX[n], ny = y + DY[n];
-			if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-			const unsigned short nd = field->dist[(size_t)ny * w + nx];
-			if (nd < bd) { bd = nd; best = n; }
-		}
-		if (best < 0) { s_fieldMisses++; return nullptr; }
+	for (int steps = 0; field->dir[(size_t)y * w + x] != 8 && steps < w + h + 64; ++steps) {
+		const int best = field->dir[(size_t)y * w + x];
+		if (best > 7) { s_fieldMisses++; return nullptr; }
 		x += DX[best]; y += DY[best];
 		cells.push_back(ICoord2D{ x + x0, y + y0 });
 	}
-	if (field->dist[(size_t)y * w + x] != 0) { s_fieldMisses++; return nullptr; }
+	if (field->dir[(size_t)y * w + x] != 8) { s_fieldMisses++; return nullptr; }
 
 	// release the start/goal search info internalFindPath allocated, then the last few cells
 	goalCell->releaseInfo();
