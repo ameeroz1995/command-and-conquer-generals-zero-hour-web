@@ -40,6 +40,9 @@
 //#define ENABLE_CATEGORY_LOG
 //#define ENABLE_STRIPING
 
+#include <vector>
+#include <algorithm>
+#include <cstdint>
 #include "dx8renderer.h"
 #include "dx8wrapper.h"
 #include "dx8polygonrenderer.h"
@@ -1686,6 +1689,34 @@ unsigned DX8TextureCategoryClass::Add_Mesh(
 
 // ----------------------------------------------------------------------------
 
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches(); // bit 12: the page's switch "Draw identical unit parts together"
+#endif
+
+// GeneralsX @performance 23/11/2026 Batching of identical meshes. Every unit has its own
+// LightEnvironmentClass, but units standing in the same light hold the same values, so two
+// environments are compared by what they contain: comparing the pointers never batched
+// anything (400 identical tanks were 4000+ draw calls).
+static bool Same_Lighting(const LightEnvironmentClass * a, const LightEnvironmentClass * b)
+{
+	if (a == b) return true;
+	if (a == nullptr || b == nullptr) return false;
+	const int n = a->Get_Light_Count();
+	if (n != b->Get_Light_Count()) return false;
+	if (!(a->Get_Equivalent_Ambient() == b->Get_Equivalent_Ambient())) return false;
+	for (int i = 0; i < n; i++) {
+		if (a->isPointLight(i) != b->isPointLight(i)) return false;
+		if (!(a->Get_Light_Direction(i) == b->Get_Light_Direction(i))) return false;
+		if (!(a->Get_Light_Diffuse(i) == b->Get_Light_Diffuse(i))) return false;
+		if (a->isPointLight(i)) {
+			if (a->getPointIrad(i) != b->getPointIrad(i) || a->getPointOrad(i) != b->getPointOrad(i)) return false;
+			if (!(a->getPointCenter(i) == b->getPointCenter(i)) || !(a->getPointDiffuse(i) == b->getPointDiffuse(i)) ||
+			    !(a->getPointAmbient(i) == b->getPointAmbient(i))) return false;
+		}
+	}
+	return true;
+}
+
 void DX8TextureCategoryClass::Render()
 {
 	#ifdef WWDEBUG
@@ -1733,6 +1764,25 @@ void DX8TextureCategoryClass::Render()
 
 	bool renderTasksRemaining=false;
 
+#ifdef __EMSCRIPTEN__
+	const bool batch_units = (GLES3_Page_Switches() & 4096) != 0;
+#else
+	const bool batch_units = true;
+#endif
+	// The tasks arrive object by object (hull, turret, hull, turret...); the batching below only
+	// joins neighbours, so the tasks of one polygon renderer are first brought together. These
+	// are depth-tested meshes of one texture and shader: their order doesn't change the picture.
+	if (batch_units && render_task_head && render_task_head->Get_Next_Visible() && render_task_head->Get_Next_Visible()->Get_Next_Visible()) {
+		static std::vector<PolyRenderTaskClass*> order;
+		order.clear();
+		for (PolyRenderTaskClass * t = render_task_head; t; t = t->Get_Next_Visible()) order.push_back(t);
+		std::stable_sort(order.begin(), order.end(), [](PolyRenderTaskClass * x, PolyRenderTaskClass * y) {
+			return (uintptr_t)x->Peek_Polygon_Renderer() < (uintptr_t)y->Peek_Polygon_Renderer(); });
+		for (size_t i = 0; i + 1 < order.size(); i++) order[i]->Set_Next_Visible(order[i + 1]);
+		order.back()->Set_Next_Visible(nullptr);
+		render_task_head = order.front();
+	}
+
 	PolyRenderTaskClass * prt = render_task_head;
 	PolyRenderTaskClass * last_prt = nullptr;
 
@@ -1754,7 +1804,9 @@ void DX8TextureCategoryClass::Render()
 
 		// Instancing Batching Emulation check
 		bool is_sorting = (!!mesh->Peek_Model()->Get_Flag(MeshGeometryClass::SORT)) && WW3D::Is_Sorting_Enabled();
-		bool can_instance = !is_sorting && !renderer->Is_Strip() && (mesh->Get_Alpha_Override() == 1.0f) && !mesh->Is_Additive() && (!mesh->Get_User_Data()) && (!DX8RendererDebugger::Is_Enabled() || !mesh->Is_Disabled_By_Debugger());
+		// Not skins: every skinned mesh has its own deformed vertices (one soldier's body would be
+		// drawn for all of them).
+		bool can_instance = batch_units && !mesh->Peek_Model()->Get_Flag(MeshModelClass::SKIN) && !is_sorting && !renderer->Is_Strip() && (mesh->Get_Alpha_Override() == 1.0f) && !mesh->Is_Additive() && (!mesh->Get_User_Data()) && (!DX8RendererDebugger::Is_Enabled() || !mesh->Is_Disabled_By_Debugger());
 
 		if (can_instance) {
 			int batch_count = 1;
@@ -1768,11 +1820,12 @@ void DX8TextureCategoryClass::Render()
 
 				if (next_mesh->Get_Base_Vertex_Offset() != VERTEX_BUFFER_OVERFLOW &&
 					next_renderer == renderer &&
+					next_mesh->Get_Base_Vertex_Offset() == mesh->Get_Base_Vertex_Offset() && // the same vertices
 					next_mesh->Get_Alpha_Override() == 1.0f &&
 					!next_mesh->Is_Additive() &&
 					!next_mesh->Get_User_Data() &&
 					next_mesh->Get_ObjectScale() == mesh->Get_ObjectScale() &&
-					next_mesh->Get_Lighting_Environment() == mesh->Get_Lighting_Environment() &&
+					Same_Lighting(next_mesh->Get_Lighting_Environment(), mesh->Get_Lighting_Environment()) &&
 					(!DX8RendererDebugger::Is_Enabled() || !next_mesh->Is_Disabled_By_Debugger())) {
 
 					batch_tasks[batch_count++] = lookahead;

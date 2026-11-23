@@ -1222,6 +1222,7 @@
             { key: 'groundCache', def: true, label: 'REUSE THE GROUND WHILE THE CAMERA IS STILL', note: 'Copies a saved picture of the ground instead of redrawing it. Works only with antialiasing off.' },
             { key: 'shroudFold', def: true, label: 'FOG OF WAR DRAWN WITH THE GROUND', note: 'One pass instead of two over the terrain.' },
             { key: 'terrainCull', def: true, label: 'SKIP GROUND THAT IS OFF SCREEN', note: 'Terrain tiles outside the view are not drawn.' },
+            { key: 'unitBatching', def: true, label: 'DRAW IDENTICAL UNIT PARTS TOGETHER', note: 'Up to 128 copies of the same model part in one draw call instead of one call each. The big gain when many units are on screen.' },
             { key: 'fastShaders', def: true, label: 'SPECIALISED SHADERS', note: 'One short shader per material instead of a general one. Off is much slower; also turns off the fog of war option above.' },
             { key: 'skipSameUploads', def: true, label: 'DO NOT RE-SEND UNCHANGED TEXTURES', note: 'The fog of war texture is only sent to the graphics chip when it changes.' },
             { key: 'bilinear', def: low, reload: true, label: 'SIMPLER TEXTURE FILTERING', note: 'One texture detail level per pixel instead of blending two. On by default on weak machines.' },

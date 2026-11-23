@@ -2259,3 +2259,28 @@ and zooms draw normally. `Module.gxGCSlides` counts, `Module.gxGCWhy` says which
 
 Low-end setup, scrolling in four directions, same match: 22.4 fps off, 27.4 on (about 1.4 slid
 frames per drawn one). Off by default: to be judged on a real machine.
+
+## Identical unit parts drawn together (instancing that actually fires) (2026-11-23)
+
+Stress test (local hook, not in the tree: ~/generals-bench/stresshook.patch + stress2.sh): 400
+Crusader tanks spawned by the camera, then all ordered to move. Before: ~190 draws/frame became
+4,100-5,000 (about 10 per tank), 0 of them instanced; RX 580 58 -> 44 fps idle and 30-36 while the
+order was fresh (40%+ of CPU in draw submission, path finding 3-4%); low-end 11 -> 2 fps with the
+main thread 86% idle (SwiftShader working through 4,000 draws).
+
+The "instancing emulation" in DX8TextureCategoryClass::Render never batched anything:
+- it compared units' LightEnvironmentClass pointers (one per unit; same contents in the same
+  light) -> `Same_Lighting` compares the contents;
+- it only joined neighbouring tasks, and they arrive object by object -> the tasks of a texture
+  category are stable-sorted by polygon renderer first;
+- skins could be batched (each has its own deformed vertices) -> excluded, and batched meshes
+  must share the base vertex offset;
+- `DX8Wrapper::Draw_Triangles_Instanced` called the shim directly, so the instanced draw used the
+  vertex layout the previous draw had left bound ("Insufficient buffer size" GL errors) -> it goes
+  through the device's DrawIndexedPrimitive, which uploads and binds like any draw.
+Switch: Settings > Draw identical unit parts together (`unitBatching`, page switch bit 12).
+
+400 tanks, toggled in the same match: draws 4,700-5,000 -> 2,300-2,400 (about 21 instanced draws
+of 120 copies); RX 580 38.7 -> 61 fps (capped), game work 19.2 -> 12.5 ms; low-end 5.0 -> 5.7 fps;
+pictures match. 400 Rangers (skins) are not batched and draw correctly. Left: ~5 tiny draws per
+tank (a few triangles each) and all infantry.

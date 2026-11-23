@@ -1215,6 +1215,12 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
             GLES3_Bind_Default_VAO(); // no vertex format yet: still draw from this index buffer
             GLES3_Bind_Element_Buffer(current_ib->gl_ibo);
         }
+        if (gx_instance_count) { // DX8Wrapper::Draw_Triangles_Instanced: one draw, many world matrices
+            GLES3_Draw_Triangles_Instanced((unsigned int)PrimType, StartIndex, PrimCount, MinIndex, NumVertices,
+                                           gx_instance_matrices, gx_instance_count);
+            ++gx_d3d_dip_drew;
+            return 0;
+        }
         GLES3_Ground_Cache_Mix(current_vb->gl_vbo, current_vb->buf.serial, current_ib->gl_ibo,
                                current_ib->buf.serial, (unsigned int)base_vtx_index);
         GLES3_Draw_Triangles((unsigned int)PrimType, StartIndex, PrimCount,

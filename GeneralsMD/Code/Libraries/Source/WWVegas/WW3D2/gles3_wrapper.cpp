@@ -49,7 +49,7 @@ static bool g_SceneDirty = true; // GXScene inputs changed since the last upload
 static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
 static int g_SwapCount = 0;         // frames presented, for Module.gxFps (render scale Auto)
 double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gles3_mainloop) -> Module.gxWorkMs
-static int g_PageSwitches = 7 | 16 | 32 | 64;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
+static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -59,6 +59,7 @@ static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Lay
 unsigned int gx_content_serial = 0;
 static std::vector<unsigned int> g_TexSerial; // by GL texture id
 int gx_gc_hits = 0, gx_gc_captures = 0, gx_gc_plain = 0, gx_gc_slides = 0;
+const float* gx_instance_matrices = nullptr; unsigned int gx_instance_count = 0; // set around an instanced DrawIndexedPrimitive (DX8Wrapper::Draw_Triangles_Instanced)
 int gx_gc_why = 0; // which check stopped the last slide (Module.gxGCWhy): 1 turned, 2 rolled, 3 height changed, 4 projection, 5 viewport, 20-25 cache state // Module.gxGCHits / gxGCCaptures / gxGCPlain
 static std::unordered_map<GLuint, bool> g_TextureHasMipmaps;
 
@@ -439,7 +440,8 @@ void GLES3_Begin_Scene() {
                  | (o.asyncSounds === false ? 0 : 64)
                  // Pan cache (experiment, off unless switched on): bit 7, and in bits 8-11 how many
                  // frames one real ground draw serves while the camera moves (Module.gxPanFrames, 3).
-                 | (o.panCache === true ? 128 : 0) | ((Math.max(2, Math.min(8, Module.gxPanFrames | 0 || 3))) << 8);
+                 | (o.panCache === true ? 128 : 0) | ((Math.max(2, Math.min(8, Module.gxPanFrames | 0 || 3))) << 8)
+                 | (o.unitBatching === false ? 0 : 4096); // bit 12: identical unit parts drawn together (dx8renderer.cpp)
         });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__

@@ -2488,7 +2488,14 @@ void DX8Wrapper::Draw_Triangles_Instanced(unsigned short start_index,
   DX8_THREAD_ASSERT();
   Apply_Render_State_Changes();
 #ifdef __EMSCRIPTEN__
-  GLES3_Draw_Triangles_Instanced(GLES3_PT_TRIANGLELIST, start_index, polygon_count, min_vertex_index, vertex_count, world_matrices, instance_count);
+  // Through the device's DrawIndexedPrimitive like every other draw: it uploads the buffers
+  // and binds this mesh's vertex layout (with its base vertex offset), then draws the
+  // instances. Calling the shim directly drew with whatever layout the previous draw left
+  // bound ("Insufficient buffer size" errors, and the wrong vertices).
+  gx_instance_matrices = world_matrices;
+  gx_instance_count = instance_count;
+  D3DDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, min_vertex_index, vertex_count, start_index, polygon_count);
+  gx_instance_count = 0;
 #endif
 }
 
