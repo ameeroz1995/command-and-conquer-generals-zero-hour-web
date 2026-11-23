@@ -49,7 +49,7 @@ static bool g_SceneDirty = true; // GXScene inputs changed since the last upload
 static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
 static int g_SwapCount = 0;         // frames presented, for Module.gxFps (render scale Auto)
 double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gles3_mainloop) -> Module.gxWorkMs
-static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
+static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -446,7 +446,8 @@ void GLES3_Begin_Scene() {
                  | (o.unitBatching === false ? 0 : 4096) // bit 12: identical unit parts drawn together (dx8renderer.cpp)
                  | (o.skipCompare === false ? 0 : 8192) // bit 13: always-changing buffers are sent without comparing (d3d8.h)
                  | (o.gpuSkinning === false ? 0 : 16384)  // bit 14: skinned meshes animated in the vertex shader (dx8renderer.cpp)
-                 | (o.uiBatching === false ? 0 : 32768); // bit 15: unit status bars collected into one draw (W3DDisplay.cpp)
+                 | (o.uiBatching === false ? 0 : 32768)  // bit 15: unit status bars collected into one draw (W3DDisplay.cpp)
+                 | (o.sortBatching === false ? 0 : 65536); // bit 16: see-through draws with the same state merged (sortingrenderer.cpp)
         });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__

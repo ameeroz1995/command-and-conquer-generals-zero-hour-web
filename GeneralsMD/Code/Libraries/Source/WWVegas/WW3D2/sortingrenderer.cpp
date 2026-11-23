@@ -402,9 +402,42 @@ static void Apply_Render_State(RenderStateStruct& render_state)
 
 // ----------------------------------------------------------------------------
 
+// Web port: see-through draws merged (Settings switch sortBatching, page switch bit 16).
+// The pool draws every run of depth-sorted triangles that comes from one mesh as a draw of its
+// own: a muzzle flash or a vehicle's glass is a few triangles, so a crowd of units cost hundreds
+// of tiny draws. With the switch on, each mesh's vertices are moved into world space while they
+// are copied (the depth used for sorting is computed exactly as before), every mesh draws with an
+// identity world matrix, and neighbouring runs whose remaining state (shader, material,
+// textures, view, lights) is the same become one draw. Same triangles, same order.
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#endif
+
+static bool Same_Sorting_State(const RenderStateStruct& a, const RenderStateStruct& b)
+{
+	if (a.shader.Get_Bits() != b.shader.Get_Bits() || a.material != b.material) return false;
+	for (int i=0;i<DX8Wrapper::Get_Current_Caps()->Get_Max_Textures_Per_Pass();++i)
+		if (a.Textures[i] != b.Textures[i]) return false;
+	if (memcmp(&a.view, &b.view, sizeof(a.view))) return false;
+	if (a.material && a.material->Get_Lighting()) {
+		for (int i=0;i<4;++i) {
+			if (a.LightEnable[i] != b.LightEnable[i]) return false;
+			if (!a.LightEnable[i]) break;	// Apply_Render_State stops at the first light that is off
+			if (memcmp(&a.Lights[i], &b.Lights[i], sizeof(a.Lights[i]))) return false;
+		}
+	}
+	return true;
+}
+
 void SortingRendererClass::Flush_Sorting_Pool()
 {
 	if (!overlapping_node_count) return;
+#ifdef __EMSCRIPTEN__
+	const bool merge = (GLES3_Page_Switches() & 65536) != 0;
+#else
+	const bool merge = false;
+#endif
+	unsigned total_vertex_count = 0;
 
 	SNAPSHOT_SAY(("SortingSystem - Flush"));
 
@@ -438,7 +471,27 @@ void SortingRendererClass::Flush_Sorting_Pool()
 			// If you have a crash in here and "dest_verts" points to illegal memory area,
 			// it is because D3D is in illegal state, and the only known cure is rebooting.
 			// This illegal state is usually caused by Quake3-engine powered games such as MOHAA.
-			memcpy(dest_verts, src_verts, sizeof(VertexFormatXYZNDUV2)*state->vertex_count);
+			const float (*w)[4] = state->sorting_state.world.m;
+			const bool to_world = merge && !(w[0][0]==1.0f && w[0][1]==0.0f && w[0][2]==0.0f && w[0][3]==0.0f &&
+				w[1][0]==0.0f && w[1][1]==1.0f && w[1][2]==0.0f && w[1][3]==0.0f &&
+				w[2][0]==0.0f && w[2][1]==0.0f && w[2][2]==1.0f && w[2][3]==0.0f &&
+				w[3][0]==0.0f && w[3][1]==0.0f && w[3][2]==0.0f && w[3][3]==1.0f);
+			if (to_world) {
+				// row vectors, as D3D: p' = p * world; normals by the 3x3 part, as the vertex shader does
+				for (unsigned v=0;v<state->vertex_count;++v) {
+					const VertexFormatXYZNDUV2& a = src_verts[v];
+					VertexFormatXYZNDUV2& d = dest_verts[v];
+					d = a;
+					d.x = a.x*w[0][0] + a.y*w[1][0] + a.z*w[2][0] + w[3][0];
+					d.y = a.x*w[0][1] + a.y*w[1][1] + a.z*w[2][1] + w[3][1];
+					d.z = a.x*w[0][2] + a.y*w[1][2] + a.z*w[2][2] + w[3][2];
+					d.nx = a.nx*w[0][0] + a.ny*w[1][0] + a.nz*w[2][0];
+					d.ny = a.nx*w[0][1] + a.ny*w[1][1] + a.nz*w[2][1];
+					d.nz = a.nx*w[0][2] + a.ny*w[1][2] + a.nz*w[2][2];
+				}
+			}
+			else
+				memcpy(dest_verts, src_verts, sizeof(VertexFormatXYZNDUV2)*state->vertex_count);
 			dest_verts += state->vertex_count;
 
 			D3DXMATRIX d3d_mtx=(D3DXMATRIX&)state->sorting_state.world*(D3DXMATRIX&)state->sorting_state.view;
@@ -500,10 +553,16 @@ void SortingRendererClass::Flush_Sorting_Pool()
 			}
 
 			state->min_vertex_index=vertex_array_offset;
+			if (to_world) {	// after the depths above: they still use the mesh's own matrix
+				D3DMATRIX& m = state->sorting_state.world;
+				memset(&m, 0, sizeof(m));
+				m._11 = m._22 = m._33 = m._44 = 1.0f;
+			}
 
 			polygon_array_offset+=state->polygon_count;
 			vertex_array_offset+=state->vertex_count;
 		}
+		total_vertex_count = vertex_array_offset;
 	}
 
 	Sort(tis, tis + overlapping_polygon_count);
@@ -551,34 +610,44 @@ void SortingRendererClass::Flush_Sorting_Pool()
 	unsigned count_to_render=1;
 	unsigned start_index=0;
 	unsigned node_id=tis[0].idx;
+	unsigned run_id=node_id;	// the run's first mesh: its state is drawn with
+	bool merged=false;				// the run holds triangles of more than one mesh
 	for (unsigned i=1;i<overlapping_polygon_count;++i) {
 		if (node_id!=tis[i].idx) {
-			SortingNodeStruct* state=overlapping_nodes[node_id];
+			if (merge && Same_Sorting_State(overlapping_nodes[run_id]->sorting_state, overlapping_nodes[tis[i].idx]->sorting_state)) {
+				node_id=tis[i].idx;
+				merged=true;
+			}
+			else {
+			SortingNodeStruct* state=overlapping_nodes[run_id];
 			Apply_Render_State(state->sorting_state);
 
 			DX8Wrapper::Draw_Triangles(
 				start_index*3,
 				count_to_render,
-				state->min_vertex_index,
-				state->vertex_count);
+				merged ? 0 : state->min_vertex_index,
+				merged ? total_vertex_count : state->vertex_count);
 
 			count_to_render=0;
 			start_index=i;
 			node_id=tis[i].idx;
+			run_id=node_id;
+			merged=false;
+			}
 		}
 		count_to_render++;	//keep track of number of polygons of same kind
 	}
 
 	// Render any remaining polygons...
 	if (count_to_render) {
-		SortingNodeStruct* state=overlapping_nodes[node_id];
+		SortingNodeStruct* state=overlapping_nodes[run_id];
 		Apply_Render_State(state->sorting_state);
 
 		DX8Wrapper::Draw_Triangles(
 			start_index*3,
 			count_to_render,
-			state->min_vertex_index,
-			state->vertex_count);
+			merged ? 0 : state->min_vertex_index,
+			merged ? total_vertex_count : state->vertex_count);
 	}
 
 	// Release all references and return nodes back to the clean list for the frame...

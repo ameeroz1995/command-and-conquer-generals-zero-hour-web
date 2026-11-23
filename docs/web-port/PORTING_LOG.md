@@ -2378,3 +2378,25 @@ frame, ~43 batched (text between the pieces breaks batches). The command bar is 
 before/after screenshots. The same count shows where many-unit frames really go: ~5 one-triangle
 additive draws per soldier (muzzle flash meshes, ~490 for 100 Rangers) and ~10 small alpha draws
 per vehicle through the sorting renderer. That is the next item.
+
+## See-through draws merged across meshes (2026-11-23)
+
+The draw count by GL state showed the many-units cost after batching: ~5 one-triangle additive
+draws per soldier (muzzle flash meshes) and ~10 small alpha draws per vehicle. They all go
+through `SortingRendererClass::Flush_Sorting_Pool`, which depth-sorts every triangle and draws
+each run of triangles from one mesh as its own draw, because each mesh has its own world matrix.
+
+- Page switch bit 16 (`GeneralsX.opt.sortBatching`, Settings: DRAW SEE-THROUGH EFFECTS
+  TOGETHER), on by default.
+- While a mesh's vertices are copied into the frame's buffer they are moved into world space
+  (positions by the full matrix, normals by its 3x3 part, row vectors as D3D); the per-triangle
+  depths used for sorting are computed exactly as before, from the mesh's own matrix. Meshes
+  whose matrix is already identity (particles) are copied as before.
+- Each moved mesh then draws with an identity world matrix, and neighbouring runs in the sorted
+  order whose remaining state is the same (shader bits, material, textures, view, and the
+  lights when the material is lit) become one draw. Same triangles, same order.
+
+100 Rangers + 60 Humvees + 40 Comanches, toggled in one match: RX 580 1,224 -> 265 draws (fps at
+the 61 cap either way); weak-PC setup (SwiftShader) 1,200-1,600 -> 250-410 draws, 7.4-9.6 ->
+9.2-12.9 fps. Pictures: off vs on 1.8% of pixels >24, two shots with it off 1.5% (animation).
+No-regression run on both builds against rev 00048: same within noise, no GL errors.
