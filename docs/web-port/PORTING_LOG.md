@@ -2532,3 +2532,23 @@ Verified: 1,867 batched GPU fields, 0 cells differ from the CPU. Read-backs: 763
 RX 580 armies fps -5% (work +6%), strikes fps -21% (work +28%); software rendering armies fps
 2.1 -> 0.7 (work 92 -> 1,274 ms). The cost is the passes and the 16-byte-per-cell transfers, not
 only the read-back count; batching also rebuilt more fields (1,503 vs ~1,240). Switch stays off.
+
+## 2026-11-24 — Plan routes around terrain and buildings only (switch ignoreUnitsInPaths, off)
+
+Profile of the battle's armies phase (multithreaded build): path searches are ~30% of the frame, and
+almost all of it (25.7%) is `findClosestPath`, the approach search units run when closing on a target
+they cannot stand on (often a building); ordinary `findPath` searches are ~4% after flow fields.
+The switch (page bit 27) makes `findPath` and `findClosestPath` expand cells without looking at
+other units (`checkForMovement` skips unit cells while `s_gxPlanIgnoringUnits` is set); destinations
+are still checked against units, and a unit that is blocked plans with units again. Crowding is left
+to the existing movement code (collisions, allies stepping aside, blocked re-plans). Simulation-changing:
+single player only, never network games or replays.
+
+A/B, battle benchmark: RX 580 multithreaded: armies 9.4 → 9.9 fps (+5%), strikes 6.3 → 8.4 fps (+33%,
+work −13%, 1% low 0.3 → 1.1). Software rendering: neutral (armies 2.4 → 2.3 fps, work −4%; rendering-bound).
+About 40% of plans fall back to planning with units because the unit is blocked.
+
+Parallel path searches were not built: every search keeps its open/closed lists, costs and parents in
+the shared map cells (`PathfindCell::m_info`, from one global pool, which also holds the cells' unit
+ids) and per-search zone flags in the shared zone manager, so two searches cannot run at once without
+moving all search state into per-thread storage across every search variant.

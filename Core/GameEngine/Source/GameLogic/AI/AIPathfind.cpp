@@ -26,6 +26,7 @@
 // AI pathfinding system
 // Author: Michael S. Booth, October 2001
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/Recorder.h"
 
 #include "GameLogic/AIPathfind.h"
 
@@ -5008,6 +5009,22 @@ Bool Pathfinder::checkDestination(const Object *obj, Int cellX, Int cellY, Pathf
  * Returns false if there are other units already there.
  * Assumes your locomotor already said you can go there.
  */
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+static Bool s_gxPlanIgnoringUnits = false;
+static int s_gxIgnorePlans = 0, s_gxIgnoreSkippedBlocked = 0;
+// switch ignoreUnitsInPaths (page switch bit 27): single player only, never network games or replays
+static Bool gxIgnoreUnitsFor(const Object *obj)
+{
+	if (!obj || !(GLES3_Page_Switches() & 134217728)) return false;
+	if (!TheGameLogic || TheGameLogic->isInMultiplayerGame() || (TheRecorder && TheRecorder->isPlaybackMode())) return false;
+	const AIUpdateInterface *ai = obj->getAIUpdateInterface();
+	if (ai && (ai->isBlockedAndStuck() || ai->getNumFramesBlocked() > 0)) { s_gxIgnoreSkippedBlocked++; return false; }
+	if ((++s_gxIgnorePlans % 1000) == 0)
+		printf("GXUNITS plans ignoring units %d, planned with units because blocked %d\n", s_gxIgnorePlans, s_gxIgnoreSkippedBlocked);
+	return true;
+}
+#endif
 Bool Pathfinder::checkForMovement(const Object *obj, TCheckMovementInfo &info)
 {
 	info.allyFixedCount = 0;
@@ -5038,6 +5055,9 @@ Bool Pathfinder::checkForMovement(const Object *obj, TCheckMovementInfo &info)
 			if (!cell) {
 				return false; // off the map, so can't move here.
 			}
+#ifdef __EMSCRIPTEN__
+			if (s_gxPlanIgnoringUnits) continue;	// planning around terrain and buildings only
+#endif
 
 			PathfindCell::CellFlags flags = cell->getFlags();
 			if ((flags == PathfindCell::UNIT_GOAL) || (flags == PathfindCell::UNIT_GOAL_OTHER_MOVING)) {
@@ -6374,7 +6394,17 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 		m_zoneManager.setAllPassable();
 	}
 
+#ifdef __EMSCRIPTEN__
+	// Web port, switch ignoreUnitsInPaths (bit 27): plan around terrain and buildings only; other
+	// units are left to the movement code (collisions, allies stepping aside). A unit that is
+	// already blocked plans with units again so it can get around whatever stops it.
+	const Bool wasIgnoring = s_gxPlanIgnoringUnits;
+	if (gxIgnoreUnitsFor(obj)) s_gxPlanIgnoringUnits = true;
 	Path *pat = internalFindPath(obj, locomotorSet, from, rawTo);
+	s_gxPlanIgnoringUnits = wasIgnoring;
+#else
+	Path *pat = internalFindPath(obj, locomotorSet, from, rawTo);
+#endif
 	if (pat!=nullptr) {
 		return pat;
 	}
@@ -8695,6 +8725,11 @@ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet
 	if (!checkForMovement(obj, info) || info.enemyFixed) {
 		m_isTunneling = true; // We can't move from our current location.  So relax the constraints.
 	}
+#ifdef __EMSCRIPTEN__
+	// switch ignoreUnitsInPaths: the search below plans around terrain and buildings only
+	// (destinations are still checked against units, by checkDestination)
+	struct GxIgnoreGuard { Bool was; GxIgnoreGuard(Bool on) : was(s_gxPlanIgnoringUnits) { if (on) s_gxPlanIgnoringUnits = true; } ~GxIgnoreGuard() { s_gxPlanIgnoringUnits = was; } } gxIgnore(gxIgnoreUnitsFor(obj));
+#endif
 
 	Bool gotHierarchicalPath = false;
 	if (m_isTunneling) {
@@ -11246,7 +11281,6 @@ void Pathfinder::loadPostProcess()
 // The field ignores other units on the way (the A* steers around fixed ones), so this CHANGES
 // the simulation: never in network games or replays. On by default in single player (the user's choice, 2026-11-23).
 // ================================================================================================
-#include "Common/Recorder.h"
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
 extern "C" int GLES3_GPU_Flow_Fields(int n, int w, int h, const unsigned char* const* walks, const unsigned short* const* seeds, unsigned short* const* outs);

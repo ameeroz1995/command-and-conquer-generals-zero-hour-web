@@ -456,7 +456,8 @@ void GLES3_Begin_Scene() {
                  | (o.fastInvSqrt === true ? 8388608 : 0)  // bit 23: fast inverse square root (single player only; changes the simulation slightly)
                  | (o.reuseLayouts === false ? 0 : 16777216)  // bit 24: one vertex layout per buffer setup, re-pointed when the offset changes
                  | (o.flowFields === false ? 0 : 33554432) // bit 25: long ground paths from shared flow fields (on; single player only, changes the simulation)
-                 | (o.gpuFlowFields === true ? 67108864 : 0); // bit 26: the flow fields are built on the GPU (exact integer relaxation)
+                 | (o.gpuFlowFields === true ? 67108864 : 0)  // bit 26: the flow fields are built on the GPU (exact integer relaxation)
+                 | (o.ignoreUnitsInPaths === true ? 134217728 : 0); // bit 27: path planning ignores other units (single player)
         });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__
