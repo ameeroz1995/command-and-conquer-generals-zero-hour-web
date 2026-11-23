@@ -2552,3 +2552,23 @@ Parallel path searches were not built: every search keeps its open/closed lists,
 the shared map cells (`PathfindCell::m_info`, from one global pool, which also holds the cells' unit
 ids) and per-search zone flags in the shared zone manager, so two searches cannot run at once without
 moving all search state into per-thread storage across every search variant.
+
+## 2026-11-24 — WebGPU compute flow fields (switch webgpuFlowFields, off)
+
+The flow fields of `flowFields`, built by a WebGPU compute shader on the game thread (EM_JS; a worker
+has `navigator.gpu`). `relax`: 16x16-cell tiles with a 1-cell halo in workgroup memory, 24 relaxation
+sweeps per dispatch, integer `atomicMin` back to the field, a per-dispatch "changed" flag read back with
+`mapAsync` between rounds; `dirs`: the walk's step per cell (first lowest neighbour in the CPU walk's
+order, 8 = goal area, 9 = stuck, 15 = unreachable), 8 cells per u32. Fields now keep only these steps
+(the CPU path computes them from its distances, same walk as before).
+Lockstep: a field asked for on logic frame N is used from frame N+3 whether the GPU or the CPU (no
+adapter yet / none) builds it; until then the search runs the plain way. If the GPU result is not back
+by frame N+3, `GameLogic::update` returns without running the frame (`gxFlowFieldsHold`), so the game
+plays the same however fast the GPU is; after 3 s the field is built on the CPU from the map as it was sent.
+Verified on the RX 580 (Edge, Vulkan, AMD GCN-4): 2,357 fields, 0 distances and 0 steps differ from the CPU.
+A/B on the RX 580 (both lanes WebGPU-enabled, multithreaded): armies 13.5 → 13.7 fps, strikes 9.1 → 9.6 fps
+(+5%, work −4%), strikes 1% low 1.3 → 0.9 (341 held frames: the GPU round trip, two `mapAsync`s, is
+sometimes longer than 3 logic frames). One dispatch round of 24 always converged on this map.
+Bench lanes: WebGPU on Linux needs a headed Edge (headless gets SwiftShader); `webgpu: true` in the bench MCP
+opens the window off-screen with occlusion throttling off, and `cdp.py` now picks the game page (a headed
+Edge opens an internal side page first) and clicks Begin by its id.
