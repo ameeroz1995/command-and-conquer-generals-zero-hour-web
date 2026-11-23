@@ -2742,28 +2742,30 @@ bool GLES3_Is_Initialized() {
 
 // ================================================================================================
 // Flow fields on the GPU (AIPathfind.cpp gxFlowFieldPath, page switch bit 26 gpuFlowFields).
-// The same field as the CPU's Dial's-bucket Dijkstra, by relaxation: every pass, every walkable
+// The same fields as the CPU's Dial's-bucket Dijkstra, by relaxation: every pass, every walkable
 // cell takes min(its distance, neighbour + 10 straight / 14 diagonal) with the A*'s corner rule.
-// Integer only (R32I), so the result is exact on every GPU and equal to the CPU's (shortest
-// distances are unique); passes run until a read-back shows no change. Every GL state touched
-// is saved and restored, so the renderer's own state tracking stays right.
-// Returns the number of passes, or 0 if it could not run (the caller then uses the CPU).
+// Integer only, so exact on every GPU and equal to the CPU's (shortest distances are unique).
+// Batched: n fields are tiles of one RGBA32I texture with an unwalkable cell between tiles, so
+// one set of passes and one read-back serve them all. Each pass also writes whether the cell
+// changed (G); the passes run without checks (as many as the longest field needed so far) and
+// the one read-back shows whether the last pass still changed anything: if so, more passes.
+// Every GL state touched is saved and restored. Returns the passes run, or 0 (CPU then).
 // ================================================================================================
 extern "C" int gx_gpu_field_readbacks = 0;
-extern "C" int GLES3_GPU_Flow_Field(int w, int h, const unsigned char* walk, const unsigned short* seed, unsigned short* out)
+extern "C" int GLES3_GPU_Flow_Fields(int n, int w, int h, const unsigned char* const* walks, const unsigned short* const* seeds, unsigned short* const* outs)
 {
     static GLuint prog = 0, vao = 0, fbo = 0, tex[2] = {0, 0}, walkTex = 0;
-    static int tw = 0, th = 0;
-    static GLint locD = -1, locW = -1;
+    static int aw = 0, ah = 0, guess = 64;
+    static GLint locD = -1, locW = -1, maxTex = 0;
     if (!prog) {
         const char* vs = "#version 300 es\nvoid main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }";
         const char* fs =
             "#version 300 es\nprecision highp float; precision highp int;\n"
-            "uniform highp isampler2D u_d; uniform highp usampler2D u_w; out int o;\n"
+            "uniform highp isampler2D u_d; uniform highp usampler2D u_w; out ivec4 o;\n"
             "const int INF = 65535;\n"
             "bool wk(ivec2 q, ivec2 sz){ return q.x >= 0 && q.y >= 0 && q.x < sz.x && q.y < sz.y && texelFetch(u_w, q, 0).r != 0u; }\n"
             "void main(){ ivec2 p = ivec2(gl_FragCoord.xy); ivec2 sz = textureSize(u_d, 0);\n"
-            " int d = texelFetch(u_d, p, 0).r; if (!wk(p, sz)) { o = d; return; }\n"
+            " int d = texelFetch(u_d, p, 0).r; if (!wk(p, sz)) { o = ivec4(d, 0, 0, 0); return; }\n"
             " int best = d;\n"
             " for (int n = 0; n < 8; ++n) {\n"
             "  ivec2 off = n == 0 ? ivec2(1,0) : n == 1 ? ivec2(0,1) : n == 2 ? ivec2(-1,0) : n == 3 ? ivec2(0,-1) : n == 4 ? ivec2(1,1) : n == 5 ? ivec2(-1,1) : n == 6 ? ivec2(-1,-1) : ivec2(1,-1);\n"
@@ -2772,7 +2774,7 @@ extern "C" int GLES3_GPU_Flow_Field(int w, int h, const unsigned char* walk, con
             "  int dq = texelFetch(u_d, q, 0).r; if (dq >= INF) continue;\n"
             "  int c = dq + (n < 4 ? 10 : 14); if (c < best) best = c;\n"
             " }\n"
-            " o = best; }";
+            " o = ivec4(best, best != d ? 1 : 0, 0, 0); }";
         GLuint v = glCreateShader(GL_VERTEX_SHADER), f = glCreateShader(GL_FRAGMENT_SHADER);
         glShaderSource(v, 1, &vs, nullptr); glCompileShader(v);
         glShaderSource(f, 1, &fs, nullptr); glCompileShader(f);
@@ -2781,7 +2783,14 @@ extern "C" int GLES3_GPU_Flow_Field(int w, int h, const unsigned char* walk, con
         if (!ok) { char log[1024]; glGetProgramInfoLog(prog, sizeof(log), nullptr, log); printf("GXFLOW gpu program failed: %s\n", log); glDeleteProgram(prog); prog = 0; return 0; }
         locD = glGetUniformLocation(prog, "u_d"); locW = glGetUniformLocation(prog, "u_w");
         glGenVertexArrays(1, &vao); glGenFramebuffers(1, &fbo);
+        glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTex);
     }
+    // atlas: tiles of (w+1) x (h+1), the extra row and column unwalkable
+    const int tw = w + 1, th = h + 1;
+    const int cols = std::max(1, std::min(n, (int)maxTex / tw)), rows = (n + cols - 1) / cols;
+    const int W = cols * tw, H = rows * th;
+    if (W > maxTex || H > maxTex) return 0;
+
     // save the state this touches
     GLint sFbo, sRead, sProg, sVao, sActive, sTex6, sTex7, sVp[4], sAlignU, sAlignP;
     GLboolean sBlend = glIsEnabled(GL_BLEND), sDepth = glIsEnabled(GL_DEPTH_TEST), sScissor = glIsEnabled(GL_SCISSOR_TEST),
@@ -2799,51 +2808,66 @@ extern "C" int GLES3_GPU_Flow_Field(int w, int h, const unsigned char* walk, con
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1); glPixelStorei(GL_PACK_ALIGNMENT, 4);
 
-    std::vector<int> init((size_t)w * h);
-    for (size_t i = 0; i < init.size(); ++i) init[i] = seed[i];
-    if (tw != w || th != h) {
+    if (aw != W || ah != H) {
         if (tex[0]) { glDeleteTextures(2, tex); glDeleteTextures(1, &walkTex); }
         glGenTextures(2, tex); glGenTextures(1, &walkTex);
         for (int i = 0; i < 2; ++i) {
             glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, tex[i]);
-            glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32I, w, h);
+            glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32I, W, H);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         }
         glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, walkTex);
-        glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8UI, w, h);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8UI, W, H);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        tw = w; th = h;
+        aw = W; ah = H;
+    }
+    std::vector<int> init((size_t)W * H * 4, 0);
+    std::vector<unsigned char> wk((size_t)W * H, 0);
+    for (size_t i = 0; i < (size_t)W * H; ++i) init[i * 4] = 65535;
+    for (int t = 0; t < n; ++t) {
+        const int ox = (t % cols) * tw, oy = (t / cols) * th;
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                const size_t a = (size_t)(oy + y) * W + (ox + x), b = (size_t)y * w + x;
+                init[a * 4] = seeds[t][b];
+                wk[a] = walks[t][b];
+            }
     }
     glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, tex[0]);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RED_INTEGER, GL_INT, init.data());
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, W, H, GL_RGBA_INTEGER, GL_INT, init.data());
     glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, walkTex);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RED_INTEGER, GL_UNSIGNED_BYTE, walk);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, W, H, GL_RED_INTEGER, GL_UNSIGNED_BYTE, wk.data());
 
     glUseProgram(prog); glUniform1i(locD, 6); glUniform1i(locW, 7);
     glBindVertexArray(vao);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glViewport(0, 0, w, h);
-    std::vector<int> back((size_t)w * h * 4), prev;
-    int src = 0, passes = 0;
-    const int block = 32, maxPasses = w * h;	// relaxation needs at most one pass per cell on the longest route
+    glViewport(0, 0, W, H);
+    std::vector<int> back((size_t)W * H * 4);
+    int src = 0, passes = 0, todo = guess;
     bool done = false;
-    while (!done && passes < maxPasses) {
-        for (int k = 0; k < block; ++k, ++passes) {
+    while (!done && passes < W * H) {
+        for (int k = 0; k < todo; ++k, ++passes) {
             glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex[1 - src], 0);
             glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, tex[src]);
             glDrawArrays(GL_TRIANGLES, 0, 3);
             src = 1 - src;
         }
-        // read back (RGBA_INTEGER/INT is the format every WebGL2 must support) and compare
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex[src], 0);
-        glReadPixels(0, 0, w, h, GL_RGBA_INTEGER, GL_INT, back.data());
+        glReadPixels(0, 0, W, H, GL_RGBA_INTEGER, GL_INT, back.data());
         gx_gpu_field_readbacks++;
-        std::vector<int> cur((size_t)w * h);
-        for (size_t i = 0; i < cur.size(); ++i) cur[i] = back[i * 4];
-        done = (cur == prev);
-        prev.swap(cur);
+        done = true;	// the last pass changed nothing: every distance is final
+        for (size_t i = 0; i < (size_t)W * H; ++i) if (back[i * 4 + 1]) { done = false; break; }
+        todo = 32;
     }
-    for (size_t i = 0; i < prev.size(); ++i) out[i] = (unsigned short)(prev[i] > 65535 ? 65535 : prev[i]);
+    if (passes > guess) guess = passes;	// next time run as many before the first read-back
+    for (int t = 0; t < n; ++t) {
+        const int ox = (t % cols) * tw, oy = (t / cols) * th;
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                const int v = back[((size_t)(oy + y) * W + (ox + x)) * 4];
+                outs[t][(size_t)y * w + x] = (unsigned short)(v > 65535 ? 65535 : v);
+            }
+    }
 
     // restore
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sFbo); glBindFramebuffer(GL_READ_FRAMEBUFFER, sRead);

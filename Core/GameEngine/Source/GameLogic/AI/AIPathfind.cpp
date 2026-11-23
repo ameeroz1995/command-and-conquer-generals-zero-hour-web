@@ -11249,7 +11249,8 @@ void Pathfinder::loadPostProcess()
 #include "Common/Recorder.h"
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
-extern "C" int GLES3_GPU_Flow_Field(int w, int h, const unsigned char* walk, const unsigned short* seed, unsigned short* out);
+extern "C" int GLES3_GPU_Flow_Fields(int n, int w, int h, const unsigned char* const* walks, const unsigned short* const* seeds, unsigned short* const* outs);
+extern "C" int gx_gpu_field_readbacks;
 #endif
 namespace {
 const int GX_FF_AREA = 3;			// areas are 8x8 cells
@@ -11263,7 +11264,7 @@ struct GxField {
 std::vector<GxField> s_fields;
 unsigned s_obstacleSerial = 1;
 int s_fieldHits = 0, s_fieldBuilds = 0, s_fieldMisses = 0;
-int s_gpuFields = 0, s_gpuVerifyFields = 0, s_gpuVerifyMismatchCells = 0;
+int s_gpuFields = 0, s_gpuBatches = 0, s_gpuVerifyFields = 0, s_gpuVerifyMismatchCells = 0;
 bool s_inFieldPath = false;
 const int DX[8] = { 1, 0, -1, 0, 1, -1, -1, 1 }, DY[8] = { 0, 1, 0, -1, 1, 1, -1, -1 };	// straight first, then diagonals
 }
@@ -11285,39 +11286,55 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 	const UnsignedInt now = TheGameLogic->getFrame();
 
 	// the shared field for this area, surfaces and crusher flag (built if missing or stale)
-	GxField *field = nullptr;
+	auto valid = [&](const GxField &f) { return f.ax >= 0 && f.serial == s_obstacleSerial && now - f.born < GX_FF_LIFE; };
+	GxField *field = nullptr, *slot = nullptr;
 	for (GxField &f : s_fields)
-		if (f.ax == ax && f.ay == ay && f.surfaces == surfaces && f.crusher == isCrusher) {
-			if (f.serial == s_obstacleSerial && now - f.born < GX_FF_LIFE) field = &f;
-			else { f.dist.clear(); f.ax = -1; }	// stale: rebuilt below into a free slot
-			break;
-		}
+		if (f.ax == ax && f.ay == ay && f.surfaces == surfaces && f.crusher == isCrusher) { if (valid(f)) field = &f; else slot = &f; break; }
 	if (!field) {
-		GxField *slot = nullptr;
-		for (GxField &f : s_fields) if (f.ax < 0) { slot = &f; break; }
-		if (!slot && s_fields.size() < 32) { s_fields.push_back(GxField()); slot = &s_fields.back(); }
+		if (!slot && s_fields.size() < 32) { s_fields.push_back(GxField()); slot = &s_fields.back(); slot->ax = -1; slot->used = 0; }
 		if (!slot) {	// full: replace the least recently used
 			slot = &s_fields[0];
 			for (GxField &f : s_fields) if (f.used < slot->used) slot = &f;
 		}
-		slot->ax = ax; slot->ay = ay; slot->surfaces = surfaces; slot->crusher = isCrusher;
-		slot->serial = s_obstacleSerial; slot->born = now;
-		slot->dist.assign((size_t)w * h, 0xffff);
-		std::vector<unsigned char> walk((size_t)w * h);
-		for (int y = 0; y < h; ++y)
-			for (int x = 0; x < w; ++x) {
-				PathfindCell *c = getCell(LAYER_GROUND, x0 + x, y0 + y);
-				walk[(size_t)y * w + x] = c && validMovementPosition(isCrusher, surfaces, c) ? 1 : 0;
+		slot->ax = ax; slot->ay = ay; slot->surfaces = surfaces; slot->crusher = isCrusher; slot->used = now;
+		std::vector<GxField *> todo(1, slot);
+		const bool gpu = (GLES3_Page_Switches() & 67108864) != 0;
+		if (gpu) {
+			// batch: every other field that went stale and was used lately is rebuilt in the same GPU
+			// pass. A field depends only on the buildings on the map (s_obstacleSerial), so building
+			// it now gives exactly what building it at its next request would.
+			for (GxField &f : s_fields)
+				if (&f != slot && f.ax >= 0 && !valid(f) && now - f.used < 300 && todo.size() < 12) todo.push_back(&f);
+		}
+		std::vector<std::vector<unsigned char>> walks;	// one walkability mask per surfaces/crusher pair
+		std::vector<std::pair<LocomotorSurfaceTypeMask, Bool>> walkKeys;
+		std::vector<int> walkOf(todo.size());
+		for (size_t t = 0; t < todo.size(); ++t) {
+			GxField &f = *todo[t];
+			size_t k = 0;
+			while (k < walkKeys.size() && !(walkKeys[k].first == f.surfaces && walkKeys[k].second == f.crusher)) ++k;
+			if (k == walkKeys.size()) {
+				walkKeys.push_back({ f.surfaces, f.crusher });
+				walks.emplace_back((size_t)w * h);
+				for (int y = 0; y < h; ++y)
+					for (int x = 0; x < w; ++x) {
+						PathfindCell *c = getCell(LAYER_GROUND, x0 + x, y0 + y);
+						walks[k][(size_t)y * w + x] = c && validMovementPosition(f.crusher, f.surfaces, c) ? 1 : 0;
+					}
 			}
-		// seeds: every walkable cell of the goal's area, distance 0
-		for (int y = ay << GX_FF_AREA; y < ((ay + 1) << GX_FF_AREA); ++y)
-			for (int x = ax << GX_FF_AREA; x < ((ax + 1) << GX_FF_AREA); ++x) {
-				const int lx = x - x0, ly = y - y0;
-				if (lx < 0 || ly < 0 || lx >= w || ly >= h || !walk[(size_t)ly * w + lx]) continue;
-				slot->dist[(size_t)ly * w + lx] = 0;
-			}
+			walkOf[t] = (int)k;
+			// seeds: every walkable cell of the field's area, distance 0
+			f.dist.assign((size_t)w * h, 0xffff);
+			for (int y = f.ay << GX_FF_AREA; y < ((f.ay + 1) << GX_FF_AREA); ++y)
+				for (int x = f.ax << GX_FF_AREA; x < ((f.ax + 1) << GX_FF_AREA); ++x) {
+					const int lx = x - x0, ly = y - y0;
+					if (lx < 0 || ly < 0 || lx >= w || ly >= h || !walks[k][(size_t)ly * w + lx]) continue;
+					f.dist[(size_t)ly * w + lx] = 0;
+				}
+			f.serial = s_obstacleSerial; f.born = now;
+		}
 		// Dial's buckets: costs are small integers, so a circular array of lists is an exact Dijkstra
-		auto cpuField = [&](std::vector<unsigned short> &dist) {
+		auto cpuField = [&](std::vector<unsigned short> &dist, const std::vector<unsigned char> &walk) {
 			std::vector<std::vector<int>> buckets(15);
 			for (size_t i = 0; i < dist.size(); ++i) if (dist[i] == 0) buckets[0].push_back((int)i);
 			int pending = (int)buckets[0].size();
@@ -11341,26 +11358,35 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 			}
 		};
 		bool built = false;
-		if (GLES3_Page_Switches() & 67108864) {	// GPU fields (switch gpuFlowFields): the same field by integer relaxation
-			std::vector<unsigned short> g((size_t)w * h);
-			const int passes = GLES3_GPU_Flow_Field(w, h, walk.data(), slot->dist.data(), g.data());
+		if (gpu) {	// GPU fields (switch gpuFlowFields): the same fields by integer relaxation, one batch
+			std::vector<const unsigned char *> wp(todo.size());
+			std::vector<const unsigned short *> sp(todo.size());
+			std::vector<std::vector<unsigned short>> outs(todo.size(), std::vector<unsigned short>((size_t)w * h));
+			std::vector<unsigned short *> op(todo.size());
+			for (size_t t = 0; t < todo.size(); ++t) { wp[t] = walks[walkOf[t]].data(); sp[t] = todo[t]->dist.data(); op[t] = outs[t].data(); }
+			const int passes = GLES3_GPU_Flow_Fields((int)todo.size(), w, h, wp.data(), sp.data(), op.data());
 			if (passes > 0) {
-				if (GLES3_Page_Switches() & 2097152) {	// verification: the CPU field must be identical, cell for cell
-					std::vector<unsigned short> c = slot->dist;
-					cpuField(c);
-					int diff = 0; for (size_t i = 0; i < c.size(); ++i) diff += c[i] != g[i];
-					s_gpuVerifyFields++; s_gpuVerifyMismatchCells += diff;
-					printf("GXFLOW gpu field %d: %d passes, %d of %d cells differ from the CPU (total differing so far %d)\n",
-						s_gpuVerifyFields, passes, diff, (int)c.size(), s_gpuVerifyMismatchCells);
+				for (size_t t = 0; t < todo.size(); ++t) {
+					if (GLES3_Page_Switches() & 2097152) {	// verification: the CPU field must be identical, cell for cell
+						std::vector<unsigned short> c = todo[t]->dist;
+						cpuField(c, walks[walkOf[t]]);
+						int diff = 0; for (size_t i = 0; i < c.size(); ++i) diff += c[i] != outs[t][i];
+						s_gpuVerifyFields++; s_gpuVerifyMismatchCells += diff;
+						printf("GXFLOW gpu field %d: batch of %d, %d passes, %d of %d cells differ from the CPU (total differing so far %d)\n",
+							s_gpuVerifyFields, (int)todo.size(), passes, diff, (int)c.size(), s_gpuVerifyMismatchCells);
+					}
+					todo[t]->dist.swap(outs[t]);
 				}
-				slot->dist.swap(g);
 				built = true;
-				s_gpuFields++;
+				s_gpuFields += (int)todo.size();
+				s_gpuBatches++;
 			}
 		}
-		if (!built) cpuField(slot->dist);
+		if (!built) {
+			for (size_t t = 0; t < todo.size(); ++t) cpuField(todo[t]->dist, walks[walkOf[t]]);
+		}
+		s_fieldBuilds += (int)todo.size();
 		field = slot;
-		s_fieldBuilds++;
 	}
 	field->used = now;
 
@@ -11409,7 +11435,7 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 	path->optimize(obj, locomotorSet.getValidSurfaces(), false);
 	s_fieldHits++;
 	if ((s_fieldHits + s_fieldMisses) % 200 == 0)
-		printf("GXFLOW paths from fields %d, fell back %d, fields built %d (on the GPU %d)\n", s_fieldHits, s_fieldMisses, s_fieldBuilds, s_gpuFields);
+		printf("GXFLOW paths from fields %d, fell back %d, fields built %d (on the GPU %d in %d batches, %d read-backs)\n", s_fieldHits, s_fieldMisses, s_fieldBuilds, s_gpuFields, s_gpuBatches, gx_gpu_field_readbacks);
 	return path;
 #else
 	return nullptr;

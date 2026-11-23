@@ -2521,3 +2521,14 @@ R8UI walkability, costs 10/14, the A*'s corner rule), read back every 32 passes 
 changing; every GL state it touches is saved and restored. Verified (Module.gxVerify): 1,271
 GPU fields in a battle, each compared cell by cell with the CPU field: 0 of 55,080 cells
 differed in all of them. 192-288 passes per field.
+
+Batched GPU fields (the user: "Yes, try batching"): one RGBA32I atlas, a tile per field with an
+unwalkable cell between tiles; each pass also writes whether the cell changed, so the passes run
+unchecked (as many as the longest field so far needed, 288) and one read-back shows whether to
+continue. When a field is missing, every stale field used in the last 300 frames is rebuilt in the
+same batch (a field depends only on the buildings, s_obstacleSerial, so early = same result).
+Verified: 1,867 batched GPU fields, 0 cells differ from the CPU. Read-backs: 763 per battle for
+756 batches (was ~8 per field, ~9,900). Still slower than CPU fields, A/B same build:
+RX 580 armies fps -5% (work +6%), strikes fps -21% (work +28%); software rendering armies fps
+2.1 -> 0.7 (work 92 -> 1,274 ms). The cost is the passes and the 16-byte-per-cell transfers, not
+only the read-back count; batching also rebuilt more fields (1,503 vs ~1,240). Switch stays off.
