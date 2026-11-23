@@ -1224,6 +1224,7 @@
             { key: 'terrainCull', def: true, label: 'SKIP GROUND THAT IS OFF SCREEN', note: 'Terrain tiles outside the view are not drawn.' },
             { key: 'unitBatching', def: true, label: 'DRAW IDENTICAL UNIT PARTS TOGETHER', note: 'Up to 128 copies of the same model part in one draw call instead of one call each. The big gain when many units are on screen.' },
             { key: 'gpuSkinning', def: true, label: 'ANIMATE SOLDIERS ON THE GRAPHICS CHIP', note: 'Sends each soldier\'s bone positions instead of moving every vertex on the processor, and draws soldiers of one kind together.' },
+            { key: 'uiBatching', def: true, label: 'DRAW ALL HEALTH BARS TOGETHER', note: 'The health bars of selected units go to the graphics chip in one draw call instead of two or more each. Helps most with a large army selected.' },
             { key: 'fastShaders', def: true, label: 'SPECIALISED SHADERS', note: 'One short shader per material instead of a general one. Off is much slower; also turns off the fog of war option above.' },
             { key: 'skipCompare', def: true, label: 'DO NOT COMPARE BUFFERS THAT ALWAYS CHANGE', note: 'Animated soldiers and particles change every frame; they are sent without first checking what changed.' },
             { key: 'skipSameUploads', def: true, label: 'DO NOT RE-SEND UNCHANGED TEXTURES', note: 'The fog of war texture is only sent to the graphics chip when it changes.' },

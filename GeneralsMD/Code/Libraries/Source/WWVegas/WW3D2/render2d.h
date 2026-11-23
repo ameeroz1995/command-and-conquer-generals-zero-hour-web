@@ -100,6 +100,7 @@ public:
 
 	virtual	void	Reset();
 	void	Render();
+	static void (*PreRenderHook)( Render2DClass *about );	// web port: called before any Render (W3DDisplay draws its collected status bars first)
 
 	void	Set_Coordinate_Range( const RectClass & range );
 

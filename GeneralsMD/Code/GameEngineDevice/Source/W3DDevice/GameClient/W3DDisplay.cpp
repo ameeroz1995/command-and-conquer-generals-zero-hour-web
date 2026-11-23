@@ -382,6 +382,56 @@ inline Int64 getPerformanceCounterFrequency()
 }
 
 // W3DDisplay::W3DDisplay =====================================================
+// Unit status bars in one draw (web port; Settings switch uiBatching, page switch bit 15).
+// A selected army drew each health bar as two or more draw calls of its own, each with the full
+// 2D state setup. While the per-unit pass runs (W3DView's drawablePostDraw loop), plain lines
+// and rectangles are collected in m_2DRender and drawn together. Order is kept: anything else
+// 2D (an icon, text, another Render2DClass) draws the collected ones first.
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#endif
+static Render2DClass *s_the2DRender = nullptr;	// W3DDisplay's m_2DRender
+static Render2DClass *s_rectBatch = nullptr;		// set while the per-unit pass collects
+static Int s_rectPending = 0;										// shapes collected and not drawn yet
+static void flushRectBatch( Render2DClass *about = nullptr )
+{
+	if( s_rectPending && about != s_rectBatch )
+	{
+		s_rectPending = 0;
+		s_rectBatch->Render();
+	}
+}
+static Bool batchRects( Render2DClass *r )
+{
+	if( s_rectBatch != r )
+		return FALSE;
+	if( s_rectPending >= 2000 )	// 16-bit indices: an outline is 16 vertices
+		flushRectBatch();
+	if( !s_rectPending )
+	{
+		r->Reset();
+		r->Enable_Texturing( FALSE );
+	}
+	s_rectPending++;
+	return TRUE;
+}
+void GX_RectBatch_Begin()
+{
+#ifdef __EMSCRIPTEN__
+	if( s_the2DRender && (GLES3_Page_Switches() & 32768) )
+	{
+		s_rectBatch = s_the2DRender;
+		Render2DClass::PreRenderHook = flushRectBatch;
+	}
+#endif
+}
+void GX_RectBatch_End()
+{
+	flushRectBatch();
+	s_rectBatch = nullptr;
+	Render2DClass::PreRenderHook = nullptr;
+}
+
 /** */
 //=============================================================================
 W3DDisplay::W3DDisplay()
@@ -436,6 +486,7 @@ W3DDisplay::~W3DDisplay()
 	{
 
 		m_2DRender->Reset();
+		if( s_the2DRender == m_2DRender ) { s_the2DRender = nullptr; s_rectBatch = nullptr; s_rectPending = 0; }
 		delete m_2DRender;
 		m_2DRender = nullptr;
 
@@ -722,6 +773,7 @@ void W3DDisplay::init()
 
 		// create a 2D renderer helper
 		m_2DRender = NEW Render2DClass;
+		s_the2DRender = m_2DRender;
 		DEBUG_ASSERTCRASH( m_2DRender, ("Cannot create Render2DClass") );
 
 		WW3DErrorType renderDeviceError;
@@ -2108,6 +2160,12 @@ void W3DDisplay::drawLine( Int startX, Int startY,
 {
 
 	/// @todo we need to consider the efficiency of the 2D renderer
+	if( batchRects( m_2DRender ) )
+	{
+		m_2DRender->Add_Line( Vector2( startX, startY ), Vector2( endX, endY ),
+													lineWidth, lineColor );
+		return;
+	}
 	m_2DRender->Reset();
 	m_2DRender->Enable_Texturing( FALSE );
 	m_2DRender->Add_Line( Vector2( startX, startY ), Vector2( endX, endY ),
@@ -2126,6 +2184,12 @@ void W3DDisplay::drawLine( Int startX, Int startY,
 {
 
 	/// @todo we need to consider the efficiency of the 2D renderer
+	if( batchRects( m_2DRender ) )
+	{
+		m_2DRender->Add_Line( Vector2( startX, startY ), Vector2( endX, endY ),
+													lineWidth, lineColor1, lineColor2 );
+		return;
+	}
 	m_2DRender->Reset();
 	m_2DRender->Enable_Texturing( FALSE );
 	m_2DRender->Add_Line( Vector2( startX, startY ), Vector2( endX, endY ),
@@ -2174,6 +2238,13 @@ void W3DDisplay::drawOpenRect( Int startX, Int startY, Int width, Int height,
 	else
 	{
 		/// @todo we need to consider the efficiency of the 2D renderer
+		if( batchRects( m_2DRender ) )
+		{
+			m_2DRender->Add_Outline( RectClass( startX, startY,
+																					startX + width, startY + height ),
+															 lineWidth, lineColor );
+			return;
+		}
 		m_2DRender->Reset();
 		m_2DRender->Enable_Texturing( FALSE );
 
@@ -2194,6 +2265,13 @@ void W3DDisplay::drawFillRect( Int startX, Int startY, Int width, Int height,
 {
 
 	/// @todo we need to consider the efficiency of the 2D renderer
+	if( batchRects( m_2DRender ) )
+	{
+		m_2DRender->Add_Rect( RectClass( startX, startY,
+																		 startX + width, startY + height ),
+													0, 0, color );
+		return;
+	}
 	m_2DRender->Reset();
 	m_2DRender->Enable_Texturing( FALSE );
 	m_2DRender->Add_Rect( RectClass( startX, startY,
@@ -2211,6 +2289,7 @@ void W3DDisplay::drawRectClock(Int startX, Int startY, Int width, Int height, In
 	if(percent < 1 || percent > 100)
 		return;
 
+	flushRectBatch();
 	m_2DRender->Reset();
 	m_2DRender->Enable_Texturing( FALSE );
 
@@ -2375,6 +2454,7 @@ void W3DDisplay::drawRemainingRectClock(Int startX, Int startY, Int width, Int h
 	if( percent < 0 || percent > 99 )
 		return;
 
+	flushRectBatch();
 	m_2DRender->Reset();
 	m_2DRender->Enable_Texturing( FALSE );
 
@@ -2561,6 +2641,7 @@ void W3DDisplay::drawImage( const Image *image, Int startX, Int startY,
 
 	const Region2D *uv = image->getUV();
 
+	flushRectBatch();
 	m_2DRender->Reset();
 	m_2DRender->Enable_Texturing( TRUE );
 
@@ -2813,6 +2894,7 @@ void W3DDisplay::drawVideoBuffer( VideoBuffer *buffer, Int startX, Int startY, I
 {
 	W3DVideoBuffer *vbuffer = (W3DVideoBuffer*) buffer;
 
+	flushRectBatch();
 	m_2DRender->Reset();
 	m_2DRender->Enable_Texturing( TRUE );
 	m_2DRender->Set_Texture( vbuffer->texture() );

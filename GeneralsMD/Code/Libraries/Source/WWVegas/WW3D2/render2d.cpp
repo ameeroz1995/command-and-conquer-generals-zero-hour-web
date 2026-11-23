@@ -598,11 +598,14 @@ void	Render2DClass::Add_Outline( const RectClass & rect, float width, const Rect
 	Add_Line (Vector2 (rect.Right, rect.Bottom),	Vector2 (rect.Left + 1, rect.Bottom),	width, color);
 }
 
+void (*Render2DClass::PreRenderHook)( Render2DClass *about ) = nullptr;
+
 void Render2DClass::Render()
 {
 	if ( !Indices.Count() || IsHidden) {
 		return;
 	}
+	if ( PreRenderHook ) PreRenderHook( this );
 
 	// save the view and projection matrices since we're nuking them
 	Matrix4x4 view,proj;

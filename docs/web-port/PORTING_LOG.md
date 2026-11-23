@@ -2342,3 +2342,21 @@ VectorProcessor::Transform 3.3, Get_Deformed_Vertices 1.9), skeleton evaluation 
 60.2-61.1 fps (capped), body draws ~380 -> 5 instanced draws of 80; low-end 6.0-6.8 -> 7.2-7.6 fps.
 Pictures match within the idle animation (1.5% / 1.1%). Sanity with it on by default: LAN match on
 both builds (SwiftShader) and the 3v3 replay on the RX 580, no GL errors, scene correct.
+
+## Health bars of a selected army in one draw (2026-11-23)
+
+User report: fps drops when many units are on screen, most of all when they are selected. Each
+selected unit's health bar was `drawOpenRect` + `drawFillRect`, and each of those is its own
+`Render2DClass::Render` (viewport, material, transforms, a dynamic vertex and index buffer, one
+draw call): 400 selected soldiers added ~800 draw calls.
+
+- W3DDisplay.cpp: while W3DView's per-unit pass runs (`GX_RectBatch_Begin/End` around the
+  `drawablePostDraw` loop), `drawLine`, `drawOpenRect` and `drawFillRect` only add their shape to
+  `m_2DRender`; one `Render` draws them all (flushed every 2000 shapes for the 16-bit indices).
+- Order is kept: the other W3DDisplay draws (image, clocks, video) draw the collected shapes
+  first, and so does any other Render2DClass through `Render2DClass::PreRenderHook`.
+- Page switch bit 15 (`GeneralsX.opt.uiBatching`), on by default.
+
+400 Rangers selected, RX 580, toggled in one match: 3,251 -> 2,474 draws, game work 17.8 ->
+14.2 ms (unselected 12.9), 57.4 -> 60.6 fps. Health bar pixels identical in both modes (15,183
+fill pixels, 0 differing).

@@ -1010,6 +1010,10 @@ static void drawAudioRadii( const Drawable * drawable )
 //-------------------------------------------------------------------------------------------------
 /** An opportunity to draw something after all drawables have been drawn once */
 //-------------------------------------------------------------------------------------------------
+#ifdef __EMSCRIPTEN__
+extern void GX_RectBatch_Begin();
+extern void GX_RectBatch_End();
+#endif
 static void drawablePostDraw( Drawable *draw, void *userData )
 {
 	Real FXPitch = TheTacticalView->getFXPitch();
@@ -1798,7 +1802,13 @@ void W3DView::draw()
 	/// @todo we might want to consider wiping this iterate out if there is nothing to post draw
 	//
 	TheGameClient->resetRenderedObjectCount();
+#ifdef __EMSCRIPTEN__
+	GX_RectBatch_Begin();	// status bars of all units in one draw (W3DDisplay.cpp)
+#endif
 	TheGameClient->iterateDrawablesInRegion( &axisAlignedRegion, drawablePostDraw, this );
+#ifdef __EMSCRIPTEN__
+	GX_RectBatch_End();
+#endif
 
 	TheGameClient->flushTextBearingDrawables();
 
