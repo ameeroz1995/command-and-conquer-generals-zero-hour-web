@@ -2284,3 +2284,21 @@ Switch: Settings > Draw identical unit parts together (`unitBatching`, page swit
 of 120 copies); RX 580 38.7 -> 61 fps (capped), game work 19.2 -> 12.5 ms; low-end 5.0 -> 5.7 fps;
 pictures match. 400 Rangers (skins) are not batched and draw correctly. Left: ~5 tiny draws per
 tank (a few triangles each) and all infantry.
+
+## Tank treads batched too: per-instance texture offset (2026-11-23)
+
+After the batching fix, 400 tanks still drew ~650 small opaque meshes a frame: the treads, two
+per tank. Each carries a `Material_Override` (its own tread scroll) as user data, which the
+batching treated as "unique". Now a batch of such meshes sets the shared
+LinearOffsetTextureMapper to zero offset and sends each tread's scroll as a per-instance
+attribute (location 12, `a_InstanceUV`, added to the stage 0 texture coordinate when
+`u_InstancingEnabled`; `gx_instance_uv` through DX8Wrapper::Draw_Triangles_Instanced).
+
+The other ~1,300 tiny draws in the stress test are muzzle flashes (AVLEOPARD.TURRETFX01,
+AIRNGR_SKN.MUZZLEFX01: SORT-flag additive meshes, about one draw per triangle once the sorting
+renderer interleaves them). The test's spawn leaves them visible; in play they show only while
+firing.
+
+400 tanks, same match: RX 580 4,985 -> 1,661 draws, 45 -> 60.6 fps (capped), moving 52.9 -> 61.3;
+low-end 4,645 -> ~1,550 draws, 4.2 -> 4.5-5.0 fps (the flashes above are most of what is left).
+Idle pictures match (0.10%). Sanity: both builds and the RX 580 run a match with no GL errors.

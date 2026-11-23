@@ -357,7 +357,8 @@ public:
 		unsigned short min_vertex_index,
 		unsigned short vertex_count,
 		const float* world_matrices,
-		unsigned int instance_count);
+		unsigned int instance_count,
+		const float* uv_offsets = nullptr);
 	static void Draw_Strip(
 		unsigned short start_index,
 		unsigned short index_count,

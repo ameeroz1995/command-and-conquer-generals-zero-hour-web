@@ -59,6 +59,7 @@ static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Lay
 unsigned int gx_content_serial = 0;
 static std::vector<unsigned int> g_TexSerial; // by GL texture id
 int gx_gc_hits = 0, gx_gc_captures = 0, gx_gc_plain = 0, gx_gc_slides = 0;
+const float* gx_instance_uv = nullptr; // with them: one stage 0 texture offset (2 floats) per instance, or null
 const float* gx_instance_matrices = nullptr; unsigned int gx_instance_count = 0; // set around an instanced DrawIndexedPrimitive (DX8Wrapper::Draw_Triangles_Instanced)
 int gx_gc_why = 0; // which check stopped the last slide (Module.gxGCWhy): 1 turned, 2 rolled, 3 height changed, 4 projection, 5 viewport, 20-25 cache state // Module.gxGCHits / gxGCCaptures / gxGCPlain
 static std::unordered_map<GLuint, bool> g_TextureHasMipmaps;
@@ -1633,6 +1634,18 @@ void GLES3_Draw_Triangles_Instanced(unsigned int prim_type,
         glVertexAttribDivisor(7 + i, 1);
     }
 
+    // Attribute 12: each instance's stage 0 texture offset (tank treads scroll by their own
+    // amount); without one the attribute is off and reads its constant (0, 0).
+    static GLuint g_InstanceUVVBO = 0;
+    if (gx_instance_uv) {
+        if (g_InstanceUVVBO == 0) glGenBuffers(1, &g_InstanceUVVBO);
+        GLES3_Bind_Array_Buffer(g_InstanceUVVBO);
+        glBufferData(GL_ARRAY_BUFFER, instance_count * 2 * sizeof(float), gx_instance_uv, GL_STREAM_DRAW);
+        glEnableVertexAttribArray(12);
+        glVertexAttribPointer(12, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (const void*)0);
+        glVertexAttribDivisor(12, 1);
+    }
+
     // Get cached instancing uniform location
     GLint loc = GLES3_ShaderManager::Get_Instancing_Uniform_Location(g_State);
     if (loc != -1) {
@@ -1648,6 +1661,10 @@ void GLES3_Draw_Triangles_Instanced(unsigned int prim_type,
     for (int i = 0; i < 4; ++i) {
         glDisableVertexAttribArray(7 + i);
         glVertexAttribDivisor(7 + i, 0);
+    }
+    if (gx_instance_uv) {
+        glDisableVertexAttribArray(12);
+        glVertexAttribDivisor(12, 0);
     }
 
     // Attributes 7-10 were set directly above.

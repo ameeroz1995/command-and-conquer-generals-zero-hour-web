@@ -1806,7 +1806,14 @@ void DX8TextureCategoryClass::Render()
 		bool is_sorting = (!!mesh->Peek_Model()->Get_Flag(MeshGeometryClass::SORT)) && WW3D::Is_Sorting_Enabled();
 		// Not skins: every skinned mesh has its own deformed vertices (one soldier's body would be
 		// drawn for all of them).
-		bool can_instance = batch_units && !mesh->Peek_Model()->Get_Flag(MeshModelClass::SKIN) && !is_sorting && !renderer->Is_Strip() && (mesh->Get_Alpha_Override() == 1.0f) && !mesh->Is_Additive() && (!mesh->Get_User_Data()) && (!DX8RendererDebugger::Is_Enabled() || !mesh->Is_Disabled_By_Debugger());
+		// Tank treads carry a Material_Override (their own texture scroll) as user data. They can
+		// still be batched: the scroll goes along per instance (tread_mapper != nullptr).
+		LinearOffsetTextureMapperClass * tread_mapper = nullptr;
+		if (batch_units && mesh->Get_User_Data() && *(int *)mesh->Get_User_Data() == RenderObjClass::USER_DATA_MATERIAL_OVERRIDE) {
+			TextureMapperClass * mp = vmaterial ? vmaterial->Peek_Mapper() : nullptr;
+			if (mp && mp->Mapper_ID() == TextureMapperClass::MAPPER_ID_LINEAR_OFFSET) tread_mapper = (LinearOffsetTextureMapperClass *)mp;
+		}
+		bool can_instance = batch_units && !mesh->Peek_Model()->Get_Flag(MeshModelClass::SKIN) && !is_sorting && !renderer->Is_Strip() && (mesh->Get_Alpha_Override() == 1.0f) && !mesh->Is_Additive() && (!mesh->Get_User_Data() || tread_mapper) && (!DX8RendererDebugger::Is_Enabled() || !mesh->Is_Disabled_By_Debugger());
 
 		if (can_instance) {
 			int batch_count = 1;
@@ -1823,7 +1830,8 @@ void DX8TextureCategoryClass::Render()
 					next_mesh->Get_Base_Vertex_Offset() == mesh->Get_Base_Vertex_Offset() && // the same vertices
 					next_mesh->Get_Alpha_Override() == 1.0f &&
 					!next_mesh->Is_Additive() &&
-					!next_mesh->Get_User_Data() &&
+					(tread_mapper ? (next_mesh->Get_User_Data() && *(int *)next_mesh->Get_User_Data() == RenderObjClass::USER_DATA_MATERIAL_OVERRIDE)
+					              : !next_mesh->Get_User_Data()) &&
 					next_mesh->Get_ObjectScale() == mesh->Get_ObjectScale() &&
 					Same_Lighting(next_mesh->Get_Lighting_Environment(), mesh->Get_Lighting_Environment()) &&
 					(!DX8RendererDebugger::Is_Enabled() || !next_mesh->Is_Disabled_By_Debugger())) {
@@ -1878,7 +1886,30 @@ void DX8TextureCategoryClass::Render()
 				}
 
 				// Render
-				renderer->Render_Instanced(mesh->Get_Base_Vertex_Offset(), world_matrices, batch_count);
+				if (tread_mapper) {
+					// Each tread's own scroll as a per-instance offset (wrapped like the mapper
+					// wraps it), with the shared texture matrix at zero offset meanwhile.
+					float uv_offsets[128 * 2];
+					for (int b = 0; b < batch_count; ++b) {
+						const RenderObjClass::Material_Override * ov = (const RenderObjClass::Material_Override *)batch_tasks[b]->Peek_Mesh()->Get_User_Data();
+						uv_offsets[b * 2 + 0] = ov->customUVOffset.X - WWMath::Floor(ov->customUVOffset.X);
+						uv_offsets[b * 2 + 1] = ov->customUVOffset.Y - WWMath::Floor(ov->customUVOffset.Y);
+					}
+					Vector2 old_offset;
+					const unsigned int old_sync = tread_mapper->Get_LastUsedSyncTime();
+					tread_mapper->Get_Current_UV_Offset(old_offset);
+					tread_mapper->Set_LastUsedSyncTime(WW3D::Get_Sync_Time());
+					tread_mapper->Set_Current_UV_Offset(Vector2(0.0f, 0.0f));
+					DX8Wrapper::Set_Material(nullptr);	// the material is applied again, with the zero offset
+					DX8Wrapper::Set_Material(vmaterial);
+					renderer->Render_Instanced(mesh->Get_Base_Vertex_Offset(), world_matrices, batch_count, uv_offsets);
+					tread_mapper->Set_LastUsedSyncTime(old_sync);
+					tread_mapper->Set_Current_UV_Offset(old_offset);
+					DX8Wrapper::Set_Material(nullptr);
+					DX8Wrapper::Set_Material(vmaterial);
+				} else {
+					renderer->Render_Instanced(mesh->Get_Base_Vertex_Offset(), world_matrices, batch_count);
+				}
 
 				// Reset normalize normals if needed
 				if (mesh->Get_ObjectScale() != 1.0f) {

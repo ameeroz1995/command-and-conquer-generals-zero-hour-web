@@ -80,7 +80,7 @@ public:
 
 	bool								Is_Strip() const { return strip; }
 
-	void								Render_Instanced(int base_vertex_offset, const float* world_matrices, unsigned int instance_count);
+	void								Render_Instanced(int base_vertex_offset, const float* world_matrices, unsigned int instance_count, const float* uv_offsets = nullptr);
 	void								Render(/*const Matrix3D & tm,*/int base_vertex_offset);
 	void								Render_Sorted(/*const Matrix3D & tm,*/int base_vertex_offset,const SphereClass & bounding_sphere);
 	void								Set_Vertex_Index_Range(unsigned min_vertex_index_,unsigned vertex_index_range_);
@@ -136,7 +136,7 @@ inline void DX8PolygonRendererClass::Render(/*const Matrix3D & tm,*/int base_ver
 	}
 }
 
-inline void DX8PolygonRendererClass::Render_Instanced(int base_vertex_offset, const float* world_matrices, unsigned int instance_count)
+inline void DX8PolygonRendererClass::Render_Instanced(int base_vertex_offset, const float* world_matrices, unsigned int instance_count, const float* uv_offsets)
 {
 	WWASSERT(!strip);
 	SNAPSHOT_SAY(("Set_Index_Buffer_Index_Offset(%d)",base_vertex_offset));
@@ -147,7 +147,8 @@ inline void DX8PolygonRendererClass::Render_Instanced(int base_vertex_offset, co
 		min_vertex_index,
 		vertex_index_range,
 		world_matrices,
-		instance_count);
+		instance_count,
+		uv_offsets);
 }
 
 inline void DX8PolygonRendererClass::Render_Sorted(/*const Matrix3D & tm,*/int base_vertex_offset,const SphereClass & bounding_sphere)

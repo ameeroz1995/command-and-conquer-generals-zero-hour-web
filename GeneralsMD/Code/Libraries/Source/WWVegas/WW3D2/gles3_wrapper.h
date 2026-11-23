@@ -333,7 +333,7 @@ bool GLES3_Ground_Cache_Again();
 void GLES3_Ground_Cache_Plane(float height, bool ok); // pan cache: ground height under the middle of the view
 void GLES3_Ground_Cache_Mix(unsigned int a, unsigned int b, unsigned int c, unsigned int d, unsigned int e);
 extern unsigned int gx_content_serial; // next upload's serial
-extern const float* gx_instance_matrices; extern unsigned int gx_instance_count; // instanced draw in progress (0 = none)
+extern const float* gx_instance_uv; extern const float* gx_instance_matrices; extern unsigned int gx_instance_count; // instanced draw in progress (0 = none)
 
 // ============================================================================
 // Fixed-Function Emulation Shader Manager

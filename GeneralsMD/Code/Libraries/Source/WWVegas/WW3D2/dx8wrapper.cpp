@@ -2484,7 +2484,8 @@ void DX8Wrapper::Draw_Triangles_Instanced(unsigned short start_index,
                                           unsigned short min_vertex_index,
                                           unsigned short vertex_count,
                                           const float* world_matrices,
-                                          unsigned int instance_count) {
+                                          unsigned int instance_count,
+                                          const float* uv_offsets) {
   DX8_THREAD_ASSERT();
   Apply_Render_State_Changes();
 #ifdef __EMSCRIPTEN__
@@ -2493,9 +2494,11 @@ void DX8Wrapper::Draw_Triangles_Instanced(unsigned short start_index,
   // instances. Calling the shim directly drew with whatever layout the previous draw left
   // bound ("Insufficient buffer size" errors, and the wrong vertices).
   gx_instance_matrices = world_matrices;
+  gx_instance_uv = uv_offsets;
   gx_instance_count = instance_count;
   D3DDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, min_vertex_index, vertex_count, start_index, polygon_count);
   gx_instance_count = 0;
+  gx_instance_uv = nullptr;
 #endif
 }
 

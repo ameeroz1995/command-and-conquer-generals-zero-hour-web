@@ -82,6 +82,7 @@ layout(location = 5) in vec2 a_TexCoord2;
 layout(location = 6) in vec2 a_TexCoord3;
 layout(location = 7) in mat4 a_InstanceWorld; // Instanced matrix layout locations 7, 8, 9, 10
 layout(location = 11) in vec4 a_Specular;     // DX8 SPECULAR (BGRA), 0 when the FVF has none
+layout(location = 12) in vec2 a_InstanceUV;   // per instance: added to the stage 0 texture coordinate (batched tank treads)
 
 // Transform matrices (view and projection are in GXScene)
 uniform mat4 u_World;
@@ -199,6 +200,7 @@ void main() {
     v_TexCoord2 = (GX_PS || GX_STAGES > 2) ? stage_texcoord(2, viewPos.xyz, eyeNormal) : unused;
     v_TexCoord3 = (GX_PS || GX_STAGES > 3) ? stage_texcoord(3, viewPos.xyz, eyeNormal) : unused;
 #endif
+    if (u_InstancingEnabled) v_TexCoord0.xy += a_InstanceUV;
 #if GX_SHROUD
     v_ShroudUV = (u_ShroudMatrix * vec4(viewPos.xyz, 1.0)).xy;
 #endif
