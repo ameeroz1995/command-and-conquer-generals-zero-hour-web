@@ -2572,3 +2572,37 @@ sometimes longer than 3 logic frames). One dispatch round of 24 always converged
 Bench lanes: WebGPU on Linux needs a headed Edge (headless gets SwiftShader); `webgpu: true` in the bench MCP
 opens the window off-screen with occlusion throttling off, and `cdp.py` now picks the game page (a headed
 Edge opens an internal side page first) and clicks Begin by its id.
+
+## 2026-11-24 — Parallel path searches (switch parallelPaths, off; multithreaded build only)
+
+At the top of `processPathfindQueue` the searches the next queued units will ask for (as many as the
+queue served last frame, +1; guessed by `AIUpdateInterface::gxPredictSearch`: the approach path's
+`findClosestPath`, or computePath's `findPath`, chained with the `findClosestPath` computePath always
+makes after an empty `findPath`) run on 3 worker threads plus the game thread. Each search has its own
+copy of the search state: the cells' `PathfindCellInfo` it touches (copied from the shared one on
+first touch, made fresh where the shared pool would allocate; ground cells looked up by their index in
+the map, inline in `PathfindCell::I()`), the open/closed lists, tunnelling flag, cell count, ignored
+obstacle and the zone blocks' passable flags (the Pathfinder members are redirected by macros to the
+thread's copy). Flow fields are only read (an existing valid field), never built. The queue then runs
+as before; a result made ahead is used only for the identical call (object, arguments, locomotor set,
+tunnelling flag, ignored obstacle, failover mode) when no cell it read changed since (unit data,
+obstacles, info appearing or going: per-cell frame stamp), the shared pool still has room for what it
+allocated and the field it walked is unchanged; then its state is written back into the shared cells.
+Anything else is searched again the normal way. The game's memory pools lock only during a wave.
+The search fields an info keeps between searches are not tracked: every search rewrites them before it
+reads them (verify mode checks every result against the normal search).
+
+Exactness: verify mode, battle benchmark, multithreaded: 2,260 searches made ahead compared with the
+normal search, 0 mismatches. `bench_replay` (multithreaded, switch on): matches the referee recording
+over 9,000 frames. Single-thread build (switch absent, same code otherwise): replay matches.
+
+Speed: slower, so the switch stays off. A/B (RX 580, multithreaded), latest: armies 10.8 → 5.3 fps.
+Per search the copy costs ~1.9x a normal search (was 7x before the open list walked its infos directly
+and the lookup went inline); but about half of the searches made ahead are thrown away (not asked for:
+the queue's 5,000-cell budget runs out, or the guess was wrong; or redone because an earlier unit changed
+a cell), the wave waits for its longest search, and the path queue is only ~20% of a battle frame
+(~16 ms of ~80), so the ceiling is small. Ideas left: guess only searches likely to be served and long,
+start the wave during the previous frame's render, cut the copy cost further.
+Side effects in the default path: `putOnSortedOpenList` walks the infos' links instead of looking each
+cell's info up (same list, same order). New bench tools: workers in CPU profiles (`PROFWORKERS=1`),
+replays on the multithreaded build (`bench_replay multithread`).

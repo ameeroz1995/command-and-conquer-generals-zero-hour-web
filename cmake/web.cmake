@@ -58,7 +58,7 @@ if(GX_WEB_OPTIMIZED)
   if(GX_WEB_WORKER)
     add_compile_options(-pthread "SHELL:-include ${CMAKE_CURRENT_LIST_DIR}/gx_worker_em_asm.h")
     add_link_options(-pthread -sPROXY_TO_PTHREAD -sOFFSCREENCANVAS_SUPPORT=1
-      "-sOFFSCREENCANVASES_TO_PTHREAD=#canvas" -sPTHREAD_POOL_SIZE=4)
+      "-sOFFSCREENCANVASES_TO_PTHREAD=#canvas" -sPTHREAD_POOL_SIZE=8)
   endif()
 else()
   # Enable C++ Exception catching so we can see what is crashing

@@ -77,6 +77,526 @@
 //-------------------------------------------------------------------------------------------------
 
 
+// ================================================================================================
+// Web port: parallel path searches (Settings switch parallelPaths, page switch bit 29, multithreaded
+// build only). At the top of processPathfindQueue the searches the queued units are about to ask for
+// are run on worker threads, each with its own copy of the search state: the cells' PathfindCellInfo
+// it touches (copied on first touch, made fresh where the shared pool would allocate), the open and
+// closed lists, the tunnelling flag, the cell count, the ignored obstacle and the zone blocks'
+// passable flags. Then the queue runs as before, one unit at a time; when a unit asks for a search
+// that was made ahead with the same object and arguments and from the same state, the result is used
+// and its copy of the search state is written back, exactly as if the search had run there. "Same
+// state": no cell it read was changed by the units served before it (unit data, infos), the shared
+// pool still has room for what it allocated, same tunnelling flag, ignored obstacle and failover mode.
+// Anything else (a wrong guess, a changed cell, a search that would build a flow field or fail over)
+// is simply searched again the normal way, so the game is identical with the switch on or off.
+// ================================================================================================
+#if defined(GX_PARALLEL_PATHS)
+#include <pthread.h>
+#include <emscripten.h>
+#include <atomic>
+#include <memory>
+#include <unordered_set>
+#include <functional>
+extern Bool s_useFixedPathfinding;
+extern std::atomic<bool> g_gxPoolLocking;
+extern int GLES3_Page_Switches();
+Int g_gxFreeCellInfos = 0;	// free infos in the shared pool
+thread_local GxSearchCtx *tl_gxCtx = nullptr;
+bool g_gxDirtyTracking = false;
+unsigned g_gxEpoch = 1;
+
+static const PathfindCell *s_gxCellBase = nullptr;	// the ground cells, one block (set at each wave)
+static size_t s_gxCellCount = 0;
+struct GxSearchCtx : GxSearchView
+{
+	typedef GxSlot Slot;
+	enum { BLOCK = 4096 };
+	std::vector<Slot> slots;	// every cell it touched, in order
+	// ground cells are found by their index in the map (stamped with gen), bridge cells by a small map
+	std::vector<GxCellRef> refVec; std::vector<unsigned> readVec;
+	std::unordered_map<const PathfindCell *, int> otherSlots;
+	std::unordered_set<const PathfindCell *> otherReads;
+	GxSearchCtx() { base = nullptr; count = 0; gen = 0; refs = nullptr; readGen = nullptr; slotsPtr = nullptr; }
+	std::vector<std::unique_ptr<PathfindCellInfo[]>> blocks;
+	size_t used = 0;
+	int poolOut = 0, poolPeak = 0, depth = 0;
+	bool aborted = false;
+	PathfindCellList openList, closedList;
+	Bool isTunneling = false;
+	Int cells = 0;
+	ObjectID ignoreObstacleID = INVALID_ID;
+	std::vector<unsigned char> zone;
+	int field = -1; unsigned fieldSerial = 0; UnsignedInt fieldBorn = 0;	// the flow field it walked (read only)
+	std::vector<const PathfindCell *> reads;	// every cell whose unit data or info it read, once
+
+	void reset()
+	{
+		if (refVec.size() != s_gxCellCount) { refVec.assign(s_gxCellCount, GxCellRef{ 0, 0 }); readVec.assign(s_gxCellCount, 0); gen = 0; }
+		if (++gen == 0) { std::fill(refVec.begin(), refVec.end(), GxCellRef{ 0, 0 }); std::fill(readVec.begin(), readVec.end(), 0); gen = 1; }
+		base = s_gxCellBase; count = s_gxCellCount; refs = refVec.data(); readGen = readVec.data();
+		slots.clear(); slotsPtr = slots.data(); otherSlots.clear(); otherReads.clear();
+		used = 0; poolOut = 0; poolPeak = 0; depth = 0; aborted = false;
+		openList.reset(); closedList.reset(); cells = 0;
+		reads.clear();
+		field = -1;
+	}
+	static inline size_t index(const PathfindCell *c) { return (size_t)(c - s_gxCellBase); }	// >= s_gxCellCount: not a ground cell
+	Slot *find(const PathfindCell *c)
+	{
+		const size_t i = index(c);
+		if (i < s_gxCellCount) return refs[i].gen == gen ? &slots[refs[i].slot] : nullptr;
+		auto it = otherSlots.find(c);
+		return it == otherSlots.end() ? nullptr : &slots[it->second];
+	}
+	Slot *insert(const PathfindCell *c)
+	{
+		const int k = (int)slots.size();
+		slots.push_back(Slot{ c, nullptr, 0 });
+		slotsPtr = slots.data();
+		const size_t i = index(c);
+		if (i < s_gxCellCount) { refs[i].gen = gen; refs[i].slot = k; }
+		else otherSlots[c] = k;
+		return &slots[k];
+	}
+	PathfindCellInfo *newNode()
+	{
+		if (used == blocks.size() * BLOCK) blocks.emplace_back(new PathfindCellInfo[BLOCK]);
+		PathfindCellInfo *n = &blocks[used / BLOCK][used % BLOCK];
+		used++;
+		return n;
+	}
+	void read(const PathfindCell *c)
+	{
+		if (aborted) return;	// its result is not used anyway
+		const size_t i = index(c);
+		if (i < s_gxCellCount) { if (readGen[i] == gen) return; readGen[i] = gen; }	// (R() checks this inline first)
+		else if (!otherReads.insert(c).second) return;
+		reads.push_back(c);
+	}
+	// the info the worker's search sees for a cell: its own, or a copy of the shared one on first touch
+	PathfindCellInfo *info(const PathfindCell *cell)
+	{
+		if (Slot *s = find(cell)) return s->state == 1 ? s->info : nullptr;
+		PathfindCellInfo *shared = cell->m_info;
+		if (!shared) return nullptr;
+		read(cell);
+		PathfindCellInfo *n = newNode();
+		*n = *shared;
+		n->m_cell = const_cast<PathfindCell *>(cell);
+		if (n->m_nextOpen || n->m_prevOpen || n->m_open || n->m_closed) aborted = true;	// left on a list: not reproducible
+		n->m_nextOpen = n->m_prevOpen = nullptr;
+		n->m_pathParent = nullptr;
+		Slot *ns = insert(cell);
+		ns->info = n; ns->state = 1;	// (ns is not used after the next insert)
+		PathfindCellInfo *p = shared->m_pathParent;	// a parent link left from an earlier search: the same cell's copy
+		if (p && !p->m_isFree && p->m_cell) {
+			if (++depth > 64) aborted = true;
+			else n->m_pathParent = info(p->m_cell);
+			depth--;
+		}
+		return n;
+	}
+	bool allocate(PathfindCell *cell, const ICoord2D &pos)
+	{
+		Slot *s = find(cell);
+		if (s && s->state == 1) return true;
+		if (!s && cell->m_info) { info(cell); return true; }
+		read(cell);
+		PathfindCellInfo *n = newNode();	// what PathfindCellInfo::getACellInfo makes
+		memset((void *)n, 0, sizeof(*n));
+		n->m_isFree = false; n->m_cell = cell; n->m_pos = pos;
+		n->m_obstacleID = INVALID_ID; n->m_goalUnitID = INVALID_ID; n->m_posUnitID = INVALID_ID; n->m_goalAircraftID = INVALID_ID;
+		if (!s) s = insert(cell);
+		s->info = n; s->state = 1;
+		if (++poolOut > poolPeak) poolPeak = poolOut;
+		return true;	// never runs out here: the pool's room is checked when the result is used
+	}
+	void release(PathfindCell *cell)	// PathfindCell::releaseInfo on the copy
+	{
+		PathfindCellInfo *i = info(cell);
+		read(cell);
+#if RETAIL_COMPATIBLE_PATHFINDING
+		if (s_useFixedPathfinding)
+#endif
+		{
+			if (i) i->m_pathParent = nullptr;
+		}
+		if (cell->m_type == PathfindCell::CELL_OBSTACLE || cell->m_flags != PathfindCell::NO_UNITS || cell->m_aircraftGoal) return;
+		if (!i) return;
+		if (i->m_prevOpen || i->m_nextOpen || i->m_open || i->m_closed) return;
+		find(cell)->state = 2;
+		poolOut--;
+	}
+	// the search's state into the shared cells, as the search would have left it there
+	void writeBack()
+	{
+		for (Slot &s : slots) {
+			if (!s.state) continue;
+			PathfindCell *cell = const_cast<PathfindCell *>(s.cell);
+			if (s.state == 2) {
+				if (cell->m_info) { gxMarkDirty(cell); PathfindCellInfo::releaseACellInfo(cell->m_info); cell->m_info = nullptr; }
+				continue;
+			}
+			if (!cell->m_info) {
+				gxMarkDirty(cell);
+				ICoord2D pos = s.info->m_pos;
+				cell->m_info = PathfindCellInfo::getACellInfo(cell, pos);
+				if (!cell->m_info) { DEBUG_CRASH(("parallelPaths: pool checked but empty")); continue; }
+			}
+			PathfindCellInfo *d = cell->m_info, *o = s.info;
+			d->m_totalCost = o->m_totalCost; d->m_costSoFar = o->m_costSoFar; d->m_pos = o->m_pos;
+			d->m_goalUnitID = o->m_goalUnitID; d->m_posUnitID = o->m_posUnitID; d->m_goalAircraftID = o->m_goalAircraftID;
+			d->m_obstacleID = o->m_obstacleID; d->m_blockedByAlly = o->m_blockedByAlly;
+			d->m_obstacleIsFence = o->m_obstacleIsFence; d->m_obstacleIsTransparent = o->m_obstacleIsTransparent;
+			d->m_open = o->m_open; d->m_closed = o->m_closed;
+			d->m_nextOpen = d->m_prevOpen = nullptr;
+		}
+		for (Slot &s : slots) {	// parent links, once every cell has its shared info
+			if (s.state != 1) continue;
+			PathfindCell *cell = const_cast<PathfindCell *>(s.cell);
+			if (!cell->m_info) continue;
+			PathfindCellInfo *p = s.info->m_pathParent;
+			cell->m_info->m_pathParent = (p && p->m_cell) ? p->m_cell->m_info : nullptr;
+		}
+	}
+};
+
+PathfindCellInfo *gxCtxInfo(const PathfindCell *cell) { return tl_gxCtx->info(cell); }
+void gxCtxRead(const PathfindCell *cell) { tl_gxCtx->read(cell); }
+void gxMarkDirty(const PathfindCell *cell) { cell->m_gxStamp = g_gxEpoch; }
+// changed since the searches were made ahead: its unit data, obstacle, or whether it has an info (the search
+// fields an info keeps between searches are always rewritten before a search reads them; verify mode checks this)
+bool gxIsDirty(const PathfindCell *cell) { return cell->m_gxStamp == g_gxEpoch; }
+void gxCtxAbort() { tl_gxCtx->aborted = true; }
+bool gxFieldStillSame(int idx, unsigned serial, UnsignedInt born);	// flow fields: the field a worker walked is unchanged (marks it used)
+bool gxCtxAllocate(PathfindCell *cell, const ICoord2D &pos) { return tl_gxCtx->allocate(cell, pos); }
+bool gxCtxRelease(PathfindCell *cell) { tl_gxCtx->release(cell); return true; }
+unsigned char *gxCtxZoneFlags() { return tl_gxCtx ? tl_gxCtx->zone.data() : nullptr; }
+
+PathfindCellList &Pathfinder::gxS_openList() { return tl_gxCtx ? tl_gxCtx->openList : m_openList; }
+PathfindCellList &Pathfinder::gxS_closedList() { return tl_gxCtx ? tl_gxCtx->closedList : m_closedList; }
+Bool &Pathfinder::gxS_isTunneling() { return tl_gxCtx ? tl_gxCtx->isTunneling : m_isTunneling; }
+Int &Pathfinder::gxS_cells() { return tl_gxCtx ? tl_gxCtx->cells : m_cumulativeCellsAllocated; }
+ObjectID &Pathfinder::gxS_ignoreObstacleID() { return tl_gxCtx ? tl_gxCtx->ignoreObstacleID : m_ignoreObstacleID; }
+
+namespace {
+// a few worker threads (big stacks: the searches are deep), woken once per wave
+struct GxWorkers {
+	std::mutex m;
+	std::condition_variable wake, done;
+	std::function<void(int)> job;
+	std::atomic<int> next{ 0 };
+	int count = 0, gen = 0, busy = 0, threads = 0;
+	void work() { for (int i; (i = next.fetch_add(1)) < count; ) job(i); }
+	static void *main(void *self)
+	{
+		GxWorkers *w = (GxWorkers *)self;
+		int seen = 0;
+		for (;;) {
+			{ std::unique_lock<std::mutex> l(w->m); w->wake.wait(l, [&] { return w->gen != seen; }); seen = w->gen; }
+			w->work();
+			{ std::lock_guard<std::mutex> l(w->m); if (--w->busy == 0) w->done.notify_one(); }
+		}
+		return nullptr;
+	}
+	void start(int n)
+	{
+		for (; threads < n; ++threads) {
+			pthread_attr_t a; pthread_attr_init(&a); pthread_attr_setstacksize(&a, 2 << 20);
+			pthread_t t; pthread_create(&t, &a, &GxWorkers::main, this); pthread_detach(t);
+			pthread_attr_destroy(&a);
+		}
+	}
+	void run(int n, std::function<void(int)> f)
+	{
+		{ std::lock_guard<std::mutex> l(m); job = std::move(f); count = n; next = 0; busy = threads; gen++; }
+		wake.notify_all();
+		work();	// the game thread takes searches too
+		std::unique_lock<std::mutex> l(m);
+		done.wait(l, [&] { return busy == 0; });
+	}
+};
+GxWorkers s_gxWorkers;
+
+struct GxSpec {
+	ObjectID id; int kind;	// 1 findClosestPath (approach), 2 findPath (computePath)
+	Coord3D from, to; Bool blocked; Real mult; const LocomotorSet *loco;
+	ObjectID ignoreIn; Bool tunnelIn, fixedIn;
+	Path *path; Coord3D toOut; GxSearchCtx *ctx; bool used;
+	// computePath: when findPath finds nothing it always asks findClosestPath next, same object and
+	// destination, nothing in between; both are made ahead in one go and used together
+	bool has3, await3, await3v; Path *path3; Coord3D toOut3;
+	double ms; int thread;
+};
+std::vector<GxSpec> s_gxSpecs;
+std::vector<std::unique_ptr<GxSearchCtx>> s_gxCtxs;
+std::vector<unsigned char> s_gxZoneAtStart;
+int s_gxStatSpecs = 0, s_gxStatHits = 0, s_gxStatChanged = 0, s_gxStatAborted = 0, s_gxStatUnused = 0, s_gxStatVerified = 0, s_gxStatMismatch = 0, s_gxStatFrames = 0;
+bool s_gxActive = false;
+double s_gxSerialMs = 0, s_gxSpecMs = 0; int s_gxTimed = 0, s_gxSlowLogged = 0;
+double s_gxWaveMs = 0, s_gxQueueMs = 0, s_gxQueueSlowMs = 0, s_gxQueueMax = 0; int s_gxQueueFrames = 0, s_gxQueueSlow = 0;
+int s_gxServed = 4;	// requests the queue served last frame: how many to make ahead
+const int GX_PAR_WORKERS = 3, GX_PAR_AHEAD = 24;
+
+bool gxSamePath(Path *a, Path *b)
+{
+	if (!a || !b) return a == b;
+	PathNode *x = a->getFirstNode(), *y = b->getFirstNode();
+	for (; x && y; x = x->getNext(), y = y->getNext()) {
+		const Coord3D *p = x->getPosition(), *q = y->getPosition();
+		if (p->x != q->x || p->y != q->y || p->z != q->z || x->getLayer() != y->getLayer() || x->getCanOptimize() != y->getCanOptimize()) return false;
+		if ((x->getNextOptimized() == nullptr) != (y->getNextOptimized() == nullptr)) return false;
+	}
+	return !x && !y;
+}
+}
+
+void Pathfinder::gxSpeculatePaths()
+{
+	s_gxActive = false;
+	if (!(GLES3_Page_Switches() & 536870912) || s_useFixedPathfinding) return;
+	s_gxSpecs.clear();
+	const int ahead = std::min(GX_PAR_AHEAD, s_gxServed + 1);
+	for (Int q = m_queuePRHead, n = 0; q != m_queuePRTail && n < ahead; q = (q + 1) % PATHFIND_QUEUE_LEN, ++n) {
+		Object *obj = TheGameLogic->findObjectByID(m_queuedPathfindRequests[q]);
+		AIUpdateInterface *ai = obj ? obj->getAIUpdateInterface() : nullptr;
+		if (!ai) continue;
+		GxSpec s; memset((void *)&s, 0, sizeof(s));
+		s.kind = ai->gxPredictSearch(&s.to, &s.blocked, &s.ignoreIn);
+		if (!s.kind) continue;
+		bool dup = false;	// one per object (a second one would see the first one's results)
+		for (const GxSpec &o : s_gxSpecs) dup |= o.id == obj->getID();
+		if (dup) continue;
+		s.id = obj->getID(); s.from = *obj->getPosition(); s.loco = &ai->getLocomotorSet();
+		s.mult = 0.2f;
+		if (s.kind == 1) s.ignoreIn = m_ignoreObstacleID;
+		s.tunnelIn = m_isTunneling; s.fixedIn = s_useFixedPathfinding;
+		s_gxSpecs.push_back(s);
+	}
+	if (s_gxSpecs.size() < 2) { s_gxSpecs.clear(); return; }	// nothing to overlap
+
+	ICoord2D ze; m_zoneManager.getExtent(ze);
+	s_gxZoneAtStart.assign((size_t)ze.x * ze.y, 0);
+	for (Int bx = 0; bx < ze.x; ++bx)
+		for (Int by = 0; by < ze.y; ++by)
+			s_gxZoneAtStart[(size_t)bx * ze.y + by] = m_zoneManager.isPassable(bx * PathfindZoneManager::ZONE_BLOCK_SIZE, by * PathfindZoneManager::ZONE_BLOCK_SIZE) ? 1 : 0;
+	while (s_gxCtxs.size() < s_gxSpecs.size()) s_gxCtxs.emplace_back(new GxSearchCtx());
+	for (size_t i = 0; i < s_gxSpecs.size(); ++i) s_gxSpecs[i].ctx = s_gxCtxs[i].get();
+
+	s_gxCellBase = m_blockOfMapCells; s_gxCellCount = (size_t)(m_extent.hi.x + 1) * (m_extent.hi.y + 1);	// as allocated in newMap
+	s_gxWorkers.start(GX_PAR_WORKERS);
+	const double waveStart = emscripten_get_now();
+	g_gxPoolLocking.store(true, std::memory_order_release);
+	s_gxWorkers.run((int)s_gxSpecs.size(), [this](int i) {
+		GxSpec &s = s_gxSpecs[i];
+		GxSearchCtx *c = s.ctx;
+		s.thread = (int)(uintptr_t)pthread_self();
+		const double t0 = emscripten_get_now();
+		c->reset();
+		c->zone = s_gxZoneAtStart; c->isTunneling = s.tunnelIn; c->ignoreObstacleID = s.ignoreIn;
+		Object *obj = TheGameLogic->findObjectByID(s.id);
+		tl_gxCtx = c;
+		Coord3D to = s.to;
+		if (s.kind == 1) s.path = findClosestPath(obj, *s.loco, &s.from, &to, s.blocked, s.mult, FALSE);
+		else s.path = findPath(obj, *s.loco, &s.from, &to);
+		s.toOut = to;
+		if (s.kind == 2 && !s.path && !c->aborted) {
+			Coord3D to3 = s.to;
+			s.path3 = findClosestPath(obj, *s.loco, &s.from, &to3, FALSE, 0.0f, FALSE);
+			s.toOut3 = to3; s.has3 = true;
+		}
+		tl_gxCtx = nullptr;
+		s.ms = emscripten_get_now() - t0;
+	});
+	g_gxPoolLocking.store(false, std::memory_order_release);
+	s_gxWaveMs += emscripten_get_now() - waveStart;
+	if (s_gxStatFrames % 50 == 0) {
+		double tot = 0, mx = 0; std::vector<int> th;
+		for (const GxSpec &sp : s_gxSpecs) { tot += sp.ms; mx = std::max(mx, sp.ms); if (std::find(th.begin(), th.end(), sp.thread) == th.end()) th.push_back(sp.thread); }
+		printf("GXPAR wave %d: %d searches on %d threads, %.1f ms of searching, longest %.1f ms, wave %.1f ms\n", s_gxStatFrames, (int)s_gxSpecs.size(), (int)th.size(), tot, mx, emscripten_get_now() - waveStart);
+	}
+	if (s_gxStatFrames < 5)
+		for (const GxSpec &sp : s_gxSpecs)
+			printf("GXPAR wave %d: object %u kind %d %s, %d cells read, %d infos, pool peak %d%s\n", s_gxStatFrames, (unsigned)sp.id, sp.kind,
+				sp.path ? "path" : "no path", (int)sp.ctx->reads.size(), (int)sp.ctx->used, sp.ctx->poolPeak, sp.ctx->aborted ? ", not reproducible" : "");
+	g_gxEpoch++;
+	g_gxDirtyTracking = true;
+	s_gxActive = true;
+	s_gxStatSpecs += (int)s_gxSpecs.size();
+	s_gxStatFrames++;
+}
+
+// A search made ahead for exactly this call, from the same state: its result, its state written back.
+static Bool gxUseSpec(Pathfinder *pf, GxSpec &s, Path *&out, Coord3D *rawTo, Bool &tunnel, ObjectID &ignore, Int &cells, PathfindZoneManager &zm)
+{
+	s.used = true;
+	GxSearchCtx *c = s.ctx;
+	bool ok = !c->aborted && s.tunnelIn == tunnel && s.ignoreIn == ignore && s.fixedIn == s_useFixedPathfinding && g_gxFreeCellInfos >= c->poolPeak;
+	if (c->aborted) s_gxStatAborted++;
+	if (ok) for (const PathfindCell *r : c->reads) if (gxIsDirty(r)) { ok = false; break; }
+	if (ok) {
+		for (const GxSearchCtx::Slot &sl : c->slots) if (sl.state && gxIsDirty(sl.cell)) { ok = false; break; }
+	}
+	if (ok && c->field >= 0 && !gxFieldStillSame(c->field, c->fieldSerial, c->fieldBorn)) ok = false;
+	if (!ok) {
+		if (!c->aborted) s_gxStatChanged++;
+		if (s.path) { deleteInstance(s.path); s.path = nullptr; }
+		if (s.path3) { deleteInstance(s.path3); s.path3 = nullptr; }
+		return false;
+	}
+	c->writeBack();
+	tunnel = c->isTunneling; ignore = c->ignoreObstacleID; cells += c->cells;
+	ICoord2D ze; zm.getExtent(ze);
+	for (Int bx = 0; bx < ze.x; ++bx)
+		for (Int by = 0; by < ze.y; ++by)
+			zm.setPassable(bx * PathfindZoneManager::ZONE_BLOCK_SIZE, by * PathfindZoneManager::ZONE_BLOCK_SIZE, c->zone[(size_t)bx * ze.y + by] != 0);
+	if (rawTo) *rawTo = s.toOut;
+	out = s.path; s.path = nullptr;
+	s.await3 = s.has3;	// the state written back already includes the findClosestPath that follows
+	s_gxStatHits++;
+	return true;
+}
+
+Bool Pathfinder::gxTakeClosest(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies)
+{
+	if (!s_gxActive || !obj) return false;
+	for (GxSpec &s : s_gxSpecs) {	// verify mode: the normal findClosestPath after an empty findPath, compared with the one made ahead
+		if (!s.await3v) continue;
+		s.await3v = false;
+		Coord3D serialTo = *rawTo;
+		s_gxActive = false;
+		Path *serial = findClosestPath(obj, locomotorSet, from, &serialTo, blocked, pathCostMultiplier, moveAllies);
+		s_gxActive = true;
+		s_gxStatVerified++;
+		if (!gxSamePath(serial, s.path3) || serialTo.x != s.toOut3.x || serialTo.y != s.toOut3.y || serialTo.z != s.toOut3.z
+				|| s.ctx->isTunneling != m_isTunneling || s.ctx->ignoreObstacleID != m_ignoreObstacleID) {
+			s_gxStatMismatch++;
+			printf("GXPAR mismatch %d: object %u closest path after findPath (threaded %s, normal %s)\n", s_gxStatMismatch, (unsigned)s.id, s.path3 ? "path" : "none", serial ? "path" : "none");
+		}
+		if (s.path3) { deleteInstance(s.path3); s.path3 = nullptr; }
+		*rawTo = serialTo;
+		out = serial;
+		return true;
+	}
+	for (GxSpec &s : s_gxSpecs) {
+		if (!s.await3) continue;
+		s.await3 = false;
+		if (s.id != obj->getID() || moveAllies || blocked || pathCostMultiplier != 0.0f || s.loco != &locomotorSet
+				|| s.from.x != from->x || s.from.y != from->y || s.from.z != from->z || s.to.x != rawTo->x || s.to.y != rawTo->y || s.to.z != rawTo->z) {
+			printf("GXPAR error: the findClosestPath after an empty findPath was not the one expected (object %u)\n", (unsigned)s.id);
+			DEBUG_CRASH(("parallelPaths chain broken"));
+			return false;
+		}
+		*rawTo = s.toOut3;
+		out = s.path3; s.path3 = nullptr;
+		s_gxStatHits++;
+		return true;
+	}
+	if (moveAllies) return false;
+	for (GxSpec &s : s_gxSpecs) {
+		if (s.used || s.kind != 1 || s.id != obj->getID()) continue;
+		if (s.loco != &locomotorSet || s.blocked != blocked || s.mult != pathCostMultiplier) return false;
+		if (s.from.x != from->x || s.from.y != from->y || s.from.z != from->z || s.to.x != rawTo->x || s.to.y != rawTo->y || s.to.z != rawTo->z) return false;
+		const bool verify = (GLES3_Page_Switches() & 2097152) != 0;
+		Coord3D serialTo = *rawTo;
+		Path *serial = nullptr;
+		if (verify) {	// the normal search too, from the same state; its result is the one used
+			s.used = true;
+			GxSearchCtx *c = s.ctx;
+			bool same = !c->aborted && s.tunnelIn == m_isTunneling && s.ignoreIn == m_ignoreObstacleID && g_gxFreeCellInfos >= c->poolPeak;
+			for (const PathfindCell *r : c->reads) if (gxIsDirty(r)) { same = false; break; }
+			s_gxActive = false;
+			serial = findClosestPath(obj, locomotorSet, from, &serialTo, blocked, pathCostMultiplier, moveAllies);
+			s_gxActive = true;
+			if (same) {
+				s_gxStatVerified++;
+				const bool match = gxSamePath(serial, s.path) && serialTo.x == s.toOut.x && serialTo.y == s.toOut.y && serialTo.z == s.toOut.z
+					&& c->isTunneling == m_isTunneling && c->ignoreObstacleID == m_ignoreObstacleID;
+				if (!match) {
+					s_gxStatMismatch++;
+					printf("GXPAR mismatch %d: object %u closest path (threaded %s, normal %s)\n", s_gxStatMismatch, (unsigned)s.id, s.path ? "path" : "none", serial ? "path" : "none");
+				}
+			}
+			if (s.path) { deleteInstance(s.path); s.path = nullptr; }
+			*rawTo = serialTo;
+			out = serial;
+			return true;
+		}
+		return gxUseSpec(this, s, out, rawTo, m_isTunneling, m_ignoreObstacleID, m_cumulativeCellsAllocated, m_zoneManager);
+	}
+	return false;
+}
+
+Bool Pathfinder::gxTakeFind(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo)
+{
+	if (!s_gxActive || !obj) return false;
+	for (GxSpec &s : s_gxSpecs) {
+		if (s.used || s.kind != 2 || s.id != obj->getID()) continue;
+		if (s.loco != &locomotorSet) return false;
+		if (s.from.x != from->x || s.from.y != from->y || s.from.z != from->z || s.to.x != rawTo->x || s.to.y != rawTo->y || s.to.z != rawTo->z) return false;
+		if (GLES3_Page_Switches() & 2097152) {
+			s.used = true;
+			GxSearchCtx *c = s.ctx;
+			bool same = !c->aborted && s.tunnelIn == m_isTunneling && s.ignoreIn == m_ignoreObstacleID && g_gxFreeCellInfos >= c->poolPeak;
+			for (const PathfindCell *r : c->reads) if (gxIsDirty(r)) { same = false; break; }
+			s_gxActive = false;
+			const double t0 = emscripten_get_now();
+			Path *serial = findPath(obj, locomotorSet, from, rawTo);
+			const double nms = emscripten_get_now() - t0;
+			if (same && !s.has3) {
+				s_gxSerialMs += nms; s_gxSpecMs += s.ms; s_gxTimed++;
+				if (s.ms > 5 && s.ms > 3 * nms && s_gxSlowLogged++ < 40)
+					printf("GXPAR slow: object %u findPath made ahead %.1f ms, normal %.1f ms; %d cells read, %d infos, %d copied/fresh peak %d, field %d\n",
+						(unsigned)s.id, s.ms, nms, (int)c->reads.size(), (int)c->used, (int)c->slots.size(), c->poolPeak, c->field);
+			}
+			s_gxActive = true;
+			if (same) {
+				s_gxStatVerified++;
+				// with a findClosestPath made after it, the state is compared after that one
+				if (!gxSamePath(serial, s.path) || (!s.has3 && (c->isTunneling != m_isTunneling || c->ignoreObstacleID != m_ignoreObstacleID))) {
+					s_gxStatMismatch++;
+					printf("GXPAR mismatch %d: object %u path (threaded %s, normal %s)\n", s_gxStatMismatch, (unsigned)s.id, s.path ? "path" : "none", serial ? "path" : "none");
+				}
+			}
+			if (s.path) { deleteInstance(s.path); s.path = nullptr; }
+			if (same && s.has3 && !serial) s.await3v = true;	// compare the findClosestPath that follows too
+			else if (s.path3) { deleteInstance(s.path3); s.path3 = nullptr; }
+			out = serial;
+			return true;
+		}
+		return gxUseSpec(this, s, out, nullptr, m_isTunneling, m_ignoreObstacleID, m_cumulativeCellsAllocated, m_zoneManager);
+	}
+	return false;
+}
+
+void Pathfinder::gxEndSpeculation()
+{
+	if (!s_gxActive) return;
+	for (GxSpec &s : s_gxSpecs) {
+		if (!s.used) s_gxStatUnused++;
+		if (s.await3) printf("GXPAR error: findPath used, the findClosestPath after it never came (object %u)\n", (unsigned)s.id);
+		if (s.path) { deleteInstance(s.path); s.path = nullptr; }
+		if (s.path3) { deleteInstance(s.path3); s.path3 = nullptr; }
+	}
+	s_gxSpecs.clear();
+	s_gxActive = false;
+	g_gxDirtyTracking = false;
+	if (s_gxStatFrames % 100 == 0 && s_gxTimed)
+		printf("GXPAR timing: %d searches, normal %.1f ms, made ahead %.1f ms\n", s_gxTimed, s_gxSerialMs, s_gxSpecMs);
+	if (s_gxStatFrames % 100 == 0)
+		printf("GXPAR %d frames: %d searches made ahead, %d used, %d redone (a cell changed), %d redone (not reproducible), %d not asked for; verified %d, mismatches %d; waves %.0f ms\n",
+			s_gxStatFrames, s_gxStatSpecs, s_gxStatHits, s_gxStatChanged, s_gxStatAborted, s_gxStatUnused, s_gxStatVerified, s_gxStatMismatch, s_gxWaveMs);
+}
+
+// from here on the per-search members are the worker's own while it searches
+#define m_openList gxS_openList()
+#define m_closedList gxS_closedList()
+#define m_isTunneling gxS_isTunneling()
+#define m_cumulativeCellsAllocated gxS_cells()
+#define m_ignoreObstacleID gxS_ignoreObstacleID()
+#endif
+
 static inline Bool IS_IMPASSABLE(PathfindCell::CellType type) {
 	// Return true if cell is impassable to ground units. jba. [8/18/2003]
 	if (type==PathfindCell::CELL_IMPASSABLE) {
@@ -1106,6 +1626,9 @@ Real Path::computeFlightDistToGoal( const Coord3D *pos, Coord3D& goalPos )
 }
 //-----------------------------------------------------------------------------------
 
+#if defined(GX_PARALLEL_PATHS)
+void gxCtxAbort();	// a worker's search can't be reproduced exactly: its result is not used
+#endif
 PathfindCellInfo *PathfindCellInfo::s_infoArray = nullptr;
 PathfindCellInfo *PathfindCellInfo::s_firstFree = nullptr;
 
@@ -1127,6 +1650,9 @@ void PathfindCellInfo::forceCleanPathFindCellInfos()
 
 void Pathfinder::forceCleanCells()
 {
+#if defined(GX_PARALLEL_PATHS)
+	if (tl_gxCtx) { gxCtxAbort(); return; }
+#endif
 	UnicodeString pathfinderFailoverMessage = TheGameText->FETCH_OR_SUBSTITUTE("GUI:PathfindingCrashPrevented", L"A pathfinding crash was prevented, now switching to the crash fixed pathfinding.");
 	TheInGameUI->message(pathfinderFailoverMessage);
 
@@ -1165,6 +1691,9 @@ void PathfindCellInfo::allocateCellInfos()
 	s_infoArray[CELL_INFOS_TO_ALLOCATE-1].m_pathParent = nullptr;
 	s_infoArray[CELL_INFOS_TO_ALLOCATE-1].m_isFree = true;
 	s_firstFree = s_infoArray;
+#if defined(GX_PARALLEL_PATHS)
+	g_gxFreeCellInfos = CELL_INFOS_TO_ALLOCATE;
+#endif
 	for (Int i=0; i<CELL_INFOS_TO_ALLOCATE-1; i++) {
 		s_infoArray[i].m_pathParent = &s_infoArray[i+1];
 		s_infoArray[i].m_isFree = true;
@@ -1200,6 +1729,9 @@ PathfindCellInfo *PathfindCellInfo::getACellInfo(PathfindCell *cell,const ICoord
 	if (s_firstFree) {
 		DEBUG_ASSERTCRASH(s_firstFree->m_isFree, ("Should be freed."));
 		s_firstFree = s_firstFree->m_pathParent;
+#if defined(GX_PARALLEL_PATHS)
+		g_gxFreeCellInfos--;
+#endif
 		info->m_isFree = false;  // Just allocated it.
 		info->m_cell = cell;
 		info->m_pos = pos;
@@ -1232,6 +1764,9 @@ void PathfindCellInfo::releaseACellInfo(PathfindCellInfo *theInfo)
 	//DEBUG_ASSERTCRASH(theInfo->m_obstacleID==0, ("Shouldn't be obstacle."));
 	theInfo->m_pathParent = s_firstFree;
 	s_firstFree = theInfo;
+#if defined(GX_PARALLEL_PATHS)
+	g_gxFreeCellInfos++;
+#endif
 	s_firstFree->m_isFree = true;
 }
 
@@ -1264,6 +1799,9 @@ PathfindCell::~PathfindCell()
  */
 void PathfindCell::reset()
 {
+#if defined(GX_PARALLEL_PATHS)
+	if (g_gxDirtyTracking) gxMarkDirty(this);
+#endif
 	m_type = PathfindCell::CELL_CLEAR;
 	m_flags = PathfindCell::NO_UNITS;
 	m_zone = 0;
@@ -1289,24 +1827,24 @@ void PathfindCell::reset()
  */
 Bool PathfindCell::startPathfind( PathfindCell *goalCell  )
 {
-	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
-	m_info->m_nextOpen = nullptr;
-	m_info->m_prevOpen = nullptr;
-	m_info->m_pathParent = nullptr;
-	m_info->m_costSoFar = 0;		// start node, no cost to get here
-	m_info->m_totalCost = 0;
+	DEBUG_ASSERTCRASH(I(), ("Has to have info."));
+	I()->m_nextOpen = nullptr;
+	I()->m_prevOpen = nullptr;
+	I()->m_pathParent = nullptr;
+	I()->m_costSoFar = 0;		// start node, no cost to get here
+	I()->m_totalCost = 0;
 	if (goalCell) {
-		m_info->m_totalCost = costToGoal( goalCell );
+		I()->m_totalCost = costToGoal( goalCell );
 	}
 #if RETAIL_COMPATIBLE_PATHFINDING
 	if (!s_useFixedPathfinding) {
-		m_info->m_open = TRUE;
+		I()->m_open = TRUE;
 	} else
 #endif
 	{
-		m_info->m_open = FALSE;
+		I()->m_open = FALSE;
 	}
-	m_info->m_closed = FALSE;
+	I()->m_closed = FALSE;
 	return true;
 }
 
@@ -1320,7 +1858,7 @@ inline Bool PathfindCell::isBlockedByAlly() const
 		return m_blockedByAlly;
 	}
 
-	return m_info->m_blockedByAlly;
+	return I()->m_blockedByAlly;
 #else
 	return m_blockedByAlly;
 #endif
@@ -1334,7 +1872,7 @@ inline void PathfindCell::setBlockedByAlly(Bool blocked)
 		return;
 	}
 
-	m_info->m_blockedByAlly = (blocked != 0);
+	I()->m_blockedByAlly = (blocked != 0);
 #else
 	m_blockedByAlly = (blocked != 0);
 #endif
@@ -1345,10 +1883,10 @@ inline void PathfindCell::setBlockedByAlly(Bool blocked)
  */
 void PathfindCell::setParentCell( PathfindCell* parent  )
 {
-	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
-	m_info->m_pathParent = parent->m_info;
-	Int dx = m_info->m_pos.x - parent->m_info->m_pos.x;
-	Int dy = m_info->m_pos.y - parent->m_info->m_pos.y;
+	DEBUG_ASSERTCRASH(I(), ("Has to have info."));
+	I()->m_pathParent = parent->I();
+	Int dx = I()->m_pos.x - parent->I()->m_pos.x;
+	Int dy = I()->m_pos.y - parent->I()->m_pos.y;
 	if (dx<-1 || dx>1 || dy<-1 || dy>1) {
 		DEBUG_CRASH(("Invalid parent index."));
 	}
@@ -1359,8 +1897,8 @@ void PathfindCell::setParentCell( PathfindCell* parent  )
  */
 void PathfindCell::setParentCellHierarchical( PathfindCell* parent  )
 {
-	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
-	m_info->m_pathParent = parent->m_info;
+	DEBUG_ASSERTCRASH(I(), ("Has to have info."));
+	I()->m_pathParent = parent->I();
 }
 
 /**
@@ -1368,16 +1906,24 @@ void PathfindCell::setParentCellHierarchical( PathfindCell* parent  )
  */
 void PathfindCell::clearParentCell(  )
 {
-	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
-	m_info->m_pathParent = nullptr;
+	DEBUG_ASSERTCRASH(I(), ("Has to have info."));
+	I()->m_pathParent = nullptr;
 }
 
 
 /**
  * Allocates an info record for a cell.
  */
+#if defined(GX_PARALLEL_PATHS)
+bool gxCtxAllocate(PathfindCell *cell, const ICoord2D &pos);
+bool gxCtxRelease(PathfindCell *cell);
+#endif
 Bool PathfindCell::allocateInfo( const ICoord2D &pos )
 {
+#if defined(GX_PARALLEL_PATHS)
+	if (tl_gxCtx) return gxCtxAllocate(this, pos);
+	if (g_gxDirtyTracking && !m_info) gxMarkDirty(this);	// an info appears
+#endif
 	if (!m_info) {
 		m_info = PathfindCellInfo::getACellInfo(this, pos);
 		return (m_info != nullptr);
@@ -1390,6 +1936,9 @@ Bool PathfindCell::allocateInfo( const ICoord2D &pos )
  */
 void PathfindCell::releaseInfo()
 {
+#if defined(GX_PARALLEL_PATHS)
+	if (tl_gxCtx) { gxCtxRelease(this); return; }
+#endif
 	// TheSuperHackers @bugfix Mauller/SkyAero 05/06/2025 Parent cell links need clearing to prevent dangling pointers on starting points that can link them to an invalid parent cell.
 	// Parent cells are only cleared within Pathfinder::prependCells, so cells that do not make it onto the final path do not get their parent cell cleared.
 	// Cells with a special flags also do not get their PathfindCellInfo cleared and therefore can leave a parent cell set on a starting cell.
@@ -1419,6 +1968,9 @@ void PathfindCell::releaseInfo()
 		return;
 	}
 
+#if defined(GX_PARALLEL_PATHS)
+	if (g_gxDirtyTracking) gxMarkDirty(this);	// the info goes
+#endif
 	PathfindCellInfo::releaseACellInfo(m_info);
 	m_info = nullptr;
 
@@ -1429,6 +1981,9 @@ void PathfindCell::releaseInfo()
  */
 void PathfindCell::setGoalUnit(ObjectID unitID, const ICoord2D &pos )
 {
+#if defined(GX_PARALLEL_PATHS)
+	if (g_gxDirtyTracking) gxMarkDirty(this);
+#endif
 	if (unitID==INVALID_ID) {
 		// removing goal.
 		if (m_info) {
@@ -1471,6 +2026,9 @@ void PathfindCell::setGoalUnit(ObjectID unitID, const ICoord2D &pos )
  */
 void PathfindCell::setGoalAircraft(ObjectID unitID, const ICoord2D &pos )
 {
+#if defined(GX_PARALLEL_PATHS)
+	if (g_gxDirtyTracking) gxMarkDirty(this);
+#endif
 	if (unitID==INVALID_ID) {
 		// removing goal.
 		if (m_info) {
@@ -1501,6 +2059,9 @@ void PathfindCell::setGoalAircraft(ObjectID unitID, const ICoord2D &pos )
  */
 void PathfindCell::setPosUnit(ObjectID unitID, const ICoord2D &pos )
 {
+#if defined(GX_PARALLEL_PATHS)
+	if (g_gxDirtyTracking) gxMarkDirty(this);
+#endif
 	if (unitID==INVALID_ID) {
 		// removing position.
 		if (m_info) {
@@ -1565,6 +2126,9 @@ inline ObjectID PathfindCell::getObstacleID() const
  */
 Bool PathfindCell::setTypeAsObstacle( Object *obstacle, Bool isFence, const ICoord2D &pos )
 {
+#if defined(GX_PARALLEL_PATHS)
+	if (g_gxDirtyTracking) gxMarkDirty(this);
+#endif
 	if (m_type!=PathfindCell::CELL_CLEAR && m_type != PathfindCell::CELL_IMPASSABLE) {
 		return false;
 	}
@@ -1623,6 +2187,9 @@ Bool PathfindCell::setTypeAsObstacle( Object *obstacle, Bool isFence, const ICoo
  */
 void PathfindCell::setType( CellType type )
 {
+#if defined(GX_PARALLEL_PATHS)
+	if (g_gxDirtyTracking) gxMarkDirty(this);
+#endif
 #if RETAIL_COMPATIBLE_PATHFINDING_ALLOCATION
 	if (s_useFixedPathfinding) {
 		if (m_obstacleID != INVALID_ID) {
@@ -1653,6 +2220,9 @@ void PathfindCell::setType( CellType type )
  */
 Bool PathfindCell::removeObstacle( Object *obstacle )
 {
+#if defined(GX_PARALLEL_PATHS)
+	if (g_gxDirtyTracking) gxMarkDirty(this);
+#endif
 	if (m_type == PathfindCell::CELL_RUBBLE) {
 		m_type = PathfindCell::CELL_CLEAR;
 	}
@@ -1685,79 +2255,80 @@ Bool PathfindCell::removeObstacle( Object *obstacle )
 /// put self on "open" list in ascending cost order, return new list
 void PathfindCell::putOnSortedOpenList( PathfindCellList &list )
 {
-	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
-	DEBUG_ASSERTCRASH(m_info->m_closed == FALSE && m_info->m_open == FALSE, ("Serious error - Invalid flags. jba"));
+	DEBUG_ASSERTCRASH(I(), ("Has to have info."));
+	DEBUG_ASSERTCRASH(I()->m_closed == FALSE && I()->m_open == FALSE, ("Serious error - Invalid flags. jba"));
 
 	// mark the newCell as being on the open list
-	m_info->m_open = true;
-	m_info->m_closed = false;
+	I()->m_open = true;
+	I()->m_closed = false;
 
 	if (list.m_head == nullptr)
 	{
 		list.m_head = this;
-		m_info->m_prevOpen = nullptr;
-		m_info->m_nextOpen = nullptr;
+		I()->m_prevOpen = nullptr;
+		I()->m_nextOpen = nullptr;
 		return;
 	}
 
-	// insertion sort
-	PathfindCell* currentCell = list.m_head;
-	PathfindCell* previousCell = nullptr;
+	// insertion sort (walks the infos' own links: the same list, without looking each cell's info up again)
+	PathfindCellInfo *me = I();
+	PathfindCellInfo *cur = list.m_head->I();
+	PathfindCellInfo *prev = nullptr;
 #if RETAIL_COMPATIBLE_PATHFINDING
 	// TheSuperHackers @bugfix In the retail compatible pathfinding, on rare occasions, we get stuck in an infinite loop
 	// External code should pickup on the bad behaviour and cleanup properly, but we need to explicitly break out here
 	// The fixed pathfinding does not have this issue due to the proper cleanup of pathfindCells and their pathfindCellInfos
 	UnsignedInt cellCount = 0;
-	while (currentCell && cellCount < PATHFIND_CELLS_PER_FRAME && currentCell->m_info->m_totalCost <= m_info->m_totalCost)
+	while (cur && cellCount < PATHFIND_CELLS_PER_FRAME && cur->m_totalCost <= me->m_totalCost)
 	{
 		cellCount++;
 #else
-	while (currentCell && currentCell->m_info->m_totalCost <= m_info->m_totalCost)
+	while (cur && cur->m_totalCost <= me->m_totalCost)
 	{
 #endif
-		previousCell = currentCell;
-		currentCell = currentCell->getNextOpen();
+		prev = cur;
+		cur = cur->m_nextOpen;
 	}
 
-	if (currentCell)
+	if (cur)
 	{
-		// insert just before "currentCell"
-		if (currentCell->m_info->m_prevOpen)
-			currentCell->m_info->m_prevOpen->m_nextOpen = this->m_info;
+		// insert just before "cur"
+		if (cur->m_prevOpen)
+			cur->m_prevOpen->m_nextOpen = me;
 		else
 			list.m_head = this;
 
-		m_info->m_prevOpen = currentCell->m_info->m_prevOpen;
-		currentCell->m_info->m_prevOpen = this->m_info;
+		me->m_prevOpen = cur->m_prevOpen;
+		cur->m_prevOpen = me;
 
-		m_info->m_nextOpen = currentCell->m_info;
+		me->m_nextOpen = cur;
 
 	}
 	else
 	{
-		// append after "previousCell" - we are at the end of the list
-		previousCell->m_info->m_nextOpen = this->m_info;
-		m_info->m_prevOpen = previousCell->m_info;
-		m_info->m_nextOpen = nullptr;
+		// append after "prev" - we are at the end of the list
+		prev->m_nextOpen = me;
+		me->m_prevOpen = prev;
+		me->m_nextOpen = nullptr;
 	}
 }
 
 /// remove self from "open" list
 void PathfindCell::removeFromOpenList( PathfindCellList &list )
 {
-	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
-	DEBUG_ASSERTCRASH(m_info->m_closed==FALSE && m_info->m_open==TRUE, ("Serious error - Invalid flags. jba"));
-	if (m_info->m_nextOpen)
-		m_info->m_nextOpen->m_prevOpen = m_info->m_prevOpen;
+	DEBUG_ASSERTCRASH(I(), ("Has to have info."));
+	DEBUG_ASSERTCRASH(I()->m_closed==FALSE && I()->m_open==TRUE, ("Serious error - Invalid flags. jba"));
+	if (I()->m_nextOpen)
+		I()->m_nextOpen->m_prevOpen = I()->m_prevOpen;
 
-	if (m_info->m_prevOpen)
-		m_info->m_prevOpen->m_nextOpen = m_info->m_nextOpen;
+	if (I()->m_prevOpen)
+		I()->m_prevOpen->m_nextOpen = I()->m_nextOpen;
 	else
 		list.m_head = getNextOpen();
 
-	m_info->m_open = false;
-	m_info->m_nextOpen = nullptr;
-	m_info->m_prevOpen = nullptr;
+	I()->m_open = false;
+	I()->m_nextOpen = nullptr;
+	I()->m_prevOpen = nullptr;
 
 }
 
@@ -1767,16 +2338,19 @@ Int PathfindCell::releaseOpenList( PathfindCellList &list )
 	Int count = 0;
 	while (list.m_head) {
 		count++;
-		DEBUG_ASSERTCRASH(list.m_head->m_info, ("Has to have info."));
-		DEBUG_ASSERTCRASH(list.m_head->m_info->m_closed==FALSE && list.m_head->m_info->m_open==TRUE, ("Serious error - Invalid flags. jba"));
+		DEBUG_ASSERTCRASH(list.m_head->I(), ("Has to have info."));
+		DEBUG_ASSERTCRASH(list.m_head->I()->m_closed==FALSE && list.m_head->I()->m_open==TRUE, ("Serious error - Invalid flags. jba"));
 		PathfindCell *cur = list.m_head;
-		PathfindCellInfo *curInfo = list.m_head->m_info;
+		PathfindCellInfo *curInfo = list.m_head->I();
 
 #if RETAIL_COMPATIBLE_PATHFINDING
 		// TheSuperHackers @info This is only here to catch a crash point in the retail compatible pathfinding
 		// One crash mode is where a cell has no PathfindCellInfo, resulting in a nullptr access and a crash.
 		// Therefore we signal that we need to clean the maps cells and the PathfindCellInfos
 		if(!curInfo && !s_useFixedPathfinding) {
+#if defined(GX_PARALLEL_PATHS)
+			if (tl_gxCtx) { gxCtxAbort(); list.m_head = nullptr; return count; }	// a worker: this search is redone the normal way
+#endif
 			s_useFixedPathfinding = true;
 			s_forceCleanCells = true;
 			return count;
@@ -1803,15 +2377,18 @@ Int PathfindCell::releaseClosedList( PathfindCellList &list )
 	Int count = 0;
 	while (list.m_head) {
 		count++;
-		DEBUG_ASSERTCRASH(list.m_head->m_info, ("Has to have info."));
-		DEBUG_ASSERTCRASH(list.m_head->m_info->m_closed==TRUE && list.m_head->m_info->m_open==FALSE, ("Serious error - Invalid flags. jba"));
+		DEBUG_ASSERTCRASH(list.m_head->I(), ("Has to have info."));
+		DEBUG_ASSERTCRASH(list.m_head->I()->m_closed==TRUE && list.m_head->I()->m_open==FALSE, ("Serious error - Invalid flags. jba"));
 		PathfindCell *cur = list.m_head;
-		PathfindCellInfo *curInfo = list.m_head->m_info;
+		PathfindCellInfo *curInfo = list.m_head->I();
 #if RETAIL_COMPATIBLE_PATHFINDING
 		// TheSuperHackers @info This is only here to catch a crash point in the retail compatible pathfinding
 		// One crash mode is where a cell has no PathfindCellInfo, resulting in a nullptr access and a crash.
 		// Therefore we signal that we need to clean the maps cells and the PathfindCellInfos
 		if(!curInfo && !s_useFixedPathfinding) {
+#if defined(GX_PARALLEL_PATHS)
+			if (tl_gxCtx) { gxCtxAbort(); list.m_head = nullptr; return count; }	// a worker: this search is redone the normal way
+#endif
 			s_useFixedPathfinding = true;
 			s_forceCleanCells = true;
 			return count;
@@ -1835,18 +2412,18 @@ Int PathfindCell::releaseClosedList( PathfindCellList &list )
 /// put self on "closed" list, return new list
 void PathfindCell::putOnClosedList( PathfindCellList &list )
 {
-	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
-	DEBUG_ASSERTCRASH(m_info->m_closed==FALSE && m_info->m_open==FALSE, ("Serious error - Invalid flags. jba"));
+	DEBUG_ASSERTCRASH(I(), ("Has to have info."));
+	DEBUG_ASSERTCRASH(I()->m_closed==FALSE && I()->m_open==FALSE, ("Serious error - Invalid flags. jba"));
 	// only put on list if not already on it
-	if (m_info->m_closed == FALSE)
+	if (I()->m_closed == FALSE)
 	{
-		m_info->m_closed = FALSE;
-		m_info->m_closed = TRUE;
+		I()->m_closed = FALSE;
+		I()->m_closed = TRUE;
 
-		m_info->m_prevOpen = nullptr;
-		m_info->m_nextOpen = list.m_head ? list.m_head->m_info : nullptr;
+		I()->m_prevOpen = nullptr;
+		I()->m_nextOpen = list.m_head ? list.m_head->I() : nullptr;
 		if (list.m_head)
-			list.m_head->m_info->m_prevOpen = this->m_info;
+			list.m_head->I()->m_prevOpen = this->I();
 
 		list.m_head = this;
 	}
@@ -1856,19 +2433,19 @@ void PathfindCell::putOnClosedList( PathfindCellList &list )
 /// remove self from "closed" list
 void PathfindCell::removeFromClosedList( PathfindCellList &list )
 {
-	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
-	DEBUG_ASSERTCRASH(m_info->m_closed==TRUE && m_info->m_open==FALSE, ("Serious error - Invalid flags. jba"));
-	if (m_info->m_nextOpen)
-		m_info->m_nextOpen->m_prevOpen = m_info->m_prevOpen;
+	DEBUG_ASSERTCRASH(I(), ("Has to have info."));
+	DEBUG_ASSERTCRASH(I()->m_closed==TRUE && I()->m_open==FALSE, ("Serious error - Invalid flags. jba"));
+	if (I()->m_nextOpen)
+		I()->m_nextOpen->m_prevOpen = I()->m_prevOpen;
 
-	if (m_info->m_prevOpen)
-		m_info->m_prevOpen->m_nextOpen = m_info->m_nextOpen;
+	if (I()->m_prevOpen)
+		I()->m_prevOpen->m_nextOpen = I()->m_nextOpen;
 	else
 		list.m_head = getNextOpen();
 
-	m_info->m_closed = false;
-	m_info->m_nextOpen = nullptr;
-	m_info->m_prevOpen = nullptr;
+	I()->m_closed = false;
+	I()->m_nextOpen = nullptr;
+	I()->m_prevOpen = nullptr;
 
 }
 
@@ -1935,9 +2512,9 @@ const Real COST_TO_DISTANCE_FACTOR_SQR = COST_TO_DISTANCE_FACTOR*COST_TO_DISTANC
 
 UnsignedInt PathfindCell::costToGoal( PathfindCell *goal )
 {
-	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
-	Int dx = m_info->m_pos.x - goal->getXIndex();
-	Int dy = m_info->m_pos.y - goal->getYIndex();
+	DEBUG_ASSERTCRASH(I(), ("Has to have info."));
+	Int dx = I()->m_pos.x - goal->getXIndex();
+	Int dy = I()->m_pos.y - goal->getYIndex();
 #define NO_REAL_DIST
 #ifdef REAL_DIST
 	Int cost = COST_ORTHOGONAL*sqrt(dx*dx + dy*dy);
@@ -1959,20 +2536,20 @@ UnsignedInt PathfindCell::costToGoal( PathfindCell *goal )
 
 UnsignedInt PathfindCell::costToHierGoal( PathfindCell *goal )
 {
-	if( !m_info )
+	if( !I() )
 	{
 		DEBUG_CRASH( ("Has to have info.") );
 		return 100000; //...patch hack 1.01
 	}
-	Int dx = m_info->m_pos.x - goal->getXIndex();
-	Int dy = m_info->m_pos.y - goal->getYIndex();
+	Int dx = I()->m_pos.x - goal->getXIndex();
+	Int dy = I()->m_pos.y - goal->getYIndex();
 	Int cost = REAL_TO_INT_FLOOR(COST_ORTHOGONAL*sqrt(dx*dx + dy*dy) + 0.5f);
 	return cost;
 }
 
 UnsignedInt PathfindCell::costSoFar( PathfindCell *parent )
 {
-	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
+	DEBUG_ASSERTCRASH(I(), ("Has to have info."));
 	// very first node in path - no turns, no cost
 	if (parent == nullptr)
 		return 0;
@@ -1981,8 +2558,8 @@ UnsignedInt PathfindCell::costSoFar( PathfindCell *parent )
 	ICoord2D prevDir;
 	Int cost;
 
-	prevDir.x = parent->getXIndex() - m_info->m_pos.x;
-	prevDir.y = parent->getYIndex() - m_info->m_pos.y;
+	prevDir.x = parent->getXIndex() - I()->m_pos.x;
+	prevDir.y = parent->getYIndex() - I()->m_pos.y;
 
 	// diagonal moves cost a bit more than orthogonal ones
 	if (prevDir.x == 0 || prevDir.y == 0)
@@ -3025,11 +3602,17 @@ void PathfindZoneManager::updateZonesForModify(PathfindCell **map, PathfindLayer
 //
 // Clear the passable flags.
 //
+#if defined(GX_PARALLEL_PATHS)
+unsigned char *gxCtxZoneFlags();	// a worker's copy of the zone blocks' passable flags (x * extent.y + y), or null
+#endif
 void PathfindZoneManager::clearPassableFlags()
 {	Int blockX;
 	Int blockY;
 	for (blockX = 0; blockX<m_zoneBlockExtent.x; blockX++) {
 		for (blockY = 0; blockY<m_zoneBlockExtent.y; blockY++) {
+#if defined(GX_PARALLEL_PATHS)
+			if (unsigned char *zf = gxCtxZoneFlags()) { zf[blockX * m_zoneBlockExtent.y + blockY] = 0; continue; }
+#endif
 			m_zoneBlocks[blockX][blockY].setPassable(false);
 		}
 	}
@@ -3043,6 +3626,9 @@ void PathfindZoneManager::setAllPassable()
 	Int blockY;
 	for (blockX = 0; blockX<m_zoneBlockExtent.x; blockX++) {
 		for (blockY = 0; blockY<m_zoneBlockExtent.y; blockY++) {
+#if defined(GX_PARALLEL_PATHS)
+			if (unsigned char *zf = gxCtxZoneFlags()) { zf[blockX * m_zoneBlockExtent.y + blockY] = 1; continue; }
+#endif
 			m_zoneBlocks[blockX][blockY].setPassable(true);
 		}
 	}
@@ -3064,6 +3650,9 @@ void PathfindZoneManager::setPassable(Int cellX, Int cellY, Bool passable)
 		DEBUG_CRASH(("Invalid block."));
 		return;
 	}
+#if defined(GX_PARALLEL_PATHS)
+	if (unsigned char *zf = gxCtxZoneFlags()) { zf[blockX * m_zoneBlockExtent.y + blockY] = passable ? 1 : 0; return; }
+#endif
 	m_zoneBlocks[blockX][blockY].setPassable(passable);
 }
 
@@ -3083,6 +3672,9 @@ Bool PathfindZoneManager::isPassable(Int cellX, Int cellY) const
 		DEBUG_CRASH(("Invalid block."));
 		return false;
 	}
+#if defined(GX_PARALLEL_PATHS)
+	if (unsigned char *zf = gxCtxZoneFlags()) return zf[blockX * m_zoneBlockExtent.y + blockY] != 0;
+#endif
 	return m_zoneBlocks[blockX][blockY].isPassable();
 }
 
@@ -3100,6 +3692,9 @@ Bool PathfindZoneManager::clipIsPassable(Int cellX, Int cellY) const
 	if (blockY<0 || blockY>=m_zoneBlockExtent.y) {
 		return false;
 	}
+#if defined(GX_PARALLEL_PATHS)
+	if (unsigned char *zf = gxCtxZoneFlags()) return zf[blockX * m_zoneBlockExtent.y + blockY] != 0;
+#endif
 	return m_zoneBlocks[blockX][blockY].isPassable();
 }
 
@@ -5012,7 +5607,11 @@ Bool Pathfinder::checkDestination(const Object *obj, Int cellX, Int cellY, Pathf
  */
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
+#if defined(GX_PARALLEL_PATHS)
+static thread_local Bool s_gxPlanIgnoringUnits = false;
+#else
 static Bool s_gxPlanIgnoringUnits = false;
+#endif
 static int s_gxIgnorePlans = 0, s_gxIgnoreSkippedBlocked = 0;
 // switch ignoreUnitsInPaths (page switch bit 27): single player only, never network games or replays
 static Bool gxIgnoreUnitsFor(const Object *obj)
@@ -5020,7 +5619,16 @@ static Bool gxIgnoreUnitsFor(const Object *obj)
 	if (!obj || !(GLES3_Page_Switches() & 134217728)) return false;
 	if (!TheGameLogic || TheGameLogic->isInMultiplayerGame() || (TheRecorder && TheRecorder->isPlaybackMode())) return false;
 	const AIUpdateInterface *ai = obj->getAIUpdateInterface();
-	if (ai && (ai->isBlockedAndStuck() || ai->getNumFramesBlocked() > 0)) { s_gxIgnoreSkippedBlocked++; return false; }
+	if (ai && (ai->isBlockedAndStuck() || ai->getNumFramesBlocked() > 0)) {
+#if defined(GX_PARALLEL_PATHS)
+		if (!tl_gxCtx)
+#endif
+		s_gxIgnoreSkippedBlocked++;
+		return false;
+	}
+#if defined(GX_PARALLEL_PATHS)
+	if (tl_gxCtx) return true;
+#endif
 	if ((++s_gxIgnorePlans % 1000) == 0)
 		printf("GXUNITS plans ignoring units %d, planned with units because blocked %d\n", s_gxIgnorePlans, s_gxIgnoreSkippedBlocked);
 	return true;
@@ -5955,6 +6563,11 @@ void Pathfinder::processPathfindQueue()
 #ifdef DEBUG_QPF
 	Int pathsFound = 0;
 #endif
+#if defined(GX_PARALLEL_PATHS)
+	const double gxQueueStart = emscripten_get_now();
+	gxSpeculatePaths();
+	const Int gxHeadAtStart = m_queuePRHead;
+#endif
 	while (m_cumulativeCellsAllocated < PATHFIND_CELLS_PER_FRAME &&
 		m_queuePRTail!=m_queuePRHead) {
 		Object *obj = TheGameLogic->findObjectByID(m_queuedPathfindRequests[m_queuePRHead]);
@@ -5973,6 +6586,17 @@ void Pathfinder::processPathfindQueue()
 			m_queuePRHead = 0;
 		}
 	}
+#if defined(GX_PARALLEL_PATHS)
+	s_gxServed = (m_queuePRHead - gxHeadAtStart + PATHFIND_QUEUE_LEN) % PATHFIND_QUEUE_LEN;
+	gxEndSpeculation();
+	s_gxQueueMs += emscripten_get_now() - gxQueueStart;
+	{
+		const double ms = emscripten_get_now() - gxQueueStart;
+		if (ms > s_gxQueueMax) s_gxQueueMax = ms;
+		if (ms > 20) { s_gxQueueSlow++; s_gxQueueSlowMs += ms; }
+	}
+	if (++s_gxQueueFrames % 300 == 0) printf("GXQUEUE %d frames: path queue %.0f ms in all, %d frames over 20 ms took %.0f ms (longest %.0f ms)\n", s_gxQueueFrames, s_gxQueueMs, s_gxQueueSlow, s_gxQueueSlowMs, s_gxQueueMax);
+#endif
 #ifdef DEBUG_QPF
 	if (pathsFound>0) {
 #ifdef DEBUG_LOGGING
@@ -6379,6 +7003,9 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
 Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
 													 const Coord3D *rawTo)
 {
+#if defined(GX_PARALLEL_PATHS)
+	{ Path *made = nullptr; if (!tl_gxCtx && gxTakeFind(made, obj, locomotorSet, from, rawTo)) return made; }
+#endif
 	if (!clientSafeQuickDoesPathExist(locomotorSet, from, rawTo)) {
 		return nullptr;
 	}
@@ -8624,6 +9251,9 @@ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet
 																	Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies)
 {
 	//CRCDEBUG_LOG(("Pathfinder::findClosestPath()"));
+#if defined(GX_PARALLEL_PATHS)
+	{ Path *made = nullptr; if (!tl_gxCtx && gxTakeClosest(made, obj, locomotorSet, from, rawTo, blocked, pathCostMultiplier, moveAllies)) return made; }
+#endif
 #ifdef DEBUG_LOGGING
 	Int startTimeMS = ::GetTickCount();
 #endif
@@ -11475,7 +12105,11 @@ int s_fieldHits = 0, s_fieldBuilds = 0, s_fieldMisses = 0;
 int s_gpuFields = 0, s_gpuBatches = 0, s_gpuVerifyFields = 0, s_gpuVerifyMismatchCells = 0;
 int s_wgpuJobs = 0, s_wgpuFields = 0, s_wgpuCpuFields = 0, s_wgpuWaits = 0, s_wgpuHolds = 0, s_wgpuNextJob = 0;
 double s_wgpuHoldStart = 0;
+#if defined(GX_PARALLEL_PATHS)
+thread_local bool s_inFieldPath = false;
+#else
 bool s_inFieldPath = false;
+#endif
 const int DX[8] = { 1, 0, -1, 0, 1, -1, -1, 1 }, DY[8] = { 0, 1, 0, -1, 1, 1, -1, -1 };	// straight first, then diagonals
 
 // seeds: every walkable cell of the field's area, distance 0
@@ -11539,6 +12173,18 @@ void gxDirs(const std::vector<unsigned short> &dist, std::vector<unsigned char> 
 }
 
 void Pathfinder::gxObstaclesChanged() { s_obstacleSerial++; }
+
+#if defined(GX_PARALLEL_PATHS)
+bool gxFieldStillSame(int idx, unsigned serial, UnsignedInt born)
+{
+	if (idx < 0 || idx >= (int)s_fields.size()) return false;
+	GxField &f = s_fields[idx];
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if (f.ax < 0 || f.serial != serial || f.born != born || serial != s_obstacleSerial || now - f.born >= GX_FF_LIFE || f.job || now < f.due) return false;
+	f.used = now;	// what the walk would have done here
+	return true;
+}
+#endif
 
 void Pathfinder::gxWalkMask(unsigned char *out, LocomotorSurfaceTypeMask surfaces, Bool crusher)
 {
@@ -11636,10 +12282,24 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 	for (GxField &f : s_fields)
 		if (f.ax == ax && f.ay == ay && f.surfaces == surfaces && f.crusher == isCrusher) {
 			if (valid(f)) field = &f;
-			else if (f.job || (fresh(f) && now < f.due)) { s_wgpuWaits++; return nullptr; }	// being built: the plain search until it is due
+			else if (f.job || (fresh(f) && now < f.due)) {	// being built: the plain search until it is due
+#if defined(GX_PARALLEL_PATHS)
+				if (!tl_gxCtx)
+#endif
+				s_wgpuWaits++;
+				return nullptr;
+			}
 			else slot = &f;
 			break;
 		}
+#if defined(GX_PARALLEL_PATHS)
+	// a worker (switch parallelPaths) walks an existing field without touching the cache; building one,
+	// or marking it used, is left to the game thread (the mark is made when the result is used)
+	if (tl_gxCtx) {
+		if (!field || tl_gxCtx->field >= 0) { gxCtxAbort(); return nullptr; }
+		tl_gxCtx->field = (int)(field - s_fields.data()); tl_gxCtx->fieldSerial = field->serial; tl_gxCtx->fieldBorn = field->born;
+	}
+#endif
 	if (!field) {
 		if (!slot && s_fields.size() < 32) { s_fields.push_back(GxField()); slot = &s_fields.back(); slot->ax = -1; slot->used = 0; }
 		if (!slot) {	// full: replace the least recently used (never one still on the GPU)
@@ -11731,6 +12391,9 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 		}
 		field = slot;
 	}
+#if defined(GX_PARALLEL_PATHS)
+	if (!tl_gxCtx)
+#endif
 	field->used = now;
 
 	// walk downhill from the start to the goal's area

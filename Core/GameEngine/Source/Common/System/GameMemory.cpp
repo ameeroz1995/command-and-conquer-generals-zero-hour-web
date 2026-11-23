@@ -63,6 +63,23 @@
 #endif
 #ifdef MEMORYPOOL_STACKTRACE
 #include "Common/StackDump.h"
+
+#endif
+#if defined(__EMSCRIPTEN_PTHREADS__)
+// Web port, switch parallelPaths: path searches run on worker threads for a moment each frame and
+// allocate Paths; the game's critical sections are empty on the web, so the pools lock only then.
+#include <atomic>
+#include <mutex>
+std::atomic<bool> g_gxPoolLocking(false);
+static std::recursive_mutex s_gxPoolMutex;
+struct GxPoolGuard {
+	bool on;
+	GxPoolGuard() : on(g_gxPoolLocking.load(std::memory_order_acquire)) { if (on) s_gxPoolMutex.lock(); }
+	~GxPoolGuard() { if (on) s_gxPoolMutex.unlock(); }
+};
+#define GX_POOL_GUARD GxPoolGuard gxPoolGuard;
+#else
+#define GX_POOL_GUARD
 #endif
 
 #ifdef MEMORYPOOL_DEBUG
@@ -1691,6 +1708,7 @@ Int MemoryPool::freeBlob(MemoryPoolBlob *blob) {
 void *
 MemoryPool::allocateBlockDoNotZeroImplementation(DECLARE_LITERALSTRING_ARG1) {
   ScopedCriticalSection scopedCriticalSection(TheMemoryPoolCriticalSection);
+  GX_POOL_GUARD
 
   if (m_firstBlobWithFreeBlocks != nullptr &&
       !m_firstBlobWithFreeBlocks->hasAnyFreeBlocks()) {
@@ -1774,6 +1792,7 @@ void MemoryPool::freeBlock(void *pBlockPtr) {
     return; // my, that was easy
 
   ScopedCriticalSection scopedCriticalSection(TheMemoryPoolCriticalSection);
+  GX_POOL_GUARD
 
   MemoryPoolSingleBlock *block =
       MemoryPoolSingleBlock::recoverBlockFromUserData(pBlockPtr);
@@ -1833,6 +1852,7 @@ Int MemoryPool::countBlobsInPool() {
 */
 Int MemoryPool::releaseEmpties() {
   ScopedCriticalSection scopedCriticalSection(TheMemoryPoolCriticalSection);
+  GX_POOL_GUARD
 
   Int released = 0;
 
@@ -1851,6 +1871,7 @@ Int MemoryPool::releaseEmpties() {
 */
 void MemoryPool::reset() {
   ScopedCriticalSection scopedCriticalSection(TheMemoryPoolCriticalSection);
+  GX_POOL_GUARD
 
   // toss everything. we could do this slightly more efficiently,
   // but not really worth the extra code to do so.
@@ -2186,6 +2207,7 @@ void DynamicMemoryAllocator::debugIgnoreLeaksForThisBlock(void *pBlockPtr) {
 void *DynamicMemoryAllocator::allocateBytesDoNotZeroImplementation(
     Int numBytes DECLARE_LITERALSTRING_ARG2) {
   ScopedCriticalSection scopedCriticalSection(TheDmaCriticalSection);
+  GX_POOL_GUARD
 
   void *result = nullptr;
 
@@ -2305,6 +2327,7 @@ void DynamicMemoryAllocator::freeBytes(void *pBlockPtr) {
     return;
 
   ScopedCriticalSection scopedCriticalSection(TheDmaCriticalSection);
+  GX_POOL_GUARD
 
 #ifdef MEMORYPOOL_CHECK_BLOCK_OWNERSHIP
   DEBUG_ASSERTCRASH(debugIsBlockInDma(pBlockPtr), ("block is not in this dma"));

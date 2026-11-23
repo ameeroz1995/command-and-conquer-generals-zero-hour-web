@@ -393,6 +393,23 @@ to call use the PathfindServicesInterface to do a pathfind operation.  This shou
 (and in fact is very hard to do because PathfindServicesInterace is private to the pathfinder)
 except by the pathfinder during pathfind queue processing.  jba */
 //-------------------------------------------------------------------------------------------------
+#ifdef __EMSCRIPTEN__
+// Mirrors doPathfind's choice; a wrong guess only means the search result made ahead is not used
+// (the pathfinder uses one only when the search actually asked for has the same object and arguments).
+Int AIUpdateInterface::gxPredictSearch( Coord3D *to, Bool *blocked, ObjectID *ignore ) const
+{
+	if (!m_waitingForPath || m_isSafePath) return 0;
+	if (m_isApproachPath) {
+		if (!isDoingGroundMovement()) return 0;
+		*to = m_requestedDestination; *blocked = m_isBlockedAndStuck; *ignore = INVALID_ID;
+		return 1;
+	}
+	if (m_isAttackPath || m_isBlockedAndStuck) return 0;
+	*to = m_requestedDestination; *blocked = FALSE; *ignore = getIgnoredObstacleID();
+	return 2;
+}
+#endif
+
 void AIUpdateInterface::doPathfind( PathfindServicesInterface *pathfinder )
 {
 	if (!m_waitingForPath) {
