@@ -2485,3 +2485,28 @@ Measured with the battle benchmark (bench MCP, A/B same build, one switch apart)
   simulation, so EmscriptenMain.cpp forces it off in network games and replay playback. A/B:
   strikes +3% fps / -3% work, armies -2%: within noise, as expected (wasm sqrt is one
   instruction). Left off.
+
+## Flow fields for long ground paths (2026-11-23, switch flowFields, OFF by default)
+
+Profile of the battle benchmark: path searches are ~24% of a frame while armies arrive
+(Pathfinder::internalFindPath 11.7% inclusive, findClosestPath 12.6%). Attack-move gives every
+unit of a group the same target; each unit then ran its own A*. Counted (GXPATH, per 5 s of
+game): 370-1,200 searches to 146-540 goal cells in 43-134 8x8-cell goal areas.
+
+AIPathfind.cpp `Pathfinder::gxFlowFieldPath`, called from internalFindPath for ground-to-ground
+searches longer than 24 cells (no tunnelling, no ignored obstacle): a field is an exact integer
+Dijkstra (Dial's buckets, costs 10/14, the A*'s corner rule) from every walkable cell of the
+goal's 8x8 area over the whole map, per locomotor surfaces and crusher flag; up to 32 kept
+(LRU), dropped when a building is placed or removed (gxObstaclesChanged from
+internal_classifyObjectFootprint / classifyMap / changeBridgeState) or after 600 frames. A unit
+walks it downhill to the area, a normal search does the last cells, then Path::optimize.
+findClosestPath is unchanged.
+
+It ignores other units on the way (the A* steers round fixed ones), so it changes the
+simulation: page switch bit 25, off by default, and gxFlowFieldPath does nothing in network
+games or replay playback (checked: the referee replay matches with the switch on). Not yet
+host-decided or recorded in replays: a skirmish recorded with it on will not play back.
+
+A/B, same build: armies fps +13%, work -12%, p90 -12%; strikes fps +10%, work -9%, p90 -17%.
+1,941 paths from fields, 59 fell back to A*, 782 fields built (buildings destroyed in the strikes
+invalidate them all). Battle screenshots look normal (armies engage, no stuck groups).

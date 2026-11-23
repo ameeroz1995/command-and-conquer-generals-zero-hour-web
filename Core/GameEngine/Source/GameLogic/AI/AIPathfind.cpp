@@ -4269,6 +4269,7 @@ void Pathfinder::classifyObjectFootprint( Object *obj, Bool insert )
 
 void Pathfinder::internal_classifyObjectFootprint( Object *obj, Bool insert )
 {
+	gxObstaclesChanged();
 	const Coord3D *pos = obj->getPosition();
 
 #if !(RTS_GENERALS && RETAIL_COMPATIBLE_PATHFINDING)
@@ -4647,6 +4648,7 @@ void Pathfinder::newMap()
  */
 void Pathfinder::classifyMap()
 {
+	gxObstaclesChanged();
 
 	Int i, j;
 	// for now, sample cell corners and classify cell accordingly
@@ -6517,6 +6519,14 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 		// somehow we got to an impassable location.
 		m_isTunneling = true;
 	}
+
+#ifdef __EMSCRIPTEN__
+	if (layer == LAYER_GROUND && destinationLayer == LAYER_GROUND && !m_isTunneling && m_ignoreObstacleID == INVALID_ID
+			&& !goalCell->isObstaclePresent(m_ignoreObstacleID)) {
+		if (Path *fp = gxFlowFieldPath(obj, locomotorSet, &clipFrom, rawTo, parentCell, goalCell, isCrusher, centerInCell))
+			return fp;	// the field walk released the start and goal cells' search info
+	}
+#endif
 
 	parentCell->startPathfind(goalCell);
 
@@ -9684,6 +9694,7 @@ Bool Pathfinder::isGroundPathPassable( Bool isCrusher, const Coord3D& startWorld
  */
 void Pathfinder::changeBridgeState( PathfindLayerEnum layer, Bool repaired)
 {
+	gxObstaclesChanged();
 	if (m_layers[layer].isUnused()) return;
 	if (m_layers[layer].setDestroyed(!repaired)) {
 		m_zoneManager.markZonesDirty();
@@ -11222,4 +11233,161 @@ void Pathfinder::xfer( Xfer *xfer )
 void Pathfinder::loadPostProcess()
 {
 
+}
+
+
+// ================================================================================================
+// Web port: flow fields for long ground paths (Settings switch flowFields, page switch bit 25).
+// Attack-moves send whole armies at one point and every unit ran its own A* there (path searches
+// were ~24% of a battle frame). A field is one integer Dijkstra out from the goal's 8x8-cell
+// area over walkable ground (costs 10 straight / 14 diagonal, the A*'s corner rule); each unit
+// walks it downhill to that area and a short normal search does the last few cells. Fields are
+// shared by every search to the same area until a building is placed or removed (or 20 s).
+// The field ignores other units on the way (the A* steers around fixed ones), so this CHANGES
+// the simulation: off by default, never in network games or replays.
+// ================================================================================================
+#include "Common/Recorder.h"
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#endif
+namespace {
+const int GX_FF_AREA = 3;			// areas are 8x8 cells
+const int GX_FF_MIN_CELLS = 24;	// shorter paths keep the original search
+const UnsignedInt GX_FF_LIFE = 600;	// frames a field may live
+struct GxField {
+	int ax, ay; LocomotorSurfaceTypeMask surfaces; Bool crusher;
+	unsigned serial; UnsignedInt born, used;
+	std::vector<unsigned short> dist;	// 0xffff = unreachable
+};
+std::vector<GxField> s_fields;
+unsigned s_obstacleSerial = 1;
+int s_fieldHits = 0, s_fieldBuilds = 0, s_fieldMisses = 0;
+bool s_inFieldPath = false;
+const int DX[8] = { 1, 0, -1, 0, 1, -1, -1, 1 }, DY[8] = { 0, 1, 0, -1, 1, 1, -1, -1 };	// straight first, then diagonals
+}
+
+void Pathfinder::gxObstaclesChanged() { s_obstacleSerial++; }
+
+Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo,
+	PathfindCell *startCell, PathfindCell *goalCell, Bool isCrusher, Bool centerInCell )
+{
+#ifdef __EMSCRIPTEN__
+	if (!(GLES3_Page_Switches() & 33554432) || s_inFieldPath) return nullptr;
+	if (!TheGameLogic || TheGameLogic->isInMultiplayerGame() || (TheRecorder && TheRecorder->isPlaybackMode())) return nullptr;
+	const int sx = startCell->getXIndex(), sy = startCell->getYIndex(), gx = goalCell->getXIndex(), gy = goalCell->getYIndex();
+	if (abs(sx - gx) <= GX_FF_MIN_CELLS && abs(sy - gy) <= GX_FF_MIN_CELLS) return nullptr;
+	const int x0 = m_extent.lo.x, y0 = m_extent.lo.y, w = m_extent.hi.x - x0 + 1, h = m_extent.hi.y - y0 + 1;
+	if (w <= 0 || h <= 0) return nullptr;
+	const LocomotorSurfaceTypeMask surfaces = locomotorSet.getValidSurfaces();
+	const int ax = gx >> GX_FF_AREA, ay = gy >> GX_FF_AREA;
+	const UnsignedInt now = TheGameLogic->getFrame();
+
+	// the shared field for this area, surfaces and crusher flag (built if missing or stale)
+	GxField *field = nullptr;
+	for (GxField &f : s_fields)
+		if (f.ax == ax && f.ay == ay && f.surfaces == surfaces && f.crusher == isCrusher) {
+			if (f.serial == s_obstacleSerial && now - f.born < GX_FF_LIFE) field = &f;
+			else { f.dist.clear(); f.ax = -1; }	// stale: rebuilt below into a free slot
+			break;
+		}
+	if (!field) {
+		GxField *slot = nullptr;
+		for (GxField &f : s_fields) if (f.ax < 0) { slot = &f; break; }
+		if (!slot && s_fields.size() < 32) { s_fields.push_back(GxField()); slot = &s_fields.back(); }
+		if (!slot) {	// full: replace the least recently used
+			slot = &s_fields[0];
+			for (GxField &f : s_fields) if (f.used < slot->used) slot = &f;
+		}
+		slot->ax = ax; slot->ay = ay; slot->surfaces = surfaces; slot->crusher = isCrusher;
+		slot->serial = s_obstacleSerial; slot->born = now;
+		slot->dist.assign((size_t)w * h, 0xffff);
+		std::vector<unsigned char> walk((size_t)w * h);
+		for (int y = 0; y < h; ++y)
+			for (int x = 0; x < w; ++x) {
+				PathfindCell *c = getCell(LAYER_GROUND, x0 + x, y0 + y);
+				walk[(size_t)y * w + x] = c && validMovementPosition(isCrusher, surfaces, c) ? 1 : 0;
+			}
+		// Dial's buckets: costs are small integers, so a circular array of lists is an exact Dijkstra
+		std::vector<std::vector<int>> buckets(15);
+		for (int y = ay << GX_FF_AREA; y < ((ay + 1) << GX_FF_AREA); ++y)
+			for (int x = ax << GX_FF_AREA; x < ((ax + 1) << GX_FF_AREA); ++x) {
+				const int lx = x - x0, ly = y - y0;
+				if (lx < 0 || ly < 0 || lx >= w || ly >= h || !walk[(size_t)ly * w + lx]) continue;
+				slot->dist[(size_t)ly * w + lx] = 0;
+				buckets[0].push_back(ly * w + lx);
+			}
+		int pending = (int)buckets[0].size();
+		for (unsigned d = 0; pending > 0 && d < 0xfff0; ++d) {
+			std::vector<int> &b = buckets[d % 15];
+			for (size_t k = 0; k < b.size(); ++k) {
+				const int idx = b[k];
+				pending--;
+				if (slot->dist[idx] != d) continue;	// a shorter way was found later
+				const int x = idx % w, y = idx / w;
+				for (int n = 0; n < 8; ++n) {
+					const int nx = x + DX[n], ny = y + DY[n];
+					if (nx < 0 || ny < 0 || nx >= w || ny >= h || !walk[(size_t)ny * w + nx]) continue;
+					if (n >= 4 && !walk[(size_t)y * w + nx] && !walk[(size_t)ny * w + x]) continue;	// A* corner rule: one side open
+					const unsigned nd = d + (n < 4 ? 10 : 14);
+					unsigned short &cur = slot->dist[(size_t)ny * w + nx];
+					if (nd < cur) { cur = (unsigned short)nd; buckets[nd % 15].push_back(ny * w + nx); pending++; }
+				}
+			}
+			b.clear();
+		}
+		field = slot;
+		s_fieldBuilds++;
+	}
+	field->used = now;
+
+	// walk downhill from the start to the goal's area
+	int x = sx - x0, y = sy - y0;
+	if (x < 0 || y < 0 || x >= w || y >= h || field->dist[(size_t)y * w + x] == 0xffff) { s_fieldMisses++; return nullptr; }
+	std::vector<ICoord2D> cells;
+	for (int steps = 0; field->dist[(size_t)y * w + x] != 0 && steps < w + h + 64; ++steps) {
+		int best = -1; unsigned short bd = field->dist[(size_t)y * w + x];
+		for (int n = 0; n < 8; ++n) {
+			const int nx = x + DX[n], ny = y + DY[n];
+			if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+			const unsigned short nd = field->dist[(size_t)ny * w + nx];
+			if (nd < bd) { bd = nd; best = n; }
+		}
+		if (best < 0) { s_fieldMisses++; return nullptr; }
+		x += DX[best]; y += DY[best];
+		cells.push_back(ICoord2D{ x + x0, y + y0 });
+	}
+	if (field->dist[(size_t)y * w + x] != 0) { s_fieldMisses++; return nullptr; }
+
+	// release the start/goal search info internalFindPath allocated, then the last few cells
+	goalCell->releaseInfo();
+	if (startCell != goalCell) startCell->releaseInfo();
+	Coord3D areaPos;
+	adjustCoordToCell(cells.back().x, cells.back().y, centerInCell, areaPos, LAYER_GROUND);
+	s_inFieldPath = true;
+	Path *leg = internalFindPath(obj, locomotorSet, &areaPos, rawTo);
+	s_inFieldPath = false;
+	if (!leg) {	// the last few cells failed: the whole path the original way (the start/goal info is released)
+		s_fieldMisses++;
+		s_inFieldPath = true;
+		Path *full = internalFindPath(obj, locomotorSet, from, rawTo);
+		s_inFieldPath = false;
+		return full;
+	}
+
+	Path *path = newInstance(Path);
+	path->appendNode(from, LAYER_GROUND);
+	for (size_t i = 0; i + 1 < cells.size(); ++i) {
+		Coord3D p; adjustCoordToCell(cells[i].x, cells[i].y, centerInCell, p, LAYER_GROUND);
+		path->appendNode(&p, LAYER_GROUND);
+	}
+	for (PathNode *n = leg->getFirstNode(); n; n = n->getNext()) path->appendNode(n->getPosition(), n->getLayer());
+	deleteInstance(leg);
+	path->optimize(obj, locomotorSet.getValidSurfaces(), false);
+	s_fieldHits++;
+	if ((s_fieldHits + s_fieldMisses) % 200 == 0)
+		printf("GXFLOW paths from fields %d, fell back %d, fields built %d\n", s_fieldHits, s_fieldMisses, s_fieldBuilds);
+	return path;
+#else
+	return nullptr;
+#endif
 }

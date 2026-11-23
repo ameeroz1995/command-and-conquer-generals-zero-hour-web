@@ -691,6 +691,9 @@ public:
 	void newMap();
 
 	PathfindCell *getCell( PathfindLayerEnum layer, Int x, Int y );							///< Return the cell at grid coords (x,y)
+	Path *gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo,
+		PathfindCell *startCell, PathfindCell *goalCell, Bool isCrusher, Bool centerInCell );	///< web port: long ground paths from a shared field (switch flowFields)
+	static void gxObstaclesChanged();	///< web port: buildings placed or removed: shared fields are stale
 	PathfindCell *getCell( PathfindLayerEnum layer, const Coord3D *pos );				///< Given a position, return associated grid cell
 	PathfindCell *getClippedCell( PathfindLayerEnum layer, const Coord3D *pos );				///< Given a position, return associated grid cell
 	void clip(Coord3D *from, Coord3D *to);
