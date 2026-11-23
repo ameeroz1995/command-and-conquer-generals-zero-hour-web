@@ -49,7 +49,7 @@ static bool g_SceneDirty = true; // GXScene inputs changed since the last upload
 static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
 static int g_SwapCount = 0;         // frames presented, for Module.gxFps (render scale Auto)
 double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gles3_mainloop) -> Module.gxWorkMs
-static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
+static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -455,7 +455,8 @@ void GLES3_Begin_Scene() {
                  | (o.asyncShaders === false ? 0 : 4194304)  // bit 22: new shaders compile in the background, the general one draws meanwhile
                  | (o.fastInvSqrt === true ? 8388608 : 0)  // bit 23: fast inverse square root (single player only; changes the simulation slightly)
                  | (o.reuseLayouts === false ? 0 : 16777216)  // bit 24: one vertex layout per buffer setup, re-pointed when the offset changes
-                 | (o.flowFields === true ? 33554432 : 0); // bit 25: long ground paths from shared flow fields (single player only; changes the simulation)
+                 | (o.flowFields === false ? 0 : 33554432) // bit 25: long ground paths from shared flow fields (on; single player only, changes the simulation)
+                 | (o.gpuFlowFields === true ? 67108864 : 0); // bit 26: the flow fields are built on the GPU (exact integer relaxation)
         });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__
@@ -2738,3 +2739,122 @@ bool GLES3_Is_Initialized() {
 }
 
 #endif // __EMSCRIPTEN__
+
+// ================================================================================================
+// Flow fields on the GPU (AIPathfind.cpp gxFlowFieldPath, page switch bit 26 gpuFlowFields).
+// The same field as the CPU's Dial's-bucket Dijkstra, by relaxation: every pass, every walkable
+// cell takes min(its distance, neighbour + 10 straight / 14 diagonal) with the A*'s corner rule.
+// Integer only (R32I), so the result is exact on every GPU and equal to the CPU's (shortest
+// distances are unique); passes run until a read-back shows no change. Every GL state touched
+// is saved and restored, so the renderer's own state tracking stays right.
+// Returns the number of passes, or 0 if it could not run (the caller then uses the CPU).
+// ================================================================================================
+extern "C" int gx_gpu_field_readbacks = 0;
+extern "C" int GLES3_GPU_Flow_Field(int w, int h, const unsigned char* walk, const unsigned short* seed, unsigned short* out)
+{
+    static GLuint prog = 0, vao = 0, fbo = 0, tex[2] = {0, 0}, walkTex = 0;
+    static int tw = 0, th = 0;
+    static GLint locD = -1, locW = -1;
+    if (!prog) {
+        const char* vs = "#version 300 es\nvoid main(){ vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }";
+        const char* fs =
+            "#version 300 es\nprecision highp float; precision highp int;\n"
+            "uniform highp isampler2D u_d; uniform highp usampler2D u_w; out int o;\n"
+            "const int INF = 65535;\n"
+            "bool wk(ivec2 q, ivec2 sz){ return q.x >= 0 && q.y >= 0 && q.x < sz.x && q.y < sz.y && texelFetch(u_w, q, 0).r != 0u; }\n"
+            "void main(){ ivec2 p = ivec2(gl_FragCoord.xy); ivec2 sz = textureSize(u_d, 0);\n"
+            " int d = texelFetch(u_d, p, 0).r; if (!wk(p, sz)) { o = d; return; }\n"
+            " int best = d;\n"
+            " for (int n = 0; n < 8; ++n) {\n"
+            "  ivec2 off = n == 0 ? ivec2(1,0) : n == 1 ? ivec2(0,1) : n == 2 ? ivec2(-1,0) : n == 3 ? ivec2(0,-1) : n == 4 ? ivec2(1,1) : n == 5 ? ivec2(-1,1) : n == 6 ? ivec2(-1,-1) : ivec2(1,-1);\n"
+            "  ivec2 q = p + off; if (!wk(q, sz)) continue;\n"
+            "  if (n >= 4 && !wk(ivec2(p.x, q.y), sz) && !wk(ivec2(q.x, p.y), sz)) continue;\n"
+            "  int dq = texelFetch(u_d, q, 0).r; if (dq >= INF) continue;\n"
+            "  int c = dq + (n < 4 ? 10 : 14); if (c < best) best = c;\n"
+            " }\n"
+            " o = best; }";
+        GLuint v = glCreateShader(GL_VERTEX_SHADER), f = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(v, 1, &vs, nullptr); glCompileShader(v);
+        glShaderSource(f, 1, &fs, nullptr); glCompileShader(f);
+        prog = glCreateProgram(); glAttachShader(prog, v); glAttachShader(prog, f); glLinkProgram(prog);
+        GLint ok = 0; glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+        if (!ok) { char log[1024]; glGetProgramInfoLog(prog, sizeof(log), nullptr, log); printf("GXFLOW gpu program failed: %s\n", log); glDeleteProgram(prog); prog = 0; return 0; }
+        locD = glGetUniformLocation(prog, "u_d"); locW = glGetUniformLocation(prog, "u_w");
+        glGenVertexArrays(1, &vao); glGenFramebuffers(1, &fbo);
+    }
+    // save the state this touches
+    GLint sFbo, sRead, sProg, sVao, sActive, sTex6, sTex7, sVp[4], sAlignU, sAlignP;
+    GLboolean sBlend = glIsEnabled(GL_BLEND), sDepth = glIsEnabled(GL_DEPTH_TEST), sScissor = glIsEnabled(GL_SCISSOR_TEST),
+              sStencil = glIsEnabled(GL_STENCIL_TEST), sCull = glIsEnabled(GL_CULL_FACE);
+    GLboolean sMask[4];
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &sFbo); glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &sRead);
+    glGetIntegerv(GL_CURRENT_PROGRAM, &sProg); glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &sVao);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &sActive); glGetIntegerv(GL_VIEWPORT, sVp);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &sAlignU); glGetIntegerv(GL_PACK_ALIGNMENT, &sAlignP);
+    glGetBooleanv(GL_COLOR_WRITEMASK, sMask);
+    glActiveTexture(GL_TEXTURE6); glGetIntegerv(GL_TEXTURE_BINDING_2D, &sTex6);
+    glActiveTexture(GL_TEXTURE7); glGetIntegerv(GL_TEXTURE_BINDING_2D, &sTex7);
+
+    glDisable(GL_BLEND); glDisable(GL_DEPTH_TEST); glDisable(GL_SCISSOR_TEST); glDisable(GL_STENCIL_TEST); glDisable(GL_CULL_FACE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1); glPixelStorei(GL_PACK_ALIGNMENT, 4);
+
+    std::vector<int> init((size_t)w * h);
+    for (size_t i = 0; i < init.size(); ++i) init[i] = seed[i];
+    if (tw != w || th != h) {
+        if (tex[0]) { glDeleteTextures(2, tex); glDeleteTextures(1, &walkTex); }
+        glGenTextures(2, tex); glGenTextures(1, &walkTex);
+        for (int i = 0; i < 2; ++i) {
+            glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, tex[i]);
+            glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32I, w, h);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        }
+        glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, walkTex);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8UI, w, h);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        tw = w; th = h;
+    }
+    glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, tex[0]);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RED_INTEGER, GL_INT, init.data());
+    glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, walkTex);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RED_INTEGER, GL_UNSIGNED_BYTE, walk);
+
+    glUseProgram(prog); glUniform1i(locD, 6); glUniform1i(locW, 7);
+    glBindVertexArray(vao);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glViewport(0, 0, w, h);
+    std::vector<int> back((size_t)w * h * 4), prev;
+    int src = 0, passes = 0;
+    const int block = 32, maxPasses = w * h;	// relaxation needs at most one pass per cell on the longest route
+    bool done = false;
+    while (!done && passes < maxPasses) {
+        for (int k = 0; k < block; ++k, ++passes) {
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex[1 - src], 0);
+            glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, tex[src]);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            src = 1 - src;
+        }
+        // read back (RGBA_INTEGER/INT is the format every WebGL2 must support) and compare
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex[src], 0);
+        glReadPixels(0, 0, w, h, GL_RGBA_INTEGER, GL_INT, back.data());
+        gx_gpu_field_readbacks++;
+        std::vector<int> cur((size_t)w * h);
+        for (size_t i = 0; i < cur.size(); ++i) cur[i] = back[i * 4];
+        done = (cur == prev);
+        prev.swap(cur);
+    }
+    for (size_t i = 0; i < prev.size(); ++i) out[i] = (unsigned short)(prev[i] > 65535 ? 65535 : prev[i]);
+
+    // restore
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, sFbo); glBindFramebuffer(GL_READ_FRAMEBUFFER, sRead);
+    glUseProgram(sProg); glBindVertexArray(sVao);
+    glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_2D, sTex6);
+    glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, sTex7);
+    glActiveTexture(sActive);
+    glViewport(sVp[0], sVp[1], sVp[2], sVp[3]);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, sAlignU); glPixelStorei(GL_PACK_ALIGNMENT, sAlignP);
+    glColorMask(sMask[0], sMask[1], sMask[2], sMask[3]);
+    if (sBlend) glEnable(GL_BLEND); if (sDepth) glEnable(GL_DEPTH_TEST); if (sScissor) glEnable(GL_SCISSOR_TEST);
+    if (sStencil) glEnable(GL_STENCIL_TEST); if (sCull) glEnable(GL_CULL_FACE);
+    return done ? passes : 0;
+}

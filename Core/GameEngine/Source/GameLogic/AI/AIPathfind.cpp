@@ -11244,11 +11244,12 @@ void Pathfinder::loadPostProcess()
 // walks it downhill to that area and a short normal search does the last few cells. Fields are
 // shared by every search to the same area until a building is placed or removed (or 20 s).
 // The field ignores other units on the way (the A* steers around fixed ones), so this CHANGES
-// the simulation: off by default, never in network games or replays.
+// the simulation: never in network games or replays. On by default in single player (the user's choice, 2026-11-23).
 // ================================================================================================
 #include "Common/Recorder.h"
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
+extern "C" int GLES3_GPU_Flow_Field(int w, int h, const unsigned char* walk, const unsigned short* seed, unsigned short* out);
 #endif
 namespace {
 const int GX_FF_AREA = 3;			// areas are 8x8 cells
@@ -11262,6 +11263,7 @@ struct GxField {
 std::vector<GxField> s_fields;
 unsigned s_obstacleSerial = 1;
 int s_fieldHits = 0, s_fieldBuilds = 0, s_fieldMisses = 0;
+int s_gpuFields = 0, s_gpuVerifyFields = 0, s_gpuVerifyMismatchCells = 0;
 bool s_inFieldPath = false;
 const int DX[8] = { 1, 0, -1, 0, 1, -1, -1, 1 }, DY[8] = { 0, 1, 0, -1, 1, 1, -1, -1 };	// straight first, then diagonals
 }
@@ -11307,34 +11309,56 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 				PathfindCell *c = getCell(LAYER_GROUND, x0 + x, y0 + y);
 				walk[(size_t)y * w + x] = c && validMovementPosition(isCrusher, surfaces, c) ? 1 : 0;
 			}
-		// Dial's buckets: costs are small integers, so a circular array of lists is an exact Dijkstra
-		std::vector<std::vector<int>> buckets(15);
+		// seeds: every walkable cell of the goal's area, distance 0
 		for (int y = ay << GX_FF_AREA; y < ((ay + 1) << GX_FF_AREA); ++y)
 			for (int x = ax << GX_FF_AREA; x < ((ax + 1) << GX_FF_AREA); ++x) {
 				const int lx = x - x0, ly = y - y0;
 				if (lx < 0 || ly < 0 || lx >= w || ly >= h || !walk[(size_t)ly * w + lx]) continue;
 				slot->dist[(size_t)ly * w + lx] = 0;
-				buckets[0].push_back(ly * w + lx);
 			}
-		int pending = (int)buckets[0].size();
-		for (unsigned d = 0; pending > 0 && d < 0xfff0; ++d) {
-			std::vector<int> &b = buckets[d % 15];
-			for (size_t k = 0; k < b.size(); ++k) {
-				const int idx = b[k];
-				pending--;
-				if (slot->dist[idx] != d) continue;	// a shorter way was found later
-				const int x = idx % w, y = idx / w;
-				for (int n = 0; n < 8; ++n) {
-					const int nx = x + DX[n], ny = y + DY[n];
-					if (nx < 0 || ny < 0 || nx >= w || ny >= h || !walk[(size_t)ny * w + nx]) continue;
-					if (n >= 4 && !walk[(size_t)y * w + nx] && !walk[(size_t)ny * w + x]) continue;	// A* corner rule: one side open
-					const unsigned nd = d + (n < 4 ? 10 : 14);
-					unsigned short &cur = slot->dist[(size_t)ny * w + nx];
-					if (nd < cur) { cur = (unsigned short)nd; buckets[nd % 15].push_back(ny * w + nx); pending++; }
+		// Dial's buckets: costs are small integers, so a circular array of lists is an exact Dijkstra
+		auto cpuField = [&](std::vector<unsigned short> &dist) {
+			std::vector<std::vector<int>> buckets(15);
+			for (size_t i = 0; i < dist.size(); ++i) if (dist[i] == 0) buckets[0].push_back((int)i);
+			int pending = (int)buckets[0].size();
+			for (unsigned d = 0; pending > 0 && d < 0xfff0; ++d) {
+				std::vector<int> &b = buckets[d % 15];
+				for (size_t k = 0; k < b.size(); ++k) {
+					const int idx = b[k];
+					pending--;
+					if (dist[idx] != d) continue;	// a shorter way was found later
+					const int x = idx % w, y = idx / w;
+					for (int n = 0; n < 8; ++n) {
+						const int nx = x + DX[n], ny = y + DY[n];
+						if (nx < 0 || ny < 0 || nx >= w || ny >= h || !walk[(size_t)ny * w + nx]) continue;
+						if (n >= 4 && !walk[(size_t)y * w + nx] && !walk[(size_t)ny * w + x]) continue;	// A* corner rule: one side open
+						const unsigned nd = d + (n < 4 ? 10 : 14);
+						unsigned short &cur = dist[(size_t)ny * w + nx];
+						if (nd < cur) { cur = (unsigned short)nd; buckets[nd % 15].push_back(ny * w + nx); pending++; }
+					}
 				}
+				b.clear();
 			}
-			b.clear();
+		};
+		bool built = false;
+		if (GLES3_Page_Switches() & 67108864) {	// GPU fields (switch gpuFlowFields): the same field by integer relaxation
+			std::vector<unsigned short> g((size_t)w * h);
+			const int passes = GLES3_GPU_Flow_Field(w, h, walk.data(), slot->dist.data(), g.data());
+			if (passes > 0) {
+				if (GLES3_Page_Switches() & 2097152) {	// verification: the CPU field must be identical, cell for cell
+					std::vector<unsigned short> c = slot->dist;
+					cpuField(c);
+					int diff = 0; for (size_t i = 0; i < c.size(); ++i) diff += c[i] != g[i];
+					s_gpuVerifyFields++; s_gpuVerifyMismatchCells += diff;
+					printf("GXFLOW gpu field %d: %d passes, %d of %d cells differ from the CPU (total differing so far %d)\n",
+						s_gpuVerifyFields, passes, diff, (int)c.size(), s_gpuVerifyMismatchCells);
+				}
+				slot->dist.swap(g);
+				built = true;
+				s_gpuFields++;
+			}
 		}
+		if (!built) cpuField(slot->dist);
 		field = slot;
 		s_fieldBuilds++;
 	}
@@ -11385,7 +11409,7 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 	path->optimize(obj, locomotorSet.getValidSurfaces(), false);
 	s_fieldHits++;
 	if ((s_fieldHits + s_fieldMisses) % 200 == 0)
-		printf("GXFLOW paths from fields %d, fell back %d, fields built %d\n", s_fieldHits, s_fieldMisses, s_fieldBuilds);
+		printf("GXFLOW paths from fields %d, fell back %d, fields built %d (on the GPU %d)\n", s_fieldHits, s_fieldMisses, s_fieldBuilds, s_gpuFields);
 	return path;
 #else
 	return nullptr;

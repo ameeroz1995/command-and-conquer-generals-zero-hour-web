@@ -2510,3 +2510,14 @@ host-decided or recorded in replays: a skirmish recorded with it on will not pla
 A/B, same build: armies fps +13%, work -12%, p90 -12%; strikes fps +10%, work -9%, p90 -17%.
 1,941 paths from fields, 59 fell back to A*, 782 fields built (buildings destroyed in the strikes
 invalidate them all). Battle screenshots look normal (armies engage, no stuck groups).
+
+Flow fields ON by default in single player (the user's choice, 2026-11-23); still never in
+network games or replay playback. Default-on run, multithreaded build: battle 11-23 fps, tour
+58-60 fps; single-thread run: 2,907 paths from fields, 93 fell back.
+
+GPU field builder (gles3_wrapper.cpp GLES3_GPU_Flow_Field, switch gpuFlowFields, bit 26, OFF
+until measured): the same field by integer relaxation in a fragment shader (R32I ping-pong,
+R8UI walkability, costs 10/14, the A*'s corner rule), read back every 32 passes until it stops
+changing; every GL state it touches is saved and restored. Verified (Module.gxVerify): 1,271
+GPU fields in a battle, each compared cell by cell with the CPU field: 0 of 55,080 cells
+differed in all of them. 192-288 passes per field.
