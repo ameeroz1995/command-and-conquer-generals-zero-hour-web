@@ -24,6 +24,8 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #include <emscripten/html5.h>
+extern "C" double gx_mem_buffer_bytes, gx_mem_texture_bytes; // CPU copies of buffers and textures kept, for the benchmark
+extern "C" unsigned gx_stat_tex_refills; // a dropped texture copy needed again (benchmark counter)
 #endif
 // Forward declaration — defined in gles3_wrapper.cpp (which has SDL access)
 void GLES3_Swap_Buffers();
@@ -504,6 +506,7 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
     { _alloc_levels(); }
 
     ~Emscripten_IDirect3DTexture8() {
+        for (auto &l : levels) gx_mem_texture_bytes -= (double)l.pixels.size();
         if (gl_tex_id) {
             GLES3_Unregister_Texture(gl_tex_id);
             glDeleteTextures(1, &gl_tex_id);
@@ -518,9 +521,33 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
         for (UINT i = 0; i < LevelCount; ++i) {
             levels[i].w = mw; levels[i].h = mh;
             levels[i].pixels.assign(D3DFmt_Level_Bytes(Fmt, mw, mh), 0);
+            gx_mem_texture_bytes += (double)levels[i].pixels.size();
             if (mw > 1) mw >>= 1;
             if (mh > 1) mh >>= 1;
         }
+    }
+
+    // Web port (Settings switch freeTextureCopies, page switch bit 19): copies the graphics chip
+    // already has are dropped after upload. Uncompressed textures: levels 1+ are never sent
+    // (the chip builds them from level 0 with glGenerateMipmap), so they go at once. Compressed
+    // (DXT) textures: every level, after the first upload (they come from files and are not
+    // written again). A dropped level that is locked again gets fresh zeroed memory
+    // (_refill); gx_stat_tex_refills counts those, so the benchmark shows if it ever happens.
+    void _drop_copies(bool dxt) {
+        if (!(GLES3_Page_Switches() & 524288)) return;
+        for (UINT i = dxt ? 0 : 1; i < levels.size(); ++i) {
+            if (levels[i].pixels.empty()) continue;
+            gx_mem_texture_bytes -= (double)levels[i].pixels.size();
+            std::vector<uint8_t>().swap(levels[i].pixels);
+        }
+    }
+    bool _refill(UINT i) {
+        if (i >= levels.size()) return false;
+        if (!levels[i].pixels.empty()) return true;
+        levels[i].pixels.assign(D3DFmt_Level_Bytes(Fmt, levels[i].w, levels[i].h), 0);
+        gx_mem_texture_bytes += (double)levels[i].pixels.size();
+        gx_stat_tex_refills++;
+        return true;
     }
 
     static UINT _count_mips(UINT w, UINT h) {
@@ -547,9 +574,13 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
     // glGenerateMipmap to auto-generate the rest.
     uint64_t sent_hash = 0; bool sent_valid = false; // pixels of the last re-upload (Upload_To_GL)
     GLuint Upload_To_GL() {
-        if (levels.empty() || levels[0].pixels.empty()) return 0;
-
+        if (levels.empty()) return 0;
         bool dxt = _is_dxt(Fmt);
+        if (levels[0].pixels.empty()) {
+            if (gl_tex_id && !dirty) return gl_tex_id;	// copy dropped, the chip has it
+            _refill(0);
+        }
+        if (dxt) for (UINT i = 1; i < levels.size(); ++i) if (levels[i].pixels.empty()) _refill(i);
 
         if (gl_tex_id && !dxt) {
             // A texture rewritten with the same pixels (the fog of war, every frame) is not
@@ -617,6 +648,7 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
         }
 
         dirty = false;
+        _drop_copies(dxt);
         return gl_tex_id;
     }
 
@@ -632,6 +664,7 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
     virtual HRESULT LockRect(UINT Level, D3DLOCKED_RECT *pLockedRect,
                              const RECT *pRect, DWORD) override {
         if (!pLockedRect) return 0;
+        if (Level < LevelCount) _refill(Level);
         if (Level >= LevelCount || levels[Level].pixels.empty()) {
             pLockedRect->pBits = nullptr;
             pLockedRect->Pitch = 0;
@@ -710,6 +743,7 @@ inline ULONG Emscripten_IDirect3DSurface8::Release() {
 inline HRESULT Emscripten_IDirect3DSurface8::LockRect(D3DLOCKED_RECT *pLockedRect, const RECT *pRect, DWORD) {
     if (pLockedRect) {
         if (ParentTexture) {
+            if (ParentLevel < ParentTexture->LevelCount) ParentTexture->_refill(ParentLevel);
             if (ParentLevel < ParentTexture->LevelCount && !ParentTexture->levels[ParentLevel].pixels.empty()) {
                 pLockedRect->Pitch = (int)(Width * BytesPerPixel);
                 pLockedRect->pBits = ParentTexture->levels[ParentLevel].pixels.data();
@@ -746,6 +780,7 @@ inline HRESULT Emscripten_IDirect3DSurface8::UnlockRect() {
 // ---------------------------------------------------------------------------
 struct Emscripten_BufferData {
     std::vector<uint8_t> data;
+    ~Emscripten_BufferData() { gx_mem_buffer_bytes -= (double)data.size(); }
     size_t dirty_lo = 0, dirty_hi = 0; // locked bytes not yet uploaded
     bool allocated = false;            // GL storage made with glBufferData
 
@@ -825,6 +860,7 @@ struct Emscripten_IDirect3DVertexBuffer8 : public IDirect3DVertexBuffer8 {
     Emscripten_IDirect3DVertexBuffer8(UINT length = 0)
         : stride(0), gl_vbo(0) {
         buf.data.resize(length, 0);
+        gx_mem_buffer_bytes += length;
     }
     ~Emscripten_IDirect3DVertexBuffer8() {
         GLES3_Delete_Buffer(&gl_vbo);
@@ -859,6 +895,7 @@ struct Emscripten_IDirect3DIndexBuffer8 : public IDirect3DIndexBuffer8 {
     Emscripten_IDirect3DIndexBuffer8(UINT length = 0)
         : gl_ibo(0) {
         buf.data.resize(length, 0);
+        gx_mem_buffer_bytes += length;
     }
     ~Emscripten_IDirect3DIndexBuffer8() {
         GLES3_Delete_Buffer(&gl_ibo);
@@ -1427,8 +1464,11 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
         Emscripten_IDirect3DTexture8 *dst =
             static_cast<Emscripten_IDirect3DTexture8 *>(pDestinationTexture);
         if (src && dst && src->LevelCount == dst->LevelCount) {
-            for (UINT i = 0; i < src->LevelCount; ++i)
+            for (UINT i = 0; i < src->LevelCount; ++i) {
+                src->_refill(i);
+                gx_mem_texture_bytes += (double)src->levels[i].pixels.size() - (double)dst->levels[i].pixels.size();
                 dst->levels[i].pixels = src->levels[i].pixels;
+            }
             dst->dirty = true;
         } else if (src) {
             // dst may be null — upload src directly

@@ -12,6 +12,7 @@ extern double gx_stat_triangles;		// triangles drawn (instances counted)
 extern unsigned gx_stat_gl_draws;		// GL draw calls
 extern unsigned gx_stat_programs;		// glUseProgram calls
 extern unsigned gx_stat_tex_binds;		// glBindTexture calls
+extern unsigned gx_stat_shader_compiles;	// glCompileShader calls
 }
 
 static inline unsigned gx_texel_bytes(GLenum format, GLenum type) {
@@ -29,6 +30,7 @@ static inline void gx_wrap_glTexSubImage2D(GLenum t, GLint l, GLint x, GLint y, 
 	gx_stat_upload_bytes += (double)w * h * gx_texel_bytes(f, ty); glTexSubImage2D(t, l, x, y, w, h, f, ty, p); }
 static inline void gx_wrap_glCompressedTexImage2D(GLenum t, GLint l, GLenum i, GLsizei w, GLsizei h, GLint b, GLsizei n, const void *d) {
 	if (d) gx_stat_upload_bytes += (double)n; glCompressedTexImage2D(t, l, i, w, h, b, n, d); }
+static inline void gx_wrap_glCompileShader(GLuint s) { gx_stat_shader_compiles++; glCompileShader(s); }
 static inline void gx_wrap_glUseProgram(GLuint p) { gx_stat_programs++; glUseProgram(p); }
 static inline void gx_wrap_glBindTexture(GLenum t, GLuint x) { gx_stat_tex_binds++; glBindTexture(t, x); }
 static inline double gx_tris(GLenum m, GLsizei n) { return m == GL_TRIANGLES ? n / 3.0 : (m == GL_TRIANGLE_STRIP || m == GL_TRIANGLE_FAN) ? (n > 2 ? n - 2 : 0) : 0; }
@@ -42,6 +44,7 @@ static inline void gx_wrap_glDrawArrays(GLenum m, GLint f, GLsizei n) { gx_stat_
 #define glTexSubImage2D gx_wrap_glTexSubImage2D
 #define glCompressedTexImage2D gx_wrap_glCompressedTexImage2D
 #define glUseProgram gx_wrap_glUseProgram
+#define glCompileShader gx_wrap_glCompileShader
 #define glBindTexture gx_wrap_glBindTexture
 #define glDrawElements gx_wrap_glDrawElements
 #define glDrawElementsInstanced gx_wrap_glDrawElementsInstanced

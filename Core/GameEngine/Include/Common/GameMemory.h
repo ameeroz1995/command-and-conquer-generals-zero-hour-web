@@ -538,6 +538,7 @@ public:
 
 	/// return the pool with the given name. if no such pool exists, return null.
 	MemoryPool *findMemoryPool(const char *poolName);
+	MemoryPool *getFirstPoolInList() { return m_firstPoolInFactory; }	///< web port: the benchmark lists the pools
 
 	/// destroy the given pool.
 	void destroyMemoryPool(MemoryPool *pMemoryPool);

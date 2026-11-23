@@ -158,7 +158,7 @@ if(EMSCRIPTEN)
         # repeated -s flags override, so it must appear exactly once.)
         # JS-callable C entry points. EMSCRIPTEN_KEEPALIVE attributes alone
         # *should* be enough, but listing them explicitly is defensive.
-        "-sEXPORTED_FUNCTIONS=['_main','_EmscriptenInput_OnPointerLockChange','_EmscriptenInput_GetVirtualMouseX','_EmscriptenInput_GetVirtualMouseY','_GX_FlushIdbfs_Tab','_GX_OnCanvasResize','_AIL_trigger_sample_eos','_GX_Network_EnableVirtual','_GX_Network_PushPacket','_GX_Network_SetVirtualIP','_GX_TickHidden','_GX_Bench_Start','_GX_Bench_Stop','_malloc','_free']"
+        "-sEXPORTED_FUNCTIONS=['_main','_EmscriptenInput_OnPointerLockChange','_EmscriptenInput_GetVirtualMouseX','_EmscriptenInput_GetVirtualMouseY','_GX_FlushIdbfs_Tab','_GX_OnCanvasResize','_AIL_trigger_sample_eos','_GX_Network_EnableVirtual','_GX_Network_PushPacket','_GX_Network_SetVirtualIP','_GX_TickHidden','_GX_Bench_Start','_GX_Bench_Stop','_GX_Bench_Replay','_GX_Bench_Record','_malloc','_free']"
         "-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=['$registerPointerlockErrorEventCallback','$stringToUTF8','$stringToNewUTF8']"
     )
 

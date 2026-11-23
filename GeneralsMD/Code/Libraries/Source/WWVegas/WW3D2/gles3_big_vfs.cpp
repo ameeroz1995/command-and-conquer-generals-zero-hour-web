@@ -29,6 +29,16 @@ std::unordered_map<std::string, BigVFS::CachedData> BigVFS::cache;
 std::list<std::string> BigVFS::inactive_lru;
 unsigned int BigVFS::inactive_cache_bytes = 0;
 
+// Benchmark counters (Main/WebBenchmark.cpp): files read from the archives (not from the
+// cache) and their bytes; and the bytes the cache holds now.
+extern "C" { unsigned gx_stat_file_reads = 0; double gx_stat_file_bytes = 0; }
+double BigVFS::Cached_Bytes() {
+  double n = 0;
+  for (auto &e : cache) n += e.second.size;
+  return n;
+}
+extern "C" double GX_VFS_Cached_Bytes() { return BigVFS::Cached_Bytes(); }
+
 // ============================================================================
 // Fetch_Range_JS — Native HTTP Range Request via Synchronous XHR
 // ============================================================================
@@ -568,6 +578,7 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
 
   // Find the file entry
   const BigFileEntry *entry = Find_File(path);
+  if (entry) { gx_stat_file_reads++; gx_stat_file_bytes += entry->size; }
   if (!entry) {
     fprintf(stderr, "WARN: File not found in .big archives: %s\n", path);
     return false;

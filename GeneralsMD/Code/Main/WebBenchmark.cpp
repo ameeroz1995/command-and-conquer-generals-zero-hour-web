@@ -21,6 +21,7 @@
 // game thread; the page's call is forwarded there in the worker build.
 // ============================================================================
 #include <emscripten.h>
+#include <emscripten/heap.h>
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
@@ -47,6 +48,7 @@
 #include "GameLogic/Weapon.h"
 #include "GameClient/MapUtil.h"
 #include "GameClient/InGameUI.h"
+#include "GameClient/Shell.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/ParticleSys.h"
 #include "GameClient/View.h"
@@ -58,6 +60,9 @@
 #include "GameLogic/Module/BehaviorModule.h"
 #include "GameLogic/Module/SpecialPowerModule.h"
 #include "GameNetwork/GameInfo.h"
+#include "Common/Recorder.h"
+#include "Common/FramePacer.h"
+#include "Common/GameMemory.h"
 
 #ifdef __EMSCRIPTEN_PTHREADS__
 #include <emscripten/threading.h>
@@ -66,7 +71,11 @@
 extern "C" int gx_dx8_draw_called;
 extern "C" void (*gx_frame_hook)(double work_ms);
 extern "C" double gx_stat_upload_bytes, gx_stat_triangles;
-extern "C" unsigned gx_stat_gl_draws, gx_stat_programs, gx_stat_tex_binds;
+extern "C" unsigned gx_stat_gl_draws, gx_stat_programs, gx_stat_tex_binds, gx_stat_shader_compiles, gx_stat_file_reads;
+extern "C" double gx_stat_file_bytes;
+extern "C" double GX_VFS_Cached_Bytes();
+extern "C" double gx_mem_buffer_bytes, gx_mem_texture_bytes;
+extern "C" unsigned gx_stat_tex_refills;
 extern "C" int gx_bench_shot;	// gles3_wrapper.cpp: 1 = send a thumbnail of the next frame to the page
 
 namespace {
@@ -86,10 +95,12 @@ const UnsignedInt kStrikesFrom = 450;	// strikes start once the armies have met
 const UnsignedInt kStrikeEvery = 10;		// logic frames between strikes
 const double kLoadWallMs = 120000.0;	// a map that has not loaded by then is reported as failed
 
-enum Stage { IDLE, BATTLE_LOAD, BATTLE_RUN, TOUR_LOAD, TOUR_RUN, FINISH };
+enum Stage { IDLE, RECORD_WAIT, RECORD_LOAD, RECORD_RUN, RECORD_DONE, REPLAY_WAIT, REPLAY_LOAD, REPLAY_RUN, WAIT_MENU, BATTLE_LOAD, BATTLE_RUN, TOUR_LOAD, TOUR_RUN, FINISH };
 
 // One frame: time, CPU work, and what was sent to the graphics chip.
-struct Sample { float ms, work; int draws; unsigned glDraws, programs, binds; float tris, upload; };
+struct Sample { float ms, work; int draws; unsigned glDraws, programs, binds, compiles, fileReads; float tris, upload, fileKB, heapGrowMB; };
+// The slowest frames of the run, with what happened just before them.
+struct Slowest { float ms; std::string phase, event; UnsignedInt logic; Sample s; int objects; };
 // Every 30 frames: memory and how much is in the world.
 struct Slow { float heapMB, heapTopMB; int objects, particles; };
 struct Phase { std::string name; std::vector<Sample> s; std::vector<Slow> slow; double wall0 = 0, wall1 = 0; UnsignedInt logic0 = 0, logic1 = 0; std::string note; };
@@ -103,8 +114,11 @@ struct Bench {
 	int tourIndex = 0;
 	UnsignedInt frame0 = 0;
 	int lastDraws = 0;
-	double lastUpload = 0, lastTris = 0;
-	unsigned lastGlDraws = 0, lastPrograms = 0, lastBinds = 0;
+	double lastUpload = 0, lastTris = 0, lastFileBytes = 0, lastTop = 0;
+	unsigned lastGlDraws = 0, lastPrograms = 0, lastBinds = 0, lastCompiles = 0, lastFileReads = 0;
+	std::string event, lastEvent;		// what the benchmark did this frame / the frame before
+	std::vector<Slowest> slowest;
+	std::vector<std::string> memory;	// snapshots (JSON)
 	std::vector<Phase> phases;
 	Phase *cur = nullptr;
 	std::vector<Strike> strikes;
@@ -112,11 +126,14 @@ struct Bench {
 	Coord3D baseCenter[2];
 	std::vector<const ThingTemplate *> units;
 	int wavesSent = 0;
+	UnsignedInt replayFrames = 0;
 	UnsignedInt lastOrder = 0xffffffff;
 	Real cx = 0, cy = 0;
 	int spawned[2] = {0, 0}, built[2] = {0, 0}, unitTypes = 0, structureTypes = 0, fired = 0;
 	double setupMs = 0;
 	int shotFor = -1;
+	AsciiString replayName;
+	double replayLimitMs = 600000;
 	std::string setupNote;
 	Player *side[2] = {nullptr, nullptr};
 } B;
@@ -144,7 +161,7 @@ AsciiString findMap(const char *name)
 	return AsciiString::TheEmptyString;
 }
 
-bool startSkirmish(const char *mapName, bool withEnemy)
+bool startSkirmish(const char *mapName, bool withEnemy, bool observe = false)
 {
 	AsciiString map = findMap(mapName);
 	if (map.isEmpty()) return false;
@@ -159,7 +176,7 @@ bool startSkirmish(const char *mapName, bool withEnemy)
 	GameSlot me;
 	me.setState(SLOT_PLAYER, UnicodeString(L"Benchmark"));
 	me.setColor(0);
-	me.setPlayerTemplate(ThePlayerTemplateStore->getTemplateNumByName("FactionAmerica"));
+	me.setPlayerTemplate(observe ? PLAYERTEMPLATE_OBSERVER : ThePlayerTemplateStore->getTemplateNumByName("FactionAmerica"));
 	me.setStartPos(0);
 	me.setTeamNumber(-1);
 	TheSkirmishGameInfo->setSlot(0, me);
@@ -177,7 +194,10 @@ bool startSkirmish(const char *mapName, bool withEnemy)
 			ai.setTeamNumber(players == 4 ? (i == 1 ? 0 : 1) : -1);
 			TheSkirmishGameInfo->setSlot(i, ai);
 		}
-		if (players == 4) { GameSlot me0 = *TheSkirmishGameInfo->getSlot(0); me0.setTeamNumber(0); TheSkirmishGameInfo->setSlot(0, me0); }
+		if (players == 4 && !observe) { GameSlot me0 = *TheSkirmishGameInfo->getSlot(0); me0.setTeamNumber(0); TheSkirmishGameInfo->setSlot(0, me0); }
+		if (observe) {	// referee recording: the AIs play 2 v 1 (team 0 = slot 1, team 1 = slots 2-3)
+			for (int i = 1; i < players; ++i) { GameSlot g = *TheSkirmishGameInfo->getSlot(i); g.setTeamNumber(i == 1 ? 0 : 1); TheSkirmishGameInfo->setSlot(i, g); }
+		}
 	}
 	TheSkirmishGameInfo->setSeed(12345);	// same battle every run
 	Money cash; cash.deposit(10000, FALSE, FALSE);
@@ -306,6 +326,7 @@ void setupBattle()
 // One wave per side: a quarter of the army, on one of three fronts, sent at the other base.
 void sendWave(int wave)
 {
+	B.event += "wave " + std::to_string(wave + 1) + "; ";
 	const int perWave = kUnitsPerSide / kWaves, cols = 20;
 	Region3D ext; TheTerrainLogic->getExtent(&ext);
 	const Real half = std::min(ext.hi.x - ext.lo.x, ext.hi.y - ext.lo.y) / 2;
@@ -377,6 +398,7 @@ void selectAndOrder(int turn)
 	const size_t cap = kind == 3 ? 1 : 150;
 	if (pick.size() > cap) pick.resize(cap);
 	TheInGameUI->deselectAllDrawables(FALSE);
+	B.event += "select " + std::to_string(pick.size()) + " (group " + std::to_string(kind) + "); ";
 	if (pick.empty()) return;
 	AIGroupPtr g = TheAI->createGroup();
 	for (auto &e : pick) { TheInGameUI->selectDrawable(e.second->getDrawable()); g->add(e.second); }
@@ -409,6 +431,7 @@ void fireNextStrike()
 		at.x += (Real)((B.fired * 37) % 160 - 80);	// spread them over the army
 		at.y += (Real)((B.fired * 53) % 240 - 120);
 		sp->doSpecialPowerAtLocation(&at, INVALID_ANGLE, COMMAND_FIRED_BY_SCRIPT);
+		B.event += std::string("strike ") + k.power->getName().str() + "; ";
 		B.fired++;
 		return;
 	}
@@ -431,6 +454,34 @@ void endPhase()
 	B.cur->wall1 = now();
 	B.cur->logic1 = TheGameLogic ? TheGameLogic->getFrame() : 0;
 	B.cur = nullptr;
+}
+
+// Where the memory is: heap, the file cache, and the engine's memory pools (largest first).
+void memorySnapshot(const char *label)
+{
+	struct mallinfo mi = mallinfo();
+	struct PoolUse { std::string name; double total, used; int size, blocks, peak; };
+	std::vector<PoolUse> pools; double poolTotal = 0, poolUsed = 0;
+	if (TheMemoryPoolFactory)
+		for (MemoryPool *p = TheMemoryPoolFactory->getFirstPoolInList(); p; p = p->getNextPoolInList()) {
+			PoolUse u = { p->getPoolName(), (double)p->getTotalBlockCount() * p->getAllocationSize(), (double)p->getUsedBlockCount() * p->getAllocationSize(),
+				p->getAllocationSize(), p->getUsedBlockCount(), p->getPeakBlockCount() };
+			poolTotal += u.total; poolUsed += u.used;
+			pools.push_back(u);
+		}
+	std::sort(pools.begin(), pools.end(), [](const PoolUse &a, const PoolUse &b) { return a.total > b.total; });
+	char buf[600];
+	snprintf(buf, sizeof(buf), "{\"label\":\"%s\",\"heapLiveMB\":%.1f,\"heapTopMB\":%.1f,\"heapSizeMB\":%.1f,\"fileCacheMB\":%.1f,\"poolsMB\":%.1f,\"poolsUsedMB\":%.1f,\"textureCopiesMB\":%.1f,\"textureRefills\":%u,\"bufferCopiesMB\":%.1f,\"objects\":%u,\"pools\":[",
+		label, mi.uordblks / 1048576.0, (uintptr_t)sbrk(0) / 1048576.0, emscripten_get_heap_size() / 1048576.0, GX_VFS_Cached_Bytes() / 1048576.0,
+		poolTotal / 1048576.0, poolUsed / 1048576.0, gx_mem_texture_bytes / 1048576.0, gx_stat_tex_refills, gx_mem_buffer_bytes / 1048576.0, TheGameLogic ? TheGameLogic->getObjectCount() : 0);
+	std::string j = buf;
+	for (size_t i = 0; i < pools.size() && i < 15; ++i) {
+		snprintf(buf, sizeof(buf), "%s{\"name\":\"%s\",\"MB\":%.2f,\"usedMB\":%.2f,\"bytes\":%d,\"used\":%d,\"peak\":%d}", i ? "," : "",
+			pools[i].name.c_str(), pools[i].total / 1048576.0, pools[i].used / 1048576.0, pools[i].size, pools[i].blocks, pools[i].peak);
+		j += buf;
+	}
+	j += "]}";
+	B.memory.push_back(j);
 }
 
 // avg, p50, p90, max of one value over the phase's frames
@@ -489,11 +540,22 @@ void finish(const char *why)
 	endPhase();
 	std::string j = "{\"version\":2,\"result\":\"";
 	j += why;
-	char buf[300];
+	char buf[700];
 	snprintf(buf, sizeof(buf), "\",\"units\":[%d,%d],\"structures\":[%d,%d],\"unitTypes\":%d,\"structureTypes\":%d,\"strikes\":%d,\"setupMs\":%.0f,\"setupNote\":\"%s\",\"phases\":[",
 		B.spawned[0], B.spawned[1], B.built[0], B.built[1], B.unitTypes, B.structureTypes, B.fired, B.setupMs, B.setupNote.c_str());
 	j += buf;
 	for (size_t i = 0; i < B.phases.size(); ++i) { if (i) j += ","; j += phaseJson(B.phases[i]); }
+	j += "],\"memory\":[";
+	for (size_t i = 0; i < B.memory.size(); ++i) { if (i) j += ","; j += B.memory[i]; }
+	j += "],\"slowest\":[";
+	for (size_t i = 0; i < B.slowest.size(); ++i) {
+		const Slowest &w = B.slowest[i];
+		std::string ev = w.event; for (char &c : ev) if (c == '"' || c == '\\') c = '\'';
+		snprintf(buf, sizeof(buf), "%s{\"ms\":%.0f,\"phase\":\"%s\",\"logicFrame\":%u,\"event\":\"%s\",\"workMs\":%.0f,\"fileReads\":%u,\"fileKB\":%.0f,"
+			"\"shaderCompiles\":%u,\"uploadKB\":%.0f,\"heapGrowMB\":%.1f,\"draws\":%d,\"objects\":%d}", i ? "," : "",
+			w.ms, w.phase.c_str(), w.logic, ev.substr(0, 150).c_str(), w.s.work, w.s.fileReads, w.s.fileKB, w.s.compiles, w.s.upload / 1024, w.s.heapGrowMB, w.s.draws, w.objects);
+		j += buf;
+	}
 	j += "]}";
 	EM_ASM({ if (window.gxBenchDone) window.gxBenchDone(UTF8ToString($0)); }, j.c_str());
 	B.stage = IDLE;
@@ -516,6 +578,16 @@ void startTourMap()
 
 // ---------------------------------------------------------------------------- per frame
 
+void recordDone(const char *what)
+{
+	char buf[300];
+	snprintf(buf, sizeof(buf), "{\"result\":\"%s\",\"file\":\"%s%s\",\"frames\":%u}", what,
+		TheRecorder ? RecorderClass::getLastReplayFileName().str() : "", TheRecorder ? TheRecorder->getReplayExtention().str() : "", B.replayFrames);
+	printf("GXRECORD %s\n", buf);
+	B.stage = IDLE;
+	EM_ASM({ if (window.gxBenchDone) window.gxBenchDone(UTF8ToString($0)); }, buf);
+}
+
 double lastT = 0;
 
 void onFrame(double workMs)
@@ -533,6 +605,19 @@ void onFrame(double workMs)
 	smp.binds = gx_stat_tex_binds - B.lastBinds; B.lastBinds = gx_stat_tex_binds;
 	smp.tris = (float)(gx_stat_triangles - B.lastTris); B.lastTris = gx_stat_triangles;
 	smp.upload = (float)(gx_stat_upload_bytes - B.lastUpload); B.lastUpload = gx_stat_upload_bytes;
+	smp.compiles = gx_stat_shader_compiles - B.lastCompiles; B.lastCompiles = gx_stat_shader_compiles;
+	smp.fileReads = gx_stat_file_reads - B.lastFileReads; B.lastFileReads = gx_stat_file_reads;
+	smp.fileKB = (float)((gx_stat_file_bytes - B.lastFileBytes) / 1024); B.lastFileBytes = gx_stat_file_bytes;
+	{ const double top = (double)(uintptr_t)sbrk(0); smp.heapGrowMB = B.lastTop > 0 ? (float)((top - B.lastTop) / 1048576.0) : 0; B.lastTop = top; }
+	if (B.cur && (B.stage == BATTLE_RUN || B.stage == TOUR_RUN)) {
+		// keep the ten slowest frames; this frame ran what the benchmark did last frame
+		if (B.slowest.size() < 10 || smp.ms > B.slowest.back().ms) {
+			B.slowest.push_back({ smp.ms, B.cur->name, B.lastEvent, TheGameLogic->getFrame(), smp, (int)TheGameLogic->getObjectCount() });
+			std::sort(B.slowest.begin(), B.slowest.end(), [](const Slowest &a, const Slowest &b) { return a.ms > b.ms; });
+			if (B.slowest.size() > 10) B.slowest.pop_back();
+		}
+	}
+	B.lastEvent = B.event; B.event.clear();
 	if (B.cur && (B.stage == BATTLE_RUN || B.stage == TOUR_RUN)) {
 		B.cur->s.push_back(smp);
 		if (B.cur->s.size() % 30 == 1) {
@@ -544,13 +629,72 @@ void onFrame(double workMs)
 	const double t = now();
 
 	switch (B.stage) {
+	case RECORD_WAIT:	// referee recording: start an AI-only match (we observe) once the menu is up
+		if (TheGameLogic && TheShell && TheShell->getScreenCount() > 0 && !TheGameLogic->isLoadingMap() && (!TheGameLogic->isInGame() || TheGameLogic->isInShellGame())) {
+			if (!startSkirmish(kBattleMap, true, true)) { recordDone("battle map not found"); break; }
+			B.stage = RECORD_LOAD; B.stageStart = t;
+			progress("Recording: AI match loading");
+		}
+		break;
+	case RECORD_LOAD:
+		if (gameReady()) { B.stage = RECORD_RUN; B.frame0 = TheGameLogic->getFrame(); B.stageStart = t; progress("Recording: AI match running"); }
+		else if (t - B.stageStart > kLoadWallMs) recordDone("map did not load");
+		break;
+	case RECORD_RUN:
+		if (TheGameLogic->getFrame() - B.frame0 >= B.replayFrames || t - B.stageStart > B.replayLimitMs) {
+			B.replayFrames = TheGameLogic->getFrame();
+			TheGameLogic->exitGame();	// closes the recording
+			B.stage = RECORD_DONE; B.stageStart = t;
+		}
+		break;
+	case RECORD_DONE:	// once the match is cleared the recording file is complete
+		if (!TheGameLogic->isInGame() || TheGameLogic->isInShellGame() || t - B.stageStart > 15000) recordDone("recorded");
+		break;
+	case REPLAY_WAIT:	// replay check started before the main menu was up: start once it is
+		if (TheGameLogic && TheShell && TheShell->getScreenCount() > 0 && !TheGameLogic->isLoadingMap() && (!TheGameLogic->isInGame() || TheGameLogic->isInShellGame())) {
+			if (!TheRecorder->playbackFile(B.replayName)) {
+				B.stage = IDLE;
+				EM_ASM({ if (window.gxBenchDone) window.gxBenchDone(JSON.stringify({ result: 'replay not found' })); });
+				break;
+			}
+			if (TheFramePacer) TheFramePacer->setFramesPerSecondLimit(1000);	// as fast as it goes
+			B.stage = REPLAY_LOAD; B.stageStart = t;
+		}
+		break;
+	case REPLAY_LOAD:	// replay check: wait for the replay's match to start
+		if (gameReady()) { B.stage = REPLAY_RUN; B.frame0 = TheGameLogic->getFrame(); B.stageStart = t; }
+		else if (t - B.stageStart > kLoadWallMs) { B.stage = IDLE; EM_ASM({ if (window.gxBenchDone) window.gxBenchDone(JSON.stringify({ result: 'replay did not load' })); }); }
+		break;
+	case REPLAY_RUN: {
+		const UnsignedInt f = TheGameLogic->getFrame();
+		const bool over = !TheRecorder->isPlaybackInProgress() || f >= B.replayFrames || TheRecorder->sawCRCMismatch();
+		if (over) {
+			char buf[200];
+			snprintf(buf, sizeof(buf), "{\"result\":\"replay check\",\"replayFrames\":%u,\"mismatch\":%s,\"seconds\":%.0f}",
+				f, TheRecorder->sawCRCMismatch() ? "true" : "false", (t - B.stageStart) / 1000.0);
+			printf("GXREPLAY %s\n", buf);
+			B.stage = IDLE;
+			EM_ASM({ if (window.gxBenchDone) window.gxBenchDone(UTF8ToString($0)); }, buf);
+			TheGameLogic->exitGame();
+		}
+		break;
+	}
+	case WAIT_MENU:	// started before the game reached its menu (page just loaded): start once it has
+		if (TheGameLogic && TheShell && TheShell->getScreenCount() > 0 && !TheGameLogic->isLoadingMap() && (!TheGameLogic->isInGame() || TheGameLogic->isInShellGame())) {
+			progress("Battle: loading Tournament Desert");
+			if (!startSkirmish(kBattleMap, true)) { beginPhase("battle"); B.cur->note = "Tournament Desert not found"; finish("battle map not found"); break; }
+			B.stage = BATTLE_LOAD; B.stageStart = t;
+		}
+		break;
 	case BATTLE_LOAD:
 		if (gameReady()) {
 			progress("Battle: building both bases");
+			memorySnapshot("battle map loaded");
 			const double s0 = now();
 			setupBattle();
 			B.setupMs = now() - s0;
 			lastT = now();	// the setup's own time is reported apart, not as a frame
+			memorySnapshot("bases built");
 			beginPhase("armies");
 			B.frame0 = TheGameLogic->getFrame();
 			B.stage = BATTLE_RUN; B.stageStart = t;
@@ -574,6 +718,7 @@ void onFrame(double workMs)
 		if (f >= kBattleFrames || t - B.stageStart > kBattleWallMs) {
 			if (t - B.stageStart > kBattleWallMs && B.cur) B.cur->note = "stopped at the time limit";
 			endPhase();
+			memorySnapshot("battle end");
 			TheInGameUI->deselectAllDrawables(FALSE);
 			TheTacticalView->setAngleToDefault();
 			if (B.withTour) { B.tourIndex = 0; startTourMap(); } else finish("done");
@@ -606,7 +751,7 @@ void onFrame(double workMs)
 			p.z = TheTerrainLogic->getGroundHeight(p.x, p.y);
 			TheTacticalView->lookAt(&p);
 		}
-		if (point == 0 && e > 600 && B.shotFor != B.tourIndex) { B.shotFor = B.tourIndex; gx_bench_shot = 1; }	// one thumbnail per map
+		if (e > 600 && B.shotFor != B.tourIndex) { B.shotFor = B.tourIndex; gx_bench_shot = 1; }	// one thumbnail per map (even if a slow frame skipped the first point)
 		if (e >= 4000) {
 			lastPoint = -1;
 			endPhase();
@@ -632,8 +777,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE void GX_Bench_Start(int withTour)
 		return;
 	}
 #endif
-	if (B.stage != IDLE || !TheGameLogic) return;
-	if (TheGameLogic->isInMultiplayerGame()) {
+	if (B.stage != IDLE) return;
+	if (TheGameLogic && TheGameLogic->isInMultiplayerGame()) {
 		EM_ASM({ if (window.gxBenchDone) window.gxBenchDone(JSON.stringify({ result: 'Not available during a network game' })); });
 		return;
 	}
@@ -642,12 +787,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE void GX_Bench_Start(int withTour)
 	B.withTour = withTour != 0;
 	B.lastDraws = gx_dx8_draw_called;
 	gx_frame_hook = onFrame;
-	progress("Battle: loading Tournament Desert");
-	if (!startSkirmish(kBattleMap, true)) {
-		beginPhase("battle"); B.cur->note = "Tournament Desert not found"; finish("battle map not found");
-		return;
-	}
-	B.stage = BATTLE_LOAD;
+	progress("Waiting for the main menu");
+	B.stage = WAIT_MENU;	// onFrame starts the battle as soon as the menu is up
 	B.stageStart = now();
 }
 
@@ -661,4 +802,49 @@ extern "C" EMSCRIPTEN_KEEPALIVE void GX_Bench_Stop()
 	}
 #endif
 	if (B.stage != IDLE) finish("stopped");
+}
+
+// Referee recording for the replay check: a match of brutal AIs on the battle map (we observe,
+// so nothing the benchmark injects is in it) for <frames> game frames; the game records it like
+// any match (/userdata/Replays/<last replay>.rep). Played back with GX_Bench_Replay on another
+// build or with other switches, it must still match: that proves a logic change changed nothing.
+extern "C" EMSCRIPTEN_KEEPALIVE void GX_Bench_Record(int frames, int maxSeconds)
+{
+#ifdef __EMSCRIPTEN_PTHREADS__
+	extern pthread_t GX_GameThread;
+	if (GX_GameThread && !pthread_equal(pthread_self(), GX_GameThread)) {
+		emscripten_dispatch_to_thread_async(GX_GameThread, EM_FUNC_SIG_VII, (void *)GX_Bench_Record, nullptr, frames, maxSeconds);
+		return;
+	}
+#endif
+	if (B.stage != IDLE || (TheGameLogic && TheGameLogic->isInMultiplayerGame())) return;
+	B = Bench();
+	B.replayFrames = frames > 0 ? frames : 9000;
+	B.replayLimitMs = (maxSeconds > 0 ? maxSeconds : 600) * 1000.0;
+	gx_frame_hook = onFrame;
+	B.stage = RECORD_WAIT;
+	B.stageStart = now();
+}
+
+// Replay check: plays /userdata/Replays/<name> for up to <frames> game frames as fast as the
+// machine allows and reports whether the simulation ever left the recording (a CRC mismatch).
+// Every game-logic change is checked with it: the replay only matches if the logic is identical.
+extern "C" EMSCRIPTEN_KEEPALIVE void GX_Bench_Replay(const char *name, int frames)
+{
+#ifdef __EMSCRIPTEN_PTHREADS__
+	extern pthread_t GX_GameThread;
+	if (GX_GameThread && !pthread_equal(pthread_self(), GX_GameThread)) {
+		char *copy = strdup(name);	// the page's string does not outlive this call
+		emscripten_dispatch_to_thread_async(GX_GameThread, EM_FUNC_SIG_VII, (void *)GX_Bench_Replay, nullptr, copy, frames);
+		return;
+	}
+#endif
+	if (B.stage != IDLE || (TheGameLogic && TheGameLogic->isInMultiplayerGame())) return;
+	B = Bench();
+	B.replayFrames = frames > 0 ? frames : 5400;
+	B.replayName = name;
+	gx_frame_hook = onFrame;
+	if (TheGameLogic && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame()) TheGameLogic->clearGameData(FALSE);
+	B.stage = REPLAY_WAIT;	// onFrame starts the replay once the main menu is up
+	B.stageStart = now();
 }

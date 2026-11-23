@@ -72,6 +72,8 @@ struct BigArchive {
 // ============================================================================
 class BigVFS {
 public:
+    static double Cached_Bytes(); // web port benchmark: bytes the file cache holds
+
     // Initialize the VFS system
     // base_url: HTTP URL prefix where .big files are served
     //           e.g., "https://cdn.example.com/generals/assets/"

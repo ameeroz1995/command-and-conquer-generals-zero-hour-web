@@ -1445,6 +1445,40 @@ Object* Player::findNaturalCommandCenter()
 }
 
 //-------------------------------------------------------------------------------------------------
+// Web port: the command bar asks these questions several times per button every frame, each a
+// walk over all the player's objects. Between game logic updates nothing they read can change,
+// so outside the logic update the answers are kept until the next logic frame (Settings switch
+// uiScanCache, page switch bit 18). The logic update itself (the AI) always walks.
+//-------------------------------------------------------------------------------------------------
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#endif
+#include <map>
+#include <tuple>
+namespace {
+struct ScanAnswer { Object *obj; UnsignedInt pct; Int count; };
+struct ScanCache {
+	const void *player = nullptr; UnsignedInt frame = 0xffffffff;
+	std::map<std::tuple<int, intptr_t>, ScanAnswer> answers;
+} s_scanCache;
+// The cached answer for (question, key) of this player, or nullptr; 'slot' is where to store one.
+ScanAnswer *scanCached(const void *player, int question, intptr_t key, ScanAnswer **slot)
+{
+	*slot = nullptr;
+#ifdef __EMSCRIPTEN__
+	if (!(GLES3_Page_Switches() & 262144) || !TheGameLogic || TheGameLogic->isInGameLogicUpdate()) return nullptr;
+	if (s_scanCache.player != player || s_scanCache.frame != TheGameLogic->getFrame()) {
+		s_scanCache.answers.clear(); s_scanCache.player = player; s_scanCache.frame = TheGameLogic->getFrame();
+	}
+	auto it = s_scanCache.answers.find(std::make_tuple(question, key));
+	if (it != s_scanCache.answers.end()) return &it->second;
+	*slot = &s_scanCache.answers[std::make_tuple(question, key)];
+#endif
+	return nullptr;
+}
+}
+
+//-------------------------------------------------------------------------------------------------
 Object* Player::findMostReadyShortcutSpecialPowerOfType( SpecialPowerType spType )
 {
 	PlayerObjectFindInfo info;
@@ -1452,7 +1486,10 @@ Object* Player::findMostReadyShortcutSpecialPowerOfType( SpecialPowerType spType
 	info.obj = nullptr;
 	info.spType = spType;
 	info.lowestReadyFrame = 0xffffffff;
+	ScanAnswer *slot, *hit = scanCached(this, 1, spType, &slot);
+	if (hit) return hit->obj;
 	iterateObjects( doFindSpecialPowerSourceObject, &info );
+	if (slot) slot->obj = info.obj;
 	return info.obj;
 }
 
@@ -1464,8 +1501,11 @@ Object* Player::findMostReadyShortcutWeaponForThing( const ThingTemplate *thing,
 	info.obj = nullptr;
 	info.thing = thing;
 	info.highestPercentage = 0;
+	ScanAnswer *slot, *hit = scanCached(this, 2, (intptr_t)thing, &slot);
+	if (hit) { mostReadyPercentage = hit->pct; return hit->obj; }
 	iterateObjects( doFindMostReadyWeaponForThing, &info );
 	mostReadyPercentage = info.highestPercentage;
+	if (slot) { slot->obj = info.obj; slot->pct = info.highestPercentage; }
 	return info.obj;
 }
 
@@ -1477,8 +1517,11 @@ Object* Player::findMostReadyShortcutSpecialPowerForThing( const ThingTemplate *
 	info.obj = nullptr;
 	info.thing = thing;
 	info.highestPercentage = 0;
+	ScanAnswer *slot, *hit = scanCached(this, 3, (intptr_t)thing, &slot);
+	if (hit) { mostReadyPercentage = hit->pct; return hit->obj; }
 	iterateObjects( doFindMostReadySpecialPowerForThing, &info );
 	mostReadyPercentage = info.highestPercentage;
+	if (slot) { slot->obj = info.obj; slot->pct = info.highestPercentage; }
 	return info.obj;
 }
 
@@ -1489,7 +1532,10 @@ Object* Player::findAnyExistingObjectWithThingTemplate( const ThingTemplate *thi
 	info.player = this;
 	info.obj = nullptr;
 	info.thing = thing;
+	ScanAnswer *slot, *hit = scanCached(this, 4, (intptr_t)thing, &slot);
+	if (hit) return hit->obj;
 	iterateObjects( doFindExistingObjectWithThingTemplate, &info );
+	if (slot) slot->obj = info.obj;
 	return info.obj;
 }
 
@@ -1503,7 +1549,10 @@ Bool Player::hasAnyShortcutSpecialPower()
 	info.obj = nullptr;
 	info.spType = SPECIAL_INVALID; //Invalid dictates that we don't care about the type.
 	info.lowestReadyFrame = 0xffffffff;
+	ScanAnswer *slot, *hit = scanCached(this, 5, 0, &slot);
+	if (hit) return hit->obj;
 	iterateObjects( doFindSpecialPowerSourceObject, &info );
+	if (slot) slot->obj = info.obj;
 	return info.obj;
 }
 
@@ -1513,7 +1562,10 @@ Int Player::countReadyShortcutSpecialPowersOfType( SpecialPowerType spType )
 	PlayerObjectFindInfo info;
 	info.spType = spType;
 	info.numReady = 0;
+	ScanAnswer *slot, *hit = scanCached(this, 6, spType, &slot);
+	if (hit) return hit->count;
 	iterateObjects( doCountSpecialPowersReady, &info );
+	if (slot) slot->count = info.numReady;
 	return info.numReady;
 }
 

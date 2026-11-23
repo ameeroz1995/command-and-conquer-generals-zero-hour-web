@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include <algorithm>
 #include <Utility/gx_trace.h>
 
 #include "Common/AudioAffect.h"
@@ -2505,6 +2506,11 @@ void GameLogic::loadMapINI( AsciiString mapName )
  * see each other at each simulation frame - the object list is the
  * same at the start of the update as it is at the end of the update. */
 // ------------------------------------------------------------------------------------------------
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+int gx_verify_mismatch = 0, gx_verify_checked = 0;	// verification counters (page switch bit 21)
+#endif
+
 //DECLARE_PERF_TIMER(processDestroyList)
 void GameLogic::processDestroyList()
 {
@@ -2543,6 +2549,40 @@ void GameLogic::processDestroyList()
 		UpdateModulePtr sleepyUpdatesForThisObject[MAX_SUO];
 		Int numSUO = 0;
 
+#ifdef __EMSCRIPTEN__
+		// Web port (Settings switch fastDestroy, page switch bit 20): an object's sleepy updates are
+		// its own behavior modules' updates (registerObject), so take them from the object and put
+		// them in heap order, instead of scanning every update in the world for each destroyed
+		// object. Same modules, same order, same erases: the simulation is unchanged.
+		if (GLES3_Page_Switches() & 1048576)
+		{
+			for (BehaviorModule** b = currentObject->getBehaviorModules(); b && *b && numSUO < MAX_SUO; ++b)
+			{
+#ifdef DIRECT_UPDATEMODULE_ACCESS
+				UpdateModulePtr u = (UpdateModulePtr)((*b)->getUpdate());
+#else
+				UpdateModulePtr u = (*b)->getUpdate();
+#endif
+				if (!u) continue;
+				const Int idx = u->friend_getIndexInLogic();
+				if (idx >= 0 && idx < (Int)m_sleepyUpdates.size() && m_sleepyUpdates[idx] == u)
+					sleepyUpdatesForThisObject[numSUO++] = u;
+			}
+			std::sort(sleepyUpdatesForThisObject, sleepyUpdatesForThisObject + numSUO,
+				[](UpdateModulePtr x, UpdateModulePtr y) { return x->friend_getIndexInLogic() < y->friend_getIndexInLogic(); });
+			if (GLES3_Page_Switches() & 2097152)
+			{	// verification (page switch bit 21, Module.gxVerify = 1): the old scan must find exactly the same list
+				UpdateModulePtr old[MAX_SUO]; Int n = 0;
+				for (std::vector<UpdateModulePtr>::iterator it2 = m_sleepyUpdates.begin(); it2 != m_sleepyUpdates.end(); ++it2)
+					if ((*it2)->friend_getObject() == currentObject && n < MAX_SUO) old[n++] = *it2;
+				extern int gx_verify_mismatch, gx_verify_checked;
+				gx_verify_checked++;
+				if (n != numSUO || !std::equal(old, old + n, sleepyUpdatesForThisObject)) { gx_verify_mismatch++; printf("GXVERIFY mismatch: object %u, old %d new %d\n", currentObject->getID(), n, numSUO); }
+				if (gx_verify_checked % 500 == 0) printf("GXVERIFY destroy lists checked %d, mismatches %d\n", gx_verify_checked, gx_verify_mismatch);
+			}
+		}
+		else
+#endif
 		for (std::vector<UpdateModulePtr>::iterator it2 = m_sleepyUpdates.begin(); it2 != m_sleepyUpdates.end(); ++it2)
 		{
 			UpdateModulePtr u = *it2;

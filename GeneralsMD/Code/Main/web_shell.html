@@ -1238,6 +1238,9 @@
             { key: 'gpuSkinning', def: true, label: 'ANIMATE SOLDIERS ON THE GRAPHICS CHIP', note: 'Sends each soldier\'s bone positions instead of moving every vertex on the processor, and draws soldiers of one kind together.' },
             { key: 'uiBatching', def: true, label: 'DRAW 2D SHAPES TOGETHER', note: 'Health bars, unit icons and the pieces of the command bar go to the graphics chip in batches instead of one draw call each. Helps most with a large army selected.' },
             { key: 'sortBatching', def: true, label: 'DRAW SEE-THROUGH EFFECTS TOGETHER', note: 'Muzzle flashes, glass and other see-through parts of many units in a few draw calls instead of one each, in the same back-to-front order.' },
+            { key: 'uiScanCache', def: true, label: 'COMMAND BAR: ASK ONCE PER GAME TICK', note: 'The command bar checks which special powers are ready by searching all your units, several times per button. With this on it searches once per game tick and reuses the answer.' },
+            { key: 'freeTextureCopies', def: true, label: 'DROP TEXTURE COPIES THE GRAPHICS CHIP HAS', note: 'Textures are not kept twice in memory once sent: detail levels the graphics chip builds itself, and compressed textures after their upload.' },
+            { key: 'fastDestroy', def: true, label: 'FASTER CLEAN-UP OF DESTROYED UNITS', note: 'When a unit is destroyed the game no longer searches every update in the world for its own; it takes them from the unit. Same result, much less work in big battles.' },
             { key: 'fastShaders', def: true, label: 'SPECIALISED SHADERS', note: 'One short shader per material instead of a general one. Off is much slower; also turns off the fog of war option above.' },
             { key: 'skipCompare', def: true, label: 'DO NOT COMPARE BUFFERS THAT ALWAYS CHANGE', note: 'Animated soldiers and particles change every frame; they are sent without first checking what changed.' },
             { key: 'skipSameUploads', def: true, label: 'DO NOT RE-SEND UNCHANGED TEXTURES', note: 'The fog of war texture is only sent to the graphics chip when it changes.' },
@@ -1356,11 +1359,19 @@
             if (running || !Module._GX_Bench_Start) return Promise.reject(new Error(running ? 'already running' : 'game not loaded'));
             shots = []; setRunning(true);
             window.gxBenchProgress('Starting…');
-            Module._GX_Bench_Start(withTour === false ? 0 : 1);
+            Module._GX_Bench_Start(withTour === false || withTour === 0 ? 0 : 1);
             return new Promise(function (res) { waiters.push(res); });
           }
           window.GeneralsX = window.GeneralsX || {};
-          window.GeneralsX.bench = { run: run, stop: function () { if (Module._GX_Bench_Stop) Module._GX_Bench_Stop(); }, history: history, get running() { return running; } };
+          window.GeneralsX.bench = { record: function (frames, maxSeconds) {	// referee recording (scripts): an AI-only match, recorded
+              if (running || !Module._GX_Bench_Record) return Promise.reject(new Error('busy'));
+              setRunning(true); Module._GX_Bench_Record(frames || 9000, maxSeconds || 600);
+              return new Promise(function (res) { waiters.push(res); });
+            }, replay: function (name, frames) {	// replay check (scripts): does the simulation still match the recording?
+              if (running || !Module.ccall) return Promise.reject(new Error('busy'));
+              setRunning(true); Module.ccall('GX_Bench_Replay', null, ['string', 'number'], [name || 'bench.rep', frames || 5400]);
+              return new Promise(function (res) { waiters.push(res); });
+            }, run: run, stop: function () { if (Module._GX_Bench_Stop) Module._GX_Bench_Stop(); }, history: history, get running() { return running; } };
           document.addEventListener('DOMContentLoaded', function () { var h = history(); if (h[0]) show(h[0], h[1]); });
           if (document.readyState !== 'loading') { var h0 = history(); if (h0[0]) show(h0[0], h0[1]); }
           document.addEventListener('click', function (e) {

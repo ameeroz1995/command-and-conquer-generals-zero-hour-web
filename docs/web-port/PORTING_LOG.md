@@ -2431,3 +2431,35 @@ Settings button. `GeneralsMD/Code/Main/WebBenchmark.cpp`, page side in web_shell
 First runs, RX 580: battle 5-12 fps with 2,600-3,300 GL draws, 1,000 program switches and
 1,500 texture binds a frame, game work 80-180 ms; the heap passes the 512 MB start and grows
 (a 9.8 s frame in one run). Map tour 58-60 fps. Both builds about 2.5-3 minutes in all.
+
+## Benchmark tools, and three changes measured with them (2026-11-23)
+
+Benchmark additions (WebBenchmark.cpp): memory snapshots (heap, file cache, engine pools largest
+first, texture and buffer copies kept), the ten slowest frames with what the benchmark did just
+before and what the frame did (file reads, shader compiles, uploads, heap growth); it waits for
+the main menu itself; `GeneralsX.bench.record(frames)` records a match of brutal AIs (we observe)
+and `GeneralsX.bench.replay(name, frames)` plays a recording flat out and reports a CRC
+mismatch. Note: the retail 3v3 replay (bench.rep) leaves this codebase's simulation at frame
+110 whatever the switches, so logic changes are checked against a referee recorded with the
+code before the change (~/generals-bench/referee.rep). The test bench is now an MCP server
+(/media/laith/D1/Projects/generals-bench-mcp, `generals-bench`).
+
+Memory at the end of the battle (RX 580, single-thread build): 564 MB in use = file cache 141,
+engine pools 149, texture copies 93, buffer copies 21, rest 160. The long freezes were game work
+(10 s, 8 s frames during strikes), not memory growth.
+
+- Command bar searches once per game tick (Player.cpp, switch uiScanCache, bit 18): the
+  shortcut bar's "which special power is ready" questions walked all the player's objects
+  several times per button every frame. Outside the logic update the answers are kept until the
+  next logic frame; the AI (inside the update) always walks. A/B, same build: work per frame
+  -19% while the armies arrive, -5% in the strikes; frames over 100 ms -7%.
+- Texture copies the graphics chip has are dropped (d3d8.h, switch freeTextureCopies, bit 19):
+  uncompressed levels 1+ (never sent: glGenerateMipmap builds them) at once, compressed textures
+  after their upload. A dropped level locked again gets zeroed memory (counted: 0 in the battle
+  and the five-map tour). Battle end 554 -> 519 MB, texture copies 92 -> 56 MB; same pictures.
+- Faster clean-up of destroyed units (GameLogic.cpp, switch fastDestroy, bit 20): a destroyed
+  object's sleepy updates are taken from its own behavior modules and put in heap order, instead
+  of scanning every update in the world per object. Same modules, same order, same erases.
+  Verified: old and new side by side (Module.gxVerify, bit 21) over 22,000 destroyed objects, 0
+  differences; the referee recording (9,000 frames of brutal AIs) replays without a mismatch
+  with the change on. A/B in the strikes: fps +7%, work -7%, p90 frame -10%.
