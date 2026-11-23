@@ -2479,6 +2479,23 @@ void DX8Wrapper::Draw_Triangles(unsigned short start_index,
        vertex_count);
 }
 
+// GeneralsX: skinned instances of one mesh, animated in the vertex shader (see
+// GLES3_Draw_Triangles_Skinned). Through the device like every draw, for its buffer/layout setup.
+void DX8Wrapper::Draw_Triangles_Skinned(unsigned short start_index, unsigned short polygon_count,
+                                        unsigned short min_vertex_index, unsigned short vertex_count,
+                                        const float* palette, unsigned int bones, unsigned int instance_count,
+                                        unsigned int bone_buffer) {
+  DX8_THREAD_ASSERT();
+  Apply_Render_State_Changes();
+#ifdef __EMSCRIPTEN__
+  gx_skin_palette = palette; gx_skin_bones = bones; gx_skin_bone_buffer = bone_buffer;
+  gx_instance_count = instance_count;
+  D3DDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, min_vertex_index, vertex_count, start_index, polygon_count);
+  gx_instance_count = 0;
+  gx_skin_palette = nullptr;
+#endif
+}
+
 void DX8Wrapper::Draw_Triangles_Instanced(unsigned short start_index,
                                           unsigned short polygon_count,
                                           unsigned short min_vertex_index,

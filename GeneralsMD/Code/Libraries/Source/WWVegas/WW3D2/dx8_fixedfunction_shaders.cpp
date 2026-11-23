@@ -83,10 +83,16 @@ layout(location = 6) in vec2 a_TexCoord3;
 layout(location = 7) in mat4 a_InstanceWorld; // Instanced matrix layout locations 7, 8, 9, 10
 layout(location = 11) in vec4 a_Specular;     // DX8 SPECULAR (BGRA), 0 when the FVF has none
 layout(location = 12) in vec2 a_InstanceUV;   // per instance: added to the stage 0 texture coordinate (batched tank treads)
+layout(location = 13) in float a_Bone;        // GPU skinning: the bone this vertex follows (W3D skins bind a vertex to one bone)
 
 // Transform matrices (view and projection are in GXScene)
 uniform mat4 u_World;
 uniform bool u_InstancingEnabled;
+// GPU skinning (infantry): u_SkinBones > 0 means every instance is a skinned mesh with that many
+// bones; u_BoneTex holds one row per instance, three texels per bone (the rows of its 3x4
+// world matrix). The vertex takes its bone's matrix as its world matrix.
+uniform int u_SkinBones;
+uniform highp sampler2D u_BoneTex;
 
 // Per-stage texture coordinates, as D3D8 fixed function builds them:
 // D3DTSS_TEXCOORDINDEX (low bits: UV set, high 16 bits: D3DTSS_TCI_* generation mode),
@@ -172,6 +178,13 @@ void main() {
     mat4 worldMat = u_World;
     if (u_InstancingEnabled) {
         worldMat = a_InstanceWorld;
+    }
+    if (u_SkinBones > 0) {
+        int b = int(a_Bone + 0.5) * 3;
+        vec4 r0 = texelFetch(u_BoneTex, ivec2(b, gl_InstanceID), 0);
+        vec4 r1 = texelFetch(u_BoneTex, ivec2(b + 1, gl_InstanceID), 0);
+        vec4 r2 = texelFetch(u_BoneTex, ivec2(b + 2, gl_InstanceID), 0);
+        worldMat = mat4(vec4(r0.x, r1.x, r2.x, 0.0), vec4(r0.y, r1.y, r2.y, 0.0), vec4(r0.z, r1.z, r2.z, 0.0), vec4(r0.w, r1.w, r2.w, 1.0));
     }
     // Transform position through World * View * Projection
     vec4 worldPos = worldMat * vec4(a_Position.xyz, 1.0);

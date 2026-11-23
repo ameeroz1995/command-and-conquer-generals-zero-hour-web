@@ -351,6 +351,15 @@ public:
 		unsigned short polygon_count,
 		unsigned short min_vertex_index,
 		unsigned short vertex_count);
+	static void Draw_Triangles_Skinned(
+		unsigned short start_index,
+		unsigned short polygon_count,
+		unsigned short min_vertex_index,
+		unsigned short vertex_count,
+		const float* palette,
+		unsigned int bones,
+		unsigned int instance_count,
+		unsigned int bone_buffer);
 	static void Draw_Triangles_Instanced(
 		unsigned short start_index,
 		unsigned short polygon_count,

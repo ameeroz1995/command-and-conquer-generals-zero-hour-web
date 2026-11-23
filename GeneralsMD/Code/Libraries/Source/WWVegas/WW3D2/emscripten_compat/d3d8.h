@@ -786,15 +786,29 @@ struct Emscripten_BufferData {
         return true;
     }
     unsigned int serial = 0; // gx_content_serial at the last upload that changed bytes (ground cache)
+    unsigned char full_changes = 0; // uploads in a row that changed nearly all of the locked span
+    unsigned char always_new = 0;   // uploads left to send without comparing (performance switch skipCompare)
     void Upload(GLenum target) {
         size_t lo, hi;
         if (!allocated) {
             glBufferData(target, (GLsizeiptr)data.size(), data.data(), GL_DYNAMIC_DRAW);
             allocated = true;
             serial = ++gx_content_serial;
+        } else if (dirty_hi > dirty_lo && always_new > 0 && (GLES3_Page_Switches() & 8192)) {
+            // This buffer changed nearly everywhere the last few times (animated soldiers, particles):
+            // comparing it with the bytes last sent only costs time, so the locked span goes
+            // straight up for a while (8% of a frame with 400 soldiers was the comparison).
+            glBufferSubData(target, (GLintptr)dirty_lo, (GLsizeiptr)(dirty_hi - dirty_lo), data.data() + dirty_lo);
+            serial = ++gx_content_serial;
+            if (--always_new == 0) { sent.clear(); full_changes = 2; } // then one copy and one real comparison decide again
         } else if (dirty_hi > dirty_lo && Changed_Span(lo, hi)) {
             glBufferSubData(target, (GLintptr)lo, (GLsizeiptr)(hi - lo), data.data() + lo);
             serial = ++gx_content_serial;
+            // Four uploads in a row that changed at least 7/8 of what was locked: stop comparing.
+            if ((hi - lo) * 8 >= (dirty_hi - dirty_lo) * 7) { if (++full_changes >= 4) { always_new = 120; full_changes = 0; } }
+            else full_changes = 0;
+        } else {
+            full_changes = 0;
         }
         dirty_lo = dirty_hi = 0;
     }
@@ -1214,6 +1228,11 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
         } else {
             GLES3_Bind_Default_VAO(); // no vertex format yet: still draw from this index buffer
             GLES3_Bind_Element_Buffer(current_ib->gl_ibo);
+        }
+        if (gx_instance_count && gx_skin_palette) { // DX8Wrapper::Draw_Triangles_Skinned
+            GLES3_Draw_Triangles_Skinned(StartIndex, PrimCount, gx_skin_palette, gx_skin_bones, gx_instance_count, gx_skin_bone_buffer);
+            ++gx_d3d_dip_drew;
+            return 0;
         }
         if (gx_instance_count) { // DX8Wrapper::Draw_Triangles_Instanced: one draw, many world matrices
             GLES3_Draw_Triangles_Instanced((unsigned int)PrimType, StartIndex, PrimCount, MinIndex, NumVertices,

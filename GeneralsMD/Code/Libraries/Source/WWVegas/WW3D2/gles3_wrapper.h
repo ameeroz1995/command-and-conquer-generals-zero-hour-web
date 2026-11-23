@@ -333,6 +333,10 @@ bool GLES3_Ground_Cache_Again();
 void GLES3_Ground_Cache_Plane(float height, bool ok); // pan cache: ground height under the middle of the view
 void GLES3_Ground_Cache_Mix(unsigned int a, unsigned int b, unsigned int c, unsigned int d, unsigned int e);
 extern unsigned int gx_content_serial; // next upload's serial
+GLuint GLES3_Skin_Bone_Buffer(const unsigned short* bones, unsigned int count);
+void GLES3_Draw_Triangles_Skinned(unsigned int start_index, unsigned int prim_count, const float* palette,
+                                  unsigned int bones, unsigned int instance_count, GLuint bone_buffer);
+extern const float* gx_skin_palette; extern unsigned int gx_skin_bones; extern GLuint gx_skin_bone_buffer;
 extern const float* gx_instance_uv; extern const float* gx_instance_matrices; extern unsigned int gx_instance_count; // instanced draw in progress (0 = none)
 
 // ============================================================================

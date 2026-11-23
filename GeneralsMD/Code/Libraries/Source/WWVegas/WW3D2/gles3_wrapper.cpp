@@ -49,7 +49,7 @@ static bool g_SceneDirty = true; // GXScene inputs changed since the last upload
 static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
 static int g_SwapCount = 0;         // frames presented, for Module.gxFps (render scale Auto)
 double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gles3_mainloop) -> Module.gxWorkMs
-static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
+static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -59,6 +59,7 @@ static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Lay
 unsigned int gx_content_serial = 0;
 static std::vector<unsigned int> g_TexSerial; // by GL texture id
 int gx_gc_hits = 0, gx_gc_captures = 0, gx_gc_plain = 0, gx_gc_slides = 0;
+const float* gx_skin_palette = nullptr; unsigned int gx_skin_bones = 0; GLuint gx_skin_bone_buffer = 0; // a skinned instanced draw in progress (with gx_instance_count)
 const float* gx_instance_uv = nullptr; // with them: one stage 0 texture offset (2 floats) per instance, or null
 const float* gx_instance_matrices = nullptr; unsigned int gx_instance_count = 0; // set around an instanced DrawIndexedPrimitive (DX8Wrapper::Draw_Triangles_Instanced)
 int gx_gc_why = 0; // which check stopped the last slide (Module.gxGCWhy): 1 turned, 2 rolled, 3 height changed, 4 projection, 5 viewport, 20-25 cache state // Module.gxGCHits / gxGCCaptures / gxGCPlain
@@ -442,7 +443,9 @@ void GLES3_Begin_Scene() {
                  // Pan cache (experiment, off unless switched on): bit 7, and in bits 8-11 how many
                  // frames one real ground draw serves while the camera moves (Module.gxPanFrames, 3).
                  | (o.panCache === true ? 128 : 0) | ((Math.max(2, Math.min(8, Module.gxPanFrames | 0 || 3))) << 8)
-                 | (o.unitBatching === false ? 0 : 4096); // bit 12: identical unit parts drawn together (dx8renderer.cpp)
+                 | (o.unitBatching === false ? 0 : 4096) // bit 12: identical unit parts drawn together (dx8renderer.cpp)
+                 | (o.skipCompare === false ? 0 : 8192) // bit 13: always-changing buffers are sent without comparing (d3d8.h)
+                 | (o.gpuSkinning === false ? 0 : 16384); // bit 14: skinned meshes animated in the vertex shader (dx8renderer.cpp)
         });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__
@@ -1588,6 +1591,69 @@ void GLES3_Draw_Triangles(unsigned int prim_type,
 
     g_State.draw_calls++;
     g_State.triangles_drawn += prim_count;
+}
+
+// GPU skinning. One buffer of bone numbers (one unsigned short per vertex) per skinned model.
+GLuint GLES3_Skin_Bone_Buffer(const unsigned short* bones, unsigned int count) {
+    GLuint b = 0;
+    glGenBuffers(1, &b);
+    GLES3_Bind_Array_Buffer(b);
+    glBufferData(GL_ARRAY_BUFFER, count * sizeof(unsigned short), bones, GL_STATIC_DRAW);
+    return b;
+}
+
+// Skinned instances of one mesh: `palette` holds, per instance, `bones` 3x4 matrices (12 floats,
+// row by row, translation in the 4th column). The vertex shader picks each vertex's bone matrix
+// from a float texture (u_BoneTex, unit 5), so the CPU sends ~30 matrices a soldier instead of
+// deforming and uploading every vertex. Called through DrawIndexedPrimitive like any draw.
+void GLES3_Draw_Triangles_Skinned(unsigned int start_index, unsigned int prim_count,
+                                  const float* palette, unsigned int bones, unsigned int instance_count,
+                                  GLuint bone_buffer) {
+    if (!instance_count || !bones) return;
+    if (g_GC.mode == 1) { g_GC.unsafe = true; return; } // not expected inside the ground pass
+    Apply_Pipeline_State();
+
+    static GLuint tex = 0;
+    static int tw = 0, th = 0;
+    Active_Unit(5);
+    if (!tex) glGenTextures(1, &tex);
+    if (g_UnitTexture[5] != tex) { glBindTexture(GL_TEXTURE_2D, tex); g_UnitTexture[5] = tex; }
+    if (g_UnitSampler[5] != 0) { glBindSampler(5, 0); g_UnitSampler[5] = 0; }
+    const int w = (int)bones * 3, h = (int)instance_count;
+    if (w > tw || h > th) {
+        if (w > tw) tw = w;
+        if (h > th) th = h < 128 ? 128 : h;
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, tw, th, 0, GL_RGBA, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_FLOAT, palette);
+
+    GLES3_Bind_Array_Buffer(bone_buffer);
+    glEnableVertexAttribArray(13);
+    glVertexAttribPointer(13, 1, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(unsigned short), (const void*)0);
+
+    // The two uniforms' locations, per program (looked up once each).
+    struct Locs { GLint bones, tex; };
+    static std::unordered_map<GLuint, Locs> locs;
+    auto it = locs.find(g_State.active_program);
+    if (it == locs.end()) {
+        Locs l = { glGetUniformLocation(g_State.active_program, "u_SkinBones"), glGetUniformLocation(g_State.active_program, "u_BoneTex") };
+        if (l.tex != -1) glUniform1i(l.tex, 5);
+        it = locs.emplace(g_State.active_program, l).first;
+    }
+    if (it->second.bones != -1) glUniform1i(it->second.bones, (GLint)bones);
+
+    glDrawElementsInstanced(GL_TRIANGLES, prim_count * 3, GL_UNSIGNED_SHORT,
+                            (const void*)(start_index * sizeof(unsigned short)), instance_count);
+
+    if (it->second.bones != -1) glUniform1i(it->second.bones, 0);
+    glDisableVertexAttribArray(13);
+    GLES3_Attrib_Shadow_Reset();
+    g_State.draw_calls++;
+    g_State.triangles_drawn += prim_count * instance_count;
 }
 
 void GLES3_Draw_Triangles_Instanced(unsigned int prim_type,

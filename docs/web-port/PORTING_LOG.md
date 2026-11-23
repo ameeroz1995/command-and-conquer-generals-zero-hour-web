@@ -2318,3 +2318,27 @@ the tank batching (`unitBatching`).
 their muzzle flashes, visible only because of the test spawn) and 909 -> 244 with the group spread
 out; low-end 2,722 -> 2,330, 7.0 -> 7.4-8.3 fps. Pictures match within the idle animation (1.1%,
 same as two unbatched captures). Sanity: both builds and the RX 580, no GL errors.
+
+## GPU skinning for infantry, and no compare for buffers that always change (2026-11-23)
+
+Profile, 400 Rangers on screen (RX 580, ~54 fps, main thread saturated): deforming and uploading
+vertices 23% (Changed_Span 7.9, bufferSubData 5.5, DX8SkinFVFCategoryContainer::Render 4.4,
+VectorProcessor::Transform 3.3, Get_Deformed_Vertices 1.9), skeleton evaluation ~8%, path finding ~10%.
+
+- `skipCompare` (d3d8.h Emscripten_BufferData::Upload, page bit 13): after four uploads in a row
+  that changed >= 7/8 of the locked span, the next 120 uploads send the locked span without
+  comparing it with the bytes last sent; then one copy and one real comparison decide again.
+- `gpuSkinning` (page bit 14): W3D binds each skin vertex to one bone, so the vertex shader can do
+  what MeshGeometryClass::get_deformed_vertices does. The skin container marks eligible meshes
+  (opaque container, no material pass pending, no alpha/material override, <= 120 bones) with base
+  offset GX_GPU_SKIN instead of deforming them. In DX8TextureCategoryClass::Render the marked
+  instances of one polygon renderer in the same light are one instanced draw from a static copy
+  of the model's vertices (`GX_Skin_Model`: vertices as stored + a buffer of bone numbers,
+  attribute 13) with each instance's bone matrices in a float texture row (`u_BoneTex`, unit 5,
+  three texels per bone; `u_SkinBones`). Everything else (material passes, faded or overridden
+  meshes, sorted skins, shadows, picking) still uses the CPU path.
+
+400 Rangers, toggled in one match: RX 580 game work 14.8-16.3 ms -> 13.1-13.2 ms, 53.8-60.9 ->
+60.2-61.1 fps (capped), body draws ~380 -> 5 instanced draws of 80; low-end 6.0-6.8 -> 7.2-7.6 fps.
+Pictures match within the idle animation (1.5% / 1.1%). Sanity with it on by default: LAN match on
+both builds (SwiftShader) and the 3v3 replay on the RX 580, no GL errors, scene correct.

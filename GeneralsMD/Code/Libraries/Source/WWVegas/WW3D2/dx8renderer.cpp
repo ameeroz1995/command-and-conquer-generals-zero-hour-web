@@ -46,6 +46,7 @@
 #include <algorithm>
 #include <cstdint>
 #include "dx8renderer.h"
+#include "htree.h"	// GeneralsX: bone transforms for GPU skinning
 #include "dx8wrapper.h"
 #include "dx8polygonrenderer.h"
 #include "dx8vertexbuffer.h"
@@ -103,6 +104,16 @@ typedef MultiListIterator<PolyRemover>		PolyRemoverListIterator;
 ** it is being rendered for.
 */
 static IndexBufferClass * gx_skin_merge_ib = nullptr;	// GeneralsX: see "Skins (infantry) drawn together" below
+static const DynamicVBAccessClass * gx_skin_cpu_vb = nullptr;	// ... and its dynamic vertex buffer (CPU-deformed skins)
+// GeneralsX @performance 23/11/2026 GPU skinning. A skinned mesh marked with this base vertex
+// offset is not deformed on the CPU: its instances are drawn from a static copy of the model's
+// vertices, each vertex moved by its bone's matrix in the vertex shader (see GX_Skin_Model and
+// the pre-pass in DX8TextureCategoryClass::Render). 23% of a frame with 400 soldiers was
+// deforming and uploading vertices.
+#define GX_GPU_SKIN 0x1fffe
+#define GX_GPU_SKIN_MAX_BONES 120
+class MeshClass;
+static bool GX_Skin_On_GPU(MeshClass * mesh);
 
 class PolyRenderTaskClass : public AutoPoolClass<PolyRenderTaskClass, 256>
 {
@@ -1331,6 +1342,13 @@ void DX8SkinFVFCategoryContainer::Render()
 
 	MeshClass * mesh = VisibleSkinHead;
 	MeshClass * remainingMesh = VisibleSkinHead;
+#ifdef __EMSCRIPTEN__
+	// GPU skinning this frame: switched on, an opaque container, and no material passes waiting
+	// (those draw the meshes again from the CPU-deformed vertices).
+	extern int GLES3_Page_Switches();
+	const bool gxGpuSkin = (GLES3_Page_Switches() & 16384) && !sorting && visible_matpass_head == nullptr;
+	bool gxFirstSkinPass = true;
+#endif
 	while (renderedVertexCount < VisibleVertexCount)
 	{	mesh = remainingMesh;
 		{	DynamicVBAccessClass::WriteLockClass l(&vb);
@@ -1342,6 +1360,18 @@ void DX8SkinFVFCategoryContainer::Render()
 
 				MeshModelClass * mmc = mesh->Peek_Model();
 				int mesh_vertex_count=mmc->Get_Vertex_Count();
+#ifdef __EMSCRIPTEN__
+				if (mesh->Get_Base_Vertex_Offset() == GX_GPU_SKIN && !gxFirstSkinPass) {	// marked and counted in the first pass
+					mesh = mesh->Peek_Next_Visible_Skin();
+					continue;
+				}
+				if (gxGpuSkin && gxFirstSkinPass && GX_Skin_On_GPU(mesh)) {
+					mesh->Set_Base_Vertex_Offset(GX_GPU_SKIN);
+					renderedVertexCount += mesh_vertex_count;
+					mesh = mesh->Peek_Next_Visible_Skin();
+					continue;
+				}
+#endif
 				//'Generals' mod to deal with cases where not all meshes fit in VB.
 				if (vertex_offset+mesh_vertex_count > maxVertexCount || remainingMesh)
 				{	//flag mesh so we know it didn't fit in the vertex buffer
@@ -1421,6 +1451,10 @@ void DX8SkinFVFCategoryContainer::Render()
 		DX8Wrapper::Set_Index_Buffer(index_buffer,0);
 
 		gx_skin_merge_ib = sorting ? nullptr : index_buffer;	// GeneralsX: the categories below may draw their skins together
+		gx_skin_cpu_vb = &vb;
+#ifdef __EMSCRIPTEN__
+		gxFirstSkinPass = false;
+#endif
 		//Flush the meshes which fit in the vertex buffer, applying all texture variations
 		for (unsigned pass=0;pass<passes;++pass) {
 			SNAPSHOT_SAY(("Pass: %d",pass));
@@ -1432,6 +1466,7 @@ void DX8SkinFVFCategoryContainer::Render()
 			}
 		}
 		gx_skin_merge_ib = nullptr;
+		gx_skin_cpu_vb = nullptr;
 
 		Render_Procedural_Material_Passes();
 	}
@@ -1699,6 +1734,65 @@ unsigned DX8TextureCategoryClass::Add_Mesh(
 extern int GLES3_Page_Switches(); // bit 12: the page's switch "Draw identical unit parts together"
 #endif
 
+// GPU skinning: can this visible skin be animated in the vertex shader this frame?
+static std::unordered_set<MeshModelClass*> gx_skin_bad;	// models whose static buffers could not be made
+static bool GX_Skin_On_GPU(MeshClass * mesh)
+{
+	MeshModelClass * mmc = mesh->Peek_Model();
+	if (mesh->Get_Alpha_Override() != 1.0f || mesh->Is_Additive() || mesh->Get_User_Data() || mesh->Get_ObjectScale() != 1.0f) return false;
+	if (mmc->Get_Flag(MeshGeometryClass::SORT) || !mmc->Get_Flag(MeshGeometryClass::SKIN)) return false;
+	if (DX8RendererDebugger::Is_Enabled() && mesh->Is_Disabled_By_Debugger()) return false;
+	RenderObjClass * cont = mesh->Get_Container();
+	const HTreeClass * htree = cont ? cont->Get_HTree() : nullptr;
+	if (!htree || htree->Num_Pivots() < 1 || htree->Num_Pivots() > GX_GPU_SKIN_MAX_BONES) return false;
+	if (!mmc->Get_Vertex_Bone_Links() || mmc->Get_Vertex_Count() < 1) return false;
+	return gx_skin_bad.find(mmc) == gx_skin_bad.end();
+}
+
+// A skinned model's vertices as stored (not deformed), in the skins' vertex format, plus one
+// bone number per vertex. Made the first time the model is drawn on the GPU path.
+struct GXSkinModel { DX8VertexBufferClass * vb; unsigned bone_buffer; int vertex_count; const uint16 * links; };
+static std::unordered_map<MeshModelClass*, GXSkinModel> gx_skin_models;
+
+static GXSkinModel * GX_Skin_Model(MeshModelClass * mmc)
+{
+	const int count = mmc->Get_Vertex_Count();
+	const uint16 * links = mmc->Get_Vertex_Bone_Links();
+	auto it = gx_skin_models.find(mmc);
+	if (it != gx_skin_models.end()) {
+		if (it->second.vertex_count == count && it->second.links == links) return &it->second;
+		REF_PTR_RELEASE(it->second.vb);	// the address was reused by another model
+		gx_skin_models.erase(it);
+	}
+	if (!links || count < 1 || count > 65535) return nullptr;
+	GXSkinModel sm;
+	sm.vb = NEW_REF(DX8VertexBufferClass, (dynamic_fvf_type, (unsigned short)count, DX8VertexBufferClass::USAGE_DEFAULT));
+	sm.vertex_count = count;
+	sm.links = links;
+	{
+		DX8VertexBufferClass::WriteLockClass l(sm.vb);
+		VertexFormatXYZNDUV2 * v = (VertexFormatXYZNDUV2 *)l.Get_Vertex_Array();
+		const Vector3 * pos = mmc->Get_Vertex_Array();
+		const Vector3 * nrm = mmc->Get_Vertex_Normal_Array();
+		const Vector2 * uv0 = mmc->Get_UV_Array_By_Index(0);
+		const Vector2 * uv1 = mmc->Get_UV_Array_By_Index(1);
+		const unsigned * diffuse = mmc->Get_Color_Array(0, false);
+		for (int i = 0; i < count; i++, v++) {
+			v->x = pos[i].X; v->y = pos[i].Y; v->z = pos[i].Z;
+			v->nx = nrm[i].X; v->ny = nrm[i].Y; v->nz = nrm[i].Z;
+			v->diffuse = diffuse ? diffuse[i] : 0;
+			v->u1 = uv0 ? uv0[i].X : 0.0f; v->v1 = uv0 ? uv0[i].Y : 0.0f;
+			v->u2 = uv1 ? uv1[i].X : 0.0f; v->v2 = uv1 ? uv1[i].Y : 0.0f;
+		}
+	}
+#ifdef __EMSCRIPTEN__
+	sm.bone_buffer = GLES3_Skin_Bone_Buffer(links, (unsigned)count);
+#else
+	sm.bone_buffer = 0;
+#endif
+	return &gx_skin_models.emplace(mmc, sm).first->second;
+}
+
 // GeneralsX @performance 23/11/2026 Skins (infantry) drawn together. A skin container deforms
 // all its visible meshes into one dynamic vertex buffer and then draws them one by one. The
 // meshes of one texture category share texture, shader and material, and their vertices are
@@ -1814,6 +1908,66 @@ void DX8TextureCategoryClass::Render()
 		render_task_head = order.front();
 	}
 
+	// GPU-skinned meshes (marked GX_GPU_SKIN by the skin container): the instances of one polygon
+	// renderer that stand in the same light are one instanced draw from the model's static
+	// vertices, each instance bringing its skeleton's bone matrices.
+	if (gx_skin_merge_ib) {
+		bool drew = false;
+		for (;;) {
+			static std::vector<PolyRenderTaskClass*> group;
+			group.clear();
+			DX8PolygonRendererClass * r0 = nullptr;
+			LightEnvironmentClass * lenv0 = nullptr;
+			int bones = 0;
+			for (PolyRenderTaskClass * t = render_task_head; t && group.size() < 128; t = t->Get_Next_Visible()) {
+				MeshClass * m = t->Peek_Mesh();
+				if (m->Get_Base_Vertex_Offset() != GX_GPU_SKIN) continue;
+				const HTreeClass * ht = m->Get_Container() ? m->Get_Container()->Get_HTree() : nullptr;
+				if (!ht) continue;
+				if (group.empty()) { r0 = t->Peek_Polygon_Renderer(); lenv0 = m->Get_Lighting_Environment(); bones = ht->Num_Pivots(); }
+				else if (t->Peek_Polygon_Renderer() != r0 || ht->Num_Pivots() != bones || !Same_Lighting(m->Get_Lighting_Environment(), lenv0)) continue;
+				group.push_back(t);
+			}
+			if (group.empty()) break;
+			MeshModelClass * mmc = group[0]->Peek_Mesh()->Peek_Model();
+			GXSkinModel * sm = GX_Skin_Model(mmc);
+			if (sm) {
+				static std::vector<float> palette;
+				palette.resize(group.size() * (size_t)bones * 12);
+				float * dst = palette.data();
+				for (size_t g = 0; g < group.size(); g++) {
+					const HTreeClass * ht = group[g]->Peek_Mesh()->Get_Container()->Get_HTree();
+					for (int b = 0; b < bones; b++, dst += 12) memcpy(dst, &ht->Get_Transform(b), 12 * sizeof(float));
+				}
+				if (lenv0 != nullptr) DX8Wrapper::Set_Light_Environment(lenv0);
+				DX8Wrapper::Set_World_Identity();
+				DX8Wrapper::Set_Vertex_Buffer(sm->vb);
+				DX8Wrapper::Set_Index_Buffer(gx_skin_merge_ib, 0);
+				DX8Wrapper::Draw_Triangles_Skinned((unsigned short)r0->Get_Index_Offset(), (unsigned short)(r0->Get_Index_Count() / 3),
+					(unsigned short)r0->Get_Min_Vertex_Index(), (unsigned short)r0->Get_Vertex_Index_Range(),
+					palette.data(), (unsigned)bones, (unsigned)group.size(), sm->bone_buffer);
+				drew = true;
+			} else {
+				gx_skin_bad.insert(mmc);	// drawn on the CPU from the next frame on (missing for this one)
+			}
+			static std::unordered_set<PolyRenderTaskClass*> done;
+			done.clear();
+			done.insert(group.begin(), group.end());
+			PolyRenderTaskClass * keep_head = nullptr, * keep_tail = nullptr;
+			for (PolyRenderTaskClass * t = render_task_head; t; ) {
+				PolyRenderTaskClass * next = t->Get_Next_Visible();
+				if (done.count(t)) { delete t; }
+				else { t->Set_Next_Visible(nullptr); if (keep_tail) keep_tail->Set_Next_Visible(t); else keep_head = t; keep_tail = t; }
+				t = next;
+			}
+			render_task_head = keep_head;
+		}
+		if (drew && gx_skin_cpu_vb) {	// back to the CPU-deformed skins' buffers for what is left
+			DX8Wrapper::Set_Vertex_Buffer(*gx_skin_cpu_vb);
+			DX8Wrapper::Set_Index_Buffer(gx_skin_merge_ib, 0);
+		}
+	}
+
 	// Skins: one draw for every mesh here that stands in the same light (see gx_skin_merge_ib).
 	for (int round = 0; batch_units && gx_skin_merge_ib && round < 8; round++) {
 		static std::vector<PolyRenderTaskClass*> group;
@@ -1823,7 +1977,7 @@ void DX8TextureCategoryClass::Render()
 		for (PolyRenderTaskClass * t = render_task_head; t; t = t->Get_Next_Visible()) {
 			MeshClass * m = t->Peek_Mesh();
 			DX8PolygonRendererClass * r = t->Peek_Polygon_Renderer();
-			if (m->Get_Base_Vertex_Offset() == VERTEX_BUFFER_OVERFLOW) continue;
+			if (m->Get_Base_Vertex_Offset() == VERTEX_BUFFER_OVERFLOW || m->Get_Base_Vertex_Offset() == GX_GPU_SKIN) continue;
 			if (!m->Peek_Model()->Get_Flag(MeshModelClass::SKIN) || r->Is_Strip() || m->Get_Alpha_Override() != 1.0f || m->Is_Additive() ||
 			    m->Get_User_Data() || m->Get_ObjectScale() != 1.0f) continue;
 			if (m->Peek_Model()->Get_Flag(MeshGeometryClass::SORT) && WW3D::Is_Sorting_Enabled()) continue;
@@ -2543,6 +2697,10 @@ static void Invalidate_FVF_Category_Container_List(FVFCategoryList& list)
 void DX8MeshRendererClass::Invalidate( bool shutdown)
 {
 	WWMEMLOG(MEM_RENDERER);
+	for (auto & kv : gx_skin_models) REF_PTR_RELEASE(kv.second.vb);	// GeneralsX: the GPU skinning copies (bone buffers go with the context)
+	gx_skin_models.clear();
+	gx_skin_bad.clear();
+	gx_skin_indices.clear();
 	_RegisteredMeshList.Reset_List();
 
 	for (int i=0;i<texture_category_container_lists_rigid.Count();++i) {
