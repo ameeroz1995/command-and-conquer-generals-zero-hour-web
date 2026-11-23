@@ -495,6 +495,18 @@
         <div id="gx-setting-multithread-note" style="font-size: 9px; color: var(--gx-mute); margin-left: 20px; margin-top: 3px;">Game on its own thread: loading doesn't freeze the page. Reloads the page.</div>
       </div>
 
+      <!-- Benchmark (Main/WebBenchmark.cpp): the fixed battle every change is measured on. -->
+      <div style="margin: 18px 0 8px; font-size: 10px; letter-spacing: 2px; border-top: 1px solid var(--gx-mute); padding-top: 10px;">BENCHMARK</div>
+      <div style="font-size: 9px; color: var(--gx-mute); margin-bottom: 8px; line-height: 1.5;">A 2 v 2 match against brutal AIs: 800 against 800 units of every faction and general (aircraft too) arriving in waves on three fronts, a base of 300 structures on each side, every superweapon and general's strike fired, the camera scrolling and turning and a different group selected and ordered every 2 seconds. Then a short tour of five different maps. About 3 to 5 minutes. Ends any game in progress; not available in network games.</div>
+      <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px; margin-bottom: 8px;">
+        <input type="checkbox" id="gx-bench-tour" style="margin-right: 8px; accent-color: var(--gx-fg);" checked>
+        INCLUDE THE MAP TOUR
+      </label>
+      <button id="gx-bench-run" type="button" style="width: 100%; padding: 8px; margin-bottom: 8px; background: transparent; color: var(--gx-fg); border: 1px solid var(--gx-fg); font-family: inherit; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; cursor: pointer;">Run benchmark</button>
+      <button id="gx-bench-stop" type="button" style="width: 100%; padding: 8px; margin-bottom: 8px; background: transparent; color: var(--gx-fg); border: 1px solid var(--gx-fg); font-family: inherit; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; display: none;">Stop benchmark</button>
+      <div id="gx-bench-status" role="status" aria-live="polite" style="font-size: 10px; margin-bottom: 8px;"></div>
+      <div id="gx-bench-result" style="font-size: 10px; margin-bottom: 16px;"></div>
+
       <button id="gx-btn-fullscreen" type="button" style="
         width: 100%;
         padding: 8px;
@@ -1244,6 +1256,122 @@
           window.GeneralsX.opt = o;
         };
         window.gxPerfApply();
+
+        // ------------------------------------------------------------------
+        // Benchmark: Settings button and GeneralsX.bench for scripts. The engine runs
+        // the scene (WebBenchmark.cpp) and calls back gxBenchProgress / gxBenchShot /
+        // gxBenchDone. The last ten results are kept in localStorage.
+        // ------------------------------------------------------------------
+        (function () {
+          var KEY = 'generalsx_bench_results';
+          var shots = [], running = false, waiters = [];
+          function el(id) { return document.getElementById(id); }
+          function history() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } }
+          function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+          function setRunning(on) {
+            running = on;
+            if (el('gx-bench-run')) el('gx-bench-run').style.display = on ? 'none' : '';
+            if (el('gx-bench-stop')) el('gx-bench-stop').style.display = on ? '' : 'none';
+          }
+          // Columns: [label, read a phase, lower is better?, digits]
+          var COLS = [
+            ['FPS', function (p) { return p.fps; }, false, 1],
+            ['1% low', function (p) { return p.low1; }, false, 1],
+            ['p90 ms', function (p) { return p.p90ms; }, true, 1],
+            ['Work ms', function (p) { return p.workMs ? p.workMs.avg : null; }, true, 1],
+            ['Draws', function (p) { return p.draws; }, true, 0],
+            ['Tris k', function (p) { return p.triangles ? p.triangles.avg / 1000 : null; }, true, 0],
+            ['Upload MB/s', function (p) { return p.uploadMBps; }, true, 1],
+            ['Heap MB', function (p) { return p.heapMB; }, true, 0]
+          ];
+          function delta(v, b, lowerBetter) {
+            if (v == null || b == null || !b) return '';
+            var pc = (v - b) / Math.abs(b) * 100;
+            if (Math.abs(pc) < 1) return '<br><span style="color: var(--gx-mute)">=</span>';
+            var good = lowerBetter ? pc < 0 : pc > 0;
+            return '<br><span style="color: ' + (good ? '#6c6' : '#e66') + '">' + (pc > 0 ? '+' : '') + pc.toFixed(0) + '%</span>';
+          }
+          function fmt(v, d) { return v == null ? '–' : (+v).toFixed(d); }
+          function detail(p) {
+            var rows = [['Frames / seconds', p.frames + ' / ' + p.seconds], ['Frame time avg / p50 / p90 / max ms', p.frameMs ? [p.frameMs.avg, p.frameMs.p50, p.frameMs.p90, p.frameMs.max].join(' / ') : ''],
+              ['Frame time spread (sd) ms', p.sdms], ['Frames over 50 / 100 ms', p.over50ms + ' / ' + p.over100ms],
+              ['Game work avg / p90 / max ms', p.workMs ? [p.workMs.avg, p.workMs.p90, p.workMs.max].join(' / ') : ''],
+              ['Engine draws avg / p90 / max', p.engineDraws ? [p.engineDraws.avg, p.engineDraws.p90, p.engineDraws.max].join(' / ') : ''],
+              ['GL draw calls avg / p90 / max', p.glDraws ? [p.glDraws.avg, p.glDraws.p90, p.glDraws.max].join(' / ') : ''],
+              ['Triangles avg / max', p.triangles ? [Math.round(p.triangles.avg), Math.round(p.triangles.max)].join(' / ') : ''],
+              ['Upload KB per frame avg / p90 / max', p.uploadKB ? [p.uploadKB.avg, p.uploadKB.p90, p.uploadKB.max].join(' / ') : ''],
+              ['Upload MB/s', p.uploadMBps], ['Program switches per frame avg / max', p.programSwitches ? [p.programSwitches.avg, p.programSwitches.max].join(' / ') : ''],
+              ['Texture binds per frame avg / max', p.textureBinds ? [p.textureBinds.avg, p.textureBinds.max].join(' / ') : ''],
+              ['Heap in use avg / max MB (high water)', p.heapMB + ' / ' + p.heapMaxMB + ' (' + p.heapTopMB + ')'],
+              ['Objects avg / max', p.objects + ' / ' + p.objectsMax], ['Particles avg / max', p.particles + ' / ' + p.particlesMax],
+              ['Game logic frames / per second', p.logicFrames + ' / ' + p.logicFps]];
+            return '<details style="margin: 2px 0;"><summary style="cursor: pointer;">' + esc(p.name) + '</summary><table style="width: 100%; font-size: 9px;">' +
+              rows.map(function (r) { return '<tr><td style="color: var(--gx-mute); padding: 1px 4px;">' + r[0] + '</td><td style="text-align: right; padding: 1px 4px;">' + esc(r[1]) + '</td></tr>'; }).join('') + '</table></details>';
+          }
+          function show(r, prev) {
+            var box = el('gx-bench-result'); if (!box || !r) return;
+            if (!r.phases) { box.textContent = r.result || 'No result'; return; }
+            var before = {};
+            if (prev && prev.phases) prev.phases.forEach(function (p) { before[p.name] = p; });
+            var cell = 'padding: 2px 3px; text-align: right; vertical-align: top;';
+            var head = '<tr><th style="text-align: left; padding: 2px 3px;">Phase</th>' + COLS.map(function (c) { return '<th style="' + cell + '">' + c[0] + '</th>'; }).join('') + '</tr>';
+            var rows = r.phases.map(function (p) {
+              var b = before[p.name];
+              return '<tr><td style="padding: 2px 3px; vertical-align: top;">' + esc(p.name) + (p.note ? '<br><span style="color: var(--gx-mute)">' + esc(p.note) + '</span>' : '') + '</td>' +
+                COLS.map(function (c) { var v = c[1](p); return '<td style="' + cell + '">' + fmt(v, c[3]) + (b ? delta(v, c[1](b), c[2]) : '') + '</td>'; }).join('') + '</tr>';
+            }).join('');
+            box.innerHTML = '<div style="margin-bottom: 6px;">' + esc(r.when || '') + ' &middot; ' + esc(r.renderer || '') + ' &middot; ' + (r.multithread ? 'multithreaded' : 'single thread') + ' &middot; ' + esc(r.result) + '</div>' +
+              '<div style="margin-bottom: 6px; color: var(--gx-mute);">Units ' + r.units.join(' / ') + ' (' + r.unitTypes + ' types), structures ' + r.structures.join(' / ') + ' (' + r.structureTypes + ' types), strikes fired ' + r.strikes + ', setup ' + Math.round(r.setupMs || 0) + ' ms' + (r.setupNote ? ' (' + esc(r.setupNote) + ')' : '') + '</div>' +
+              '<div style="overflow-x: auto;"><table style="width: 100%; border-collapse: collapse; font-size: 9px;"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div>' +
+              (prev ? '<div style="color: var(--gx-mute); margin-top: 4px;">Under each number: the change from the run before (' + esc(prev.when || '') + '); green is better.</div>' : '') +
+              '<div style="margin-top: 6px;">' + r.phases.map(detail).join('') + '</div>' +
+              (r.shots && r.shots.length ? '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 8px;">' + r.shots.map(function (s) {
+                return '<figure style="margin: 0;"><img src="' + s.url + '" alt="' + esc(s.name) + '" style="width: 100%; display: block; border: 1px solid var(--gx-mute);"><figcaption style="font-size: 9px; color: var(--gx-mute);">' + esc(s.name) + '</figcaption></figure>';
+              }).join('') + '</div>' : '');
+          }
+          var tourNames = ['Alpine Assault', 'Tournament Urban', 'Dark Night', 'Golden Oasis', 'Eastern Everglades'];
+          window.gxBenchProgress = function (text) { if (el('gx-bench-status')) el('gx-bench-status').textContent = text; };
+          window.gxBenchShot = function (bytes, w, h) {
+            var c = document.createElement('canvas'); c.width = w; c.height = h;
+            var img = c.getContext('2d').createImageData(w, h); img.data.set(bytes);
+            c.getContext('2d').putImageData(img, 0, 0);
+            shots.push({ name: tourNames[shots.length] || ('Map ' + (shots.length + 1)), url: c.toDataURL('image/jpeg', 0.7) });
+          };
+          window.gxBenchDone = function (json) {
+            var r; try { r = JSON.parse(json); } catch (e) { r = { result: 'Could not read the result' }; }
+            r.when = new Date().toLocaleString();
+            r.renderer = window.gxRendererName || '';
+            r.multithread = !!window.gxMultithread;
+            r.settings = Object.assign({}, window.GeneralsX.opt);
+            r.shots = shots; shots = [];
+            var h = history(), prev = h[0];
+            if (r.phases) { h.unshift(r); try { localStorage.setItem(KEY, JSON.stringify(h.slice(0, 10))); } catch (e) { h[0].shots = []; try { localStorage.setItem(KEY, JSON.stringify(h.slice(0, 10))); } catch (e2) {} } }
+            setRunning(false);
+            window.gxBenchProgress('Finished.');
+            show(r, prev);
+            var d = el('gx-settings-drawer'); if (d) d.classList.add('gx-show');
+            waiters.splice(0).forEach(function (f) { f(r); });
+          };
+          function run(withTour) {
+            if (running || !Module._GX_Bench_Start) return Promise.reject(new Error(running ? 'already running' : 'game not loaded'));
+            shots = []; setRunning(true);
+            window.gxBenchProgress('Starting…');
+            Module._GX_Bench_Start(withTour === false ? 0 : 1);
+            return new Promise(function (res) { waiters.push(res); });
+          }
+          window.GeneralsX = window.GeneralsX || {};
+          window.GeneralsX.bench = { run: run, stop: function () { if (Module._GX_Bench_Stop) Module._GX_Bench_Stop(); }, history: history, get running() { return running; } };
+          document.addEventListener('DOMContentLoaded', function () { var h = history(); if (h[0]) show(h[0], h[1]); });
+          if (document.readyState !== 'loading') { var h0 = history(); if (h0[0]) show(h0[0], h0[1]); }
+          document.addEventListener('click', function (e) {
+            if (e.target && e.target.id === 'gx-bench-run') {
+              run(el('gx-bench-tour') ? el('gx-bench-tour').checked : true).catch(function (err) { window.gxBenchProgress('Cannot start: ' + err.message); });
+              if (el('gx-settings-drawer')) el('gx-settings-drawer').classList.remove('gx-show');
+            } else if (e.target && e.target.id === 'gx-bench-stop') {
+              window.GeneralsX.bench.stop();
+            }
+          });
+        })();
 
         // ------------------------------------------------------------------
         // Canvas backing buffer is locked to 800x600 — the engine's

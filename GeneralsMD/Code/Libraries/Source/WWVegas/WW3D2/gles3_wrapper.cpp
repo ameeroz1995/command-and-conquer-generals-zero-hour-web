@@ -526,7 +526,31 @@ void GLES3_End_Scene(bool flip_frame) {
     }
 }
 
+// The benchmark's map thumbnails (Main/WebBenchmark.cpp): when set, the finished frame is read
+// back once, scaled to 320 pixels wide and handed to the page (window.gxBenchShot).
+extern "C" { int gx_bench_shot = 0; }
+extern "C" { double gx_stat_upload_bytes = 0, gx_stat_triangles = 0; unsigned gx_stat_gl_draws = 0, gx_stat_programs = 0, gx_stat_tex_binds = 0; }
+static void GX_Bench_Send_Shot() {
+    gx_bench_shot = 0;
+    const int w = g_CanvasW, h = g_CanvasH;
+    if (w <= 0 || h <= 0) return;
+    std::vector<unsigned char> full((size_t)w * h * 4);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, full.data());
+    const int tw = 320, th = (int)((double)h * tw / w);
+    std::vector<unsigned char> small((size_t)tw * th * 4);
+    for (int y = 0; y < th; ++y) {
+        const int sy = h - 1 - (int)((double)y * h / th); // GL rows run bottom up
+        for (int x = 0; x < tw; ++x) {
+            const int sx = (int)((double)x * w / tw);
+            memcpy(&small[((size_t)y * tw + x) * 4], &full[((size_t)sy * w + sx) * 4], 4);
+        }
+    }
+    EM_ASM({ if (window.gxBenchShot) window.gxBenchShot(HEAPU8.slice($0, $0 + $1 * $2 * 4), $1, $2); }, small.data(), tw, th);
+}
+
 void GLES3_Swap_Buffers() {
+    if (gx_bench_shot) GX_Bench_Send_Shot();
     // Frames presented per second, logged every 5 s (works on the game thread too, where
     // the page cannot see the frames). GXFRAME lines are read by the benchmark scripts.
     static double t0 = 0; static int n = 0;

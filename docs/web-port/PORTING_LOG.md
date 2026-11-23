@@ -2400,3 +2400,34 @@ each run of triangles from one mesh as its own draw, because each mesh has its o
 the 61 cap either way); weak-PC setup (SwiftShader) 1,200-1,600 -> 250-410 draws, 7.4-9.6 ->
 9.2-12.9 fps. Pictures: off vs on 1.8% of pixels >24, two shots with it off 1.5% (animation).
 No-regression run on both builds against rev 00048: same within noise, no GL errors.
+
+## Battle benchmark in Settings (2026-11-23)
+
+User: one reusable, stressful, realistic benchmark as the testing case for changes, with a
+Settings button. `GeneralsMD/Code/Main/WebBenchmark.cpp`, page side in web_shell.html
+(Settings > BENCHMARK, `GeneralsX.bench.run(tour)` for scripts).
+
+- Battle: 2 v 2 skirmish on Tournament Desert, fixed seed 12345, three brutal AIs. Each side
+  gets a 300-structure base (every buildable structure of every faction and general, 30 power
+  plants first) and 800 units (every buildable infantry, vehicle and aircraft, 351 types) in
+  four waves on three fronts that attack the other base. Camera keys every 5 s (scrolls the
+  front, visits both bases, turns); every 2 s another group is selected and sent somewhere else
+  (near the camera, aircraft, one front's infantry, one unit, vehicles on screen). Every
+  special power on the bases (88; superweapons first) is fired alternately at the other army
+  and the other base. 60 s of game time, stopped at 150 s on slow machines.
+- Map tour: Alpine Assault, Tournament Urban, Dark Night, Golden Oasis, Eastern Everglades,
+  each loaded alone with the map revealed, the camera at four points for a second each, one
+  320-px thumbnail read back at the swap (`gx_bench_shot`).
+- Per phase: fps, 1% low, frame time avg/p50/p90/p99/max/sd, frames over 50/100 ms, game work
+  per frame, engine and GL draw calls, triangles, upload bytes (buffers and textures) per
+  frame and MB/s, program switches, texture binds, heap in use and high water, objects,
+  particles, logic frames per second. GL counters: `gx_stats.h` wraps the upload, program,
+  bind and draw calls (included from gles3_wrapper.h). The frame hook is `gx_frame_hook` in
+  gles3_mainloop.cpp. Results go to `window.gxBenchDone`; the last ten are kept in
+  localStorage and the table shows each number's change from the previous run.
+- Refused in network games; runs on the game thread (dispatched in the worker build).
+- Harness: ~/generals-bench/benchrun.sh BUILD PORT TAG [tour].
+
+First runs, RX 580: battle 5-12 fps with 2,600-3,300 GL draws, 1,000 program switches and
+1,500 texture binds a frame, game work 80-180 ms; the heap passes the 512 MB start and grows
+(a 9.8 s frame in one run). Map tour 58-60 fps. Both builds about 2.5-3 minutes in all.

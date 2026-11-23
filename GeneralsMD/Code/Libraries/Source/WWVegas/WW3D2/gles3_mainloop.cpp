@@ -105,6 +105,9 @@ static void GX_PaceFrames(float fps) {
 // ============================================================================
 // Per-frame callback — called by Emscripten's requestAnimationFrame
 // ============================================================================
+extern "C" { void (*gx_frame_hook)(double work_ms) = nullptr; }
+static double gx_last_work_ms = 0;
+
 static void emscripten_main_loop_callback() {
     if (g_Loop.shutdown_requested) {
         emscripten_cancel_main_loop();
@@ -151,6 +154,7 @@ static void emscripten_main_loop_callback() {
         // (GXWORK lines; the benchmark scripts compare builds with it).
         static double work_sum = 0, work_t0 = 0; static int work_n = 0;
         double work_end = WebTiming::Now_Ms();
+        gx_last_work_ms = work_end - work_start;
         work_sum += work_end - work_start; work_n++;
         // Average over the last second, for the page's frame-rate overlay (Module.gxWorkMs).
         { extern double gx_work_ms_1s; static double s1 = 0, t1 = 0; static int n1 = 0;
@@ -172,6 +176,8 @@ static void emscripten_main_loop_callback() {
         }
     }
 
+    // The benchmark (Main/WebBenchmark.cpp) records every frame and drives its scene from here.
+    if (gx_frame_hook) gx_frame_hook(gx_last_work_ms);
     g_Loop.frame_count++;
 }
 

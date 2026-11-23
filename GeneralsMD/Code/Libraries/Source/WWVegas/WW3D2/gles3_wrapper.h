@@ -32,6 +32,7 @@
 
 #include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
+#include "gx_stats.h" // benchmark counters: uploads, triangles, programs, texture binds, draws
 #include <emscripten.h>
 #include <emscripten/html5.h>
 #include <string>
