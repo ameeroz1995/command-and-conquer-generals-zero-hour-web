@@ -170,8 +170,8 @@ static void emscripten_main_loop_callback() {
             // water mark (sbrk), which never comes down; of = the wasm memory size.
             printf("GXMEM live=%u MB top=%u MB of %u MB\n", (unsigned)(mallinfo().uordblks >> 20),
                    (unsigned)((uintptr_t)sbrk(0) >> 20), (unsigned)(emscripten_get_heap_size() >> 20));
-            extern int gx_layout_misses, gx_layout_clears, gx_ff_slots;
-            printf("GXLAYOUT new=%d flushes=%d ffprograms=%d\n", gx_layout_misses, gx_layout_clears, gx_ff_slots);
+            extern int gx_layout_misses, gx_layout_clears, gx_ff_slots, gx_async_programs, gx_fallback_draws;
+            printf("GXLAYOUT new=%d flushes=%d ffprograms=%d async=%d fallbackdraws=%d\n", gx_layout_misses, gx_layout_clears, gx_ff_slots, gx_async_programs, gx_fallback_draws);
             work_sum = 0; work_n = 0; work_t0 = work_end;
         }
     }

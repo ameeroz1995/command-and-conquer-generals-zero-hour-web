@@ -637,7 +637,24 @@ WWINLINE float WWMath::Inv_Sqrt(float a) {
   return retval;
 }
 #else
-WWINLINE float WWMath::Inv_Sqrt(float val) { return 1.0f / (float)sqrt(val); }
+#ifdef __EMSCRIPTEN__
+// Web port: Settings switch fastInvSqrt (page switch bit 23), off by default. The Quake-style
+// bit trick plus one Newton step instead of 1/sqrt. It changes results slightly (about 0.2%),
+// and vector normalising feeds the simulation, so it is only ever on in single-player and
+// skirmish games: EmscriptenMain.cpp forces it off in network games and replay playback.
+extern "C" int gx_fast_inv_sqrt;
+#endif
+WWINLINE float WWMath::Inv_Sqrt(float val) {
+#ifdef __EMSCRIPTEN__
+  if (gx_fast_inv_sqrt) {
+    union { float f; unsigned int i; } u;
+    u.f = val;
+    u.i = 0x5f3759dfu - (u.i >> 1);
+    return u.f * (1.5f - 0.5f * val * u.f * u.f);
+  }
+#endif
+  return 1.0f / (float)sqrt(val);
+}
 #endif
 
 WWINLINE float WWMath::Normalize_Angle(float angle) {

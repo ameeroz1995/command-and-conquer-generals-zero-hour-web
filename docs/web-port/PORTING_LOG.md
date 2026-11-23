@@ -2463,3 +2463,25 @@ engine pools 149, texture copies 93, buffer copies 21, rest 160. The long freeze
   Verified: old and new side by side (Module.gxVerify, bit 21) over 22,000 destroyed objects, 0
   differences; the referee recording (9,000 frames of brutal AIs) replays without a mismatch
   with the change on. A/B in the strikes: fps +7%, work -7%, p90 frame -10%.
+
+## Shader compiles in the background, reused vertex layouts, fast inverse sqrt switch (2026-11-23)
+
+Measured with the battle benchmark (bench MCP, A/B same build, one switch apart).
+
+- Background shader compiles (gles3_wrapper.cpp, switch asyncShaders, bit 22, on): a strikes
+  profile showed getShaderParameter at 12.2% and one 7.7 s frame with 2 compiles (the browser
+  compiles when the game asks whether compiling worked). With KHR_parallel_shader_compile a new
+  specialised program links in the background and its draws use the general program of the same
+  setup until COMPLETION_STATUS_KHR says done (GXLAYOUT async= / fallbackdraws=). Programs that
+  fold the fog of war in are still compiled at once. In the A/B run the big freeze happened not
+  to be a compile, so no difference was measured; 92 programs went to the background, 773
+  draws used the fallback. Kept: no cost, removes compile freezes when they happen.
+- Reused vertex layouts (switch reuseLayouts, bit 24, on): the layout key included the buffer's
+  start offset, so a battle made 271,437 VAOs and flushed the cache 66 times; now one layout per
+  buffer setup is re-pointed when the offset changes: 273 layouts, 0 flushes. RX 580 frame
+  times within noise (strikes p90 -5%, frames over 100 ms -9%); same pictures.
+- Fast inverse square root (wwmath.h WWMath::Inv_Sqrt, switch fastInvSqrt, bit 23, OFF): the
+  bit trick + one Newton step. It changes vector normalising slightly and that feeds the
+  simulation, so EmscriptenMain.cpp forces it off in network games and replay playback. A/B:
+  strikes +3% fps / -3% work, armies -2%: within noise, as expected (wasm sqrt is one
+  instruction). Left off.

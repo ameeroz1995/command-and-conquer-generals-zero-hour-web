@@ -49,7 +49,7 @@ static bool g_SceneDirty = true; // GXScene inputs changed since the last upload
 static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
 static int g_SwapCount = 0;         // frames presented, for Module.gxFps (render scale Auto)
 double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gles3_mainloop) -> Module.gxWorkMs
-static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
+static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -451,7 +451,10 @@ void GLES3_Begin_Scene() {
                  | (o.uiScanCache === false ? 0 : 262144)  // bit 18: the command bar's object searches answered once per logic frame (Player.cpp)
                  | (o.freeTextureCopies === false ? 0 : 524288)  // bit 19: texture copies the graphics chip already has are dropped (d3d8.h)
                  | (o.fastDestroy === false ? 0 : 1048576)  // bit 20: destroyed objects' updates found from the object (GameLogic.cpp)
-                 | (Module.gxVerify === 1 ? 2097152 : 0); // bit 21: test only: run old and new code side by side and count differences
+                 | (Module.gxVerify === 1 ? 2097152 : 0)  // bit 21: test only: run old and new code side by side and count differences
+                 | (o.asyncShaders === false ? 0 : 4194304)  // bit 22: new shaders compile in the background, the general one draws meanwhile
+                 | (o.fastInvSqrt === true ? 8388608 : 0)  // bit 23: fast inverse square root (single player only; changes the simulation slightly)
+                 | (o.reuseLayouts === false ? 0 : 16777216); // bit 24: one vertex layout per buffer setup, re-pointed when the offset changes
         });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__
@@ -1054,6 +1057,7 @@ struct GLES3_LayoutHash {
     }
 };
 static std::unordered_map<GLES3_LayoutKey, GLuint, GLES3_LayoutHash> g_Layouts;
+static std::unordered_map<GLuint, unsigned int> g_LayoutBase;	// a reused layout's current offset
 static GLuint g_CopyWriteBuffer = ~0u; // index uploads (GLES3_Upload_Index_Data)
 int gx_layout_misses = 0, gx_layout_clears = 0; // GXLAYOUT log (gles3_mainloop.cpp)
 
@@ -1072,18 +1076,33 @@ static void GLES3_Layouts_Clear() {
     GLES3_Bind_Default_VAO();
     for (auto& kv : g_Layouts) glDeleteVertexArrays(1, &kv.second);
     g_Layouts.clear();
+    g_LayoutBase.clear();
     gx_layout_clears++;
 }
 
+// Reused layouts (Settings switch reuseLayouts, page switch bit 24): effect and dynamic buffers
+// draw from a different starting offset almost every time, and the offset was part of the key,
+// so a battle made ~228,000 vertex layouts (VAOs) and flushed the cache 55 times. With the
+// switch, one layout per buffer setup is kept and only re-pointed when the offset changes.
+
 bool GLES3_Bind_Layout(GLuint vbo, GLuint ibo, unsigned int fvf, unsigned int stride, unsigned int base) {
-    GLES3_LayoutKey k = { vbo, ibo, fvf, stride, base };
+    const bool reuse = (g_PageSwitches & 16777216) != 0;
+    GLES3_LayoutKey k = { vbo, ibo, fvf, stride, reuse ? 0u : base };
     static GLES3_LayoutKey last_key = {};
     static GLuint last_vao = 0;
-    if (last_vao && last_vao == g_BoundVAO && k == last_key) return true; // same layout as the last draw
+    if (last_vao && last_vao == g_BoundVAO && k == last_key && (!reuse || g_LayoutBase[last_vao] == base)) return true; // same layout as the last draw
     auto it = g_Layouts.find(k);
     if (it != g_Layouts.end()) {
         Bind_VAO(it->second, ibo);
         last_key = k; last_vao = it->second;
+        if (reuse) {
+            unsigned int& b = g_LayoutBase[it->second];
+            if (b != base) {	// same buffers, new offset: the caller re-points the attributes
+                b = base;
+                GLES3_Bind_Array_Buffer(vbo);
+                return false;
+            }
+        }
         return true;
     }
     // ponytail: flush when full; an LRU if a scene ever cycles through more layouts than this.
@@ -1091,6 +1110,7 @@ bool GLES3_Bind_Layout(GLuint vbo, GLuint ibo, unsigned int fvf, unsigned int st
     GLuint vao = 0;
     glGenVertexArrays(1, &vao);
     g_Layouts.emplace(k, vao);
+    if (reuse) g_LayoutBase[vao] = base;
     Bind_VAO(vao, ~0u);
     last_key = k; last_vao = vao;
     GLES3_Bind_Array_Buffer(vbo);
@@ -1126,6 +1146,7 @@ void GLES3_Delete_Buffer(GLuint* buffer) {
     for (auto it = g_Layouts.begin(); it != g_Layouts.end();) {
         if (it->first.vbo != *buffer && it->first.ibo != *buffer) { ++it; continue; }
         if (g_BoundVAO == it->second) GLES3_Bind_Default_VAO();
+        g_LayoutBase.erase(it->second);
         glDeleteVertexArrays(1, &it->second);
         it = g_Layouts.erase(it);
     }
@@ -1576,10 +1597,18 @@ bool GLES3_Ground_Cache_Again() {
     return false;
 }
 
+static unsigned int g_ActiveSlot = 0;	// the slot the current program belongs to (it may be a fallback)
+extern int gx_fallback_draws;	// background shader compiles (GLES3_ShaderManager::Init)
 static void Apply_Pipeline_State() {
     if (g_State.shroud_tex) GLES3_Bind_Shroud_Unit();
     unsigned int hash = GLES3_ShaderManager::Hash_Pipeline_Config(g_State);
-    GLuint program = GLES3_ShaderManager::Get_Program(hash);
+    GLuint program = GLES3_ShaderManager::Get_Program(hash, GLES3_ShaderManager::Can_Fall_Back(hash));
+    if (!program && hash >= 1024) {	// still compiling in the background: the general shader of this setup
+        hash = GLES3_ShaderManager::Fallback_Slot(hash);
+        program = GLES3_ShaderManager::Get_Program(hash);
+        gx_fallback_draws++;
+    }
+    g_ActiveSlot = hash;
     if (program != g_State.active_program) {
         glUseProgram(program);
         g_State.active_program = program;
@@ -2086,7 +2115,23 @@ void GLES3_TextureConverter::Update_Texture(GLuint gl_tex_id,
 // Shader Manager Implementation
 // ============================================================================
 
+// Background shader compiles (Settings switch asyncShaders, page switch bit 22). A first-time
+// specialised shader could freeze a frame for seconds: the browser compiles when the game asks
+// whether compiling worked (getShaderParameter was 12% of the battle benchmark's strikes, one
+// frame 7.7 s). With KHR_parallel_shader_compile the compile runs in the background: until it
+// is done, the draw uses the general shader of the same setup (the same picture; it is what
+// the specialised-shaders switch falls back to), then the specialised one takes over.
+// Shaders that fold the fog of war in are still compiled at once (the general one can't).
+static bool g_ParallelCompile = false;
+static const GLenum GX_COMPLETION_STATUS_KHR = 0x91B1;
+struct GXPendingProgram { GLuint program, vs, fs; };
+static std::unordered_map<unsigned int, GXPendingProgram> g_PendingPrograms;
+int gx_async_programs = 0, gx_fallback_draws = 0;	// counters for the log
+
 bool GLES3_ShaderManager::Init() {
+    if (EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_get_current_context())
+        g_ParallelCompile = emscripten_webgl_enable_extension(ctx, "KHR_parallel_shader_compile");
+    printf("GXSHADERS parallel compile %s\n", g_ParallelCompile ? "available" : "not available");
     memset(cached_programs, 0, sizeof(cached_programs));
     memset(cached_locations, -1, sizeof(cached_locations));
     // The fixed-function emulation shaders are compiled on first use
@@ -2107,6 +2152,7 @@ GLuint GLES3_ShaderManager::Compile_Shader(GLenum type, const char* source) {
     GLuint shader = glCreateShader(type);
     glShaderSource(shader, 1, &source, nullptr);
     glCompileShader(shader);
+    if (g_ParallelCompile && (g_PageSwitches & 4194304)) return shader;	// checked when its program is linked
 
     GLint success;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
@@ -2322,8 +2368,8 @@ unsigned int GLES3_ShaderManager::Program_Slot(const GLES3_PipelineState& state,
 }
 
 GLint GLES3_ShaderManager::Get_Instancing_Uniform_Location(const GLES3_PipelineState &state) {
-    unsigned int hash = Hash_Pipeline_Config(state);
-    return cached_locations[hash].u_InstancingEnabled;
+    (void)state;	// the program in use (Apply_Pipeline_State), which may be the general fallback
+    return cached_locations[g_ActiveSlot].u_InstancingEnabled;
 }
 
 // Forward declaration — defined with extern "C" in dx8_fixedfunction_shaders.cpp
@@ -2364,11 +2410,55 @@ void GLES3_ShaderManager::Populate_Locations(GLuint program, unsigned int hash) 
 }
 
 
-GLuint GLES3_ShaderManager::Get_Program(unsigned int hash) {
+// A program compiling in the background: installed once the browser says it is done (no wait).
+static bool Poll_Pending(unsigned int hash) {
+    auto it = g_PendingPrograms.find(hash);
+    if (it == g_PendingPrograms.end()) return false;
+    GLint done = 0;
+    glGetProgramiv(it->second.program, GX_COMPLETION_STATUS_KHR, &done);
+    if (!done) return true;	// still compiling
+    GXPendingProgram p = it->second;
+    g_PendingPrograms.erase(it);
+    GLint ok = 0;
+    glGetProgramiv(p.program, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024];
+        glGetProgramInfoLog(p.program, sizeof(log), nullptr, log);
+        fprintf(stderr, "ERROR: Shader program link failed:\n%s\n", log);
+        glDeleteProgram(p.program);
+        return false;	// stays 0: the general shader keeps drawing it
+    }
+    glDetachShader(p.program, p.vs);
+    glDetachShader(p.program, p.fs);
+    GLES3_ShaderManager::Install_Program(hash, p.program);
+    return false;
+}
+
+void GLES3_ShaderManager::Install_Program(unsigned int hash, GLuint program) {
+    cached_programs[hash] = program;
+    GLuint block = glGetUniformBlockIndex(program, "GXScene");
+    if (block != GL_INVALID_INDEX) glUniformBlockBinding(program, block, 0);
+    Populate_Locations(program, hash);
+    Log_Program(hash);
+}
+
+// A specialised slot may draw with the general shader while it compiles, unless it folds the
+// fog of war in (the general shader can't, and the separate fog pass was skipped for it).
+bool GLES3_ShaderManager::Can_Fall_Back(unsigned int hash) {
+    return hash >= 1024 && hash < GLES3_PROGRAM_SLOTS && !g_SlotKey[hash].fold;
+}
+unsigned int GLES3_ShaderManager::Fallback_Slot(unsigned int hash) {
+    return g_SlotKey[hash].base_lo | (g_SlotKey[hash].base_hi << 8);
+}
+
+// The program for a slot, or 0 while it compiles in the background (async_ok) / if it failed.
+GLuint GLES3_ShaderManager::Get_Program(unsigned int hash, bool async_ok) {
 
     if (cached_programs[hash] != 0) {
         return cached_programs[hash];
     }
+    if (Poll_Pending(hash)) return 0;
+    if (cached_programs[hash] != 0) return cached_programs[hash];
     // A variant that failed to compile stays 0; don't recompile it on every draw.
     static bool tried[GLES3_PROGRAM_SLOTS];
     if (tried[hash]) return 0;
@@ -2392,6 +2482,16 @@ GLuint GLES3_ShaderManager::Get_Program(unsigned int hash) {
     GLuint& fs = fragment_shaders[fkey];
     if (!fs) fs = Compile_Shader(GL_FRAGMENT_SHADER, GLES3_Get_Fragment_Shader_Source(base, key).c_str());
 
+    if (vs && fs && async_ok && hash >= 1024 && g_ParallelCompile && (g_PageSwitches & 4194304)) {
+        // background: link now, check later (GLES3_ShaderManager::Poll_Program)
+        GLuint program = glCreateProgram();
+        glAttachShader(program, vs);
+        glAttachShader(program, fs);
+        glLinkProgram(program);
+        g_PendingPrograms[hash] = { program, vs, fs };
+        gx_async_programs++;
+        return 0;
+    }
     if (vs && fs) {
         cached_programs[hash] = Link_Program(vs, fs);
         if (cached_programs[hash] != 0) {

@@ -351,13 +351,19 @@ public:
   static void Shutdown();
 
   // Get/compile the appropriate shader variant for current pipeline state
-  static GLuint Get_Program(unsigned int hash); // hash: a slot from Hash_Pipeline_Config
+  static GLuint Get_Program(unsigned int hash, bool async_ok = false); // hash: a slot from Hash_Pipeline_Config
 
   // Upload uniforms to match current DX8 state
   static void Apply_Uniforms(unsigned int hash, const GLES3_PipelineState &state);
 
   // Get cached instancing uniform location
   static GLint Get_Instancing_Uniform_Location(const GLES3_PipelineState &state);
+
+  // Background compiles (asyncShaders): install a finished program; may a slot draw with the
+  // general shader meanwhile, and which one is that
+  static void Install_Program(unsigned int hash, GLuint program);
+  static bool Can_Fall_Back(unsigned int hash);
+  static unsigned int Fallback_Slot(unsigned int hash);
 
 private:
   static GLuint Compile_Shader(GLenum type, const char *source);

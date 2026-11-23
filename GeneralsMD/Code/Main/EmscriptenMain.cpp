@@ -96,6 +96,9 @@ extern "C" int gx_d3d_setindices_null;
 // — the audio path is stubbed via milesstub. When real WWAudio is wired up,
 // add #include "Threads.h", a `target_link_libraries(z_generals PRIVATE
 extern "C" void Web_VFS_Warm_Match_Files(); // gles3_big_vfs.cpp
+extern "C" { int gx_fast_inv_sqrt = 0; }
+extern int GLES3_Page_Switches();
+#include "Common/Recorder.h"
 // z_wwaudio)` in Main/CMakeLists.txt, and a per-frame call to
 // WWAudioThreadsClass::Tick_Delayed_Release_Objects() right after
 // TheGameEngine->update().
@@ -482,6 +485,11 @@ static bool GameWebFrameCallback(float /*delta_time_ms*/) {
       // Match just started: read the files earlier matches needed mid-game in the background.
       if (inMatch && !gx_in_match) Web_VFS_Warm_Match_Files();
       gx_in_match = inMatch;
+      // Fast inverse square root (switch fastInvSqrt): it changes the simulation slightly, so
+      // never in a network game (every player must compute the same) or a replay (it must
+      // play back as recorded).
+      gx_fast_inv_sqrt = (GLES3_Page_Switches() & 8388608) && !TheGameLogic->isInMultiplayerGame()
+                         && !(TheRecorder && TheRecorder->isPlaybackMode());
     }
     if (TheGameLogic && TheFramePacer) {
       fprintf(stderr,
