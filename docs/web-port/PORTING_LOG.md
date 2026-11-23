@@ -2360,3 +2360,21 @@ draw call): 400 selected soldiers added ~800 draw calls.
 400 Rangers selected, RX 580, toggled in one match: 3,251 -> 2,474 draws, game work 17.8 ->
 14.2 ms (unselected 12.9), 57.4 -> 60.6 fps. Health bar pixels identical in both modes (15,183
 fill pixels, 0 differing).
+
+## All 2D drawing in batches (2026-11-23)
+
+User: "all 2d draws are worth batching, make sure batching is the default behavior always".
+The health bar batching above now covers pictures and the interface as well:
+
+- `W3DDisplay::drawImage` resolves the texture first; a picture with the same texture and draw
+  mode as the ones already collected joins them, anything else draws the collected ones first.
+  drawImage's state resets (grayscale off, alpha back on) are applied after the batch draws.
+- Collecting also runs around `TheInGameUI->draw()` (the HUD and all windows), not only the
+  per-unit pass. Text and other Render2DClass users still flush through `PreRenderHook`.
+- Same switch (`uiBatching`, bit 15), now labelled DRAW 2D SHAPES TOGETHER, on by default.
+
+Counted with kindprobe.js (draws by GL state), RX 580: the HUD of an idle match is ~55 draws a
+frame, ~43 batched (text between the pieces breaks batches). The command bar is identical in
+before/after screenshots. The same count shows where many-unit frames really go: ~5 one-triangle
+additive draws per soldier (muzzle flash meshes, ~490 for 100 Rangers) and ~10 small alpha draws
+per vehicle through the sorting renderer. That is the next item.

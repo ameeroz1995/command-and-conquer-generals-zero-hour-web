@@ -382,35 +382,48 @@ inline Int64 getPerformanceCounterFrequency()
 }
 
 // W3DDisplay::W3DDisplay =====================================================
-// Unit status bars in one draw (web port; Settings switch uiBatching, page switch bit 15).
-// A selected army drew each health bar as two or more draw calls of its own, each with the full
-// 2D state setup. While the per-unit pass runs (W3DView's drawablePostDraw loop), plain lines
-// and rectangles are collected in m_2DRender and drawn together. Order is kept: anything else
-// 2D (an icon, text, another Render2DClass) draws the collected ones first.
+// 2D drawing in batches (web port; Settings switch uiBatching, page switch bit 15).
+// Every line, rectangle and picture was a draw call of its own with the full 2D state setup: a
+// selected army's health bars, pips and rank icons, and every piece of the HUD. While the
+// per-unit pass (W3DView's drawablePostDraw loop) and the interface pass (TheInGameUI's draw)
+// run, consecutive shapes that draw the same way are collected in m_2DRender and drawn
+// together: plain lines and rectangles as one kind, pictures by texture and draw mode. Order
+// is kept: a shape of another kind, text or any other Render2DClass draws the collected ones
+// first.
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
 #endif
 static Render2DClass *s_the2DRender = nullptr;	// W3DDisplay's m_2DRender
 static Render2DClass *s_rectBatch = nullptr;		// set while the per-unit pass collects
 static Int s_rectPending = 0;										// shapes collected and not drawn yet
+static Int s_batchMode = -1;										// DrawImageMode of the collected pictures; -1: plain shapes
+static TextureClass *s_batchTex = nullptr;			// their texture (m_2DRender holds the reference)
+static Bool s_batchAlphaReset = FALSE;					// drawImage's state reset, owed after the draw
 static void flushRectBatch( Render2DClass *about = nullptr )
 {
 	if( s_rectPending && about != s_rectBatch )
 	{
 		s_rectPending = 0;
 		s_rectBatch->Render();
+		if( s_batchMode >= 0 )
+		{
+			s_rectBatch->Enable_Grayscale( false );
+			if( s_batchAlphaReset )
+				s_rectBatch->Enable_Alpha( true );
+		}
 	}
 }
 static Bool batchRects( Render2DClass *r )
 {
 	if( s_rectBatch != r )
 		return FALSE;
-	if( s_rectPending >= 2000 )	// 16-bit indices: an outline is 16 vertices
+	if( s_rectPending && (s_batchMode >= 0 || s_rectPending >= 2000) )	// pictures pending, or 16-bit indices: an outline is 16 vertices
 		flushRectBatch();
 	if( !s_rectPending )
 	{
 		r->Reset();
 		r->Enable_Texturing( FALSE );
+		s_batchMode = -1;
 	}
 	s_rectPending++;
 	return TRUE;
@@ -1843,7 +1856,9 @@ AGAIN:
 
 				if(TheGlobalData->m_loadScreenRender == TRUE)
 				{
+					GX_RectBatch_Begin();	// the interface's shapes and pictures in batches
 					TheInGameUI->draw();
+					GX_RectBatch_End();
 					if( TheMouse )
 						TheMouse->draw();	//keep applying the current cursor style so it remains hidden if needed.
 					WW3D::End_Render();
@@ -1866,7 +1881,9 @@ AGAIN:
 #endif
 
 				// draw the user interface
+				GX_RectBatch_Begin();	// the interface's shapes and pictures in batches
 				TheInGameUI->DRAW();
+				GX_RectBatch_End();
 
 				// end of video example code
 
@@ -2641,11 +2658,26 @@ void W3DDisplay::drawImage( const Image *image, Int startX, Int startY,
 
 	const Region2D *uv = image->getUV();
 
+	// if we have raw texture data we will use it, otherwise we are referencing filenames
+	TextureClass *tex;
+	const Bool rawTex = BitIsSet( image->getStatus(), IMAGE_STATUS_RAW_TEXTURE );
+	if( rawTex )
+		tex = (TextureClass *)(image->getRawTextureData());
+	else
+		tex = WW3DAssetManager::Get_Instance()->Get_Texture( image->getFilename().str(), MIP_LEVELS_1 );
+
+	// same texture and mode as the pictures already collected: this one joins them
+	const Bool batching = s_rectBatch == m_2DRender;
+	const Bool joined = batching && s_rectPending && s_rectPending < 2000 && s_batchMode == (Int)mode && s_batchTex == tex;
+
+	Bool doAlphaReset=FALSE;
+	if( joined )
+		doAlphaReset = s_batchAlphaReset;
+	else
+	{
 	flushRectBatch();
 	m_2DRender->Reset();
 	m_2DRender->Enable_Texturing( TRUE );
-
-	Bool doAlphaReset=FALSE;
 
 	///@todo: Why are we alpha blending all images?  Reduces our fillrate. -MW
 	switch (mode)
@@ -2668,11 +2700,10 @@ void W3DDisplay::drawImage( const Image *image, Int startX, Int startY,
 			break;
 	}
 
-	// if we have raw texture data we will use it, otherwise we are referencing filenames
-	if( BitIsSet( image->getStatus(), IMAGE_STATUS_RAW_TEXTURE ) )
-		m_2DRender->Set_Texture( (TextureClass *)(image->getRawTextureData()) );
-	else
-		m_2DRender->Set_Texture( image->getFilename().str() );
+	m_2DRender->Set_Texture( tex );
+	}
+	if( !rawTex )
+		REF_PTR_RELEASE( tex );	// m_2DRender holds its own reference; tex below is only compared
 
 	RectClass screen_rect(startX,startY,endX,endY);
 	RectClass uv_rect(uv->lo.x,uv->lo.y,uv->hi.x,uv->hi.y);
@@ -2785,6 +2816,15 @@ void W3DDisplay::drawImage( const Image *image, Int startX, Int startY,
 		// just draw as normal
 		m_2DRender->Add_Quad( screen_rect, uv_rect, color );
 
+	}
+
+	if( batching )
+	{
+		s_rectPending++;
+		s_batchMode = (Int)mode;
+		s_batchTex = tex;
+		s_batchAlphaReset = doAlphaReset;
+		return;
 	}
 
 	m_2DRender->Render();
