@@ -58,7 +58,8 @@ static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Lay
 // serial, so "same texture id" also means "same contents" in a draw's fingerprint.
 unsigned int gx_content_serial = 0;
 static std::vector<unsigned int> g_TexSerial; // by GL texture id
-int gx_gc_hits = 0, gx_gc_captures = 0, gx_gc_plain = 0; // Module.gxGCHits / gxGCCaptures / gxGCPlain
+int gx_gc_hits = 0, gx_gc_captures = 0, gx_gc_plain = 0, gx_gc_slides = 0;
+int gx_gc_why = 0; // which check stopped the last slide (Module.gxGCWhy): 1 turned, 2 rolled, 3 height changed, 4 projection, 5 viewport, 20-25 cache state // Module.gxGCHits / gxGCCaptures / gxGCPlain
 static std::unordered_map<GLuint, bool> g_TextureHasMipmaps;
 
 void GLES3_Register_Texture(GLuint tex, bool has_mipmaps) {
@@ -424,7 +425,7 @@ void GLES3_Begin_Scene() {
         last_check = now;
         g_SwapCount = 0;
         next_check = now + 1000.0;
-        double sc = EM_ASM_DOUBLE({ Module.gxFps = $0; Module.gxWorkMs = $1; Module.gxGCHits = $2; Module.gxGCCaptures = $3; Module.gxGCPlain = $4; return Module.gxRenderScale || 1; }, fps, gx_work_ms_1s, gx_gc_hits, gx_gc_captures, gx_gc_plain);
+        double sc = EM_ASM_DOUBLE({ Module.gxFps = $0; Module.gxWorkMs = $1; Module.gxGCHits = $2; Module.gxGCCaptures = $3; Module.gxGCPlain = $4; Module.gxGCSlides = $5; Module.gxGCWhy = $6; return Module.gxRenderScale || 1; }, fps, gx_work_ms_1s, gx_gc_hits, gx_gc_captures, gx_gc_plain, gx_gc_slides, gx_gc_why);
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
             var pace = location.search.indexOf('pace=0') < 0 && !!(st && st.steady30 === true);
@@ -435,7 +436,10 @@ void GLES3_Begin_Scene() {
             var gc = Module.gxGroundCache !== 0 && o.groundCache !== false && !!st && st.antialias === false;
             return (Module.gxShroudFold === 0 || o.shroudFold === false ? 0 : 1) | (Module.gxTerrainCull === 0 || o.terrainCull === false ? 0 : 2)
                  | (pace ? 4 : 0) | (gc ? 8 : 0) | (o.fastShaders === false ? 0 : 16) | (o.skipSameUploads === false ? 0 : 32)
-                 | (o.asyncSounds === false ? 0 : 64);
+                 | (o.asyncSounds === false ? 0 : 64)
+                 // Pan cache (experiment, off unless switched on): bit 7, and in bits 8-11 how many
+                 // frames one real ground draw serves while the camera moves (Module.gxPanFrames, 3).
+                 | (o.panCache === true ? 128 : 0) | ((Math.max(2, Math.min(8, Module.gxPanFrames | 0 || 3))) << 8);
         });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
 #ifdef __EMSCRIPTEN_PTHREADS__
@@ -768,6 +772,7 @@ void GLES3_Get_Transform(unsigned int type, float* matrix_out) {
 static float g_LodBias = 0.0f; // log2(drawing buffer / back buffer), set by the viewport
 void GLES3_Set_Back_Buffer_Size(int w, int h) { g_BackBufferW = w; g_BackBufferH = h; }
 
+static int g_GLViewport[4] = { -1, -1, -1, -1 }; // the GL viewport in force: x, y (from the bottom), w, h
 void GLES3_Set_Viewport(unsigned int x, unsigned int y,
                          unsigned int w, unsigned int h,
                          float min_z, float max_z) {
@@ -796,7 +801,7 @@ void GLES3_Set_Viewport(unsigned int x, unsigned int y,
     if (gl_y < 0) gl_y = 0;
     
     // The engine re-sets the same viewport many times a frame.
-    static int last[4] = { -1, -1, -1, -1 };
+    int* last = g_GLViewport;
     static float last_z[2] = { -1.0f, -1.0f };
     if (last[0] != (int)x || last[1] != gl_y || last[2] != (int)w || last[3] != (int)h) {
         glViewport(x, (unsigned int)gl_y, w, h);
@@ -1302,6 +1307,11 @@ static struct {
     int mode = 0; // 0 idle, 1 fingerprinting, 2 drawing into the cache, 3 drawing plainly
     uint64_t probe = 0, last_probe = 0, cached = 0;
     bool valid = false, unsafe = false, checked = false;
+    // Pan cache: the camera and look of the cached image, and of this frame's first ground draw.
+    float view0[16] = {}, view1[16] = {}, proj1[16] = {}, plane_h = 0;
+    uint64_t style0 = 0, style1 = 0;
+    bool first = false, plane_ok = false;
+    int slides = 0; // frames slid since the cached image was drawn
     GLuint fbo = 0, color = 0, depth = 0;
     int w = 0, h = 0, tw = 0, th = 0; // image size (-1: cache unusable here); this frame's target size
 } g_GC;
@@ -1322,6 +1332,22 @@ void GLES3_Ground_Cache_Mix(unsigned int a, unsigned int b, unsigned int c, unsi
 // One suppressed draw's fingerprint. Stencil writes can't be replayed from the image.
 static void GC_Fingerprint(unsigned int a, unsigned int b, unsigned int c, unsigned int d, unsigned int e) {
     if (g_State.render_states[GLES3_RS_STENCILENABLE] || g_State.pretransformed) g_GC.unsafe = true;
+    if (g_GC.first) {
+        g_GC.first = false;
+        memcpy(g_GC.view1, g_State.view_matrix, sizeof(g_GC.view1));
+        memcpy(g_GC.proj1, g_State.projection_matrix, sizeof(g_GC.proj1));
+        // What the ground looks like apart from where the camera stands: projection, material,
+        // lights, fog, stage setup, render states and viewport of its first draw.
+        const uint64_t keep = g_GC.probe;
+        g_GC.probe = 14695981039346656037ull;
+        GC_Mix(g_State.projection_matrix, sizeof(g_State.projection_matrix));
+        GC_Mix(&g_State.material, offsetof(GLES3_PipelineState, texture_stage_state) - offsetof(GLES3_PipelineState, material));
+        GC_Mix(g_State.texture_stage_state, sizeof(g_State.texture_stage_state));
+        GC_Mix(g_State.render_states, sizeof(g_State.render_states));
+        GC_Mix(&g_State.viewport, sizeof(g_State.viewport));
+        g_GC.style1 = g_GC.probe;
+        g_GC.probe = keep;
+    }
     GC_Mix(&g_State, offsetof(GLES3_PipelineState, active_program));
     unsigned int v[5 + 9] = { a, b, c, d, e };
     for (int i = 0; i < 8; i++) {
@@ -1377,6 +1403,70 @@ static bool GC_Copy() {
     return ok;
 }
 
+// Pan cache. The height of the ground plane the slide assumes (the ground under the middle of
+// the view); the caller gives it once a frame, before its draws.
+void GLES3_Ground_Cache_Plane(float height, bool ok) { g_GC.plane_h = height; g_GC.plane_ok = ok; }
+
+// The camera moved without turning: instead of drawing the ground, the cached image is moved to
+// where a flat ground at plane_h would now appear. With no roll every screen row of such a
+// ground is at one distance, so a row keeps its depth (the depth image is copied as it is) and
+// its colour slides and scales along x by that row's amount: thin horizontal strips, one blit
+// each. Slopes come out a few pixels off until the next real draw (every gxPanFrames frames).
+// False: not a pure pan, or nothing usable; the caller draws.
+static bool GC_Slide() {
+    const float* V0 = g_GC.view0; const float* V1 = g_GC.view1; const float* P = g_GC.proj1;
+    for (int i = 0; i < 12; i++) { if (i % 4 == 3) continue; if (fabsf(V0[i] - V1[i]) > 1e-5f) { gx_gc_why = 1; return false; } } // turned
+    // D3D row vectors: camera = world * V. World up (0,0,1) in camera space is row 2.
+    const float nx = V1[8], ny = V1[9], nz = V1[10];
+    if (fabsf(nx) > 1e-3f || fabsf(ny) < 1e-3f) { gx_gc_why = 2; return false; } // rolled, or looking straight down the plane
+    const float dx = V1[12] - V0[12], dy = V1[13] - V0[13], dz = V1[14] - V0[14]; // how ground points moved, camera space
+    // The camera follows the terrain's height a little as it scrolls; the rows below allow for
+    // that, but the copied depth doesn't, so only small changes pass (zooming does not).
+    if (fabsf(dx * nx + dy * ny + dz * nz) > 1.5f) { gx_gc_why = 3; return false; }
+    const float fx = P[0], fy = P[5];
+    const float sg = P[11]; // +1: the camera looks along +z, -1: along -z (this engine)
+    if (fx <= 0 || fy <= 0 || (sg != 1.0f && sg != -1.0f)) { gx_gc_why = 4; return false; } // not a perspective projection we know
+    const float dzs = sg * dz;
+    // The 3D view's rectangle inside the target (NDC -1..1 maps onto it).
+    const int VX = g_GLViewport[0], VY = g_GLViewport[1], W = g_GLViewport[2], H = g_GLViewport[3];
+    if (W < 16 || H < 16 || VX < 0 || VY < 0 || VX + W > g_GC.w || VY + H > g_GC.h) { gx_gc_why = 5; return false; }
+    const float D = g_GC.plane_h + (V1[12] * nx + V1[13] * ny + V1[14] * nz); // plane: n . p = D, new camera
+    const GLuint target = g_In3DPass ? g_Fbo : 0;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, g_GC.fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, target);
+    const bool scissor = glIsEnabled(GL_SCISSOR_TEST);
+    if (scissor) glDisable(GL_SCISSOR_TEST);
+    glBlitFramebuffer(0, 0, g_GC.w, g_GC.h, 0, 0, g_GC.w, g_GC.h, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    // Source row (old image) and x mapping for a new-image row, both in NDC.
+    auto row = [&](float y1, float& y0, float& z0, float& z1) -> bool {
+        const float den = ny * y1 / fy + sg * nz;
+        if (fabsf(den) < 1e-6f) return false;
+        z1 = D / den;               // distance of the ground on this row now
+        z0 = z1 - dzs;              // and when the image was drawn
+        if (z1 <= 1.0f || z0 <= 1.0f) return false; // above the horizon / behind the camera
+        y0 = fy * (y1 * z1 / fy - dy) / z0;
+        return true;
+    };
+    const int S = H >= 600 ? 8 : 6; // strip height in pixels
+    for (int a = 0; a < H; a += S) {
+        const int b = a + S < H ? a + S : H;
+        float ya, yb, yc, z0, z1, t0, t1;
+        if (!row(2.0f * a / H - 1.0f, ya, t0, t1) || !row(2.0f * b / H - 1.0f, yb, t0, t1)) continue;
+        if (!row(2.0f * (a + b) * 0.5f / H - 1.0f, yc, z0, z1)) continue;
+        int sa = (int)floorf((ya * 0.5f + 0.5f) * H + 0.5f), sb = (int)floorf((yb * 0.5f + 0.5f) * H + 0.5f);
+        if (sb <= sa) sb = sa + 1;
+        if (sb <= 0 || sa >= H) continue; // came from outside the old image
+        // x1 = (x0 * z0 + fx * dx) / z1 for x0 = -1 and +1
+        const int xl = (int)floorf(((-z0 + fx * dx) / z1 * 0.5f + 0.5f) * W + 0.5f);
+        const int xr = (int)floorf((( z0 + fx * dx) / z1 * 0.5f + 0.5f) * W + 0.5f);
+        if (xr <= xl) continue;
+        glBlitFramebuffer(VX, VY + sa, VX + W, VY + sb, VX + xl, VY + a, VX + xr, VY + b, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+    }
+    if (scissor) glEnable(GL_SCISSOR_TEST);
+    glBindFramebuffer(GL_FRAMEBUFFER, target);
+    return true;
+}
+
 bool GLES3_Ground_Cache_Begin() {
     if (!(g_PageSwitches & 8) || g_GC.mode || g_GC.w < 0) return false;
     if (g_In3DPass) { g_GC.tw = g_FboW; g_GC.th = g_FboH; }
@@ -1389,6 +1479,7 @@ bool GLES3_Ground_Cache_Begin() {
     if (g_GC.tw < 1 || g_GC.th < 1) return false;
     g_GC.mode = 1;
     g_GC.unsafe = false;
+    g_GC.first = true;
     g_GC.probe = 14695981039346656037ull;
     const int v[3] = { g_GC.tw, g_GC.th, g_In3DPass ? 1 : 0 };
     GC_Mix(v, sizeof(v));
@@ -1406,7 +1497,17 @@ bool GLES3_Ground_Cache_Again() {
             gx_gc_hits++;
             return false;
         }
-        if (!g_GC.unsafe && probe == last && GC_Target()) {
+        const bool pan = (g_PageSwitches & 128) != 0;
+        if (pan) gx_gc_why = g_GC.unsafe ? 20 : !g_GC.valid ? 21 : !g_GC.checked ? 22 : !g_GC.plane_ok ? 23 : g_GC.style1 != g_GC.style0 ? 24 : (g_GC.slides + 1 >= ((g_PageSwitches >> 8) & 15)) ? 25 : 0;
+        if (pan && !g_GC.unsafe && g_GC.valid && g_GC.checked && g_GC.plane_ok && g_GC.style1 == g_GC.style0 &&
+            g_GC.w == g_GC.tw && g_GC.h == g_GC.th && g_GC.slides + 1 < ((g_PageSwitches >> 8) & 15) && GC_Slide()) {
+            g_GC.slides++;
+            g_GC.mode = 0;
+            gx_gc_slides++;
+            return false;
+        }
+        // With the pan cache on every real draw goes into the cache, to be slid on the next frames.
+        if (!g_GC.unsafe && (probe == last || pan) && GC_Target()) {
             // Start the image from the frame's clear, so the copy can replace the whole target.
             glBindFramebuffer(GL_FRAMEBUFFER, g_GC.fbo);
             const bool scissor = glIsEnabled(GL_SCISSOR_TEST);
@@ -1419,6 +1520,9 @@ bool GLES3_Ground_Cache_Again() {
             if (scissor) glEnable(GL_SCISSOR_TEST);
             g_GC.valid = false;
             g_GC.cached = probe;
+            memcpy(g_GC.view0, g_GC.view1, sizeof(g_GC.view0));
+            g_GC.style0 = g_GC.style1;
+            g_GC.slides = 0;
             g_GC.mode = 2;
             return true;
         }

@@ -330,6 +330,7 @@ int GLES3_Page_Switches();
 //   const bool gc = GLES3_Ground_Cache_Begin(); do { ... } while (gc && GLES3_Ground_Cache_Again());
 bool GLES3_Ground_Cache_Begin();
 bool GLES3_Ground_Cache_Again();
+void GLES3_Ground_Cache_Plane(float height, bool ok); // pan cache: ground height under the middle of the view
 void GLES3_Ground_Cache_Mix(unsigned int a, unsigned int b, unsigned int c, unsigned int d, unsigned int e);
 extern unsigned int gx_content_serial; // next upload's serial
 

@@ -2093,6 +2093,18 @@ void HeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 	// Ground cache: the base passes are kept as an image and pasted back while the view, the
 	// lighting, the shroud and the terrain buffers are unchanged (see gles3_wrapper.cpp). Not
 	// for the water's mirror pass, which alternates with the main view every frame.
+	if (GLES3_Page_Switches() & 128) {
+		// Pan cache: the height of the ground the view is centred on (where the camera's line of
+		// sight meets the terrain), which the slide treats as a flat plane.
+		const Matrix3D &ct = rinfo.Camera.Get_Transform();
+		const Vector3 cpos = ct.Get_Translation(), fwd = -ct.Get_Z_Vector();
+		Real h = 0; bool ok = fwd.Z < -0.05f;
+		for (Int it = 0; ok && it < 3; it++) {
+			const Real t = (h - cpos.Z) / fwd.Z;
+			h = getHeightMapHeight(cpos.X + fwd.X * t, cpos.Y + fwd.Y * t, nullptr);
+		}
+		GLES3_Ground_Cache_Plane(h, ok);
+	}
 	const bool groundCache = !doMultiPassWireFrame && !m_disableTextures &&
 		!ShaderClass::Is_Backface_Culling_Inverted() && GLES3_Ground_Cache_Begin();
 	do {

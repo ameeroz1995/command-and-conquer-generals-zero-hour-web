@@ -2239,3 +2239,23 @@ Low-end setup, one match, each switch off in turn (picture unchanged each time, 
 the moving parts): all on 25.5-27.7 fps; ground cache off 17.5; shroud fold off 17.9; terrain
 culling off 25.1 (nothing off screen in this view); specialised shaders off 4.1; skip unchanged
 uploads off 15.8 (the ground cache can't hit then); background sounds off 19.0.
+
+## Pan cache (experiment, switch off by default) (2026-11-23)
+
+Measured first: a depth-only terrain draw (colour mask off) costs the same as the full draw on
+SwiftShader (113-120 ms vs 111-123 ms frames, 60-65 ms with no terrain), so a cache only pays on
+frames where the terrain isn't drawn at all; nearest-texel filtering gained nothing either. And on
+Alpine Assault only the start base is flat (93% of visible ground within 6 units of height;
+10-44% elsewhere), so "slide only on flat ground" would almost never apply.
+
+`panCache` (Settings: Slide the ground while the camera moves): while the camera moves without
+turning, the terrain's base pass is drawn every third frame (Module.gxPanFrames) into the ground
+cache, and on the frames between `GC_Slide` moves the cached colour to where a flat ground at the
+height under the view's centre would appear: one blit per 6-8 pixel strip of rows (with no roll a
+row of flat ground is at one distance, so it slides and scales along x by one amount), and the depth
+image copied as it is. Slopes are a few pixels off for at most two frames; a newly exposed screen
+edge shows the clear colour until the next real draw; camera height changes over 1.5 units, turns
+and zooms draw normally. `Module.gxGCSlides` counts, `Module.gxGCWhy` says which check last refused.
+
+Low-end setup, scrolling in four directions, same match: 22.4 fps off, 27.4 on (about 1.4 slid
+frames per drawn one). Off by default: to be judged on a real machine.
