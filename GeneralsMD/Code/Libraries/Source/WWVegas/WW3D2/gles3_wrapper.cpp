@@ -51,6 +51,9 @@ static int g_SwapCount = 0;         // frames presented, for Module.gxFps (rende
 double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gles3_mainloop) -> Module.gxWorkMs
 static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
+// Second switch word (the first is full): bit 0 contactTable, bit 1 sleepyKeys, bit 2 openHeap (game logic, same game).
+static int g_PageSwitches2 = 7;
+int GLES3_Page_Switches2() { return g_PageSwitches2; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
@@ -429,6 +432,12 @@ void GLES3_Begin_Scene() {
         g_SwapCount = 0;
         next_check = now + 1000.0;
         double sc = EM_ASM_DOUBLE({ Module.gxFps = $0; Module.gxWorkMs = $1; Module.gxGCHits = $2; Module.gxGCCaptures = $3; Module.gxGCPlain = $4; Module.gxGCSlides = $5; Module.gxGCWhy = $6; return Module.gxRenderScale || 1; }, fps, gx_work_ms_1s, gx_gc_hits, gx_gc_captures, gx_gc_plain, gx_gc_slides, gx_gc_why);
+        g_PageSwitches2 = EM_ASM_INT({
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            return (o.contactTable === false ? 0 : 1)   // bit 0: touching-pair table sized for big battles (PartitionManager.cpp)
+                 | (o.sleepyKeys === false ? 0 : 2)     // bit 1: update queue keeps each wake-up time next to its entry (GameLogic.cpp)
+                 | (o.openHeap === false ? 0 : 4);      // bit 2: route search candidates in a heap instead of a sorted list (AIPathfind.cpp)
+        });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
             var pace = location.search.indexOf('pace=0') < 0 && !!(st && st.steady30 === true);

@@ -1028,12 +1028,30 @@ private:
 	PartitionContactListNode* m_contactHash[PartitionContactList_SOCKET_COUNT];
 	PartitionContactListNode* m_contactList;
 
+	// Web port (switch contactTable, second switch word bit 0): big battles add tens of thousands
+	// of pairs a frame, so 5381 buckets meant long chains to walk for every pair. This table has
+	// 2^18 buckets (allocated once, emptied through the list). Only the duplicate check uses the
+	// table; the list order, and so the game, is the same.
+	enum { GX_BIG_BITS = 18 };
+	static PartitionContactListNode** s_gxBig;
+	PartitionContactListNode** m_gxHash;	// the big table, or null for m_contactHash
+
 public:
 
 	PartitionContactList()
 	{
 		memset(m_contactHash, 0, sizeof(m_contactHash));
 		m_contactList = nullptr;
+		m_gxHash = nullptr;
+#ifdef __EMSCRIPTEN__
+		extern int GLES3_Page_Switches2();
+		if (GLES3_Page_Switches2() & 1)
+		{
+			if (!s_gxBig)
+				s_gxBig = (PartitionContactListNode**)calloc((size_t)1 << GX_BIG_BITS, sizeof(PartitionContactListNode*));
+			m_gxHash = s_gxBig;
+		}
+#endif
 	}
 
 	~PartitionContactList()
@@ -2492,10 +2510,17 @@ void PartitionContactList::addToContactList( PartitionData *obj, PartitionData *
 
 	// compute hash index based on object's ids.
 	UnsignedInt hashValue = hash2ints(obj_obj->getID(), other_obj->getID());
-	hashValue %= PartitionContactList_SOCKET_COUNT;
+	PartitionContactListNode** table = m_contactHash;
+	if (m_gxHash)
+	{
+		table = m_gxHash;
+		hashValue = (hashValue * 2654435761u) >> (32 - GX_BIG_BITS);	// mixes both ids into 18 bits
+	}
+	else
+		hashValue %= PartitionContactList_SOCKET_COUNT;
 
 	// make sure given hit has not already been recorded
-	for (PartitionContactListNode* cd = m_contactHash[ hashValue ]; cd; cd = cd->m_nextHash )
+	for (PartitionContactListNode* cd = table[ hashValue ]; cd; cd = cd->m_nextHash )
 	{
 		if ((cd->m_obj == obj && cd->m_other == other) ||
 				(cd->m_obj == other && cd->m_other == obj))
@@ -2512,8 +2537,8 @@ void PartitionContactList::addToContactList( PartitionData *obj, PartitionData *
 	ncd->m_hashValue = hashValue;
 
 	// add to hash table
-	ncd->m_nextHash = m_contactHash[ hashValue ];
-	m_contactHash[ hashValue ] = ncd;
+	ncd->m_nextHash = table[ hashValue ];
+	table[ hashValue ] = ncd;
 
 	// add to list of contacts for this frame
 	ncd->m_next = m_contactList;
@@ -2582,6 +2607,8 @@ void PartitionContactList::removeSpecificPartitionData(PartitionData* data)
 }
 
 //-----------------------------------------------------------------------------
+PartitionContactListNode** PartitionContactList::s_gxBig = nullptr;
+
 void PartitionContactList::resetContactList()
 {
 	// remove items from hash table
@@ -2589,10 +2616,13 @@ void PartitionContactList::resetContactList()
 	for (PartitionContactListNode* cd = m_contactList; cd; cd = cdnext)
 	{
 		cdnext = cd->m_next;
+		if (m_gxHash)
+			m_gxHash[cd->m_hashValue] = nullptr;
 		deleteInstance(cd);
 	}
 
-	memset(m_contactHash, 0, sizeof(m_contactHash));
+	if (!m_gxHash)
+		memset(m_contactHash, 0, sizeof(m_contactHash));
 	m_contactList = nullptr;
 }
 

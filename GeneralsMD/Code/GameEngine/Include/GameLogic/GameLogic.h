@@ -341,6 +341,7 @@ private:
 	// (for an excellent discussion of priority queues, please see:
 	// http://dogma.net/markn/articles/pq_stl/priority.htm)
 	std::vector<UpdateModulePtr> m_sleepyUpdates;
+	std::vector<UnsignedInt> m_gxSleepyKey;	///< web port (switch sleepyKeys): each entry's priority, kept beside m_sleepyUpdates so the heap compares without touching the modules
 
 #ifdef ALLOW_NONSLEEPY_UPDATES
 	// this is a plain old list, not a pq.

@@ -2672,3 +2672,28 @@ checked, 0 mismatches; replay matches (9,000 frames). A/B: armies 13.0 → 9.9 f
   strikes 93.6 -> 90.5 (-3%), aftermath 55.8 -> 53.3 (-5%); fps +2/+3/+5%. Less than the ~10%
   estimated in LOGIC_IDEAS.md: collisionOrder and allyTable are small; most of the skip's
   saving is the distance tests on allies.
+
+## 2026-11-24 — Three more same-game logic savings (second switch word: contactTable, sleepyKeys, openHeap; on)
+
+Measured first (temporary counters, peak battle, per frame): ~10k open-list insertions walking
+35-124 cells each (over a million pointer steps), longest open list 563 cells; touching pairs in
+tens of thousands; 40-50k queued sleepy updates. (The counters' own timers inflated the update
+queue's share; the sampling profile's 3.8% for the heap is the reliable figure.)
+
+- **openHeap** (`GLES3_Page_Switches2` bit 2, AIPathfind.cpp `PathfindCellList`): the open list is
+  a binary heap keyed on (total cost, arrival number). The sorted list puts a cell after all of
+  equal or lower cost, so its head is always the lowest (cost, arrival); every cost change takes
+  the cell off the list first, so stored keys stay right. The release walk sorts the heap first
+  (same release order). At PATHFIND_CELLS_PER_FRAME (5000) cells the retail insertion walk would
+  stop early, so the heap turns back into the sorted list for the rest of that search.
+- **sleepyKeys** (bit 1, GameLogic.cpp): `m_gxSleepyKey` holds each queued module's priority beside
+  `m_sleepyUpdates`; every priority change is followed by `rebalanceSleepyUpdate(i)`, which
+  refreshes key i. Same swaps, no trip into each module per comparison.
+- **contactTable** (bit 0, PartitionManager.cpp): the touching-pair duplicate check uses a 2^18
+  bucket table (allocated once, emptied through the pair list) instead of 5381 buckets.
+- Same game: referee replay matches over 9000 frames (lg2 and lg3); verify mode checked 75.6 M
+  stored queue keys, 0 wrong.
+- A/B (all three off vs on, lg3): work armies 66.5 -> 59.4 ms (-11%), strikes 107.6 -> 100.1 (-7%);
+  fps +10% / +7%. Machine load 8-25 during runs.
+- Bench tool fix (generals-bench-mcp server.py `_finish`): lanes are closed before a job is marked
+  done; a waiting cli.py used to exit first and leave the browser running into the next run.

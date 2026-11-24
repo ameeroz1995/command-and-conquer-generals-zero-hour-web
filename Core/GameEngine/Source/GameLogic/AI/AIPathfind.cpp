@@ -26,6 +26,7 @@
 // AI pathfinding system
 // Author: Michael S. Booth, October 2001
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include <algorithm>
 #include "Common/Recorder.h"
 
 #include "GameLogic/AIPathfind.h"
@@ -1682,6 +1683,111 @@ Bool PathfindCell::removeObstacle( Object *obstacle )
 }
 
 /// put self on "open" list in ascending cost order, return new list
+// ---- open list heap (switch openHeap, second switch word bit 2) ----
+void PathfindCellList::reset(PathfindCell* newHead)
+{
+	m_gxHeap.clear();
+	m_gxSeq = 0;
+	m_head = nullptr;
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches2();
+	m_gxHeapMode = m_gxIsOpen && (GLES3_Page_Switches2() & 4) != 0;
+#endif
+	if (!newHead)
+		return;
+	if (m_gxHeapMode && newHead->m_info)
+		gxPush(newHead);	// (retail: the start cell goes in without its open flag, as before)
+	else
+	{
+		m_gxHeapMode = false;
+		m_head = newHead;
+	}
+}
+
+void PathfindCellList::gxSiftUp(Int i)
+{
+	GxEntry e = m_gxHeap[i];
+	while (i > 0)
+	{
+		const Int p = (i - 1) >> 1;
+		if (m_gxHeap[p].key <= e.key)
+			break;
+		m_gxHeap[i] = m_gxHeap[p];
+		m_gxHeap[i].cell->m_info->m_gxHeapIdx = i;
+		i = p;
+	}
+	m_gxHeap[i] = e;
+	e.cell->m_info->m_gxHeapIdx = i;
+}
+
+void PathfindCellList::gxSiftDown(Int i)
+{
+	const Int n = (Int)m_gxHeap.size();
+	GxEntry e = m_gxHeap[i];
+	for (;;)
+	{
+		Int c = 2 * i + 1;
+		if (c >= n)
+			break;
+		if (c + 1 < n && m_gxHeap[c + 1].key < m_gxHeap[c].key)
+			++c;
+		if (e.key <= m_gxHeap[c].key)
+			break;
+		m_gxHeap[i] = m_gxHeap[c];
+		m_gxHeap[i].cell->m_info->m_gxHeapIdx = i;
+		i = c;
+	}
+	m_gxHeap[i] = e;
+	e.cell->m_info->m_gxHeapIdx = i;
+}
+
+void PathfindCellList::gxPush(PathfindCell* cell)
+{
+	GxEntry e;
+	e.key = ((unsigned long long)cell->m_info->m_totalCost << 32) | ++m_gxSeq;
+	e.cell = cell;
+	m_gxHeap.push_back(e);
+	gxSiftUp((Int)m_gxHeap.size() - 1);
+}
+
+void PathfindCellList::gxRemove(PathfindCell* cell)
+{
+	const Int i = cell->m_info->m_gxHeapIdx;
+	const Int last = (Int)m_gxHeap.size() - 1;
+	if (i < 0 || i > last || m_gxHeap[i].cell != cell)
+		return;	// not in the heap (can't happen: same as unlinking a cell that isn't linked)
+	cell->m_info->m_gxHeapIdx = -1;
+	if (i != last)
+	{
+		m_gxHeap[i] = m_gxHeap[last];
+		m_gxHeap.pop_back();
+		PathfindCell* moved = m_gxHeap[i].cell;
+		gxSiftUp(i);
+		gxSiftDown(moved->m_info->m_gxHeapIdx);
+	}
+	else
+		m_gxHeap.pop_back();
+}
+
+void PathfindCellList::gxToList()
+{
+	std::sort(m_gxHeap.begin(), m_gxHeap.end(), [](const GxEntry& a, const GxEntry& b) { return a.key < b.key; });
+	PathfindCellInfo* prev = nullptr;
+	m_head = m_gxHeap.empty() ? nullptr : m_gxHeap[0].cell;
+	for (const GxEntry& e : m_gxHeap)
+	{
+		PathfindCellInfo* info = e.cell->m_info;
+		info->m_gxHeapIdx = -1;
+		info->m_prevOpen = prev;
+		info->m_nextOpen = nullptr;
+		if (prev)
+			prev->m_nextOpen = info;
+		prev = info;
+	}
+	m_gxHeap.clear();
+	m_gxHeapMode = false;
+}
+
 void PathfindCell::putOnSortedOpenList( PathfindCellList &list )
 {
 	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
@@ -1690,6 +1796,16 @@ void PathfindCell::putOnSortedOpenList( PathfindCellList &list )
 	// mark the newCell as being on the open list
 	m_info->m_open = true;
 	m_info->m_closed = false;
+
+	if (list.m_gxHeapMode)
+	{
+		if (list.m_gxHeap.size() < PATHFIND_CELLS_PER_FRAME)
+		{
+			list.gxPush(this);
+			return;
+		}
+		list.gxToList();	// big enough for the retail walk limit to matter: the list from here on
+	}
 
 	if (list.m_head == nullptr)
 	{
@@ -1746,6 +1862,14 @@ void PathfindCell::removeFromOpenList( PathfindCellList &list )
 {
 	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
 	DEBUG_ASSERTCRASH(m_info->m_closed==FALSE && m_info->m_open==TRUE, ("Serious error - Invalid flags. jba"));
+	if (list.m_gxHeapMode)
+	{
+		list.gxRemove(this);
+		m_info->m_open = false;
+		m_info->m_nextOpen = nullptr;
+		m_info->m_prevOpen = nullptr;
+		return;
+	}
 	if (m_info->m_nextOpen)
 		m_info->m_nextOpen->m_prevOpen = m_info->m_prevOpen;
 
@@ -1764,6 +1888,32 @@ void PathfindCell::removeFromOpenList( PathfindCellList &list )
 Int PathfindCell::releaseOpenList( PathfindCellList &list )
 {
 	Int count = 0;
+	if (list.m_gxHeapMode)
+	{
+		// the same cells in the same order as the sorted list would release them
+		std::sort(list.m_gxHeap.begin(), list.m_gxHeap.end(),
+			[](const PathfindCellList::GxEntry& a, const PathfindCellList::GxEntry& b) { return a.key < b.key; });
+		std::vector<PathfindCellList::GxEntry> all;
+		all.swap(list.m_gxHeap);
+		for (const PathfindCellList::GxEntry& e : all)
+		{
+			count++;
+			PathfindCell *cur = e.cell;
+			PathfindCellInfo *curInfo = cur->m_info;
+#if RETAIL_COMPATIBLE_PATHFINDING
+			if(!curInfo && !s_useFixedPathfinding) {
+				s_useFixedPathfinding = true;
+				s_forceCleanCells = true;
+				return count;
+			}
+#endif
+			curInfo->m_nextOpen = nullptr;
+			curInfo->m_prevOpen = nullptr;
+			curInfo->m_open = FALSE;
+			cur->releaseInfo();
+		}
+		return count;
+	}
 	while (list.m_head) {
 		count++;
 		DEBUG_ASSERTCRASH(list.m_head->m_info, ("Has to have info."));
@@ -3898,6 +4048,7 @@ void PathfindLayer::classifyWallMapCell( Int i, Int j , PathfindCell *cell, Obje
 
 Pathfinder::Pathfinder() :m_map(nullptr)
 {
+	m_openList.gxMarkOpenList();	// web port: only the open list may use the heap
 	debugPath = nullptr;
 	PathfindCellInfo::allocateCellInfos();
 	reset();

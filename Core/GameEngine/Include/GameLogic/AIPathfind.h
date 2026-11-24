@@ -208,6 +208,7 @@ enum {MAX_WALL_PIECES = 128};
 class PathfindCellInfo
 {
 	friend class PathfindCell;
+	friend class PathfindCellList;
 public:
 #if RETAIL_COMPATIBLE_PATHFINDING
 	static void forceCleanPathFindCellInfos();
@@ -229,6 +230,7 @@ protected:
 	PathfindCell *m_cell;															///< Cell this info belongs to currently.
 
 	UnsignedShort m_totalCost, m_costSoFar;	///< cost estimates for A* search
+	Int m_gxHeapIdx;	///< web port (switch openHeap): position in the open list's heap
 
 	/// have to include cell's coordinates, since cells are often accessed via pointer only
 	ICoord2D m_pos;
@@ -254,16 +256,32 @@ class PathfindCellList
 	friend class PathfindCell;
 
 public:
-	PathfindCellList() : m_head(nullptr) {}
+	PathfindCellList() : m_head(nullptr), m_gxIsOpen(false), m_gxHeapMode(false), m_gxSeq(0) {}
 
-	void reset(PathfindCell* newHead = nullptr) { m_head = newHead; }
+	void reset(PathfindCell* newHead = nullptr);
 
-	PathfindCell* getHead() const { return m_head; }
+	PathfindCell* getHead() const { return m_gxHeapMode ? (m_gxHeap.empty() ? nullptr : m_gxHeap[0].cell) : m_head; }
 
-	Bool empty() const { return m_head == nullptr; }
+	Bool empty() const { return m_gxHeapMode ? m_gxHeap.empty() : m_head == nullptr; }
+
+	// Web port (switch openHeap): the open list as a binary heap keyed on (total cost, arrival
+	// number). The sorted list puts a cell after every cell of equal or lower cost, so its head
+	// is always the lowest (cost, arrival): the heap pops the same cells in the same order. The
+	// list's insertion walk stops after PATHFIND_CELLS_PER_FRAME cells (retail behaviour), so at
+	// that size the heap turns back into the sorted list for the rest of the search.
+	void gxMarkOpenList() { m_gxIsOpen = true; }
+	struct GxEntry { unsigned long long key; PathfindCell* cell; };
 
 private:
 	PathfindCell* m_head;
+	Bool m_gxIsOpen, m_gxHeapMode;
+	UnsignedInt m_gxSeq;
+	std::vector<GxEntry> m_gxHeap;
+	void gxSiftUp(Int i);
+	void gxSiftDown(Int i);
+	void gxPush(PathfindCell* cell);
+	void gxRemove(PathfindCell* cell);
+	void gxToList();	///< back to the sorted list, in heap order
 };
 
 /**
@@ -274,6 +292,7 @@ private:
  */
 class PathfindCell
 {
+	friend class PathfindCellList;
 public:
 
 	enum CellType

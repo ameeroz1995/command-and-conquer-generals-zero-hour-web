@@ -452,6 +452,7 @@ void GameLogic::reset()
 		(*it)->friend_setIndexInLogic(-1);
 	}
 	m_sleepyUpdates.clear();
+	m_gxSleepyKey.clear();
 	m_curUpdateModule = nullptr;
 
 	m_isScoringEnabled = TRUE;
@@ -2867,15 +2868,28 @@ void GameLogic::eraseSleepyUpdate(Int i)
 		m_sleepyUpdates[i] = m_sleepyUpdates[last];
 		m_sleepyUpdates[i]->friend_setIndexInLogic(i);
 		m_sleepyUpdates.pop_back();
+		m_gxSleepyKey[i] = m_gxSleepyKey[last];
+		m_gxSleepyKey.pop_back();
 		rebalanceSleepyUpdate(i);
 	}
 	else
 	{
 		m_sleepyUpdates.pop_back();
+		m_gxSleepyKey.pop_back();
 	}
 }
 
 // ------------------------------------------------------------------------------------------------
+static inline Bool gxSleepyKeys()
+{
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches2();
+	return (GLES3_Page_Switches2() & 2) != 0;
+#else
+	return false;
+#endif
+}
+
 inline Bool isLowerPriority(const UpdateModulePtr a, const UpdateModulePtr b)
 {
 	// return true iff a is lower pri than b.
@@ -2895,13 +2909,16 @@ Int GameLogic::rebalanceParentSleepyUpdate(Int i)
 	DEBUG_ASSERTCRASH(i >= 0 && i < m_sleepyUpdates.size(), ("bad sleepy idx"));
 
 	Int parent = ((i+1)>>1)-1;
-	while (parent >= 0 && isLowerPriority(m_sleepyUpdates[parent], m_sleepyUpdates[i]))
+	UnsignedInt* key = m_gxSleepyKey.data();
+	const Bool keys = gxSleepyKeys();
+	while (parent >= 0 && (keys ? key[parent] > key[i] : isLowerPriority(m_sleepyUpdates[parent], m_sleepyUpdates[i])))
 	{
 		UpdateModulePtr a = m_sleepyUpdates[parent];
 		UpdateModulePtr b = m_sleepyUpdates[i];
 
 		m_sleepyUpdates[i] = a;
 		m_sleepyUpdates[parent] = b;
+		const UnsignedInt ka = key[parent]; key[parent] = key[i]; key[i] = ka;
 
 		a->friend_setIndexInLogic(i);
 		b->friend_setIndexInLogic(parent);
@@ -2926,6 +2943,8 @@ Int GameLogic::rebalanceChildSleepyUpdate(Int i)
 // version present for clarity. (Yes, this is worth doing.) (srj)
 #if 1
 	UpdateModulePtr* pI = &m_sleepyUpdates[i];
+	UnsignedInt* key = m_gxSleepyKey.data();
+	const Bool keys = gxSleepyKeys();
 
 	// our children are i*2 and i*2+1
   Int child = ((i)<<1)+1;
@@ -2935,14 +2954,14 @@ Int GameLogic::rebalanceChildSleepyUpdate(Int i)
   while (pChild < pSZ)
 	{
 		// choose the higher-priority of the two children; we must be higher-pri than that.
-		if (pChild < pSZ-1 && isLowerPriority(*pChild, *(pChild+1)))
+		if (pChild < pSZ-1 && (keys ? key[child] > key[child+1] : isLowerPriority(*pChild, *(pChild+1))))
 		{
       ++pChild;
 			++child;
 		}
 
 		// if we're higher-pri than our children, we're done.
-		if (!isLowerPriority(*pI, *pChild))
+		if (!(keys ? key[i] > key[child] : isLowerPriority(*pI, *pChild)))
 		{
 			break;
 		}
@@ -2953,6 +2972,7 @@ Int GameLogic::rebalanceChildSleepyUpdate(Int i)
 
 		*pI = a;
 		*pChild = b;
+		const UnsignedInt ka = key[child]; key[child] = key[i]; key[i] = ka;
 
 		a->friend_setIndexInLogic(i);
 		b->friend_setIndexInLogic(child);
@@ -3000,6 +3020,26 @@ void GameLogic::rebalanceSleepyUpdate(Int i)
 {
 	USE_PERF_TIMER(SleepyMaintenance)
 
+	// every change of a queued module's priority is followed by this call at its index
+	m_gxSleepyKey[i] = m_sleepyUpdates[i]->friend_getPriority();
+#ifdef __EMSCRIPTEN__
+	if (GLES3_Page_Switches() & 2097152)	// verify mode: now and then, every stored key against its module
+	{
+		static int n = 0;
+		if (++n % 4000 == 0)
+		{
+			extern int gx_verify_mismatch, gx_verify_checked;
+			for (size_t k = 0; k < m_sleepyUpdates.size(); ++k, ++gx_verify_checked)
+				if (m_gxSleepyKey[k] != m_sleepyUpdates[k]->friend_getPriority())
+				{
+					++gx_verify_mismatch;
+					printf("GXVERIFY sleepy key mismatch at %d\n", (int)k);
+				}
+			printf("GXVERIFY sleepy keys checked %d, mismatches %d\n", gx_verify_checked, gx_verify_mismatch);
+		}
+	}
+#endif
+
 	i = rebalanceParentSleepyUpdate(i);
 	i = rebalanceChildSleepyUpdate(i);
 }
@@ -3029,6 +3069,7 @@ void GameLogic::pushSleepyUpdate(UpdateModulePtr u)
 	DEBUG_ASSERTCRASH(u != nullptr, ("You may not pass null for sleepy update info"));
 
 	m_sleepyUpdates.push_back(u);
+	m_gxSleepyKey.push_back(u->friend_getPriority());
 	u->friend_setIndexInLogic(m_sleepyUpdates.size() - 1);
 
 	rebalanceParentSleepyUpdate(m_sleepyUpdates.size()-1);
@@ -3062,11 +3103,14 @@ void GameLogic::popSleepyUpdate()
 		m_sleepyUpdates[0] = m_sleepyUpdates[sz-1];
 		m_sleepyUpdates[0]->friend_setIndexInLogic(0);
 		m_sleepyUpdates.pop_back();
+		m_gxSleepyKey[0] = m_gxSleepyKey[sz-1];
+		m_gxSleepyKey.pop_back();
 		rebalanceChildSleepyUpdate(0);
 	}
 	else
 	{
 		m_sleepyUpdates.pop_back();
+		m_gxSleepyKey.pop_back();
 	}
 }
 
@@ -5245,6 +5289,7 @@ void GameLogic::loadPostProcess()
 		(*it)->friend_setIndexInLogic(-1);
 	}
 	m_sleepyUpdates.clear();
+	m_gxSleepyKey.clear();
 #ifdef ALLOW_NONSLEEPY_UPDATES
 	m_normalUpdates.clear();
 #else
@@ -5287,6 +5332,7 @@ void GameLogic::loadPostProcess()
 #endif
 			{
 				m_sleepyUpdates.push_back(u);
+				m_gxSleepyKey.push_back(u->friend_getPriority());
 				u->friend_setIndexInLogic(m_sleepyUpdates.size() - 1);
 			}
 

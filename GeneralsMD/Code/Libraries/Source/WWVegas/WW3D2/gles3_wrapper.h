@@ -327,6 +327,7 @@ bool GLES3_Set_Shroud_Fold(GLuint tex, const float *d3d_matrix); // false: not f
 // Page switches read about once a second (GLES3_Begin_Scene), for comparing on and off in one
 // session: bit 0 shroud fold (Module.gxShroudFold), bit 1 terrain tile culling (gxTerrainCull).
 int GLES3_Page_Switches();
+int GLES3_Page_Switches2();
 // Ground cache (gles3_wrapper.cpp): wrap the terrain's base draws in
 //   const bool gc = GLES3_Ground_Cache_Begin(); do { ... } while (gc && GLES3_Ground_Cache_Again());
 bool GLES3_Ground_Cache_Begin();
