@@ -1281,6 +1281,7 @@
             { key: 'searchCache', def: true, label: 'REMEMBER WHERE UNITS ARE FOR SEARCHES', note: 'Each map square keeps a copy of where its units stand, so nearby searches pass over far units without reading them. Same game.' },
             { key: 'warmBattleFiles', def: true, label: 'READ BATTLE FILES AHEAD', note: 'When a match starts, the unit models, textures and sounds a battle usually needs (about 60 MB) are read in the background, so the first explosion or new unit doesn\'t freeze the game while they load. Off on devices with 2 GB or less.' },
             { key: 'panCache', def: false, label: 'SLIDE THE GROUND WHILE THE CAMERA MOVES (EXPERIMENT)', note: 'While you scroll, the ground is drawn every third frame and its picture is slid in between. Slopes can shimmer and the screen edge can show gaps. Needs the ground reuse switch and antialiasing off.' },
+            { key: 'webgpu', def: false, reload: true, label: 'DRAW WITH WEBGPU (EXPERIMENT)', note: 'The game draws through WebGPU instead of WebGL: less work per draw call for the browser. Needs a browser with WebGPU; without it the game uses WebGL as before. Not on WebGPU yet: fog of war drawn with the ground, ground reuse, render scale, identical unit parts together, soldiers animated on the graphics chip.' },
             { key: 'asyncSounds', def: true, label: 'LOAD SOUNDS IN THE BACKGROUND', note: 'A sound that is not loaded yet is skipped once instead of freezing the game while it loads.' }
           ];
         })();
@@ -1862,7 +1863,21 @@
           canvas: document.getElementById('canvas'),
           print: printToOutput,
           printErr: printErrToOutput,
-          preRun: [idbfsPreRun],
+          preRun: [idbfsPreRun, function () {
+            // Settings switch webgpu: the device is made before main() (no async in the engine).
+            var o = window.GeneralsX && window.GeneralsX.opt;
+            if (!o || !o.webgpu || !navigator.gpu || /[?&]webgpu=0/.test(location.search)) return;
+            window['Module']['addRunDependency']('gxgpu');
+            navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).then(function (ad) {
+              if (!ad) throw new Error('no adapter');
+              var bc = ad.features.has('texture-compression-bc');
+              return ad.requestDevice({ requiredFeatures: bc ? ['texture-compression-bc'] : [] }).then(function (dev) {
+                window.Module.gxGPU = { device: dev, bc: bc, adapter: (ad.info && (ad.info.vendor + ' ' + ad.info.architecture + ' ' + ad.info.description)) || '' };
+                console.log('[GeneralsX] WebGPU device ready (' + window.Module.gxGPU.adapter + (bc ? ', BC textures' : '') + ')');
+              });
+            }).catch(function (e) { console.warn('[GeneralsX] WebGPU unavailable, using WebGL: ' + e.message); })
+              .then(function () { window['Module']['removeRunDependency']('gxgpu'); });
+          }],
           onRuntimeInitialized: function () {
             window.Module.gxNetReady = true;
             if (virtualNetEnabled) {
