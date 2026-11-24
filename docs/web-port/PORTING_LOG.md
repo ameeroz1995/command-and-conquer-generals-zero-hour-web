@@ -2796,3 +2796,28 @@ Strike-phase profiles of 66e2829 (builds ai-0, tags ai-prof1/ai-prof2; machine l
 - Not built: exact micro-changes here could save at most ~0.5% of the frame, below what this
   loaded machine can measure. The one real lever in this area is the scan cadence (e.g. back off
   after misses), which changes the game: it could only be a single-player switch, worth ~1-2%.
+
+## 2026-11-24 — Unit AI: what the states cause (logic-ai agent, second pass)
+
+Counters (build ai-diag2, strike phase, per frame):
+- ~1,000-1,800 AI updates. Attack-move units 600-1,100 and move-to 250-370, all awake every frame
+  (they are moving: needed). Idle units awake 60-92% of frames (turrets tracking, blocked units).
+  Dead units up to ~385 updates a frame (AI_DEAD never sleeps), but the profile puts AIDeadState at
+  0.0%: not worth making exact sleep for.
+- Path requests: 35-70 a frame re-request a moving goal (90% within one cell of the last request),
+  but these are missiles' quick paths that return early when unchanged. Moves started over to the
+  same place grow to ~45 a frame late in the battle. Only 5-10 real route searches run per frame,
+  and the pathfinder already caps work per frame (PATHFIND_CELLS_PER_FRAME), so fewer requests
+  would not cut CPU much. Pathfinder share did not move in the runs below. Not pursued.
+- Target scans: ~45 a frame, 80% find nothing, mostly attack-move units (15-37 a frame) and idle
+  units (5-11).
+
+Kept, off by default — lazyScans (switch word 2, bit 12; single player only, gated like
+ignoreUnitsInPaths): a routine scan that finds nothing waits one more check interval (4 s instead
+of 2 s). Profile pairs at load 11-19 (off -> on), strike phase share of the frame:
+- pair 1: getNextMoodTarget 3.5% -> 2.1%, AIUpdateInterface::update 13.1% -> 10.8%
+- pair 2: getNextMoodTarget 3.5% -> 2.5%, AIUpdateInterface::update 12.9% -> 13.2%
+So scans cost 30-40% less, about 1-1.4% of the frame. Whole-frame A/B could not show it: load
+swung 15 -> 42 between runs (+19% then -34% fps), and with the switch on the battle itself plays
+out differently. Replay matches the recording with the switch off and on (replays ignore it).
+Off by default because units notice newcomers up to 2 s later; the main chat decides.

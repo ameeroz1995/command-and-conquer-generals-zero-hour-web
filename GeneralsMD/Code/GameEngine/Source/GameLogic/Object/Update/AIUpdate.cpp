@@ -33,6 +33,7 @@
 #define DEFINE_AUTOACQUIRE_NAMES
 
 #include "Common/ActionManager.h"
+#include "Common/Recorder.h"
 #include "Common/GameState.h"
 #include "Common/CRCDebug.h"
 #include "Common/GlobalData.h"
@@ -4651,6 +4652,17 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	}
 
 	Object *newVictim = TheAI->findClosestEnemy(obj, rangeToFindWithin, flags, getAttackInfo());
+
+	// lazyScans (page switch word 2, bit 12): after a routine scan that found nothing, wait one more
+	// check interval before the next one. Changes the game, so single player only (never online,
+	// LAN or replays).
+	if (!newVictim && calledByAI)
+	{
+		extern int GLES3_Page_Switches2();
+		if ((GLES3_Page_Switches2() & 4096) && !TheGameLogic->isInMultiplayerGame()
+				&& !(TheRecorder && TheRecorder->isPlaybackMode()))
+			m_nextMoodCheckTime += d->m_moodAttackCheckRate;
+	}
 
 /*
 DEBUG_LOG(("GNMT frame %d: %s %08lx (con %s %08lx) uses range %f, flags %08lx, %s finds %s %08lx",

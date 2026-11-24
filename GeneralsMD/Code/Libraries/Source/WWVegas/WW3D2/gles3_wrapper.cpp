@@ -437,7 +437,8 @@ void GLES3_Begin_Scene() {
             return (o.contactTable === false ? 0 : 1)   // bit 0: touching-pair table sized for big battles (PartitionManager.cpp)
                  | (o.sleepyKeys === false ? 0 : 2)     // bit 1: update queue keeps each wake-up time next to its entry (GameLogic.cpp)
                  | (o.openHeap === false ? 0 : 4)       // bit 2: route search candidates in a heap instead of a sorted list (AIPathfind.cpp)
-                 | (o.contactArray === false ? 0 : 8);  // bit 3: touching pairs kept in flat arrays, nothing allocated per pair (PartitionManager.cpp; same game)
+                 | (o.contactArray === false ? 0 : 8)   // bit 3: touching pairs kept in flat arrays, nothing allocated per pair (PartitionManager.cpp; same game)
+                 | (o.lazyScans === true ? 4096 : 0);   // bit 12: routine enemy scans that find nothing wait twice as long (AIUpdate.cpp; single player only)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
