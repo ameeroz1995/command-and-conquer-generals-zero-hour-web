@@ -119,6 +119,7 @@ constexpr const UnsignedInt MAX_CELL_COUNT = 500;
 constexpr const UnsignedInt MAX_ADJUSTMENT_CELL_COUNT = 400;
 constexpr const UnsignedInt MAX_SAFE_PATH_CELL_COUNT = 2000;
 
+constexpr const int GX_CPOP_SEGMENTS_BIT = 0;	// web port: second switch word bit for cpopSegments (assigned by the main chat)
 constexpr const UnsignedInt PATHFIND_CELLS_PER_FRAME = 5000; // Number of cells we will search pathfinding per frame.
 constexpr const UnsignedInt CELL_INFOS_TO_ALLOCATE = 30000;
 
@@ -145,6 +146,7 @@ PathNode::~PathNode()
 //-----------------------------------------------------------------------------------
 void PathNode::setNextOptimized(PathNode *node)
 {
+	gxTouch();
 	m_nextOpti = node;
 	if (node)
 	{
@@ -169,6 +171,7 @@ void PathNode::setNextOptimized(PathNode *node)
 /// given a list, prepend this node, return new list
 PathNode *PathNode::prependToList( PathNode *list )
 {
+	if (list && list->m_gxOwner) { m_gxOwner = list->m_gxOwner; gxTouch(); }
 	m_next = list;
 	if (list)
 		list->m_prev = this;
@@ -181,6 +184,7 @@ PathNode *PathNode::prependToList( PathNode *list )
 /// @todo optimize this
 PathNode *PathNode::appendToList( PathNode *list )
 {
+	if (list && list->m_gxOwner) { m_gxOwner = list->m_gxOwner; gxTouch(); }
 	if (list == nullptr)
 	{
 		m_next = nullptr;
@@ -203,6 +207,7 @@ PathNode *PathNode::appendToList( PathNode *list )
 /// given a node, append new node to this.
 void PathNode::append( PathNode *newNode )
 {
+	newNode->m_gxOwner = m_gxOwner; gxTouch();
 	newNode->m_next = this->m_next;
 	newNode->m_prev = this;
 	if (newNode->m_next) {
@@ -334,6 +339,7 @@ void Path::xfer( Xfer *xfer )
 			Int optID = -1;
 			xfer->xferInt(&optID);
 			PathNode *node = newInstance(PathNode);
+			node->m_gxOwner = this; m_gxSegsValid = FALSE;
 			node->m_id = nodeId;
 			node->setPosition(&pos);
 			node->setLayer(layer);
@@ -406,6 +412,7 @@ void Path::loadPostProcess()
 void Path::prependNode( const Coord3D *pos, PathfindLayerEnum layer )
 {
 	PathNode *node = newInstance(PathNode);
+	node->m_gxOwner = this; m_gxSegsValid = FALSE;
 
 	node->setPosition( pos );
 	node->setLayer(layer);
@@ -436,6 +443,7 @@ void Path::appendNode( const Coord3D *pos, PathfindLayerEnum layer )
 		}
 	}
 	PathNode *node = newInstance(PathNode);
+	node->m_gxOwner = this; m_gxSegsValid = FALSE;
 
 	node->setPosition( pos );
 	node->setLayer(layer);
@@ -801,6 +809,78 @@ void Path::computePointOnPath(
 	//
 	// Find the closest segment of the path
 	//
+	Coord2D segmentDirNorm;
+	Real segmentLength;
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches(), GLES3_Page_Switches2();
+	const Bool gxSegs = (GLES3_Page_Switches2() & GX_CPOP_SEGMENTS_BIT) != 0;	// switch cpopSegments
+	const Bool gxVerifySegs = gxSegs && (GLES3_Page_Switches() & 2097152) != 0;
+#else
+	const Bool gxSegs = FALSE, gxVerifySegs = FALSE;
+#endif
+	if (gxSegs) {
+		if (!m_gxSegsValid) {	// the optimized segments, as the loop below walks them
+			m_gxSegs.clear();
+			Coord2D d; Real l;
+			const PathNode *p = m_path;
+			for (const PathNode *n = p->getNextOptimized(&d, &l); n != nullptr; n = n->getNextOptimized(&d, &l)) {
+				GxSeg g; g.prev = p; g.node = n; g.prevPos = *p->getPosition(); g.nodePos = *n->getPosition();
+				g.dir = d; g.len = l; g.last = n->getNextOptimized() == nullptr;
+				m_gxSegs.push_back(g);
+				p = n;
+			}
+			m_gxSegsValid = TRUE;
+		}
+		for (const GxSeg &g : m_gxSegs)
+		{
+			toPos.x = pos.x - g.prevPos.x;
+			toPos.y = pos.y - g.prevPos.y;
+			Real alongPathDist = g.dir.x * toPos.x + g.dir.y * toPos.y;
+			Coord3D pointOnPath;
+			if (alongPathDist < 0.0f)
+			{
+				alongPathDist = 0.0f;
+				pointOnPath = g.prevPos;
+			}
+			else if (alongPathDist > g.len)
+			{
+				if (g.last)
+				{
+					alongPathDist = g.len;
+					pointOnPath = g.nodePos;
+				}
+				else
+				{
+					totalPathLength += g.len;
+					continue;
+				}
+			}
+			else
+			{
+				pointOnPath.x = g.prevPos.x + alongPathDist * g.dir.x;
+				pointOnPath.y = g.prevPos.y + alongPathDist * g.dir.y;
+				pointOnPath.z = 0;
+			}
+			Coord2D offset;
+			offset.x = pos.x - pointOnPath.x;
+			offset.y = pos.y - pointOnPath.y;
+			Real offsetDistSqr = offset.x*offset.x + offset.y*offset.y;
+			if (offsetDistSqr < closeDistSqr)
+			{
+				closeDistSqr = offsetDistSqr;
+				closeNode = g.prev;
+				out.posOnPath = pointOnPath;
+				lengthAlongPathToPos = totalPathLength + alongPathDist;
+			}
+			totalPathLength += g.len;
+		}
+		// the node walk leaves these at the last node's stored values; so do we
+		(m_gxSegs.empty() ? m_path : m_gxSegs.back().node)->getNextOptimized(&segmentDirNorm, &segmentLength);
+	}
+	if (!gxSegs || gxVerifySegs) {
+	const PathNode* const gxCloseNode = closeNode; const Coord3D gxPos = out.posOnPath;
+	const Real gxClose = closeDistSqr, gxTotal = totalPathLength, gxAlong = lengthAlongPathToPos;
+	if (gxVerifySegs) { closeNode = nullptr; closeDistSqr = 99999999.9f; totalPathLength = 0.0f; lengthAlongPathToPos = 0.0f; out.posOnPath = *getLastNode()->getPosition(); }
 #ifdef CPOP_STARTS_FROM_PREV_SEG
 	const PathNode* prevNode = m_cpopRecentStart;
 	if (prevNode == nullptr)
@@ -808,8 +888,6 @@ void Path::computePointOnPath(
 #else
 	const PathNode* prevNode = m_path;
 #endif
-	Coord2D segmentDirNorm;
-	Real segmentLength;
 
 	// note that the seg dir and len returned by this is the dist & vec from 'prevNode' to 'node'
 	for ( const PathNode* node = prevNode->getNextOptimized(&segmentDirNorm, &segmentLength);
@@ -879,6 +957,18 @@ void Path::computePointOnPath(
 		totalPathLength += segmentLength;
 		prevNode = node;
 		DUMPCOORD3D(&pointOnPath);
+	}
+
+	if (gxVerifySegs) {	// verification: the flat walk must give exactly what the node walk gave
+		extern int gx_verify_mismatch, gx_verify_checked;
+		++gx_verify_checked;
+		if (gxCloseNode != closeNode || gxClose != closeDistSqr || gxTotal != totalPathLength || gxAlong != lengthAlongPathToPos
+			|| gxPos.x != out.posOnPath.x || gxPos.y != out.posOnPath.y || gxPos.z != out.posOnPath.z) {
+			++gx_verify_mismatch;
+			printf("GXVERIFY cpopSegments mismatch: segs %d, total %f/%f along %f/%f\n", (int)m_gxSegs.size(), gxTotal, totalPathLength, gxAlong, lengthAlongPathToPos);
+		}
+		if (gx_verify_checked % 100000 == 0) printf("GXVERIFY cpopSegments checked %d, mismatches %d\n", gx_verify_checked, gx_verify_mismatch);
+	}
 	}
 
 #ifdef CPOP_STARTS_FROM_PREV_SEG

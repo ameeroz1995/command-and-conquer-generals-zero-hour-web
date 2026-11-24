@@ -68,7 +68,7 @@ public:
 
 	Coord3D *getPosition() { return &m_pos; }			///< return position of this node
 	const Coord3D *getPosition() const { return &m_pos; }			///< return position of this node
-	void setPosition( const Coord3D *pos ) { m_pos = *pos; }	///< set the position of this path node
+	void setPosition( const Coord3D *pos ) { m_pos = *pos; gxTouch(); }	///< set the position of this path node
 
 	const Coord3D *computeDirectionVector();			///< compute direction to next node
 
@@ -78,7 +78,7 @@ public:
 	const PathNode *getPrevious() const { return m_prev; }		///< return previous node in the path
 
 	PathfindLayerEnum getLayer() const { return m_layer; }				///< return layer of this node.
-	void setLayer( PathfindLayerEnum layer ) { m_layer = layer; }	///< set the layer of this path node
+	void setLayer( PathfindLayerEnum layer ) { m_layer = layer; gxTouch(); }	///< set the layer of this path node
 
 	void setNextOptimized( PathNode *node );
 
@@ -100,7 +100,7 @@ public:
 		return m_nextOpti;
 	}
 
-	void setCanOptimize(Bool canOpt) { m_canOptimize = canOpt;}
+	void setCanOptimize(Bool canOpt) { m_canOptimize = canOpt; gxTouch(); }
 	Bool getCanOptimize() const { return m_canOptimize;}
 
 	/// given a list, prepend this node, return new list
@@ -115,6 +115,8 @@ public:
 
 public:
 	mutable Int					m_id; // Used in Path::xfer() to save & recreate the path list.
+	Path*								m_gxOwner = nullptr;	///< web port (switch cpopSegments): the path this node is in; edits mark its segment list stale
+	inline void gxTouch();
 
 private:
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( PathNode, "PathNodePool"  );		///< @todo Set real numbers for mem alloc
@@ -195,7 +197,16 @@ protected:
 	Coord3D									m_cpopIn;
 	ClosestPointOnPathInfo	m_cpopOut;
 	const PathNode*					m_cpopRecentStart;
+
+public:
+	// Web port (switch cpopSegments): the optimized segments in one flat array for
+	// computePointOnPath (same values, same order); rebuilt after any node edit (PathNode::gxTouch).
+	struct GxSeg { const PathNode *prev, *node; Coord3D prevPos, nodePos; Coord2D dir; Real len; Bool last; };
+	Bool										m_gxSegsValid = FALSE;
+	std::vector<GxSeg>			m_gxSegs;
 };
+
+inline void PathNode::gxTouch() { if (m_gxOwner) m_gxOwner->m_gxSegsValid = FALSE; }
 
 //----------------------------------------------------------------------------------------------------------
 
