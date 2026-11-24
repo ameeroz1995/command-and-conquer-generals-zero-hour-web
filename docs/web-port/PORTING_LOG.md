@@ -2761,3 +2761,18 @@ queue's share; the sampling profile's 3.8% for the heap is the reliable figure.)
 - A/B twice: +1%/-1% and +6% strikes / -4% aftermath: no clear gain. The list walk is not the cost;
   each visit still reads the module and the object. Not kept. A real gain needs positions and
   sizes in dense per-object arrays (a change to the whole object system).
+
+## 2026-11-24 — Drawing core: measured before a rebuild
+
+Strike phase (live build 52b7e14), share of the frame, inclusive:
+- W3DDisplay::draw 32.5%: RTS3DScene::Flush 18.0% (mesh renderer 8.4%, sorting 1.7%, terrain 2.3%),
+  per-object submission RTS3DScene::renderOneObject 6.4% (HLodClass::Render 4.7%), Drawable::draw
+  4.2%, drawablePostDraw 2.0%, 2D/UI ~3.6%.
+- Under the mesh renderer: Emscripten_IDirect3DDevice8::DrawIndexedPrimitive 8.2% (Apply_Pipeline_State
+  2.8% incl. a uniform-block upload 0.7%; vertex/instance uploads 0.8%; WebGL calls themselves ~2-3%:
+  bufferSubData 1.4, uniformMatrix4fv, bindTexture, drawElements, bindBuffer/VAO 0.2-0.3 each).
+- Probe (kindprobe.js) in strikes: ~480 plain WebGL draws per frame plus instanced ones; the
+  benchmark's 2,450 "draws" are engine-level requests before batching.
+- So a full rebuild (recorded, sorted draw list submitted with minimal state; per-object data kept
+  together) can save at most roughly half of the ~8% submission cost and of the ~6% per-object
+  cost: about 6-7% of the frame, for several days of work with visual-regression risk.
