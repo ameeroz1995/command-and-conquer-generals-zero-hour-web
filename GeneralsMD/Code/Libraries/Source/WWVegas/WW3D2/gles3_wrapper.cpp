@@ -54,6 +54,10 @@ int GLES3_Page_Switches() { return g_PageSwitches; }
 // Second switch word (the first is full): bit 0 contactTable, bit 1 sleepyKeys, bit 2 openHeap, bit 3 contactArray (game logic, same game).
 static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 8388608 | 33554432 | 1073741824 | 256 | 512 | 65536 | 131072 | 262144 | 524288;
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
+// Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
+// query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
+static int g_PageSwitches3 = 0;
+int GLES3_Page_Switches3() { return g_PageSwitches3; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
@@ -458,6 +462,10 @@ void GLES3_Begin_Scene() {
                  | (o.laserFilters === false ? 0 : 131072)   // bit 17: point-defense lasers filter inside the range search (PointDefenseLaserUpdate.cpp; same game)
                  | (o.denseCellMask === false ? 0 : 262144)  // bit 18: range searches read each cell's player mask from one dense array (PartitionManager.cpp; same game)
                  | (o.searchCache === false ? 0 : 524288);   // bit 19: range searches turn far entries away by a cached position (PartitionManager.cpp; same game)
+        });
+        g_PageSwitches3 = EM_ASM_INT({
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            return 0;   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
