@@ -442,6 +442,7 @@ void GLES3_Begin_Scene() {
                  | (o.lazyFields === false ? 0 : 64)    // bit 6: flow fields computed only as far as the units asking (AIPathfind.cpp; same routes)
                  | (o.lazyScans === true ? 4096 : 0)    // bit 12: routine enemy scans that find nothing wait twice as long (AIUpdate.cpp; single player only)
                  | (o.sharedRoutes === true ? 8192 : 0)   // bit 13: units sent to one point plan to free spots near it, sharing its route (AIUpdate.cpp; single player only)
+                 | (o.routeBudget === true ? 16384 : 0)  // bit 14: half the route-search work per frame (AIPathfind.cpp; single player only)
                  | (o.boneCache === false ? 0 : 1048576)  // bit 20: loaded-missile bones found by index, not by name every frame (W3DModelDraw.cpp; drawing only)
                  | (o.lightCache === false ? 0 : 2097152)  // bit 21: headlight sub-objects listed once per model (W3DModelDraw.cpp; drawing only)
                  | (o.clipSkip === false ? 0 : 4194304)   // bit 22: loaded-missile display asked only of models that show it (Drawable.cpp; drawing only)

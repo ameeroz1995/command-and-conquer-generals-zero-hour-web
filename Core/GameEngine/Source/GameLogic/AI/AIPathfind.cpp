@@ -6225,7 +6225,10 @@ void Pathfinder::processPathfindQueue()
 #ifdef DEBUG_QPF
 	Int pathsFound = 0;
 #endif
-	while (m_cumulativeCellsAllocated < PATHFIND_CELLS_PER_FRAME &&
+	// Web port (switch routeBudget, logic-ai; single player through AIUpdateInterface::gxAiRule):
+	// half the route-search work per frame, so queued units get their routes a little later.
+	const Int gxCellsPerFrame = AIUpdateInterface::gxAiRule(16384) ? PATHFIND_CELLS_PER_FRAME / 2 : PATHFIND_CELLS_PER_FRAME;
+	while (m_cumulativeCellsAllocated < gxCellsPerFrame &&
 		m_queuePRTail!=m_queuePRHead) {
 		Object *obj = TheGameLogic->findObjectByID(m_queuedPathfindRequests[m_queuePRHead]);
 		m_queuedPathfindRequests[m_queuePRHead] = INVALID_ID;

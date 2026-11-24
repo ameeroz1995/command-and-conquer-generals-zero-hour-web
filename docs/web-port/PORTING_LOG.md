@@ -2998,3 +2998,37 @@ from there instead of re-testing taken cells. Only if no spot is found does the 
 Kept, OFF by default: it makes big armies get their routes about 3x sooner, not frames faster.
 Making it a CPU gain would mean lowering the per-frame cell budget while it is on (a game
 change of its own); left for the main chat to decide.
+
+## 2026-11-24 — Spreading AI work over ticks (logic-ai agent)
+
+One gate for every game-changing AI rule: AIUpdateInterface::gxAiRule(bit) (single player only;
+the match-rules wiring changes only that function). lazyScans (bit 12) and sharedRoutes (bit 13)
+now go through it too.
+
+Shares first (build ai-3, strikes / armies, load 3-4, inclusive share of the frame):
+- (b) computer opponent: AIPlayer/AISkirmishPlayer < 0.1%, Player::update 0.2-0.4% (the benchmark
+  armies are scripted). Nothing to gain here; not built.
+- (c) scanners: StealthUpdate 0.7-0.8%, StealthDetectorUpdate 0.3-0.5%, PropagandaTowerBehavior
+  0.4-0.5%, AutoHeal / AutoFindHealing 0.1%. At most ~0.7% from halving them, below what A/B can
+  show, and each carries timing rules (detection lasts updateRate+1, healing per frame). Not built.
+- (d) turrets: TurretAI 1.5-1.9%, part of it their target scans (lazyScans). Halving aim updates
+  would need double turn steps and touches firing; not built for < 1%.
+- (a) target scans: getNextMoodTarget now 1.0-1.5% (after the query agent's work). lazyScans already
+  halves the routine ones (measured earlier 3.5% -> 2.1/2.5%); no further change.
+- The real per-tick cost in AI is AI::update 14-20%: the route queue spends up to
+  PATHFIND_CELLS_PER_FRAME (5,000) cells every frame while units wait.
+
+routeBudget (bit 14, single player via gxAiRule): the queue's per-frame budget is halved
+(processPathfindQueue only; the open-list limits keep retail values). Paired with sharedRoutes,
+which removed the wasted searches, so the queue keeps up. A/B with sharedRoutes on in both
+(A = budget 5,000, B = 2,500), load 2.7-8:
+- pair 1: armies fps 21.8 -> 20.8 (work 40.7 -> 42.5 ms); strikes 16.5 -> 18.1 (59.9 -> 54.5);
+  aftermath 28.4 -> 33.9 (34.6 -> 29.0), 1% low 6.3 -> 20.5
+- pair 2: armies 22.6 -> 22.0 (39.1 -> 40.4); strikes 16.5 -> 17.8 (59.9 -> 55.5);
+  aftermath 28.3 -> 33.1 (34.8 -> 29.7), 1% low 6.9 -> 19.3
+- slowest frames unchanged apart from file loads (f4/f5 start-up, f615 spy-satellite strike).
+- armies-phase profile: AI::update 14.2% -> 14.4% (no backlog there); the gain comes later.
+- Replay matches with all three rules on and with defaults. Screenshot ~/generals-bench/ai-shot-rb_battle*.png.
+Proposed defaults (single player): sharedRoutes + routeBudget ON together (+8-10% fps in strikes,
++17% in aftermath); routeBudget alone NOT (without sharedRoutes the queue is backlogged and units
+would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s later).

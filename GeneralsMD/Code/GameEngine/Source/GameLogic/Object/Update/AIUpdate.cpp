@@ -1756,7 +1756,7 @@ Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Co
 				destination);
 		}
 	}
-	if (theNewPath==nullptr && m_path==nullptr && !m_isBlockedAndStuck && gxSharedRoutes())
+	if (theNewPath==nullptr && m_path==nullptr && !m_isBlockedAndStuck && gxAiRule(8192))
 	{
 		// sharedRoutes: a group sent to one point all ask for the same cell, so after the first unit
 		// takes it every other search fails and fell back to findClosestPath, which examines thousands
@@ -1819,12 +1819,13 @@ Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Co
 }
 
 //-------------------------------------------------------------------------------------------------
-// The one gate for the sharedRoutes rule (switch word 2, bit 13). It changes the game, so it is
-// single player only for now; to become a host-decided match rule, only this function changes.
-Bool AIUpdateInterface::gxSharedRoutes()
+// The one gate for the game-changing AI rules (switch word 2): bit 12 lazyScans, bit 13
+// sharedRoutes, bit 14 routeBudget. They change the game, so they are single player only for now;
+// to make them host-decided match rules, only this function changes.
+Bool AIUpdateInterface::gxAiRule(Int switchBit)
 {
 	extern int GLES3_Page_Switches2();
-	return (GLES3_Page_Switches2() & 8192) != 0 && TheGameLogic && !TheGameLogic->isInMultiplayerGame()
+	return (GLES3_Page_Switches2() & switchBit) != 0 && TheGameLogic && !TheGameLogic->isInMultiplayerGame()
 		&& !(TheRecorder && TheRecorder->isPlaybackMode());
 }
 
@@ -4708,13 +4709,8 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	// lazyScans (page switch word 2, bit 12): after a routine scan that found nothing, wait one more
 	// check interval before the next one. Changes the game, so single player only (never online,
 	// LAN or replays).
-	if (!newVictim && calledByAI)
-	{
-		extern int GLES3_Page_Switches2();
-		if ((GLES3_Page_Switches2() & 4096) && !TheGameLogic->isInMultiplayerGame()
-				&& !(TheRecorder && TheRecorder->isPlaybackMode()))
-			m_nextMoodCheckTime += d->m_moodAttackCheckRate;
-	}
+	if (!newVictim && calledByAI && gxAiRule(4096))
+		m_nextMoodCheckTime += d->m_moodAttackCheckRate;
 
 /*
 DEBUG_LOG(("GNMT frame %d: %s %08lx (con %s %08lx) uses range %f, flags %08lx, %s finds %s %08lx",
