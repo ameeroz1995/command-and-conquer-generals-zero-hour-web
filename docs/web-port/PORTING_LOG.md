@@ -3163,3 +3163,28 @@ only at the start of the update pass by a rebuild, so record and playback follow
   plays out differently and heavier; the queue itself got only 0.3 points cheaper.
 Not kept (code reverted): it is measurably slower in its own pairs. The update queue's turn order
 is part of how the battle unfolds; a cheaper queue would have to keep today's tie order.
+
+## 2026-11-25 — Round 3: update-loop flat pass (logic-ai), merged perf/low-end a0897b2
+
+Where GameLogic::update's own time goes (strikes, load 9-15): GameLogic::update self 1.1-1.5%,
+heap sifting (rebalance*) 1.1-1.7%; AIUpdateInterface::update 7.7-12.6% inclusive, of which the
+state machines' own dispatch is small (updateStateMachine self ~0.3-0.4%; the rest is the states'
+route, enemy-search and weapon work, other agents' systems). The ~4.5% figure did not reproduce.
+The heap's order is the simulation order (earlier entries: hole sift gave nothing exact, 4-ary heap
+drifted into slower battles), so this round's slice is the other per-tick walk in the loop.
+
+disabledList (third switch word bit 8, exact, default ON): the end-of-tick check for disabled
+objects walked every object in the game to find the few that are disabled. Now
+Object::setDisabledUntil adds the object to a flat list (and registerObject, for objects disabled
+before they were registered); the list is sorted into object-list order (each object gets a number
+when it is prepended, so the list is in descending numbers; rebuilt from the list itself after a
+reset or a load) and only those objects are checked; ones no longer disabled drop out.
+- Verify mode: every frame the listed disabled objects, in order, equal the full walk's, and the
+  list order is descending numbers: 0 mismatches (up to 538 disabled objects at once).
+- Old referee replay matches.
+- Profile pair, strikes (load 11): GameLogic::update self 1.5% -> 1.4%; the walk was ~0.1%.
+- A/B pairs off/on, work ms (load 10-24): armies 68.8/61.8, 59.1/61.4; strikes 110.4/102.2,
+  99.1/96.7; aftermath 51.2/51.2, 52.7/51.6. Within noise, not slower. Kept, default on.
+AI state dispatch as a flat pass: no slice found that pays. A state machine's per-tick cost is its
+transition tests and state updates, which read their own unit and the world; the dispatch itself
+(sleep check, virtual calls) is ~0.5% of the frame.

@@ -2162,6 +2162,8 @@ void Object::setDisabledUntil( DisabledType type, UnsignedInt frame )
 
 		m_disabledTillFrame[ type ] = frame;
 		m_disabledMask.set( type, frame > TheGameLogic->getFrame() );
+		if( isDisabled() )
+			TheGameLogic->gxNoteDisabled( this );	// web port: keep the list of disabled objects (switch disabledList)
 
 		if( m_drawable )
 		{

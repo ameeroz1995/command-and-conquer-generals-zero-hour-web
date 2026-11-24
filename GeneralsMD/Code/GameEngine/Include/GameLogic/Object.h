@@ -586,6 +586,10 @@ public:
 
 	DisabledMaskType getDisabledFlags() const { return m_disabledMask; }
 	Bool isDisabled() const { return m_disabledMask.any(); }
+	// Web port (switch disabledList, third word bit 8; GameLogic.cpp): place in the object list
+	// (higher = nearer the head) and whether the object is in GameLogic's list of disabled objects.
+	UnsignedInt m_gxListSeq = 0;
+	Bool m_gxDisabledListed = false;
 	Bool clearDisabled( DisabledType type );
 
 	void setDisabled( DisabledType type );

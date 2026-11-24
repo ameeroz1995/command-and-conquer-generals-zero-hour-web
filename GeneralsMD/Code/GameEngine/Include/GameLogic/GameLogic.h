@@ -123,6 +123,7 @@ public:
 																			 void *userData );	///< Logic command list processing
 
 	void registerObject( Object *obj );							///< Given an object, register it with the GameLogic and give it a unique ID
+	void gxNoteDisabled( Object *obj );	///< web port: obj may now be disabled (switch disabledList)
 
 	void addObjectToLookupTable( Object *obj );			///< add object ID to hash lookup table
 	void removeObjectFromLookupTable( Object *obj );///< remove object ID from hash lookup table
@@ -341,6 +342,13 @@ private:
 	// (for an excellent discussion of priority queues, please see:
 	// http://dogma.net/markn/articles/pq_stl/priority.htm)
 	std::vector<UpdateModulePtr> m_sleepyUpdates;
+	// Web port (switch disabledList, third word bit 8): the objects that may be disabled, so the
+	// end-of-tick check visits them instead of walking every object. Order = object-list order
+	// (descending m_gxListSeq). Rebuilt from the list after a reset or a load.
+	std::vector<Object *> m_gxDisabledObjs;
+	UnsignedInt m_gxListSeqNext = 0;
+	Bool m_gxDisabledListValid = false;
+	void gxCheckDisabledObjects();
 	std::vector<UnsignedInt> m_gxSleepyKey;	///< web port (switch sleepyKeys): each entry's priority, kept beside m_sleepyUpdates so the heap compares without touching the modules
 
 #ifdef ALLOW_NONSLEEPY_UPDATES
