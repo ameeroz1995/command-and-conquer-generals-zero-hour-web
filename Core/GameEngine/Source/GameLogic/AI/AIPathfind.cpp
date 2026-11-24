@@ -1259,13 +1259,42 @@ PathfindCell::~PathfindCell()
 	}
 }
 
+// Web port (switch cellBits, second switch word bit 5): one bit per ground cell, set while the
+// cell's unit flags are not NO_UNITS, kept in step by every flag write (gxSetFlags). Column x's
+// bits start at word x*s_gxOccWords; each column has a spare zero word so two words can be read.
+// checkForMovement reads these bits instead of every cell of its block and visits only the
+// occupied cells, in the same order, so it gives the same answers.
+static const PathfindCell *s_gxOccBase = nullptr;
+static Int s_gxOccH = 0, s_gxOccW = 0, s_gxOccWords = 0;
+static UnsignedInt *s_gxOcc = nullptr;
+static void gxOccAllocate(const PathfindCell *base, Int w, Int h)
+{
+	delete [] s_gxOcc;
+	s_gxOccBase = base; s_gxOccW = w; s_gxOccH = h; s_gxOccWords = (h + 31) / 32 + 1;
+	s_gxOcc = new UnsignedInt[(size_t)w * s_gxOccWords];
+	memset(s_gxOcc, 0, sizeof(UnsignedInt) * (size_t)w * s_gxOccWords);
+	for (Int x = 0; x < w; ++x)
+		for (Int y = 0; y < h; ++y)
+			if (base[x * h + y].getFlags() != PathfindCell::NO_UNITS) s_gxOcc[x * s_gxOccWords + (y >> 5)] |= 1u << (y & 31);
+}
+static void gxOccRelease() { delete [] s_gxOcc; s_gxOcc = nullptr; s_gxOccBase = nullptr; }
+inline void PathfindCell::gxSetFlags(CellFlags f)
+{
+	m_flags = f;
+	if (s_gxOccBase && this >= s_gxOccBase && this < s_gxOccBase + (size_t)s_gxOccW * s_gxOccH) {
+		const Int idx = (Int)(this - s_gxOccBase), x = idx / s_gxOccH, y = idx - x * s_gxOccH;
+		UnsignedInt &word = s_gxOcc[x * s_gxOccWords + (y >> 5)];
+		if (f != NO_UNITS) word |= 1u << (y & 31); else word &= ~(1u << (y & 31));
+	}
+}
+
 /**
  * Reset the cell to default values
  */
 void PathfindCell::reset()
 {
 	m_type = PathfindCell::CELL_CLEAR;
-	m_flags = PathfindCell::NO_UNITS;
+	gxSetFlags(PathfindCell::NO_UNITS);
 	m_zone = 0;
 	m_aircraftGoal = false;
 	m_pinched = false;
@@ -1436,10 +1465,10 @@ void PathfindCell::setGoalUnit(ObjectID unitID, const ICoord2D &pos )
 			if (m_info->m_posUnitID == INVALID_ID) {
 				// No units here.
 				DEBUG_ASSERTCRASH(m_flags==UNIT_GOAL, ("Bad flags."));
-				m_flags = NO_UNITS;
+				gxSetFlags(PathfindCell::NO_UNITS);
 				releaseInfo();
 			} else{
-				m_flags = UNIT_PRESENT_MOVING;
+				gxSetFlags(PathfindCell::UNIT_PRESENT_MOVING);
 			}
 		}	else {
 			DEBUG_ASSERTCRASH(m_flags == NO_UNITS, ("Bad flags."));
@@ -1456,11 +1485,11 @@ void PathfindCell::setGoalUnit(ObjectID unitID, const ICoord2D &pos )
 		}
 		m_info->m_goalUnitID = unitID;
 		if (unitID==m_info->m_posUnitID) {
-			m_flags = UNIT_PRESENT_FIXED;
+			gxSetFlags(PathfindCell::UNIT_PRESENT_FIXED);
 		} else if (m_info->m_posUnitID==INVALID_ID) {
-			m_flags = UNIT_GOAL;
+			gxSetFlags(PathfindCell::UNIT_GOAL);
 		}	else {
-			m_flags = UNIT_GOAL_OTHER_MOVING;
+			gxSetFlags(PathfindCell::UNIT_GOAL_OTHER_MOVING);
 		}
 	}
 }
@@ -1508,10 +1537,10 @@ void PathfindCell::setPosUnit(ObjectID unitID, const ICoord2D &pos )
 			if (m_info->m_goalUnitID == INVALID_ID) {
 				// No units here.
 				DEBUG_ASSERTCRASH(m_flags==UNIT_PRESENT_MOVING, ("Bad flags."));
-				m_flags = NO_UNITS;
+				gxSetFlags(PathfindCell::NO_UNITS);
 				releaseInfo();
 			}	else {
-				m_flags = UNIT_GOAL;
+				gxSetFlags(PathfindCell::UNIT_GOAL);
 			}
 		}	else {
 			DEBUG_ASSERTCRASH(m_flags == NO_UNITS, ("Bad flags."));
@@ -1532,11 +1561,11 @@ void PathfindCell::setPosUnit(ObjectID unitID, const ICoord2D &pos )
 		}
 		m_info->m_posUnitID = unitID;
 		if (unitID==m_info->m_goalUnitID) {
-			m_flags = UNIT_PRESENT_FIXED;
+			gxSetFlags(PathfindCell::UNIT_PRESENT_FIXED);
 		} else if (m_info->m_goalUnitID==INVALID_ID) {
-			m_flags = UNIT_PRESENT_MOVING;
+			gxSetFlags(PathfindCell::UNIT_PRESENT_MOVING);
 		}	else {
-			m_flags = UNIT_GOAL_OTHER_MOVING;
+			gxSetFlags(PathfindCell::UNIT_GOAL_OTHER_MOVING);
 		}
 	}
 }
@@ -4064,6 +4093,7 @@ void Pathfinder::reset()
 	frameToShowObstacles = 0;
 	DEBUG_LOG(("Pathfind cell is %d bytes, PathfindCellInfo is %d bytes", sizeof(PathfindCell), sizeof(PathfindCellInfo)));
 
+	gxOccRelease();
 	delete [] m_blockOfMapCells;
 	m_blockOfMapCells = nullptr;
 
@@ -4774,6 +4804,7 @@ void Pathfinder::newMap()
 		for (i=0; i<=bounds.hi.x; i++) {
 			m_map[i] = &m_blockOfMapCells[i*(bounds.hi.y+1)];
 		}
+		gxOccAllocate(m_blockOfMapCells, bounds.hi.x+1, bounds.hi.y+1);
 		for (i=0; i<LAYER_LAST; i++) {
 			if (!m_layers[i].isUnused()) {
 				m_layers[i].allocateCells(&m_extent);
@@ -5178,6 +5209,32 @@ static Bool gxIgnoreUnitsFor(const Object *obj)
 #endif
 Bool Pathfinder::checkForMovement(const Object *obj, TCheckMovementInfo &info)
 {
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches2();
+	if (obj && s_gxOcc && (GLES3_Page_Switches2() & 32)) {	// switch cellBits
+		if (!(GLES3_Page_Switches() & 2097152))
+			return gxCheckForMovement(obj, info, true);
+		// verification: the original cell-by-cell loop must give the same answer and flags
+		extern int gx_verify_mismatch, gx_verify_checked;
+		TCheckMovementInfo old = info;
+		const Bool r0 = gxCheckForMovement(obj, old, false);
+		const Bool r1 = gxCheckForMovement(obj, info, true);
+		++gx_verify_checked;
+		if (r0 != r1 || old.allyFixedCount != info.allyFixedCount || old.allyMoving != info.allyMoving
+			|| old.allyGoal != info.allyGoal || old.enemyFixed != info.enemyFixed) {
+			++gx_verify_mismatch;
+			printf("GXVERIFY cellBits mismatch at %d,%d r%d: old %d/%d%d%d%d new %d/%d%d%d%d\n", info.cell.x, info.cell.y, info.radius,
+				r0, old.allyFixedCount, old.allyMoving, old.allyGoal, old.enemyFixed, r1, info.allyFixedCount, info.allyMoving, info.allyGoal, info.enemyFixed);
+		}
+		if (gx_verify_checked % 200000 == 0) printf("GXVERIFY cellBits checked %d, mismatches %d\n", gx_verify_checked, gx_verify_mismatch);
+		return r1;
+	}
+#endif
+	return gxCheckForMovement(obj, info, false);
+}
+
+Bool Pathfinder::gxCheckForMovement(const Object *obj, TCheckMovementInfo &info, Bool useBits)
+{
 	info.allyFixedCount = 0;
 	info.allyMoving = false;
 	info.allyGoal = false;
@@ -5199,31 +5256,28 @@ Bool Pathfinder::checkForMovement(const Object *obj, TCheckMovementInfo &info)
 	Int numCellsAbove = info.radius;
 	if (info.centerInCell) numCellsAbove++;
 	Int i, j;
-//	Bool isInfantry = obj->isKindOf(KINDOF_INFANTRY);
-	for (i=info.cell.x-info.radius; i<info.cell.x+numCellsAbove; i++) {
-		for (j=info.cell.y-info.radius; j<info.cell.y+numCellsAbove; j++) {
-			PathfindCell	*cell = getCell(info.layer,i, j);
-			if (!cell) {
-				return false; // off the map, so can't move here.
-			}
+
+	// One cell of the block (the original loop body, after the off-map check).
+	// Returns 0 to go on, -1 for "return false".
+	auto visit = [&](PathfindCell *cell) -> Int {
 #ifdef __EMSCRIPTEN__
-			if (s_gxPlanIgnoringUnits) continue;	// planning around terrain and buildings only
+			if (s_gxPlanIgnoringUnits) return 0;	// planning around terrain and buildings only
 #endif
 
 			PathfindCell::CellFlags flags = cell->getFlags();
 			if ((flags == PathfindCell::UNIT_GOAL) || (flags == PathfindCell::UNIT_GOAL_OTHER_MOVING)) {
 				info.allyGoal = true;
 			} else if (flags == PathfindCell::NO_UNITS) {
-				continue;  // Nobody is here, so it's ok.
+				return 0;  // Nobody is here, so it's ok.
 			}
 
 			ObjectID posUnit = cell->getPosUnit();
 			if (posUnit == obj->getID()) {
-				continue; // we got it.
+				return 0; // we got it.
 			}
 
 			if (posUnit == ignoreId) {
-				continue; // we are ignoring this one.
+				return 0; // we are ignoring this one.
 			}
 
 			Bool check = false;
@@ -5249,24 +5303,24 @@ Bool Pathfinder::checkForMovement(const Object *obj, TCheckMovementInfo &info)
 				}
 			}
 			if (!check || !unit) {
-				continue;
+				return 0;
 			}
 
 #ifdef INFANTRY_MOVES_THROUGH_INFANTRY
 			if (obj->isKindOf(KINDOF_INFANTRY) && unit->isKindOf(KINDOF_INFANTRY)) {
 				// Infantry can run through infantry.
-				continue; //
+				return 0; //
 			}
 #endif
 			// See if it is an ally.
 			// order matters: we want to know if I consider it to be an ally, not vice versa
 			if (obj->getRelationship(unit) == ALLIES) {
 				if (!unit->getAIUpdateInterface()) {
-					return false; // can't path through not-idle units.
+					return -1; // can't path through not-idle units.
 				}
 #if RTS_GENERALS && RETAIL_COMPATIBLE_PATHFINDING
 				if (!unit->getAIUpdateInterface()->isIdle()) {
-					return false; // can't path through not-idle units.
+					return -1; // can't path through not-idle units.
 				}
 #endif
 				Bool found = false;
@@ -5289,6 +5343,37 @@ Bool Pathfinder::checkForMovement(const Object *obj, TCheckMovementInfo &info)
 					info.enemyFixed = true;
 				}
 			}
+			return 0;
+	};
+
+	const Int x0 = info.cell.x-info.radius, x1 = info.cell.x+numCellsAbove-1;
+	const Int y0 = info.cell.y-info.radius, y1 = info.cell.y+numCellsAbove-1;
+	if (useBits && info.layer == LAYER_GROUND && y1 - y0 < 32 && x0 >= m_extent.lo.x && x1 <= m_extent.hi.x
+		&& y0 >= m_extent.lo.y && y1 <= m_extent.hi.y && x1 < s_gxOccW && y1 < s_gxOccH) {
+		// the whole block is on the map: only occupied cells do anything, visited in the same order
+		if (y1 < y0) return true;
+		const UnsignedInt mask = (y1 - y0 == 31) ? 0xffffffffu : ((1u << (y1 - y0 + 1)) - 1);
+		const Int w = y0 >> 5, sh = y0 & 31;
+		for (i = x0; i <= x1; i++) {
+			const UnsignedInt *col = s_gxOcc + i * s_gxOccWords + w;
+			UnsignedInt bits = (UnsignedInt)((((unsigned long long)col[1] << 32) | col[0]) >> sh) & mask;
+			while (bits) {
+				j = y0 + __builtin_ctz(bits);
+				bits &= bits - 1;
+				if (visit(&m_map[i][j]) < 0) return false;
+			}
+		}
+		return true;
+	}
+
+//	Bool isInfantry = obj->isKindOf(KINDOF_INFANTRY);
+	for (i=info.cell.x-info.radius; i<info.cell.x+numCellsAbove; i++) {
+		for (j=info.cell.y-info.radius; j<info.cell.y+numCellsAbove; j++) {
+			PathfindCell	*cell = getCell(info.layer,i, j);
+			if (!cell) {
+				return false; // off the map, so can't move here.
+			}
+			if (visit(cell) < 0) return false;
 		}
 	}
 	return true;
