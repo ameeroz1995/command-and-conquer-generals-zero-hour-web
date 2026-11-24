@@ -927,6 +927,8 @@ protected:
 	void gxEndSpeculation();	///< end of processPathfindQueue: drop unused results
 	Bool gxTakeClosest(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies);
 	Bool gxTakeFind(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo);
+	Bool gxTakeClosestBody(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies);
+	Bool gxTakeFindBody(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo);
 #endif
 
 #if defined(RTS_DEBUG)

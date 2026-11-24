@@ -181,20 +181,17 @@ struct GxSearchCtx : GxSearchView
 		PathfindCellInfo *shared = cell->m_info;
 		if (!shared) return nullptr;
 		read(cell);
+		// its own scratch: the search fields start clean (a search always writes them before reading them;
+		// verify mode checks), the rest is the shared info's, which the search only reads
 		PathfindCellInfo *n = newNode();
-		*n = *shared;
-		n->m_cell = const_cast<PathfindCell *>(cell);
-		if (n->m_nextOpen || n->m_prevOpen || n->m_open || n->m_closed) aborted = true;	// left on a list: not reproducible
-		n->m_nextOpen = n->m_prevOpen = nullptr;
-		n->m_pathParent = nullptr;
+		memset((void *)n, 0, sizeof(*n));
+		n->m_cell = const_cast<PathfindCell *>(cell); n->m_pos = shared->m_pos;
+		n->m_goalUnitID = shared->m_goalUnitID; n->m_posUnitID = shared->m_posUnitID; n->m_goalAircraftID = shared->m_goalAircraftID;
+		n->m_obstacleID = shared->m_obstacleID; n->m_obstacleIsFence = shared->m_obstacleIsFence; n->m_obstacleIsTransparent = shared->m_obstacleIsTransparent;
+		n->m_blockedByAlly = shared->m_blockedByAlly;
+		if (shared->m_nextOpen || shared->m_prevOpen || shared->m_open || shared->m_closed) aborted = true;	// left on a list: not reproducible
 		Slot *ns = insert(cell);
-		ns->info = n; ns->state = 1;	// (ns is not used after the next insert)
-		PathfindCellInfo *p = shared->m_pathParent;	// a parent link left from an earlier search: the same cell's copy
-		if (p && !p->m_isFree && p->m_cell) {
-			if (++depth > 64) aborted = true;
-			else n->m_pathParent = info(p->m_cell);
-			depth--;
-		}
+		ns->info = n; ns->state = 1;
 		return n;
 	}
 	bool allocate(PathfindCell *cell, const ICoord2D &pos)
@@ -269,6 +266,7 @@ void gxMarkDirty(const PathfindCell *cell) { cell->m_gxStamp = g_gxEpoch; }
 // fields an info keeps between searches are always rewritten before a search reads them; verify mode checks this)
 bool gxIsDirty(const PathfindCell *cell) { return cell->m_gxStamp == g_gxEpoch; }
 void gxCtxAbort() { tl_gxCtx->aborted = true; }
+void gxWaitFieldReaders();
 bool gxFieldStillSame(int idx, unsigned serial, UnsignedInt born);	// flow fields: the field a worker walked is unchanged (marks it used)
 bool gxCtxAllocate(PathfindCell *cell, const ICoord2D &pos) { return tl_gxCtx->allocate(cell, pos); }
 bool gxCtxRelease(PathfindCell *cell) { tl_gxCtx->release(cell); return true; }
@@ -308,13 +306,29 @@ struct GxWorkers {
 			pthread_attr_destroy(&a);
 		}
 	}
-	void run(int n, std::function<void(int)> f)
+	bool running = false;
+	std::atomic<int> finished[64];
+	void begin(int n, std::function<void(int)> f)	// the workers start; the game thread goes on
 	{
-		{ std::lock_guard<std::mutex> l(m); job = std::move(f); count = n; next = 0; busy = threads; gen++; }
+		for (int i = 0; i < n; ++i) finished[i].store(0);
+		{ std::lock_guard<std::mutex> l(m); job = [this, f](int i) { f(i); finished[i].store(1, std::memory_order_release); }; count = n; next = 0; busy = threads; gen++; }
+		running = true;
 		wake.notify_all();
-		work();	// the game thread takes searches too
+	}
+	void waitOne(int i)	// one result: take unstarted searches meanwhile
+	{
+		while (!finished[i].load(std::memory_order_acquire)) {
+			const int k = next.fetch_add(1);
+			if (k < count) job(k);
+		}
+	}
+	void waitAll()
+	{
+		if (!running) return;
+		work();
 		std::unique_lock<std::mutex> l(m);
 		done.wait(l, [&] { return busy == 0; });
+		running = false;
 	}
 };
 GxWorkers s_gxWorkers;
@@ -327,7 +341,7 @@ struct GxSpec {
 	// computePath: when findPath finds nothing it always asks findClosestPath next, same object and
 	// destination, nothing in between; both are made ahead in one go and used together
 	bool has3, await3, await3v; Path *path3; Coord3D toOut3;
-	double ms; int thread;
+	double ms; int thread; int index; Bool canThrough; ObjectID selfIgnore;
 };
 std::vector<GxSpec> s_gxSpecs;
 std::vector<std::unique_ptr<GxSearchCtx>> s_gxCtxs;
@@ -337,7 +351,7 @@ bool s_gxActive = false;
 double s_gxSerialMs = 0, s_gxSpecMs = 0; int s_gxTimed = 0, s_gxSlowLogged = 0;
 double s_gxWaveMs = 0, s_gxQueueMs = 0, s_gxQueueSlowMs = 0, s_gxQueueMax = 0; int s_gxQueueFrames = 0, s_gxQueueSlow = 0;
 int s_gxServed = 4;	// requests the queue served last frame: how many to make ahead
-const int GX_PAR_WORKERS = 3, GX_PAR_AHEAD = 24;
+const int GX_PAR_WORKERS = 3, GX_PAR_AHEAD = 24;	// (at most 64 searches ahead: GxWorkers::finished)
 
 bool gxSamePath(Path *a, Path *b)
 {
@@ -372,6 +386,8 @@ void Pathfinder::gxSpeculatePaths()
 		s.mult = 0.2f;
 		if (s.kind == 1) s.ignoreIn = m_ignoreObstacleID;
 		s.tunnelIn = m_isTunneling; s.fixedIn = s_useFixedPathfinding;
+		s.canThrough = ai->canPathThroughUnits(); s.selfIgnore = ai->getIgnoredObstacleID();
+		s.index = (int)s_gxSpecs.size();
 		s_gxSpecs.push_back(s);
 	}
 	if (s_gxSpecs.size() < 2) { s_gxSpecs.clear(); return; }	// nothing to overlap
@@ -388,7 +404,7 @@ void Pathfinder::gxSpeculatePaths()
 	s_gxWorkers.start(GX_PAR_WORKERS);
 	const double waveStart = emscripten_get_now();
 	g_gxPoolLocking.store(true, std::memory_order_release);
-	s_gxWorkers.run((int)s_gxSpecs.size(), [this](int i) {
+	s_gxWorkers.begin((int)s_gxSpecs.size(), [this](int i) {
 		GxSpec &s = s_gxSpecs[i];
 		GxSearchCtx *c = s.ctx;
 		s.thread = (int)(uintptr_t)pthread_self();
@@ -409,17 +425,7 @@ void Pathfinder::gxSpeculatePaths()
 		tl_gxCtx = nullptr;
 		s.ms = emscripten_get_now() - t0;
 	});
-	g_gxPoolLocking.store(false, std::memory_order_release);
-	s_gxWaveMs += emscripten_get_now() - waveStart;
-	if (s_gxStatFrames % 50 == 0) {
-		double tot = 0, mx = 0; std::vector<int> th;
-		for (const GxSpec &sp : s_gxSpecs) { tot += sp.ms; mx = std::max(mx, sp.ms); if (std::find(th.begin(), th.end(), sp.thread) == th.end()) th.push_back(sp.thread); }
-		printf("GXPAR wave %d: %d searches on %d threads, %.1f ms of searching, longest %.1f ms, wave %.1f ms\n", s_gxStatFrames, (int)s_gxSpecs.size(), (int)th.size(), tot, mx, emscripten_get_now() - waveStart);
-	}
-	if (s_gxStatFrames < 5)
-		for (const GxSpec &sp : s_gxSpecs)
-			printf("GXPAR wave %d: object %u kind %d %s, %d cells read, %d infos, pool peak %d%s\n", s_gxStatFrames, (unsigned)sp.id, sp.kind,
-				sp.path ? "path" : "no path", (int)sp.ctx->reads.size(), (int)sp.ctx->used, sp.ctx->poolPeak, sp.ctx->aborted ? ", not reproducible" : "");
+	s_gxWaveMs += emscripten_get_now() - waveStart;	// (now only the time to start them)
 	g_gxEpoch++;
 	g_gxDirtyTracking = true;
 	s_gxActive = true;
@@ -427,12 +433,27 @@ void Pathfinder::gxSpeculatePaths()
 	s_gxStatFrames++;
 }
 
+void gxWaitFieldReaders();
+// Before the game thread changes anything the workers read without a stamp (a flow field built, a normal
+// search's lists), and at the end of the queue: every worker done.
+static void gxWaitAll()
+{
+	if (!s_gxWorkers.running) return;
+	s_gxWorkers.waitAll();
+	g_gxPoolLocking.store(false, std::memory_order_release);
+}
+
+void gxWaitFieldReaders() { gxWaitAll(); }
+
 // A search made ahead for exactly this call, from the same state: its result, its state written back.
 static Bool gxUseSpec(Pathfinder *pf, GxSpec &s, Path *&out, Coord3D *rawTo, Bool &tunnel, ObjectID &ignore, Int &cells, PathfindZoneManager &zm)
 {
 	s.used = true;
+	s_gxWorkers.waitOne(s.index);
 	GxSearchCtx *c = s.ctx;
-	bool ok = !c->aborted && s.tunnelIn == tunnel && s.ignoreIn == ignore && s.fixedIn == s_useFixedPathfinding && g_gxFreeCellInfos >= c->poolPeak;
+	Object *self = TheGameLogic->findObjectByID(s.id);
+	AIUpdateInterface *sai = self ? self->getAIUpdateInterface() : nullptr;
+	bool ok = sai && sai->canPathThroughUnits() == s.canThrough && sai->getIgnoredObstacleID() == s.selfIgnore && !c->aborted && s.tunnelIn == tunnel && s.ignoreIn == ignore && s.fixedIn == s_useFixedPathfinding && g_gxFreeCellInfos >= c->poolPeak;
 	if (c->aborted) s_gxStatAborted++;
 	if (ok) for (const PathfindCell *r : c->reads) if (gxIsDirty(r)) { ok = false; break; }
 	if (ok) {
@@ -441,6 +462,7 @@ static Bool gxUseSpec(Pathfinder *pf, GxSpec &s, Path *&out, Coord3D *rawTo, Boo
 	if (ok && c->field >= 0 && !gxFieldStillSame(c->field, c->fieldSerial, c->fieldBorn)) ok = false;
 	if (!ok) {
 		if (!c->aborted) s_gxStatChanged++;
+		gxWaitAll();	// the normal search follows
 		if (s.path) { deleteInstance(s.path); s.path = nullptr; }
 		if (s.path3) { deleteInstance(s.path3); s.path3 = nullptr; }
 		return false;
@@ -459,6 +481,14 @@ static Bool gxUseSpec(Pathfinder *pf, GxSpec &s, Path *&out, Coord3D *rawTo, Boo
 }
 
 Bool Pathfinder::gxTakeClosest(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies)
+{
+	if (!s_gxActive) return false;
+	if (GLES3_Page_Switches() & 2097152) gxWaitAll();	// verify mode: the normal search runs next to each one
+	if (gxTakeClosestBody(out, obj, locomotorSet, from, rawTo, blocked, pathCostMultiplier, moveAllies)) return true;
+	gxWaitAll();	// a normal search follows
+	return false;
+}
+Bool Pathfinder::gxTakeClosestBody(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies)
 {
 	if (!s_gxActive || !obj) return false;
 	for (GxSpec &s : s_gxSpecs) {	// verify mode: the normal findClosestPath after an empty findPath, compared with the one made ahead
@@ -530,6 +560,14 @@ Bool Pathfinder::gxTakeClosest(Path *&out, Object *obj, const LocomotorSet& loco
 
 Bool Pathfinder::gxTakeFind(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo)
 {
+	if (!s_gxActive) return false;
+	if (GLES3_Page_Switches() & 2097152) gxWaitAll();
+	if (gxTakeFindBody(out, obj, locomotorSet, from, rawTo)) return true;
+	gxWaitAll();
+	return false;
+}
+Bool Pathfinder::gxTakeFindBody(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo)
+{
 	if (!s_gxActive || !obj) return false;
 	for (GxSpec &s : s_gxSpecs) {
 		if (s.used || s.kind != 2 || s.id != obj->getID()) continue;
@@ -573,6 +611,7 @@ Bool Pathfinder::gxTakeFind(Path *&out, Object *obj, const LocomotorSet& locomot
 void Pathfinder::gxEndSpeculation()
 {
 	if (!s_gxActive) return;
+	gxWaitAll();
 	for (GxSpec &s : s_gxSpecs) {
 		if (!s.used) s_gxStatUnused++;
 		if (s.await3) printf("GXPAR error: findPath used, the findClosestPath after it never came (object %u)\n", (unsigned)s.id);
@@ -11926,30 +11965,56 @@ extern "C" int gx_gpu_field_readbacks;
 // mapAsync between rounds; dirs: one 4-bit step per cell (the CPU walk's choice), 8 cells per word.
 EM_JS(void, gx_wgpu_init, (), {
   if (Module.gxW) return;
-  var W = Module.gxW = { state: 0, jobs: {}, batch: 24, readbacks: 0 };
+  var W = Module.gxW = { state: 0, jobs: {}, batch: 24, readbacks: 0, sets: [] };
   var g = (typeof navigator !== "undefined") ? navigator.gpu : null;
   if (!g) { W.state = -1; console.log("GXWGPU unavailable: no navigator.gpu"); return; }
   g.requestAdapter({ powerPreference: "high-performance" }).then(function(a) {
     if (!a) throw new Error("no adapter");
-    W.info = a.info ? (a.info.vendor + " " + a.info.architecture) : "?";
+    W.info = a.info ? (a.info.vendor + " " + a.info.architecture + " " + (a.info.description || "")) : "?";
+    if (a.isFallbackAdapter || (a.info && a.info.isFallbackAdapter) || /swiftshader|llvmpipe|software|basic render/i.test(W.info))
+      throw new Error("software adapter (" + W.info + "): the CPU is faster");
     return a.requestDevice();
   }).then(function(dev) {
     var src = [
-      "struct P { w: u32, h: u32, n: u32, it: u32 };",
+      "struct P { w: u32, h: u32, n: u32, it: u32, x0: u32, y0: u32, wwords: u32, shift: u32, tx: u32, ty: u32, pad0: u32, pad1: u32 };",
+      "struct F { walk: u32, ax: u32, ay: u32, pad: u32 };",
       "@group(0) @binding(0) var<storage, read> walk: array<u32>;",
       "@group(0) @binding(1) var<storage, read_write> dist: array<atomic<u32>>;",
       "@group(0) @binding(2) var<storage, read_write> flags: array<atomic<u32>>;",
       "@group(0) @binding(3) var<uniform> p: P;",
       "@group(0) @binding(4) var<storage, read_write> outd: array<u32>;",
+      "@group(0) @binding(5) var<storage, read> fields: array<F>;",
+      "@group(0) @binding(6) var<storage, read_write> tiles: array<atomic<u32>>;",
+      "var<workgroup> tileLive: u32;",
       "const T: u32 = 16u; const S: u32 = 18u; const INF: u32 = 65535u;",
       "var<workgroup> sd: array<u32, 324>; var<workgroup> sw: array<u32, 324>;",
+      "fn walkAt(f: u32, i: u32) -> u32 { return (walk[fields[f].walk * p.wwords + (i >> 2u)] >> ((i & 3u) * 8u)) & 255u; }",
+      "@compute @workgroup_size(64)",
+      "fn seed(@builtin(global_invocation_id) g: vec3u, @builtin(workgroup_id) wg: vec3u) {",
+      "  let cells = p.w * p.h; let i = g.x; if (i >= cells) { return; }",
+      "  let f = wg.y; let x = i % p.w + p.x0; let y = i / p.w + p.y0;",
+      "  var d = INF;",
+      "  if (walkAt(f, i) != 0u && (x >> p.shift) == fields[f].ax && (y >> p.shift) == fields[f].ay) { d = 0u; }",
+      "  atomicStore(&dist[f * cells + i], d);",
+      "}",
       "@compute @workgroup_size(16, 16)",
       "fn relax(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) li: u32, @builtin(local_invocation_id) l: vec3u) {",
       "  var dxs = array<i32, 8>(1, 0, -1, 0, 1, -1, -1, 1); var dys = array<i32, 8>(0, 1, 0, -1, 1, 1, -1, -1);",
-      "  let base = wg.z * p.w * p.h; let ox = i32(wg.x * T) - 1; let oy = i32(wg.y * T) - 1;",
+      "  let f = wg.z; let cells = p.w * p.h; let base = f * cells; let ox = i32(wg.x * T) - 1; let oy = i32(wg.y * T) - 1;",
+      "  let nt = p.tx * p.ty; let cur = (p.it & 1u) * p.n * nt + f * nt; let prv = (1u - (p.it & 1u)) * p.n * nt + f * nt;",
+      "  if (li == 0u) {",
+      "    atomicStore(&tiles[cur + wg.y * p.tx + wg.x], 0u);",
+      "    var a = select(0u, 1u, p.it == 0u);",
+      "    for (var dy = -1; dy <= 1; dy++) { for (var dx = -1; dx <= 1; dx++) {",
+      "      let tx = i32(wg.x) + dx; let ty = i32(wg.y) + dy;",
+      "      if (tx >= 0 && ty >= 0 && tx < i32(p.tx) && ty < i32(p.ty)) { a = a | atomicLoad(&tiles[prv + u32(ty) * p.tx + u32(tx)]); }",
+      "    } }",
+      "    tileLive = a;",
+      "  }",
+      "  if (workgroupUniformLoad(&tileLive) == 0u) { return; }",
       "  for (var k = li; k < 324u; k += 256u) {",
       "    let gx = ox + i32(k % S); let gy = oy + i32(k / S); var d = INF; var wk = 0u;",
-      "    if (gx >= 0 && gy >= 0 && gx < i32(p.w) && gy < i32(p.h)) { let i = base + u32(gy) * p.w + u32(gx); d = atomicLoad(&dist[i]); wk = walk[i]; }",
+      "    if (gx >= 0 && gy >= 0 && gx < i32(p.w) && gy < i32(p.h)) { let i = u32(gy) * p.w + u32(gx); d = atomicLoad(&dist[base + i]); wk = walkAt(f, i); }",
       "    sd[k] = d; sw[k] = wk;",
       "  }",
       "  workgroupBarrier();",
@@ -11972,7 +12037,7 @@ EM_JS(void, gx_wgpu_init, (), {
       "    if (best < sd[me]) { sd[me] = best; changed = true; }",
       "    workgroupBarrier();",
       "  }",
-      "  if (changed) { atomicMin(&dist[base + gy * p.w + gx], sd[me]); atomicMax(&flags[p.it], 1u); }",
+      "  if (changed) { atomicMin(&dist[base + gy * p.w + gx], sd[me]); atomicMax(&flags[p.it], 1u); atomicMax(&tiles[cur + wg.y * p.tx + wg.x], 1u); }",
       "}",
       "@compute @workgroup_size(64)",
       "fn dirs(@builtin(global_invocation_id) g: vec3u, @builtin(workgroup_id) wg: vec3u) {",
@@ -11998,15 +12063,20 @@ EM_JS(void, gx_wgpu_init, (), {
       "  outd[wg.y * words + word] = packed;",
       "}"].join("\n");
     var mod = dev.createShaderModule({ code: src });
-    if (mod.getCompilationInfo) mod.getCompilationInfo().then(function(ci) { ci.messages.forEach(function(m) { console.log("GXWGPU shader " + m.type + " line " + m.lineNum + ": " + m.message); }); });
+    // a shader or validation error turns WebGPU off (the CPU then builds the same fields)
+    if (mod.getCompilationInfo) mod.getCompilationInfo().then(function(ci) { ci.messages.forEach(function(m) { console.log("GXWGPU shader " + m.type + " line " + m.lineNum + ": " + m.message); if (m.type == "error") W.state = -1; }); });
+    dev.addEventListener("uncapturederror", function(e) { console.log("GXWGPU error: " + (e.error && e.error.message)); W.state = -1; });
     var C = GPUShaderStage.COMPUTE;
     W.bgl = dev.createBindGroupLayout({ entries: [
       { binding: 0, visibility: C, buffer: { type: "read-only-storage" } },
       { binding: 1, visibility: C, buffer: { type: "storage" } },
       { binding: 2, visibility: C, buffer: { type: "storage" } },
       { binding: 3, visibility: C, buffer: { type: "uniform", hasDynamicOffset: true } },
-      { binding: 4, visibility: C, buffer: { type: "storage" } } ] });
+      { binding: 4, visibility: C, buffer: { type: "storage" } },
+      { binding: 5, visibility: C, buffer: { type: "read-only-storage" } },
+      { binding: 6, visibility: C, buffer: { type: "storage" } } ] });
     var pl = dev.createPipelineLayout({ bindGroupLayouts: [W.bgl] });
+    W.seed = dev.createComputePipeline({ layout: pl, compute: { module: mod, entryPoint: "seed" } });
     W.relax = dev.createComputePipeline({ layout: pl, compute: { module: mod, entryPoint: "relax" } });
     W.dirs = dev.createComputePipeline({ layout: pl, compute: { module: mod, entryPoint: "dirs" } });
     W.dev = dev;
@@ -12015,61 +12085,80 @@ EM_JS(void, gx_wgpu_init, (), {
     console.log("GXWGPU ready on " + W.info);
   }).catch(function(e) { W.state = -1; console.log("GXWGPU unavailable: " + e); });
 });
+extern "C" double gx_work_ms();
 EM_JS(int, gx_wgpu_state, (), { return Module.gxW ? Module.gxW.state : -2; });
 EM_JS(int, gx_wgpu_readbacks, (), { return Module.gxW ? Module.gxW.readbacks : 0; });
-EM_JS(void, gx_wgpu_submit, (int id, int n, int w, int h, const unsigned char* const* walks, const unsigned short* const* seeds, int wantDist), {
-  var W = Module.gxW, dev = W.dev, U = GPUBufferUsage, cells = w * h, N = n * cells, MAXIT = 1024;
-  var walk = new Uint32Array(N), dist = new Uint32Array(N);
-  for (var t = 0; t < n; t++) {
-    var wp = HEAPU32[(walks >> 2) + t], dp = HEAPU32[(seeds >> 2) + t] >> 1;
-    walk.set(HEAPU8.subarray(wp, wp + cells), t * cells);
-    dist.set(HEAPU16.subarray(dp, dp + cells), t * cells);
+// One job: n fields, nw distinct walkable masks (one byte per cell), per field its mask and goal area.
+// Buffers are kept in sets and reused; the seeds are made on the GPU; everything (relaxation, steps,
+// read-back copy) goes in one submission with one mapAsync. Only if the last relaxation still changed
+// something (the field needs more than the dispatches learned so far) does a second round follow.
+EM_JS(void, gx_wgpu_submit, (int id, int n, int w, int h, int x0, int y0, int shift, int nw, const unsigned char* const* walks, const int *fieldInfo, int wantDist), {
+  var W = Module.gxW, dev = W.dev, U = GPUBufferUsage, cells = w * h, N = n * cells, MAXIT = 500, FMAX = 12;
+  var wwords = Math.ceil(cells / 4), words = Math.ceil(cells / 8);
+  var set = null;
+  for (var k = 0; k < W.sets.length; k++) { var c = W.sets[k]; if (!c.busy && c.cells == cells && c.nw >= nw) { set = c; break; } }
+  if (!set) {
+    var NM = FMAX * cells;
+    set = { busy: false, cells: cells, nw: Math.max(nw, 4) };
+    set.bw = dev.createBuffer({ size: set.nw * wwords * 4, usage: U.STORAGE | U.COPY_DST });
+    set.bd = dev.createBuffer({ size: NM * 4, usage: U.STORAGE | U.COPY_SRC });
+    set.bf = dev.createBuffer({ size: MAXIT * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+    set.bu = dev.createBuffer({ size: MAXIT * 256, usage: U.UNIFORM | U.COPY_DST });
+    set.bo = dev.createBuffer({ size: FMAX * words * 4, usage: U.STORAGE | U.COPY_SRC });
+    set.bi = dev.createBuffer({ size: FMAX * 16, usage: U.STORAGE | U.COPY_DST });
+    set.bt = dev.createBuffer({ size: 2 * FMAX * Math.ceil(w / 16) * Math.ceil(h / 16) * 4, usage: U.STORAGE | U.COPY_DST });
+    set.rb = dev.createBuffer({ size: 2048 + FMAX * words * 4 + NM * 4, usage: U.MAP_READ | U.COPY_DST });
+    set.bg = dev.createBindGroup({ layout: W.bgl, entries: [
+      { binding: 0, resource: { buffer: set.bw } }, { binding: 1, resource: { buffer: set.bd } }, { binding: 2, resource: { buffer: set.bf } },
+      { binding: 3, resource: { buffer: set.bu, size: 48 } }, { binding: 4, resource: { buffer: set.bo } }, { binding: 5, resource: { buffer: set.bi } },
+      { binding: 6, resource: { buffer: set.bt } } ] });
+    set.par = new Uint32Array(MAXIT * 64);
+    W.sets.push(set);
   }
-  var words = Math.ceil(cells / 8);
-  var bw = dev.createBuffer({ size: N * 4, usage: U.STORAGE | U.COPY_DST });
-  var bd = dev.createBuffer({ size: N * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-  var bf = dev.createBuffer({ size: MAXIT * 4, usage: U.STORAGE | U.COPY_SRC });
-  var bu = dev.createBuffer({ size: MAXIT * 256, usage: U.UNIFORM | U.COPY_DST });
-  var bo = dev.createBuffer({ size: n * words * 4, usage: U.STORAGE | U.COPY_SRC });
-  dev.queue.writeBuffer(bw, 0, walk); dev.queue.writeBuffer(bd, 0, dist);
-  var par = new Uint32Array(MAXIT * 64);
-  for (var i = 0; i < MAXIT; i++) { par[i * 64] = w; par[i * 64 + 1] = h; par[i * 64 + 2] = n; par[i * 64 + 3] = i; }
-  dev.queue.writeBuffer(bu, 0, par);
-  var bg = dev.createBindGroup({ layout: W.bgl, entries: [
-    { binding: 0, resource: { buffer: bw } }, { binding: 1, resource: { buffer: bd } }, { binding: 2, resource: { buffer: bf } },
-    { binding: 3, resource: { buffer: bu, size: 16 } }, { binding: 4, resource: { buffer: bo } } ] });
+  set.busy = true;
+  var wp = new Uint32Array(nw * wwords), b8 = new Uint8Array(wp.buffer);
+  for (var t = 0; t < nw; t++) { var p = HEAPU32[(walks >> 2) + t]; b8.set(HEAPU8.subarray(p, p + cells), t * wwords * 4); }
+  dev.queue.writeBuffer(set.bw, 0, wp);
+  var fi = new Uint32Array(n * 4);
+  for (var t = 0; t < n; t++) { fi[t * 4] = HEAP32[(fieldInfo >> 2) + t * 3]; fi[t * 4 + 1] = HEAP32[(fieldInfo >> 2) + t * 3 + 1]; fi[t * 4 + 2] = HEAP32[(fieldInfo >> 2) + t * 3 + 2]; }
+  dev.queue.writeBuffer(set.bi, 0, fi);
+  var par = set.par;
+  for (var i = 0; i < MAXIT; i++) { var o = i * 64; par[o] = w; par[o + 1] = h; par[o + 2] = n; par[o + 3] = i; par[o + 4] = x0; par[o + 5] = y0; par[o + 6] = wwords; par[o + 7] = shift; par[o + 8] = Math.ceil(w / 16); par[o + 9] = Math.ceil(h / 16); }
+  dev.queue.writeBuffer(set.bu, 0, par);
   var gx = Math.ceil(w / 16), gy = Math.ceil(h / 16), it = 0;
   var job = { done: 0, passes: 0, n: n, cells: cells, words: words }; W.jobs[id] = job;
-  var cleanup = function() { [bw, bd, bf, bu, bo].forEach(function(b) { b.destroy(); }); };
-  var fail = function(e) { if (job.done == 0) { job.done = -1; console.log("GXWGPU job failed: " + e); cleanup(); } };
-  var finish = function() {
-    job.passes = it; W.batch = Math.max(8, it);
-    var enc = dev.createCommandEncoder(), ps = enc.beginComputePass();
-    ps.setPipeline(W.dirs); ps.setBindGroup(0, bg, [0]); ps.dispatchWorkgroups(Math.ceil(words / 64), n); ps.end();
-    var rsz = n * words * 4, rb = dev.createBuffer({ size: rsz + (wantDist ? N * 4 : 0), usage: U.MAP_READ | U.COPY_DST });
-    enc.copyBufferToBuffer(bo, 0, rb, 0, rsz);
-    if (wantDist) enc.copyBufferToBuffer(bd, 0, rb, rsz, N * 4);
-    dev.queue.submit([enc.finish()]); W.readbacks++;
-    rb.mapAsync(GPUMapMode.READ).then(function() {
-      var all = rb.getMappedRange();
-      job.dirs = new Uint32Array(all.slice(0, rsz));
-      if (wantDist) job.dist = new Uint32Array(all.slice(rsz));
-      rb.unmap(); rb.destroy(); cleanup(); job.done = 1;
-    }).catch(fail);
-  };
-  var round = function(count) {
+  var fail = function(e) { if (job.done == 0) { job.done = -1; console.log("GXWGPU job failed: " + e); } set.busy = false; };
+  var rsz = n * words * 4;
+  var round = function(count, first) {
     if (it + count > MAXIT) count = MAXIT - it;
-    var enc = dev.createCommandEncoder();
-    for (var k = 0; k < count; k++, it++) { var ps = enc.beginComputePass(); ps.setPipeline(W.relax); ps.setBindGroup(0, bg, [it * 256]); ps.dispatchWorkgroups(gx, gy, n); ps.end(); }
-    var rb = dev.createBuffer({ size: 4, usage: U.MAP_READ | U.COPY_DST });
-    enc.copyBufferToBuffer(bf, (it - 1) * 4, rb, 0, 4);
+    dev.pushErrorScope("validation");	// a result is used only if its commands were valid
+    var enc = dev.createCommandEncoder(), ps;
+    if (first) {
+      enc.clearBuffer(set.bf); enc.clearBuffer(set.bt);
+      ps = enc.beginComputePass(); ps.setPipeline(W.seed); ps.setBindGroup(0, set.bg, [0]); ps.dispatchWorkgroups(Math.ceil(cells / 64), n); ps.end();
+    }
+    for (var k = 0; k < count; k++, it++) { ps = enc.beginComputePass(); ps.setPipeline(W.relax); ps.setBindGroup(0, set.bg, [it * 256]); ps.dispatchWorkgroups(gx, gy, n); ps.end(); }
+    ps = enc.beginComputePass(); ps.setPipeline(W.dirs); ps.setBindGroup(0, set.bg, [0]); ps.dispatchWorkgroups(Math.ceil(words / 64), n); ps.end();
+    enc.copyBufferToBuffer(set.bf, 0, set.rb, 0, it * 4);
+    enc.copyBufferToBuffer(set.bo, 0, set.rb, 2048, rsz);
+    if (wantDist) enc.copyBufferToBuffer(set.bd, 0, set.rb, 2048 + rsz, N * 4);
     dev.queue.submit([enc.finish()]); W.readbacks++;
-    rb.mapAsync(GPUMapMode.READ).then(function() {
-      var changed = new Uint32Array(rb.getMappedRange())[0]; rb.unmap(); rb.destroy();
-      if (!changed) finish(); else if (it < MAXIT) round(Math.max(8, count >> 1)); else fail("no convergence in " + it + " dispatches");
+    var scope = dev.popErrorScope();
+    Promise.all([scope, set.rb.mapAsync(GPUMapMode.READ, 0, 2048 + rsz + (wantDist ? N * 4 : 0))]).then(function(r) {
+      if (r[0]) { set.rb.unmap(); W.state = -1; fail("invalid commands: " + r[0].message); return; }
+      var all = set.rb.getMappedRange(0, 2048 + rsz + (wantDist ? N * 4 : 0));
+      var fl = new Uint32Array(all, 0, it), changed = fl[it - 1], last = 0;
+      for (var q = 0; q < it; q++) if (fl[q]) last = q + 1;
+      if (changed && it < MAXIT) { set.rb.unmap(); round(Math.max(8, count >> 1), false); return; }
+      if (changed) { set.rb.unmap(); fail("no convergence in " + it + " dispatches"); return; }
+      job.dirs = new Uint32Array(all.slice(2048, 2048 + rsz));
+      if (wantDist) job.dist = new Uint32Array(all.slice(2048 + rsz));
+      set.rb.unmap(); set.busy = false;
+      // dispatches for the next job: what this one needed (+2), never far below what recent ones needed
+      job.passes = it; W.need = Math.max(last + 2, Math.floor((W.need || 24) * 0.8)); W.batch = Math.min(64, Math.max(4, W.need)); job.done = 1;
     }).catch(fail);
   };
-  round(W.batch);
+  round(W.batch, true);
 });
 EM_JS(int, gx_wgpu_take, (int id, unsigned char* const* dirs, unsigned short* const* dists), {
   var W = Module.gxW, job = W && W.jobs[id];
@@ -12089,7 +12178,9 @@ namespace {
 const int GX_FF_AREA = 3;			// areas are 8x8 cells
 const int GX_FF_MIN_CELLS = 24;	// shorter paths keep the original search
 const UnsignedInt GX_FF_LIFE = 600;	// frames a field may live
-const UnsignedInt GX_WGPU_DELAY = 3;	// WebGPU switch: a field requested on frame N is used from frame N+3
+const double GX_WGPU_BUSY_MS = 20;	// average game work per frame above which the GPU builds fields
+double s_wgpuWorkAvg = 0;
+const UnsignedInt GX_WGPU_DELAY = 3;	// WebGPU switch: a field requested on frame N is used from frame N+3 (one GPU round trip)
 struct GxField {
 	int ax, ay; LocomotorSurfaceTypeMask surfaces; Bool crusher;
 	unsigned serial; UnsignedInt born, used;
@@ -12265,6 +12356,9 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 #ifdef __EMSCRIPTEN__
 	if (!(GLES3_Page_Switches() & 33554432) || s_inFieldPath) return nullptr;
 	if (!TheGameLogic || TheGameLogic->isInMultiplayerGame() || (TheRecorder && TheRecorder->isPlaybackMode())) return nullptr;
+#if defined(GX_PARALLEL_PATHS)
+	if (!tl_gxCtx) gxWaitFieldReaders();	// the field cache may change below: no worker may be reading it
+#endif
 	const int sx = startCell->getXIndex(), sy = startCell->getYIndex(), gx = goalCell->getXIndex(), gy = goalCell->getYIndex();
 	if (abs(sx - gx) <= GX_FF_MIN_CELLS && abs(sy - gy) <= GX_FF_MIN_CELLS) return nullptr;
 	const int x0 = m_extent.lo.x, y0 = m_extent.lo.y, w = m_extent.hi.x - x0 + 1, h = m_extent.hi.y - y0 + 1;
@@ -12337,12 +12431,17 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 			// plays the same however fast the GPU is (gxFlowFieldsHold waits at that frame if needed)
 			gx_wgpu_init();
 			for (GxField *f : todo) f->due = now + GX_WGPU_DELAY;
-			if (gx_wgpu_state() == 1) {
+			// the GPU only while the processor is the bottleneck (the CPU builds the same field on the same
+			// schedule, so which one builds it never changes the game)
+			s_wgpuWorkAvg = s_wgpuWorkAvg * 0.9 + gx_work_ms() * 0.1;
+			const bool cpuBusy = s_wgpuWorkAvg > GX_WGPU_BUSY_MS || (GLES3_Page_Switches() & 2097152);
+			if (cpuBusy && gx_wgpu_state() == 1 && x0 >= 0 && y0 >= 0) {
 				const int job = ++s_wgpuNextJob;
-				std::vector<const unsigned char *> wp(todo.size());
-				std::vector<const unsigned short *> sp(todo.size());
-				for (size_t t = 0; t < todo.size(); ++t) { wp[t] = walks[walkOf[t]].data(); sp[t] = todo[t]->dist.data(); }
-				gx_wgpu_submit(job, (int)todo.size(), w, h, wp.data(), sp.data(), (GLES3_Page_Switches() & 2097152) ? 1 : 0);
+				std::vector<const unsigned char *> wp(walks.size());
+				for (size_t k = 0; k < walks.size(); ++k) wp[k] = walks[k].data();
+				std::vector<int> fi;	// per field: its mask, its goal area
+				for (size_t t = 0; t < todo.size(); ++t) { fi.push_back(walkOf[t]); fi.push_back(todo[t]->ax); fi.push_back(todo[t]->ay); }
+				gx_wgpu_submit(job, (int)todo.size(), w, h, x0, y0, GX_FF_AREA, (int)walks.size(), wp.data(), fi.data(), (GLES3_Page_Switches() & 2097152) ? 1 : 0);
 				for (size_t t = 0; t < todo.size(); ++t) { todo[t]->job = job; todo[t]->jobIdx = (int)t; todo[t]->sentWalk = walks[walkOf[t]]; std::vector<unsigned short>().swap(todo[t]->dist); }
 				s_wgpuJobs++;
 			} else {	// no WebGPU (yet): the same fields on the CPU, on the same schedule

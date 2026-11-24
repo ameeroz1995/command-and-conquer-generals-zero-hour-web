@@ -2606,3 +2606,22 @@ start the wave during the previous frame's render, cut the copy cost further.
 Side effects in the default path: `putOnSortedOpenList` walks the infos' links instead of looking each
 cell's info up (same list, same order). New bench tools: workers in CPU profiles (`PROFWORKERS=1`),
 replays on the multithreaded build (`bench_replay multithread`).
+
+## 2026-11-24 — WebGPU flow fields v3, parallel path searches v2
+
+WebGPU fields: one submission and one `mapAsync` per job (relaxation, steps, read-back copy together;
+a second round only if the last dispatch still changed something), seeds made on the GPU from the goal
+area, walkable masks one byte per cell and shared between fields, buffers kept in reusable sets, tiles
+skip a dispatch when neither they nor a neighbour changed in the previous one, the dispatch count learned
+from the last dispatch that changed anything; software adapters (SwiftShader, fallback) are never used,
+and the GPU builds only while the average game work per frame is over 20 ms (the CPU builds the same
+field on the same schedule otherwise). A result is used only if its commands validated (error scope);
+a shader or validation error turns WebGPU off. Verified on the RX 580: 2,939 fields, 0 cells differ.
+Held frames 341 → 21 (v2). Measured: with the switch on, even CPU-built fields cost ~19% in the armies
+phase, because of the 3-frame lockstep delay (searches that wait run the plain A* meanwhile) — the
+delay, not the GPU, is what loses.
+
+Parallel paths v2: no copies (a worker's first touch of a cell makes a clean scratch entry; unit data is
+read from the shared cell), and the game thread serves units while the workers compute, waiting only for
+the result it needs (and for every worker before a normal search or a flow-field change). Verify: 1,058
+checked, 0 mismatches; replay matches (9,000 frames). A/B: armies 13.0 → 9.9 fps (was 10.8 → 5.3).
