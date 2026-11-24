@@ -2776,3 +2776,32 @@ Strike phase (live build 52b7e14), share of the frame, inclusive:
 - So a full rebuild (recorded, sorted draw list submitted with minimal state; per-object data kept
   together) can save at most roughly half of the ~8% submission cost and of the ~6% per-object
   cost: about 6-7% of the frame, for several days of work with visual-regression risk.
+
+## 2026-11-24 — Route searches: occupied-cell bits (cellBits) and lazy flow fields (lazyFields), both kept
+
+- Counters (big battle, per 150 frames): ~5M checkForMovement calls reading ~45M cells (blocks of
+  1-9 cells around each searched cell), 27-36% of them holding a unit; flow fields: 40-120 field
+  builds (~7 ms each) for ~100-260 field paths, i.e. fields are rarely shared (344 builds for
+  800 paths); the downhill walks cost almost nothing.
+- cellBits (second switch word bit 5, on): one bit per ground cell, set while the cell's unit flags
+  are not NO_UNITS. Every flag write goes through PathfindCell::gxSetFlags, which keeps the bit in
+  step (always, so the switch can flip mid-game). For a ground block fully on the map,
+  checkForMovement reads the bits column by column and runs the original per-cell body only for
+  occupied cells, in the original order. Off-map blocks and bridge layers keep the old loop.
+- lazyFields (second switch word bit 6, on; flow fields are single player only): a field's
+  Dijkstra (Dial buckets) and its walk mask are kept and resumed on each request until the
+  start cell's distance D is final. Every cell nearer than D is then final and every other cell
+  holds more than D, so the downhill walk reads the same cells as with the full field. The mask
+  is filled in on demand with the ignored obstacle of the moment the field was made (cell types
+  only change with s_obstacleSerial, which retires the field). The GPU field path is unchanged.
+- Same game: referee replay matches over 9000 frames (paths-2 and paths-4). Verify mode: the old
+  checkForMovement loop beside the new one, and the full field beside each lazy walk (all cells
+  nearer than D equal, all others above D): 0 mismatches.
+- A/B: fps pairs were useless at machine load 12-33 (the same setting swung ±50%), so I compared
+  strike-phase profiles instead (share of the frame, both switches off vs on, two pairs at load
+  11-25):
+  checkForMovement 5.0% -> 3.7% and 4.7% -> 3.8%; gxFlowFieldPath 3.6% -> 1.7% and 3.1% -> 1.6%;
+  AIUpdateInterface::computePath (incl.) 13.9% -> 11.0% and 12.8% -> 11.0%.
+- Tried, not kept: reusing a field when its rebuilt walk mask is unchanged (fieldReuse). It never
+  happened (0 of 226 rebuilds): each rebuild follows a real walkability change from a building
+  placed or destroyed.
