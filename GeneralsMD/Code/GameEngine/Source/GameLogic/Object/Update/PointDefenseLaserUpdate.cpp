@@ -29,6 +29,9 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 #include "Common/BitFlagsIO.h"
 #include "Common/RandomValue.h"
@@ -238,7 +241,94 @@ void PointDefenseLaserUpdate::fireWhenReady()
 }
 
 //-------------------------------------------------------------------------------------------------
+// Web port (switch laserFilters, second word bit 17): the objects scanClosestTarget's loop would
+// skip, rejected inside the range search instead, so the search does not list every unit nearby and
+// the enemy filter first lets it skip cells holding no enemy. Same targets in the same order (the
+// list is unsorted; removing entries keeps the order of the rest).
+class PartitionFilterPointDefenseTarget : public PartitionFilter
+{
+	const Object *m_me;
+	const PointDefenseLaserUpdateModuleData *m_data;
+public:
+	PartitionFilterPointDefenseTarget(const Object *me, const PointDefenseLaserUpdateModuleData *data) : m_me(me), m_data(data) { }
+	virtual Bool allow(Object *other)
+	{
+		if (!other->isAnyKindOf(m_data->m_primaryTargetKindOf) && !other->isAnyKindOf(m_data->m_secondaryTargetKindOf))
+			return false;
+		if (!other->isAirborneTarget() && !(m_data->m_weaponTemplate->getAntiMask() & WEAPON_ANTI_GROUND))
+			return false;
+		if (m_me->getRelationship(other) != ENEMIES)
+			return false;
+		if (other->testStatus(OBJECT_STATUS_STEALTHED) && !other->testStatus(OBJECT_STATUS_DETECTED) && !other->testStatus(OBJECT_STATUS_DISGUISED))
+			return false;
+		return true;
+	}
+#if defined(RTS_DEBUG)
+	virtual const char* debugGetName() { return "PartitionFilterPointDefenseTarget"; }
+#endif
+};
+
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches2();
+extern int gx_verify_mismatch, gx_verify_checked;
+#else
+static int GLES3_Page_Switches() { return 0; }
+static int GLES3_Page_Switches2() { return 0; }
+static int gx_verify_mismatch, gx_verify_checked;
+#endif
+
+//-------------------------------------------------------------------------------------------------
 Object* PointDefenseLaserUpdate::scanClosestTarget()
+{
+	const Bool filtered = (GLES3_Page_Switches2() & 131072) != 0;
+#ifdef __EMSCRIPTEN__
+	if (filtered && (GLES3_Page_Switches() & 2097152))
+	{
+		// Verify mode: (1) the unfiltered list, filtered here, must be the same objects in the
+		// same order; (2) scans alternate filtered / unfiltered, each timed whole (the search's own
+		// verify is off meanwhile, as it would run each search twice).
+		extern Bool g_gxNoSearchVerify;
+		const PointDefenseLaserUpdateModuleData *data = getPointDefenseLaserUpdateModuleData();
+		Object *me = getObject();
+		g_gxNoSearchVerify = true;
+		PartitionFilterRelationship filterEnemy(me, PartitionFilterRelationship::ALLOW_ENEMIES);
+		PartitionFilterPointDefenseTarget filterTarget(me, data);
+		PartitionFilter *filters[] = { &filterEnemy, &filterTarget, nullptr };
+		ObjectIterator *a = ThePartitionManager->iterateObjectsInRange( me->getPosition(), data->m_scanRange, FROM_CENTER_2D, filters );
+		MemoryPoolObjectHolder holdA(a);
+		ObjectIterator *all = ThePartitionManager->iterateObjectsInRange( me->getPosition(), data->m_scanRange, FROM_CENTER_2D );
+		MemoryPoolObjectHolder holdAll(all);
+		Object *f = a->first();
+		Bool same = true;
+		for (Object *o = all->first(); o && same; o = all->next())
+		{
+			if (!filterEnemy.allow(o) || !filterTarget.allow(o))
+				continue;
+			same = o == f;
+			f = a->next();
+		}
+		if (f)
+			same = false;
+		++gx_verify_checked;
+		if (!same) { ++gx_verify_mismatch; printf("GXVERIFY laser scan mismatch: object %u\n", me->getID()); }
+
+		static Int gxScans;
+		static double gxMs[2];
+		const Bool useFilter = (gxScans & 1) != 0;
+		const double t0 = emscripten_get_now();
+		Object *result = gxScan(useFilter);
+		gxMs[useFilter] += emscripten_get_now() - t0;
+		g_gxNoSearchVerify = false;
+		if (++gxScans % 500 == 0)
+			printf("GXVERIFY laser scans %d, mismatches %d (all checks); unfiltered %.1f ms, filtered %.1f ms\n", gxScans, gx_verify_mismatch, gxMs[0], gxMs[1]);
+		return result;
+	}
+#endif
+	return gxScan(filtered);
+}
+
+Object* PointDefenseLaserUpdate::gxScan(Bool filtered)
 {
 	const PointDefenseLaserUpdateModuleData *data = getPointDefenseLaserUpdateModuleData();
 	Object *me = getObject();
@@ -251,7 +341,10 @@ Object* PointDefenseLaserUpdate::scanClosestTarget()
 	bonus.clear();
 	Real fireRange = data->m_weaponTemplate->getAttackRange( bonus );
 
-	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( me->getPosition(), data->m_scanRange, FROM_CENTER_2D );
+	PartitionFilterRelationship filterEnemy(me, PartitionFilterRelationship::ALLOW_ENEMIES);
+	PartitionFilterPointDefenseTarget filterTarget(me, data);
+	PartitionFilter *filters[] = { &filterEnemy, &filterTarget, nullptr };
+	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( me->getPosition(), data->m_scanRange, FROM_CENTER_2D, filtered ? filters : nullptr );
 	MemoryPoolObjectHolder hold(iter);
 
 	for( Object *other = iter->first(); other; other = iter->next() )

@@ -75,6 +75,7 @@ public:
 	virtual UpdateSleepTime update();
 
 	Object* scanClosestTarget();
+	Object* gxScan(Bool filtered);	///< web port: scanClosestTarget, with or without the search filters (switch laserFilters)
 	void fireWhenReady();
 
 protected:

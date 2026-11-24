@@ -192,9 +192,27 @@ private:
 	PartitionData							*m_module;								///< the module (and thus, Object) touching
 	CellAndObjectIntersection *m_prevCoi, *m_nextCoi;		///< if in use, next/prev in this cell. if not in use, next/prev free in this module.
 	Int												m_gxPlayer;								///< web port: the player slot counted in the cell (see PartitionCell::m_gxCount)
+	// web port (switch searchCache): a copy of the object's x, y and its larger bounding radius
+	// (circle or sphere), refreshed on every move and cell update, so range searches can turn
+	// away far entries without reading the module or the object.
+	Real											m_gxX, m_gxY, m_gxR;
+	// web port (switch searchSlotSkip): this cell's list of its player slot's COIs, in the same
+	// relative order as the cell's COI list; m_gxSeq grows with each COI added to the cell, so the
+	// cell list runs from high to low sequence and per-slot lists can be merged back into it.
+	CellAndObjectIntersection *m_gxSlotPrev, *m_gxSlotNext;
+	UnsignedInt								m_gxSeq;
+
+	void gxSlotLink(Int slot);		///< into m_cell's list for slot, at the place its sequence says
+	void gxSlotUnlink();				///< out of m_cell's list for m_gxPlayer
 
 public:
+	UnsignedInt gxSeq() const { return m_gxSeq; }
+	CellAndObjectIntersection *gxSlotNext() const { return m_gxSlotNext; }
 	Int gxPlayerSlot() const { return m_gxPlayer; }
+	Real gxX() const { return m_gxX; }
+	Real gxY() const { return m_gxY; }
+	Real gxR() const { return m_gxR; }
+	void gxSetPlace(Real x, Real y, Real r) { m_gxX = x; m_gxY = y; m_gxR = r; }
 	void gxSetPlayerSlot(Int slot);	///< moves this COI's count in its cell to another player slot
 
 	// Note, we allocate these in arrays, thus we must have a default ctor (and NOT descend from MPO)
@@ -292,6 +310,11 @@ struct ShroudStatusStoreRestore
 	The Cell is the fundamental unit of space in the Partition Manager.
 */
 //=====================================
+// Web port (switch denseCellMask): every cell's m_gxMask, kept in one array (row-major, like
+// PartitionManager::m_cells), so searches can skip cells without reading the cell itself.
+extern UnsignedInt *g_gxCellMasks;
+extern Int g_gxCellMaskW;
+
 class PartitionCell : public Snapshot	// not MPO: allocated in an array
 {
 private:
@@ -311,10 +334,19 @@ private:
 	// searches skip cells holding no one who could be an enemy. Not saved: rebuilt as objects register.
 	UnsignedShort									m_gxCount[MAX_PLAYER_COUNT + 1];
 	UnsignedInt										m_gxMask;
+	CellAndObjectIntersection			*m_gxSlotHead[MAX_PLAYER_COUNT + 1];	///< per-slot COI lists (switch searchSlotSkip)
+	UnsignedInt										m_gxNextSeq;
 
 public:
 	UnsignedInt gxPlayerMask() const { return m_gxMask; }
-	void gxCount(Int slot, Int delta) { m_gxCount[slot] += delta; if (m_gxCount[slot]) m_gxMask |= 1u << slot; else m_gxMask &= ~(1u << slot); }
+	CellAndObjectIntersection *&gxSlotHead(Int slot) { return m_gxSlotHead[slot]; }
+	UnsignedInt gxTakeSeq() { return m_gxNextSeq++; }
+	void gxCount(Int slot, Int delta)
+	{
+		m_gxCount[slot] += delta;
+		if (m_gxCount[slot]) m_gxMask |= 1u << slot; else m_gxMask &= ~(1u << slot);
+		g_gxCellMasks[m_cellY * g_gxCellMaskW + m_cellX] = m_gxMask;	// the dense copy (switch denseCellMask)
+	}
 
 	// Note, we allocate these in arrays, thus we must have a default ctor (and NOT descend from MPO)
 	PartitionCell();
@@ -407,6 +439,11 @@ private:
 	Bool												m_everSeenByPlayer[MAX_PLAYER_COUNT];		///<whether this object has ever been seen by a given player.
 	const PartitionCell					*m_lastCell;							///< The last cell I thought my center was in.
 	Int													m_gxFillKey[8];						///< web port (cellReuse): what the last cell fill depended on; [0] == 0: none
+
+public:
+	/// web port (switch searchCache): copy the object's position and radius into every COI in use
+	void gxRefreshPlace();
+private:
 
 	/**
 		Given a shape's geometry and size parameters, calculate the maximum number of COIs
@@ -612,6 +649,9 @@ public:
 	/// web port: non-null when this filter rejects everything that isn't a live enemy of the
 	/// returned object (AI.cpp PartitionFilterLiveMapEnemies), so searches may skip ally-only cells
 	virtual const Object *gxEnemiesOf() const { return nullptr; }
+	/// web port (switch searchSlotSkip): non-null when this filter rejects every object whose
+	/// relationship to the returned object is not in 'allow' (bits 1 << Relationship)
+	virtual const Object *gxRelationOf(Int &allow) const { return nullptr; }
 #if defined(RTS_DEBUG)
 	virtual const char* debugGetName() = 0;
 #endif
@@ -684,6 +724,7 @@ public:
 	};
 	PartitionFilterRelationship(const Object *obj, Int flags) : m_obj(obj), m_flags(flags) { }
 	virtual Bool allow(Object *objOther);
+	virtual const Object *gxRelationOf(Int &allow) const { allow = m_flags; return m_obj; }
 #if defined(RTS_DEBUG)
 	virtual const char* debugGetName() { return "PartitionFilterRelationship"; }
 #endif
@@ -1289,6 +1330,11 @@ protected:
 		Real *closestDistArg,
 		Coord3D *closestVecArg
 	);
+	/// web port: the FASTER_GCO walk of getClosestObjects, with the skips named in gxFlags
+	/// (GX_GCO_* in PartitionManager.cpp); trace (verify mode) gets every object that passed.
+	Object *gxClosestImpl(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,
+		PartitionFilter **filters, SimpleObjectIterator *iterArg, Real *closestDistArg, Coord3D *closestVecArg,
+		UnsignedInt gxFlags, UnsignedInt gxMask, std::vector<Object*> *trace);
 
 	void shutdown();
 
