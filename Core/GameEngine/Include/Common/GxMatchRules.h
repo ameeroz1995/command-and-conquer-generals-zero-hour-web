@@ -17,6 +17,7 @@ enum GxMatchRule
 	GXRULE_ROUTE_BUDGET   = 128,	///< routeBudget: half the route-search work per frame (AIPathfind.cpp)
 	GXRULE_COLLIDE_EVERY2 = 256,	///< collideStagger: ground units look for touching units every 2nd frame (PartitionManager.cpp)
 	GXRULE_COLLIDE_EVERY3 = 512,	///< collideStagger3: every 3rd frame (PartitionManager.cpp)
+	GXRULE_SPATIAL_PAIRS  = 8192,	///< pairOffer: touching-pair search drops clearly-apart neighbours when offered (PartitionManager.cpp)
 };
 
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for

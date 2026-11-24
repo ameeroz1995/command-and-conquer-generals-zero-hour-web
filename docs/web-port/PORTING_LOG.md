@@ -3114,3 +3114,30 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   a small array; the ring walk itself (offset list) is what's left, and blocks can't skip it without
   changing the visit order. Removed; the patch is kept outside the repo
   (side-session notes, logic-query-blockmask.patch).
+
+## 2026-11-25 — Round 3 (spatial data): touching-pair tests read kept places, not units (switch pairPlace, second word bit 28, on; match rule spatialPairs 8192 / switch pairOffer, bit 29, off)
+
+- Measured first (merged tree c182dee, profile at load 35-56, shares only): PartitionManager::update
+  15.0% of the strike frame (11.3% armies): pair building 3.4%, gxProcessPair reading both units
+  2.9%, shape tests 2.3%, collision reactions 2.7%; range searches 4.1%. ~87% of listed pairs don't
+  touch.
+- The flat data: every PartitionData now keeps x, y and max(bounding circle, sphere) radius (the same
+  copy its COIs already kept for range searches), refreshed on every transform change, cell update
+  and Z-geometry change.
+- pairPlace (exact): a listed pair whose kept places are farther apart than (rA + rB) x sqrt 2 + 1 is
+  finished from the two PartitionData alone: neither Object, its status bits nor the shape test is
+  read. The sqrt 2: the box-vs-cylinder test treats the circle as its bounding square (first version
+  used rA + rB and verify caught 4,836 touching pairs among 150M; with sqrt 2, 0 in 140M).
+- pairOffer (match rule 8192, changes the game slightly): the same test when a neighbour is offered,
+  so clearly-apart pairs never enter the pair table. Differs only when a collision reaction earlier
+  in the same frame moves a unit next to a dropped neighbour.
+- Same game (pairPlace): verify 0 mismatches (every skipped pair re-tested with the full shape test);
+  referee replay matches over 9000 frames. pairOffer: recorded 9003 frames with it on, played back:
+  matches the recording; referee replay (rule off) matches; screenshots of the crowded fight with it
+  on look normal (no stuck or stacked units).
+- Paired timing (hidden setting gxPairTiming: frames picked by a hash of the frame number run with
+  the features off; PartitionManager::update timed for both kinds, ~900 frames each):
+  pairPlace alone 10.65 -> 10.01 ms and 9.60 -> 9.29 ms per frame (-6%, -3%); pairPlace + pairOffer
+  10.95 -> 9.60 and 11.00 -> 9.46 ms (-12%, -14%). Load 13-31.
+- fps A/B (pairPlace off/on): one usable pair at load 7: armies 16.3 -> 16.6, strikes 12.1 -> 12.0,
+  aftermath 19.4 -> 22.5; the other pairs ran at load 16-50 and stopped at the time limit.
