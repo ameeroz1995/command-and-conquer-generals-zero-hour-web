@@ -2805,3 +2805,47 @@ Strike phase (live build 52b7e14), share of the frame, inclusive:
 - Tried, not kept: reusing a field when its rebuilt walk mask is unchanged (fieldReuse). It never
   happened (0 of 226 rebuilds): each rebuild follows a real walkability change from a building
   placed or destroyed.
+## 2026-11-24 — Unit AI / state machines: measured, nothing kept (logic-ai agent)
+
+Strike-phase profiles of 66e2829 (builds ai-0, tags ai-prof1/ai-prof2; machine load 27-48):
+- AIUpdateInterface::update 9.9-13.7% inclusive, but its own code is thin: all AI self time
+  (isIdle, isDoingGroundMovement, updateStateMachine, doLocomotor, state updates, findLocomotor,
+  chooseGoodLocomotor, transitions) adds up to ~2-3% of the frame, each item 0.1-0.4%.
+- The rest belongs to other areas: target scans getNextMoodTarget 2.7-4.1% (almost all
+  AI::findClosestEnemy -> PartitionManager::getClosestObject), path following
+  Path::computePointOnPath 1.7% (doLocomotor + getLocomotorDistanceToGoal, with isLinePassable),
+  weapon firing under AIAttackFireWeaponState 1.2-1.7%, locomotor physics math 1.3%.
+- Counter (ai-diag1, per 150 frames in strikes): 3,100-6,700 mood scans by cadence (80% find
+  nothing), 60-960 forced rescans after a kill, ~1,900 from idle units: ~45 scans a frame, all
+  already on the game's own 2-second cadence (MoodAttackCheckRate) with no repeated work to drop.
+- Checked and ruled out: model-condition clears every frame (Drawable already returns early when
+  nothing changes); a second computePointOnPath per frame (Path already caches it, and a memo would
+  change its countdown, so not exact); state-machine create/destroy (0.3%, only on object death).
+- Not built: exact micro-changes here could save at most ~0.5% of the frame, below what this
+  loaded machine can measure. The one real lever in this area is the scan cadence (e.g. back off
+  after misses), which changes the game: it could only be a single-player switch, worth ~1-2%.
+
+## 2026-11-24 — Unit AI: what the states cause (logic-ai agent, second pass)
+
+Counters (build ai-diag2, strike phase, per frame):
+- ~1,000-1,800 AI updates. Attack-move units 600-1,100 and move-to 250-370, all awake every frame
+  (they are moving: needed). Idle units awake 60-92% of frames (turrets tracking, blocked units).
+  Dead units up to ~385 updates a frame (AI_DEAD never sleeps), but the profile puts AIDeadState at
+  0.0%: not worth making exact sleep for.
+- Path requests: 35-70 a frame re-request a moving goal (90% within one cell of the last request),
+  but these are missiles' quick paths that return early when unchanged. Moves started over to the
+  same place grow to ~45 a frame late in the battle. Only 5-10 real route searches run per frame,
+  and the pathfinder already caps work per frame (PATHFIND_CELLS_PER_FRAME), so fewer requests
+  would not cut CPU much. Pathfinder share did not move in the runs below. Not pursued.
+- Target scans: ~45 a frame, 80% find nothing, mostly attack-move units (15-37 a frame) and idle
+  units (5-11).
+
+Kept, off by default — lazyScans (switch word 2, bit 12; single player only, gated like
+ignoreUnitsInPaths): a routine scan that finds nothing waits one more check interval (4 s instead
+of 2 s). Profile pairs at load 11-19 (off -> on), strike phase share of the frame:
+- pair 1: getNextMoodTarget 3.5% -> 2.1%, AIUpdateInterface::update 13.1% -> 10.8%
+- pair 2: getNextMoodTarget 3.5% -> 2.5%, AIUpdateInterface::update 12.9% -> 13.2%
+So scans cost 30-40% less, about 1-1.4% of the frame. Whole-frame A/B could not show it: load
+swung 15 -> 42 between runs (+19% then -34% fps), and with the switch on the battle itself plays
+out differently. Replay matches the recording with the switch off and on (replays ignore it).
+Off by default because units notice newcomers up to 2 s later; the main chat decides.

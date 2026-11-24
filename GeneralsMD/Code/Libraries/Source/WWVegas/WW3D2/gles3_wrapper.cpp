@@ -439,7 +439,8 @@ void GLES3_Begin_Scene() {
                  | (o.openHeap === false ? 0 : 4)       // bit 2: route search candidates in a heap instead of a sorted list (AIPathfind.cpp)
                  | (o.contactArray === false ? 0 : 8)   // bit 3: touching pairs kept in flat arrays, nothing allocated per pair (PartitionManager.cpp; same game)
                  | (o.cellBits === false ? 0 : 32)      // bit 5: route searches read a bitmap of occupied cells (AIPathfind.cpp; same game)
-                 | (o.lazyFields === false ? 0 : 64);   // bit 6: flow fields computed only as far as the units asking (AIPathfind.cpp; same routes)
+                 | (o.lazyFields === false ? 0 : 64)    // bit 6: flow fields computed only as far as the units asking (AIPathfind.cpp; same routes)
+                 | (o.lazyScans === true ? 4096 : 0);   // bit 12: routine enemy scans that find nothing wait twice as long (AIUpdate.cpp; single player only)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
