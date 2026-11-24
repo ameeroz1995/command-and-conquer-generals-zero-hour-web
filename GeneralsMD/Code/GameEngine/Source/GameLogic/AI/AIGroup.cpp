@@ -2341,7 +2341,6 @@ static Bool gxGroupMover( Object *obj )
 
 static void gxShareClassRoute( const std::vector<Object *> &members, const Coord3D *pos )
 {
-	extern int gd_group[4];	// GXDIAG
 	if (members.size() < 2) return;
 	Coord3D center; center.zero();
 	for (Object *obj : members) { center.x += obj->getPosition()->x; center.y += obj->getPosition()->y; }
@@ -2353,7 +2352,6 @@ static void gxShareClassRoute( const std::vector<Object *> &members, const Coord
 	}
 	const LocomotorSet &lset = leader->getAIUpdateInterface()->getLocomotorSet();
 	Path *route = TheAI->pathfinder()->gxFindPath(leader, lset, leader->getPosition(), pos);
-	gd_group[0]++;
 	if (!route) return;
 	std::vector<Coord3D> pts;
 	Bool ground = TRUE;
@@ -2368,17 +2366,25 @@ static void gxShareClassRoute( const std::vector<Object *> &members, const Coord
 	for (Object *obj : members) {
 		AIUpdateInterface *ai = obj->getAIUpdateInterface();
 		const Real ox = obj->getPosition()->x - from.x, oy = obj->getPosition()->y - from.y;
-		if (ox * ox + oy * oy > 250.0f * 250.0f) { gd_group[2]++; continue; }
+		if (ox * ox + oy * oy > 250.0f * 250.0f) continue;
 		std::vector<Coord3D> mine;
 		Bool ok = TRUE;
+		const Bool crush = obj->getCrusherLevel() > 0;
 		for (size_t k = 1; k + 1 < pts.size(); ++k) {	// inner points, shifted; start and end are the member's own
+			// where the shifted point is blocked, close in on the route (half the offset, then the
+			// route itself): members funnel through gaps like a column instead of planning alone
 			Coord3D p = pts[k]; p.x += ox; p.y += oy;
-			if (!TheAI->pathfinder()->validMovementPosition(obj->getCrusherLevel() > 0, LAYER_GROUND, ai->getLocomotorSet(), &p)) { ok = FALSE; break; }
+			if (!TheAI->pathfinder()->validMovementPosition(crush, LAYER_GROUND, ai->getLocomotorSet(), &p)) {
+				p = pts[k]; p.x += ox * 0.5f; p.y += oy * 0.5f;
+				if (!TheAI->pathfinder()->validMovementPosition(crush, LAYER_GROUND, ai->getLocomotorSet(), &p)) {
+					p = pts[k];
+					if (!TheAI->pathfinder()->validMovementPosition(crush, LAYER_GROUND, ai->getLocomotorSet(), &p)) { ok = FALSE; break; }
+				}
+			}
 			mine.push_back(p);
 		}
-		if (!ok) { gd_group[3]++; continue; }
+		if (!ok) continue;
 		ai->gxSetRouteHint(mine, now);
-		gd_group[1]++;
 	}
 }
 

@@ -22,7 +22,7 @@ enum GxMatchRule
 	GXRULE_ROUTE_QUEUE    = 1048576,	///< routeQueue: requests never dropped when the queue is full (AIPathfind.cpp)
 	GXRULE_ROUTE_CACHE    = 2097152,	///< routeCache: a recent route from the same start area to the same goal area is reused, shifted (AIPathfind.cpp)
 	GXRULE_ROUTE_REFINE   = 4194304,	///< routeRefine (reserved)
-	GXRULE_FLOW_COVER     = 8388608,	///< flowCover (reserved)
+	GXRULE_FLOW_COVER     = 8388608,	///< flowCover: flow fields also for moves over 8 cells (AIPathfind.cpp)
 };
 
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for

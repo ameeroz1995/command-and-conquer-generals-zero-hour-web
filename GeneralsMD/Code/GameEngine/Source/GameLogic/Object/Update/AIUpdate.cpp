@@ -401,18 +401,6 @@ void AIUpdateInterface::doPathfind( PathfindServicesInterface *pathfinder )
 	}
 	//CRCDEBUG_LOG(("AIUpdateInterface::doPathfind() for object %d", getObject()->getID()));
 	m_waitingForPath = FALSE;
-	struct GdCoarse {	// GXDIAG: where a unit on the coarse route went before its full route came
-		AIUpdateInterface *ai; Bool was; Coord3D from;
-		~GdCoarse() {
-			if (!was || !ai->m_path) return;
-			extern int gd_coarse[4];
-			const Coord3D *p = ai->getObject()->getPosition();
-			const Real mx = p->x - from.x, my = p->y - from.y, moved = sqrtf(mx * mx + my * my);
-			gd_coarse[1]++; gd_coarse[3] += (int)(moved * 10);
-			const PathNode *n = ai->m_path->getFirstNode(); const PathNode *next = n ? n->getNextOptimized() : nullptr;
-			if (next && moved > 5.0f && (next->getPosition()->x - p->x) * mx + (next->getPosition()->y - p->y) * my < 0) gd_coarse[2]++;
-		}
-	} gdCoarse{ this, m_gxCoarse, m_gxCoarseFrom };
 	if (m_isSafePath) {
 		destroyPath();
 		Coord3D pos1, pos2;
@@ -524,7 +512,6 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 			m_path = path;
 			if (m_isFinalGoal)
 				TheAI->pathfinder()->updateGoal(getObject(), m_path->getLastNode()->getPosition(), LAYER_GROUND);
-			extern int gd_group[4]; gd_group[1] += 1000000;	// GXDIAG: used
 			return;
 		}
 	}
@@ -566,8 +553,6 @@ void AIUpdateInterface::gxStartCoarse( const Coord3D *destination )
 	m_path = coarse;
 	m_gxCoarse = TRUE;
 	m_gxCoarseTo = *destination;
-	m_gxCoarseFrom = *obj->getPosition();	// GXDIAG
-	{ extern int gd_coarse[4]; gd_coarse[0]++; }	// GXDIAG
 }
 
 //-------------------------------------------------------------------------------------------------

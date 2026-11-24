@@ -56,7 +56,7 @@ static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
-static int g_PageSwitches3 = 1;
+static int g_PageSwitches3 = 0;
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -463,11 +463,12 @@ void GLES3_Begin_Scene() {
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
-                 | (o.cpopSegments === false ? 0 : 1)   // bit 0: route-following reads each route's segments from one flat array (AIPathfind.cpp; same game)
+                 | (o.cpopSegments === true ? 1 : 0)   // bit 0: route-following reads each route's segments from one flat array (AIPathfind.cpp; same game)
                  | (o.moveAfterTick === true ? 2 : 0)   // bit 1: match rule moveAfterTick, every unit's locomotion in one pass at the end of the tick (AIUpdate.cpp)
                  | (o.groupRoute === true ? 4 : 0)      // bit 2: match rule groupRoute, one route search per group order (AIGroup.cpp)
                  | (o.routeQueue === true ? 8 : 0)      // bit 3: match rule routeQueue, no dropped route requests (AIPathfind.cpp)
-                 | (o.routeCache === true ? 1048576 : 0);  // bit 20: match rule routeCache, recent routes reused (AIPathfind.cpp)
+                 | (o.routeCache === true ? 1048576 : 0)   // bit 20: match rule routeCache, recent routes reused (AIPathfind.cpp)
+                 | (o.flowCover === true ? 4194304 : 0);   // bit 22: match rule flowCover, flow fields for moves over 8 cells (AIPathfind.cpp)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;

@@ -3140,3 +3140,51 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   GXVERIFY line mismatches 0.
 - A/B vs merge1 (live 445e8b8) and rules off/on: run at load 40-100 (five agents profiling), frame
   rates ~4 fps instead of ~13; not usable. To be rerun on a quiet machine.
+
+## 2026-11-25 — Route queue round: what fills it, group routes, route cache, flow cover (paths agent)
+
+- Correction: the earlier "90% of re-plans are goal moved" was wrong. Those requests were
+  projectiles' quick paths, which never enter the queue. A re-plan cooldown (N = 20/30/45 frames)
+  measured bit-identical to rule off: the moved-goal site fires 241 times per battle. Dropped, not
+  committed. The queue fills with new-order bursts: in the battle benchmark demand is ~6,300
+  searches in 1,050 frames at ~1,250 cells each, i.e. ~7,500 cells a frame against the 5,000 budget.
+  Search kinds (to frame 1,050): A* 6,390 (1,860 of them served by a flow field), closest-spot
+  1,467, attack approach 713. 3,986 repeat requests a battle are already merged by queueForPath.
+- cpopSegments (exact, third switch word bit 0, OFF): computePointOnPath reads each route's
+  optimized segments from one flat array kept on the Path (PathNode records its owner path; every
+  node setter marks the array stale). Referee replay matches; verify mode 0 mismatches. A/B
+  (paths-19, load 12-17), off -> on: armies 11.7 -> 11.3 and 11.1 -> 10.3 fps, strikes 8.5 -> 8.3
+  and 8.0 -> 6.9: no gain (both pairs a little lower, inside the noise), so it stays off.
+- moveAfterTick (match rule 32768, third word bit 1, off): units' locomotion runs in one pass after
+  the update queue (GameLogic::update, before the AI/pathfind and partition updates), in
+  update-queue order; the AI update no longer takes the locomotion's sleep, the pass wakes a unit
+  earlier when its locomotion needs it. Recorded with the rule on (GX=8002) and played back with
+  it off locally: matches. One pair (paths-19, load 11-20), off -> on: armies 11.6 -> 9.5, strikes
+  10.3 -> 11.5, aftermath 16.3 -> 8.6 fps: no clear gain; off.
+- coarseStart is now ON by default and applies to every move (no 200-unit minimum). Wrong-way
+  share at the switch: 4.2% (123 of 2,946).
+- routeQueue (match rule 1048576, third word bit 3, off): a request that finds the 512-slot queue
+  full waits in an overflow list instead of being dropped (the 512 slots are inside the pathfinder
+  CRC/xfer, so the slots themselves stay). Alone it holds 1,000+ requests and the average wait rose
+  (126 frames); dropped requests 1,054 -> 0.
+- groupRoute (match rule 1024, third word bit 2, off): a group move or attack-move plans one route
+  per kind of mover (same surfaces and crusher flag) from the member nearest that kind's centre;
+  members within 250 get a copy shifted by their offset (where a shifted point is blocked, half the
+  offset, then the route itself), used by their next route request instead of a queued search.
+- routeCache (match rule 2^21, third word bit 20, off): up to 64 recent routes; a unit of the same
+  kind and size starting within 4 cells of a cached start and going within 4 cells of its goal gets
+  the route shifted to it (blocked shifted points: a miss). Expires after 300 frames or when
+  buildings change.
+- flowCover (match rule 2^23, third word bit 22, off): flow fields serve moves over 8 cells (was
+  24); a field route uses almost none of the per-frame search budget.
+- Numbers (battle benchmark, to frame 1,050; load 14-22):
+  | rules | searches | cells/search | wait avg / worst (frames) | dropped | armies / strikes fps |
+  |---|---:|---:|---:|---:|---:|
+  | default | 6,286 | 1,255 | 42.1 / 217 | 1,054 | 10.5 / 9.4 |
+  | groupRoute + routeCache | 6,834 | 1,015 | 25.1 / 119 | 166 | 12.5 / 10.4 |
+  | + flowCover | 6,758 | 913 | 21.9 / 134 | 280 | 13.6 / 10.6 |
+  Whole run: 31.7 -> 18.6 -> 15.9 frames average wait. Group hints: 1,265 members followed a
+  group route; route cache: 719 hits. Still above the 6-frame target.
+- Determinism: recorded with groupRoute, routeCache, flowCover, routeQueue, moveAfterTick on
+  (GX=B08422) and played back with all of them off locally: matches. Referee replay matches.
+- Not built yet: routeRefine (rule 2^22, bit 21): zone-level plan, detailed only near the unit.

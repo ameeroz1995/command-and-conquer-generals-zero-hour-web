@@ -786,10 +786,9 @@ private:
 	Bool				m_doFinalPosition;					///< True if we are moving towards final position in a non-physics kind of way.
 	Bool				m_waitingForPath;						///< True if we have a pathfind request outstanding.
 	Bool				m_gxCoarse = FALSE;					///< web port: m_path is the coarse route (not saved: a load waits for the full route)
-	Coord3D			m_gxCoarseTo;
+	Coord3D			m_gxCoarseTo;								///< web port: where the coarse route goes
 	std::vector<Coord3D> m_gxHintPts;	///< web port (match rule groupRoute): the group route shifted to this unit (not saved)
 	UnsignedInt	m_gxHintFrame = 0;
-	Coord3D			m_gxCoarseFrom;	// GXDIAG								///< web port: where the coarse route goes
 	void				gxStartCoarse( const Coord3D *destination );
 	Bool				m_isAttackPath;							///< True if we have an attack path.
 	Bool				m_isFinalGoal;							///< True if this path ends at our destination (as opposed to an intermediate point on a waypoint path).
