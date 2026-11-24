@@ -533,7 +533,14 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 		return;
 	}
 	TheAI->pathfinder()->queueForPath(getObject()->getID());
-	gxStartCoarse(destination);
+	{
+		extern bool gxMatchRule(unsigned int rule);
+		extern void gxDeferCoarseStart(ObjectID id);
+		if (gxMatchRule(1048576 /* GXRULE_ROUTE_QUEUE */))
+			gxDeferCoarseStart(getObject()->getID());	// started by the pathfinder, at most 32 a frame
+		else
+			gxStartCoarse(destination);
+	}
 
 }
 

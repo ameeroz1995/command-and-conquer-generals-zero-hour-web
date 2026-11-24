@@ -120,7 +120,13 @@ constexpr const UnsignedInt MAX_ADJUSTMENT_CELL_COUNT = 400;
 constexpr const UnsignedInt MAX_SAFE_PATH_CELL_COUNT = 2000;
 
 struct GxQueued { ObjectID id; UnsignedInt frame; };
-static std::vector<GxQueued> s_gxOverflow;	// web port (match rule routeQueue): requests waiting for a queue slot
+static std::vector<GxQueued> s_gxOverflow;
+// web port (match rule routeQueue): spreading an army order's burst over frames, in request order
+static UnsignedInt s_gxEligibleAt[PATHFIND_QUEUE_LEN];	// first frame a queued request may run
+static UnsignedInt s_gxBurstFrame = 0; static Int s_gxBurstCount = 0;	// requests queued this frame
+static std::vector<ObjectID> s_gxCoarseWaiting;	// units whose coarse start waits for its turn
+void gxDeferCoarseStart(ObjectID id) { s_gxCoarseWaiting.push_back(id); }
+static const Int GX_RELEASE_PER_FRAME = 64, GX_COARSE_PER_FRAME = 32;	// web port (match rule routeQueue): requests waiting for a queue slot
 constexpr const UnsignedInt PATHFIND_CELLS_PER_FRAME = 5000; // Number of cells we will search pathfinding per frame.
 constexpr const UnsignedInt CELL_INFOS_TO_ALLOCATE = 30000;
 
@@ -4184,6 +4190,8 @@ void Pathfinder::reset()
 {
 	frameToShowObstacles = 0;
 	s_gxOverflow.clear();
+	s_gxCoarseWaiting.clear();
+	for (Int i = 0; i < PATHFIND_QUEUE_LEN; ++i) s_gxEligibleAt[i] = 0;
 	{ extern void gxRouteCacheClear(); gxRouteCacheClear(); }
 	DEBUG_LOG(("Pathfind cell is %d bytes, PathfindCellInfo is %d bytes", sizeof(PathfindCell), sizeof(PathfindCellInfo)));
 
@@ -6102,6 +6110,11 @@ Bool Pathfinder::queueForPath(ObjectID id)
 		return false;
 	}
 	m_queuedPathfindRequests[m_queuePRTail] = id;
+	{	// web port (match rule routeQueue): at most 64 requests from one frame become eligible per frame
+		const UnsignedInt now = TheGameLogic->getFrame();
+		if (s_gxBurstFrame != now) { s_gxBurstFrame = now; s_gxBurstCount = 0; }
+		s_gxEligibleAt[m_queuePRTail] = gxMatchRule(GXRULE_ROUTE_QUEUE) ? now + (UnsignedInt)(s_gxBurstCount++ / GX_RELEASE_PER_FRAME) : 0;
+	}
 	m_queuePRTail = nextSlot;
 	return true;
 }
@@ -6334,8 +6347,30 @@ void Pathfinder::processPathfindQueue()
 	// Web port (switch routeBudget, logic-ai; single player through AIUpdateInterface::gxAiRule):
 	// half the route-search work per frame, so queued units get their routes a little later.
 	const Int gxCellsPerFrame = AIUpdateInterface::gxAiRule(16384) ? PATHFIND_CELLS_PER_FRAME / 2 : PATHFIND_CELLS_PER_FRAME;
+	const Bool gxStagger = gxMatchRule(GXRULE_ROUTE_QUEUE);
+	if (gxStagger) {	// coarse starts waiting for their turn, in request order
+		size_t k = 0;
+		for (; k < s_gxCoarseWaiting.size() && k < (size_t)GX_COARSE_PER_FRAME; ++k) {
+			Object *o = TheGameLogic->findObjectByID(s_gxCoarseWaiting[k]);
+			AIUpdateInterface *ai = o ? o->getAIUpdateInterface() : nullptr;
+			if (ai) ai->gxStartCoarseDeferred();
+		}
+		s_gxCoarseWaiting.erase(s_gxCoarseWaiting.begin(), s_gxCoarseWaiting.begin() + k);
+	}
 	while (m_cumulativeCellsAllocated < gxCellsPerFrame &&
 		m_queuePRTail!=m_queuePRHead) {
+		if (gxStagger) {
+			// web port (match rule routeQueue): a burst's later requests wait their frame, and a
+			// closest-spot search (thousands of cells) does not start in the second half of the budget
+			if (s_gxEligibleAt[m_queuePRHead] > TheGameLogic->getFrame())
+				break;
+			if (m_cumulativeCellsAllocated > gxCellsPerFrame / 2) {
+				Object *next = TheGameLogic->findObjectByID(m_queuedPathfindRequests[m_queuePRHead]);
+				AIUpdateInterface *nai = next ? next->getAIUpdateInterface() : nullptr;
+				if (nai && nai->gxWantsClosestSpot())
+					break;
+			}
+		}
 		Object *obj = TheGameLogic->findObjectByID(m_queuedPathfindRequests[m_queuePRHead]);
 		m_queuedPathfindRequests[m_queuePRHead] = INVALID_ID;
 		if (obj) {
@@ -6373,6 +6408,7 @@ void Pathfinder::processPathfindQueue()
 			if (nextSlot >= PATHFIND_QUEUE_LEN) nextSlot = 0;
 			if (nextSlot == m_queuePRHead) break;
 			m_queuedPathfindRequests[m_queuePRTail] = s_gxOverflow[k].id;
+			s_gxEligibleAt[m_queuePRTail] = 0;
 			m_queuePRTail = nextSlot;
 		}
 		s_gxOverflow.erase(s_gxOverflow.begin(), s_gxOverflow.begin() + k);

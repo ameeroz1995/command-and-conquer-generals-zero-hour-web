@@ -467,6 +467,8 @@ public:
 
 	Bool isWaitingForPath() const {return m_waitingForPath;}
 	void gxMovementPassStep();
+	Bool gxWantsClosestSpot() const { return m_isApproachPath; }	///< web port (match rule routeQueue): the queued search is a closest-spot one
+	void gxStartCoarseDeferred() { if (m_waitingForPath) gxStartCoarse(&m_requestedDestination); }	///< web port (match rule routeQueue): coarse start spread over frames
 	void gxSetRouteHint( const std::vector<Coord3D> &pts, UnsignedInt frame ) { m_gxHintPts = pts; m_gxHintFrame = frame; }	///< web port (match rule groupRoute)	///< web port (match rule moveAfterTick): this unit's locomotion, from the movement pass
 	Bool gxOnCoarsePath() const { return m_gxCoarse && m_path != nullptr; }	///< web port (match rule coarseStart): following the zone-level route while the full one is queued
 	Bool isAttackPath() const {return m_isAttackPath;} ///< True if we have a path to an attack location.
