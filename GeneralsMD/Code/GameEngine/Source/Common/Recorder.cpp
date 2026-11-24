@@ -24,6 +24,7 @@
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 
+#include "Common/GxMatchRules.h"
 #include "Common/Recorder.h"
 #include "Common/file.h"
 #include "Common/FileSystem.h"
@@ -645,6 +646,7 @@ void RecorderClass::startRecording(GameDifficulty diff, Int originalGameMode, In
     if(TheSkirmishGameInfo)
     {
 			TheSkirmishGameInfo->setCRCInterval(REPLAY_CRC_INTERVAL);
+			TheSkirmishGameInfo->setGxMatchRules(gxLocalMatchRules());	// web port: the replay plays back with these
       theSlotList = GameInfoToAsciiString(TheSkirmishGameInfo);
       DEBUG_LOG(("GameInfo String: %s",theSlotList.str()));
 			localIndex = 0;
@@ -653,6 +655,7 @@ void RecorderClass::startRecording(GameDifficulty diff, Int originalGameMode, In
     {
 		  // single player.  format the generic (empty) slotlist
 			m_gameInfo.setCRCInterval(REPLAY_CRC_INTERVAL);
+			m_gameInfo.setGxMatchRules(gxLocalMatchRules());	// web port: the replay plays back with these
 		  theSlotList = GameInfoToAsciiString(&m_gameInfo);
     }
 	}

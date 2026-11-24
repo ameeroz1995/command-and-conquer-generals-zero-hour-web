@@ -2965,3 +2965,49 @@ Off by default because units notice newcomers up to 2 s later; the main chat dec
 - A/B live (ca1 = rev 00057) vs merged, twice: armies +10% / +5% fps (work -8% / -5%), strikes
   +7% / +7% (work -7% / -7%), aftermath +12% (work -11%). Load 4-22.
 - Not yet in: the range-search agent's 8x8 block summaries (bit 24), still being measured.
+
+## 2026-11-24 — Match rules: game-changing switches decided by the host, carried in the game and the replay
+
+- New helper `gxMatchRule(rule)` (Common/GxMatchRules.h, defined in GameInfo.cpp). Every switch that
+  changes the simulation goes through it: ignoreUnitsInPaths, flowFields, fastInvSqrt, lazyScans
+  and the new coarseStart. The old gates ("never in multiplayer or playback") are gone.
+- The rules travel in the game-options string every player receives and the replay header stores
+  (GameInfoToAsciiString): a `GX=<hex>;` key, written only when a rule is on, so a game without
+  rules sends the retail string. ParseAsciiStringToGameInfo reads it. The LAN host (and the online
+  host) sets the rules from its own Settings when it creates the game; skirmish and campaign
+  recordings store the local rules when recording starts. GameLogic::startNewGame calls
+  gxStartMatchRules(): in a network game or a replay the rules are fixed from TheGameInfo (the
+  host's or the recorded ones) and each player's own switches are ignored; in single player the
+  local switches are read live, as before. One "GXRULES" log line per game says which rules apply.
+- Proof: a skirmish recorded on paths-5 with rules 0x1F (header `GX=1F`) plays back matching for
+  9000 frames with every local switch off ("match rules from the replay: 1F"); the same for a
+  coarseStart recording on paths-6 (0x33) and on paths-8. The old referee replay (no GX key) still
+  matches. An older build refuses the new replay (unknown option key), so the files cannot be
+  mixed up silently.
+- LAN: not run as a two-browser test (the bench has no lobby driver). Each LAN client starts the
+  match from the GameInfo parsed from the host's options string, exactly as a replay does from its
+  header, and gxStartMatchRules takes the rules from that object on every machine, so all peers run
+  the same rules; the replay test exercises that same code path.
+
+## 2026-11-24 — Route queue measured; coarseStart kept (off), pathBudget dropped, ignoreUnits stays off
+
+- Counters (battle benchmark, paths-6/7; deterministic in single player, so identical run to run):
+  the 512-slot route queue is full (max 510) in the armies phase; requests wait 20 logic frames on
+  average, 204 at worst (~7 s); about 90% of re-plan requests are "goal moved" (5-14k per 150
+  frames, mostly repeats of a request already queued), then new orders (~1-7k), path lost and
+  blocked (~50-200 each). Worst single flow-field build: up to ~155 ms (several runs), 18-35 ms
+  common: a spike worth slicing (that would be a match rule).
+- coarseStart (match rule, second switch word bit 7, off): while a unit's full route waits in the
+  queue (moves longer than 200 units), it follows the zone-level route straightened by
+  Path::optimize, then takes the full route when it arrives; the move state does not re-plan
+  while on it. 2,500 units switched per battle; 4.5% of them found the full route pointing back
+  the way they had come, after ~12 units (about one cell) of movement on the coarse one. Replays
+  match. Frame time unchanged (strikes 13.3/14.4 fps vs default 11.9/14.5).
+- pathBudget (match rule, smaller per-frame budget for starting queued searches; 2,500 and 1,500
+  cells tried with coarseStart on): no frame gain (strikes 13.2/13.0 and 13.5/13.0 fps vs default
+  11.9/14.5); a search is never split across frames, so the work is only deferred. Average wait
+  rose from 20 to 37 and 54 frames (+0.5 s and +1.1 s), past the ~200 ms the user accepts. Removed.
+- ignoreUnitsInPaths, measured again: strikes 13.0/13.1 fps vs 11.9/14.5, fewer >100 ms frames
+  (48/34 vs 130/40), average wait 25 frames vs 20; 39% of plans fell back to planning with units
+  because the unit was blocked. No clear gain: proposal is to keep it off by default, now that it
+  could be used in network games.

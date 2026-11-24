@@ -27,6 +27,7 @@
 // Author: Michael S. Booth, October 2001
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #include <algorithm>
+#include "Common/GxMatchRules.h"
 #include "Common/Recorder.h"
 
 #include "GameLogic/AIPathfind.h"
@@ -5198,8 +5199,7 @@ static int s_gxIgnorePlans = 0, s_gxIgnoreSkippedBlocked = 0;
 // switch ignoreUnitsInPaths (page switch bit 27): single player only, never network games or replays
 static Bool gxIgnoreUnitsFor(const Object *obj)
 {
-	if (!obj || !(GLES3_Page_Switches() & 134217728)) return false;
-	if (!TheGameLogic || TheGameLogic->isInMultiplayerGame() || (TheRecorder && TheRecorder->isPlaybackMode())) return false;
+	if (!obj || !gxMatchRule(GXRULE_IGNORE_UNITS)) return false;
 	const AIUpdateInterface *ai = obj->getAIUpdateInterface();
 	if (ai && (ai->isBlockedAndStuck() || ai->getNumFramesBlocked() > 0)) { s_gxIgnoreSkippedBlocked++; return false; }
 	if ((++s_gxIgnorePlans % 1000) == 0)
@@ -11554,12 +11554,24 @@ const int DX[8] = { 1, 0, -1, 0, 1, -1, -1, 1 }, DY[8] = { 0, 1, 0, -1, 1, 1, -1
 
 void Pathfinder::gxObstaclesChanged() { s_obstacleSerial++; }
 
+// Match rule coarseStart: the zone-level route (what findPath computes first), straightened, for a
+// unit to follow while its full route waits in the queue.
+Path *Pathfinder::gxCoarsePath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *to )
+{
+	const Coord3D *from = obj->getPosition();
+	Bool isHuman = !(obj->getControllingPlayer() && obj->getControllingPlayer()->getPlayerType() == PLAYER_COMPUTER);
+	m_zoneManager.clearPassableFlags();
+	Path *path = findHierarchicalPath(isHuman, locomotorSet, from, to, obj->getCrusherLevel() > 0);
+	m_zoneManager.setAllPassable();
+	if (path) path->optimize(obj, locomotorSet.getValidSurfaces(), false);
+	return path;
+}
+
 Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo,
 	PathfindCell *startCell, PathfindCell *goalCell, Bool isCrusher, Bool centerInCell )
 {
 #ifdef __EMSCRIPTEN__
-	if (!(GLES3_Page_Switches() & 33554432) || s_inFieldPath) return nullptr;
-	if (!TheGameLogic || TheGameLogic->isInMultiplayerGame() || (TheRecorder && TheRecorder->isPlaybackMode())) return nullptr;
+	if (!gxMatchRule(GXRULE_FLOW_FIELDS) || s_inFieldPath || !TheGameLogic) return nullptr;
 	const int sx = startCell->getXIndex(), sy = startCell->getYIndex(), gx = goalCell->getXIndex(), gy = goalCell->getYIndex();
 	if (abs(sx - gx) <= GX_FF_MIN_CELLS && abs(sy - gy) <= GX_FF_MIN_CELLS) return nullptr;
 	const int x0 = m_extent.lo.x, y0 = m_extent.lo.y, w = m_extent.hi.x - x0 + 1, h = m_extent.hi.y - y0 + 1;

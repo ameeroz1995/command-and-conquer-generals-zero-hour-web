@@ -514,7 +514,29 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 		return;
 	}
 	TheAI->pathfinder()->queueForPath(getObject()->getID());
+	gxStartCoarse(destination);
 
+}
+
+// Match rule coarseStart: while the full route waits in the queue, follow the zone-level route.
+void AIUpdateInterface::gxStartCoarse( const Coord3D *destination )
+{
+	extern bool gxMatchRule(unsigned int rule);
+	if (!gxMatchRule(32 /* GXRULE_COARSE_START */) || !isDoingGroundMovement())
+		return;
+	if (m_gxCoarse && m_path && m_gxCoarseTo.x == destination->x && m_gxCoarseTo.y == destination->y)
+		return;	// already on a coarse route there (blocked units ask again every frame)
+	Object *obj = getObject();
+	const Real dx = destination->x - obj->getPosition()->x, dy = destination->y - obj->getPosition()->y;
+	if (dx * dx + dy * dy < 200.0f * 200.0f)
+		return;	// short moves: the full route comes soon enough
+	Path *coarse = TheAI->pathfinder()->gxCoarsePath(obj, m_locomotorSet, destination);
+	if (!coarse)
+		return;
+	deleteInstance(m_path);	// not destroyPath(): the request stays outstanding
+	m_path = coarse;
+	m_gxCoarse = TRUE;
+	m_gxCoarseTo = *destination;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2021,6 +2043,7 @@ void AIUpdateInterface::destroyPath()
 	// destroy previous path
 	deleteInstance(m_path);
 	m_path = nullptr;
+	m_gxCoarse = FALSE;
 
 	m_waitingForPath = FALSE; // we no longer need it.
 	//CRCDEBUG_LOG(("AIUpdateInterface::destroyPath() - m_isAttackPath = FALSE for object %d", getObject()->getID()));
@@ -4654,13 +4677,12 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	Object *newVictim = TheAI->findClosestEnemy(obj, rangeToFindWithin, flags, getAttackInfo());
 
 	// lazyScans (page switch word 2, bit 12): after a routine scan that found nothing, wait one more
-	// check interval before the next one. Changes the game, so single player only (never online,
-	// LAN or replays).
+	// check interval before the next one. Changes the game, so it is a match rule (the host's setting
+	// in network games, the recorded one in replays).
 	if (!newVictim && calledByAI)
 	{
-		extern int GLES3_Page_Switches2();
-		if ((GLES3_Page_Switches2() & 4096) && !TheGameLogic->isInMultiplayerGame()
-				&& !(TheRecorder && TheRecorder->isPlaybackMode()))
+		extern bool gxMatchRule(unsigned int rule);	// Common/GxMatchRules.h
+		if (gxMatchRule(8 /* GXRULE_LAZY_SCANS */))
 			m_nextMoodCheckTime += d->m_moodAttackCheckRate;
 	}
 

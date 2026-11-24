@@ -485,11 +485,10 @@ static bool GameWebFrameCallback(float /*delta_time_ms*/) {
       // Match just started: read the files earlier matches needed mid-game in the background.
       if (inMatch && !gx_in_match) Web_VFS_Warm_Match_Files();
       gx_in_match = inMatch;
-      // Fast inverse square root (switch fastInvSqrt): it changes the simulation slightly, so
-      // never in a network game (every player must compute the same) or a replay (it must
-      // play back as recorded).
-      gx_fast_inv_sqrt = (GLES3_Page_Switches() & 8388608) && !TheGameLogic->isInMultiplayerGame()
-                         && !(TheRecorder && TheRecorder->isPlaybackMode());
+      // Fast inverse square root (switch fastInvSqrt): it changes the simulation slightly, so it
+      // is a match rule (every player uses the host's setting; a replay uses the recorded one).
+      extern bool gxMatchRule(unsigned int rule);	// Common/GxMatchRules.h: the host's rules in a match
+      gx_fast_inv_sqrt = gxMatchRule(4 /* GXRULE_FAST_INV_SQRT */);
     }
     if (TheGameLogic && TheFramePacer) {
       fprintf(stderr,

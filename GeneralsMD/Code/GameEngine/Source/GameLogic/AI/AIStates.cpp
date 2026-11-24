@@ -1782,8 +1782,11 @@ StateReturnType AIInternalMoveToState::update()
 		m_pathTimestamp = TheGameLogic->getFrame();
 		if (ai->isWaitingForPath()) {
 			/// @todo srj -- find a way to sleep for a number of frames here, if possible
-			return STATE_CONTINUE;
+			if (!ai->gxOnCoarsePath())	// web port (match rule coarseStart): keep moving on the zone-level route
+				return STATE_CONTINUE;
 		}
+		else
+		{
 		if (thePath==nullptr)
 		{
 			//Kris: 7/01/03 (Temporary debug hook for units not being able to leave maps)
@@ -1802,6 +1805,7 @@ StateReturnType AIInternalMoveToState::update()
 		}
 		if (!ai->getRetryPath()) {
 			m_tryOneMoreRepath = false;
+		}
 		}
 	}
 
@@ -1867,6 +1871,10 @@ StateReturnType AIInternalMoveToState::update()
 
 	if (thePath != nullptr)
 		ai->setLocomotorGoalPositionOnPath();
+
+	// web port (match rule coarseStart): on the coarse route only steer along it; the full route is coming
+	if (ai->isWaitingForPath())
+		return STATE_CONTINUE;
 
 	// if our goal has moved, recompute our path
 	if (forceRecompute || TheGameLogic->getFrame() - m_pathTimestamp > MIN_REPATH_TIME)
