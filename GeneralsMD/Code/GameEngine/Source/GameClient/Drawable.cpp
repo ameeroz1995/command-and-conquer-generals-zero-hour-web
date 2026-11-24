@@ -349,6 +349,7 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatusBits statu
 
 	// assign status bits before anything else can be done
 	m_status = statusBits;
+	m_gxClipSlots = -1;
 
 	m_nextDrawable = nullptr;
 	m_prevDrawable = nullptr;
@@ -4695,6 +4696,26 @@ void Drawable::setDrawableHidden( Bool hidden )
 //-------------------------------------------------------------------------------------------------
 void Drawable::updateDrawableClipStatus( UnsignedInt shotsRemaining, UnsignedInt maxShots, WeaponSlotType slot )
 {
+	// clipSkip (second switch word bit 22): runs every frame for every armed unit and weapon slot, but
+	// only models that show their loaded missiles do anything; the draw modules are fixed for the
+	// drawable's life, so which slots they show is asked once. Drawing only.
+	extern int GLES3_Page_Switches2();
+	if (GLES3_Page_Switches2() & 4194304)
+	{
+		if (m_gxClipSlots < 0)
+		{
+			Int slots = 0;
+			for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
+			{
+				ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();
+				if (di)
+					slots |= di->gxClipFeedbackSlots();
+			}
+			m_gxClipSlots = slots & 0x7fffffff;
+		}
+		if ((m_gxClipSlots & (1 << slot)) == 0)
+			return;
+	}
 	for (DrawModule** dm = getDrawModulesNonDirty(); *dm; ++dm)
 	{
 		ObjectDrawInterface* di = (*dm)->getObjectDrawInterface();

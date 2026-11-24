@@ -52,7 +52,7 @@ double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gle
 static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 // Second switch word (the first is full): bit 0 contactTable, bit 1 sleepyKeys, bit 2 openHeap, bit 3 contactArray (game logic, same game).
-static int g_PageSwitches2 = 15 | 65536 | 131072 | 262144 | 524288;
+static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 512 | 65536 | 131072 | 262144 | 524288;
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -437,7 +437,20 @@ void GLES3_Begin_Scene() {
             return (o.contactTable === false ? 0 : 1)   // bit 0: touching-pair table sized for big battles (PartitionManager.cpp)
                  | (o.sleepyKeys === false ? 0 : 2)     // bit 1: update queue keeps each wake-up time next to its entry (GameLogic.cpp)
                  | (o.openHeap === false ? 0 : 4)       // bit 2: route search candidates in a heap instead of a sorted list (AIPathfind.cpp)
-                 | (o.contactArray === false ? 0 : 8)    // bit 3: touching pairs kept in flat arrays, nothing allocated per pair (PartitionManager.cpp; same game)
+                 | (o.contactArray === false ? 0 : 8)   // bit 3: touching pairs kept in flat arrays, nothing allocated per pair (PartitionManager.cpp; same game)
+                 | (o.cellBits === false ? 0 : 32)      // bit 5: route searches read a bitmap of occupied cells (AIPathfind.cpp; same game)
+                 | (o.lazyFields === false ? 0 : 64)    // bit 6: flow fields computed only as far as the units asking (AIPathfind.cpp; same routes)
+                 | (o.coarseStart === true ? 128 : 0)   // bit 7: match rule coarseStart, units follow the zone-level route while their full route is queued (AIUpdate.cpp)
+                 | (o.lazyScans === true ? 4096 : 0)    // bit 12: routine enemy scans that find nothing wait twice as long (AIUpdate.cpp; match rule)
+                 | (o.sharedRoutes === true ? 8192 : 0)   // bit 13: units sent to one point plan to free spots near it, sharing its route (AIUpdate.cpp; match rule)
+                 | (o.routeBudget === true ? 16384 : 0)  // bit 14: half the route-search work per frame (AIPathfind.cpp; match rule)
+                 | (o.boneCache === false ? 0 : 1048576)  // bit 20: loaded-missile bones found by index, not by name every frame (W3DModelDraw.cpp; drawing only)
+                 | (o.lightCache === false ? 0 : 2097152)  // bit 21: headlight sub-objects listed once per model (W3DModelDraw.cpp; drawing only)
+                 | (o.clipSkip === false ? 0 : 4194304)   // bit 22: loaded-missile display asked only of models that show it (Drawable.cpp; drawing only)
+                 | (o.cellReuse === false ? 0 : 256)  // bit 8: a moved unit still on the same map squares is moved to the front of their lists, not refilled (PartitionManager.cpp; same game)
+                 | (o.leanPairs === false ? 0 : 512)   // bit 9: touching-pair offers read no unit data and use a 4x smaller table (PartitionManager.cpp; same game)
+                 | (o.collideStagger === true ? 1024 : 0)   // bit 10: ground units check collisions every 2nd frame (PartitionManager.cpp; match rule)
+                 | (o.collideStagger3 === true ? 2048 : 0)  // bit 11: ... every 3rd frame (wins over bit 10)
                  | (o.searchSlotSkip === false ? 0 : 65536)  // bit 16: range searches skip entries of players the relationship filter rejects (PartitionManager.cpp; same game)
                  | (o.laserFilters === false ? 0 : 131072)   // bit 17: point-defense lasers filter inside the range search (PointDefenseLaserUpdate.cpp; same game)
                  | (o.denseCellMask === false ? 0 : 262144)  // bit 18: range searches read each cell's player mask from one dense array (PartitionManager.cpp; same game)

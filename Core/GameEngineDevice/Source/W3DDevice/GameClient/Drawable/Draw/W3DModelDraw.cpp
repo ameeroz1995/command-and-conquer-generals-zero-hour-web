@@ -1742,6 +1742,7 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
 	}
 	m_needRecalcBoneParticleSystems = false;
 	m_fullyObscuredByShroud = false;
+	gxForgetSubObjIndices();
 
 	// only validate the current time-of-day and weather conditions by default.
 	getW3DModelDrawModuleData()->validateStuffForTimeAndWeather(getDrawable(),
@@ -2385,6 +2386,50 @@ void W3DModelDraw::doHideShowSubObjs(const std::vector<ModelConditionInfo::HideS
 }
 
 //-------------------------------------------------------------------------------------------------
+// gx: switches boneCache (second word bit 20) and lightCache (bit 21). Client only (what is drawn),
+// never the game. Verify mode looks every cached index up by name again and counts differences.
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches2();
+static int gx_bone_verify_checked, gx_bone_verify_mismatch;
+static void gxBoneVerify(Bool same)
+{
+	++gx_bone_verify_checked;
+	if (!same)
+		++gx_bone_verify_mismatch;
+	if (gx_bone_verify_checked % 20000 == 0)
+		printf("GXVERIFY sub-object index cache checked %d, mismatches %d\n", gx_bone_verify_checked, gx_bone_verify_mismatch);
+}
+
+void W3DModelDraw::gxForgetSubObjIndices()
+{
+	for (Int i = 0; i < WEAPONSLOT_COUNT; ++i)
+	{
+		m_gxProjBones[i].robj = nullptr;
+		m_gxProjBones[i].state = nullptr;
+		m_gxProjBones[i].maxCount = 0;
+		m_gxProjBones[i].idx.clear();
+	}
+	m_gxLightsRobj = nullptr;
+	m_gxLights.clear();
+}
+
+// the same work as one entry of doHideShowSubObjs, the sub-object given by index instead of by name
+void W3DModelDraw::gxHideShowSubObjIndex(Int objIndex, Bool hide)
+{
+	RenderObjClass* subObj = m_renderObject->Get_Sub_Object(objIndex);
+	if (!subObj)
+		return;
+	subObj->Set_Hidden(hide);
+	const HTreeClass *htree = m_renderObject->Get_HTree();
+	if (htree)
+	{
+		Int boneIdx = m_renderObject->Get_Sub_Object_Bone_Index(0, objIndex);
+		doHideShowBoneSubObjs(hide, m_renderObject->Get_Num_Sub_Objects(), boneIdx, m_renderObject, htree);
+	}
+	subObj->Release_Ref();
+}
+
+//-------------------------------------------------------------------------------------------------
 void W3DModelDraw::stopClientParticleSystems()
 {
 	for (std::vector<ParticleSysTrackerType>::const_iterator it = m_particleSystemIDs.begin(); it != m_particleSystemIDs.end(); ++it)
@@ -2788,6 +2833,8 @@ void W3DModelDraw::nukeCurrentRender(Matrix3D* xform)
 		m_terrainDecal->release();
 	m_terrainDecal = nullptr;
 
+	gxForgetSubObjIndices();	// the render object goes away: its sub-object indices with it
+
 	// remove existing render object from the scene
 	if (m_renderObject)
 	{
@@ -2839,6 +2886,47 @@ void W3DModelDraw::hideGarrisonFlags(Bool hide)
 /** Hides all subobjects which are headlights.  Used to disable lights on models during the day.*/
 void W3DModelDraw::hideAllHeadlights(Bool hide)
 {
+	if (m_renderObject && (GLES3_Page_Switches2() & 2097152))
+	{
+		// lightCache: the headlight sub-objects are found once per render object (every model state
+		// change used to scan every sub-object's name), then hidden or shown in the same order.
+		if (m_gxLightsRobj != m_renderObject)
+		{
+			m_gxLights.clear();
+			for (Int subObj = 0; subObj < m_renderObject->Get_Num_Sub_Objects(); subObj++)
+			{
+				RenderObjClass* test = m_renderObject->Get_Sub_Object(subObj);
+				if (strstr(test->Get_Name(),"HEADLIGHT"))
+					m_gxLights.push_back(subObj);
+				test->Release_Ref();
+			}
+			m_gxLightsRobj = m_renderObject;
+		}
+		else if (GLES3_Page_Switches() & 2097152)
+		{
+			size_t k = 0;
+			Bool same = TRUE;
+			for (Int subObj = 0; subObj < m_renderObject->Get_Num_Sub_Objects(); subObj++)
+			{
+				RenderObjClass* test = m_renderObject->Get_Sub_Object(subObj);
+				if (strstr(test->Get_Name(),"HEADLIGHT"))
+				{
+					if (k >= m_gxLights.size() || m_gxLights[k] != subObj)
+						same = FALSE;
+					++k;
+				}
+				test->Release_Ref();
+			}
+			gxBoneVerify(same && k == m_gxLights.size());
+		}
+		for (size_t i = 0; i < m_gxLights.size(); ++i)
+		{
+			RenderObjClass* test = m_renderObject->Get_Sub_Object(m_gxLights[i]);
+			test->Set_Hidden(hide);
+			test->Release_Ref();
+		}
+		return;
+	}
 	if (m_renderObject)
 	{
 		for (Int subObj = 0; subObj < m_renderObject->Get_Num_Sub_Objects(); subObj++)
@@ -3945,6 +4033,58 @@ void W3DModelDraw::doHideShowProjectileObjects( UnsignedInt showCount, UnsignedI
 		return;
 	}
 	Int hideCount = maxCount - showCount;
+
+	if (GLES3_Page_Switches2() & 1048576)
+	{
+		// boneCache: this runs every frame for every unit showing its loaded missiles. The bone names
+		// used to be formatted and searched among all sub-objects each time; now their indices are
+		// found once per render object, model state and clip size. Same hide/show calls, same order.
+		if (!m_renderObject)
+			return;	// doHideShowSubObjs does nothing without a render object
+		GxProjBones& c = m_gxProjBones[slot];
+		const Bool oneName = !m_curState->m_weaponProjectileHideShowName[slot].isEmpty();
+		const Bool rebuild = c.robj != m_renderObject || c.state != m_curState || c.maxCount != maxCount;
+		if (rebuild || (GLES3_Page_Switches() & 2097152))
+		{
+			std::vector<Int> found;
+			AsciiString name;
+			const UnsignedInt n = oneName ? 1 : maxCount;
+			for (UnsignedInt k = 0; k < n; ++k)
+			{
+				if (oneName)
+					name = m_curState->m_weaponProjectileHideShowName[slot];
+				else
+					name.format("%s%02d", m_curState->m_weaponProjectileLaunchBoneName[slot].str(), (k + 1));
+				Int objIndex = -1;
+				RenderObjClass* subObj = m_renderObject->Get_Sub_Object_By_Name(name.str(), &objIndex);
+				if (subObj)
+					subObj->Release_Ref();
+				else
+				{
+					objIndex = -1;
+					DEBUG_CRASH(("*** ASSET ERROR: SubObject %s not found (%s)!",name.str(),getDrawable()->getTemplate()->getName().str()));
+				}
+				found.push_back(objIndex);
+			}
+			if (rebuild)
+			{
+				c.idx.swap(found);
+				c.robj = m_renderObject;
+				c.state = m_curState;
+				c.maxCount = maxCount;
+			}
+			else
+				gxBoneVerify(found == c.idx);
+		}
+		for (size_t k = 0; k < c.idx.size(); ++k)
+		{
+			if (c.idx[k] >= 0)
+				gxHideShowSubObjIndex(c.idx[k], oneName ? (0 < hideCount) : ((UnsignedInt)k < (UnsignedInt)hideCount));
+		}
+		if (!m_subObjectVec.empty())
+			updateSubObjects();
+		return;
+	}
 
 	std::vector<ModelConditionInfo::HideShowSubObjInfo> showHideVector;
 	ModelConditionInfo::HideShowSubObjInfo oneEntry;

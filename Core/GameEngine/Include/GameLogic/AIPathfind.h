@@ -405,6 +405,8 @@ public:
 	void setLayer( PathfindLayerEnum layer ) { m_layer = layer; }	///< set the cell layer
 	PathfindLayerEnum getLayer() const { return (PathfindLayerEnum)m_layer; }				///< get the cell layer
 
+	inline void gxSetFlags(CellFlags f);	///< web port: every m_flags write goes here (keeps Pathfinder's ground occupancy bits in step)
+
 	void setConnectLayer( PathfindLayerEnum layer ) { m_connectsToLayer = layer; }	///< set the cell layer	connect id
 	PathfindLayerEnum getConnectLayer() const { return (PathfindLayerEnum)m_connectsToLayer; }				///< get the cell layer connect id
 
@@ -674,6 +676,7 @@ public:
 	Bool clientSafeQuickDoesPathExistForUI( const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to );  ///< Can we build any path at all between the locations	(terrain only - fast)
 	Bool slowDoesPathExist( Object *obj, const Coord3D *from,
 		const Coord3D *to, ObjectID ignoreObject=INVALID_ID );  ///< Can we build any path at all between the locations	(terrain, buildings & units check - slower)
+	Path *gxCoarsePath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *to );	///< web port (match rule coarseStart): straightened zone-level route
 
 	Bool queueForPath(ObjectID id);	 ///< The object wants to request a pathfind, so put it on the list to process.
 	void processPathfindQueue(); ///< Process some or all of the queued pathfinds.
@@ -756,6 +759,9 @@ public:
 	// Adjusts the destination to a spot near dest that is not occupied by other units.
 	Bool adjustDestination(Object *obj, const LocomotorSet& locomotorSet,
 		Coord3D *dest, const Coord3D *groupDest=nullptr);
+	/// Web port (sharedRoutes, logic-ai): adjustDestination's test over square rings firstRing..lastRing around dest.
+	Bool gxAdjustDestinationRings(Object *obj, const LocomotorSet& locomotorSet, Coord3D *dest,
+		Int firstRing, Int lastRing, Int *foundRing);
 
 	// Adjusts the destination to a spot near dest for landing that is not occupied by other units.
 	Bool adjustToLandingDestination(Object *obj, Coord3D *dest);
@@ -806,6 +812,7 @@ protected:
 	void adjustCoordToCell(Int cellX, Int cellY, Bool centerInCell, Coord3D &pos, PathfindLayerEnum layer);
 	Bool checkDestination(const Object *obj, Int cellX, Int cellY, PathfindLayerEnum layer, Int iRadius, Bool centerInCell);
 	Bool checkForMovement(const Object *obj, TCheckMovementInfo &info);
+	Bool gxCheckForMovement(const Object *obj, TCheckMovementInfo &info, Bool useBits);	///< web port: checkForMovement, optionally from the occupancy bits (switch cellBits)
 	Bool segmentIntersectsTallBuilding(const PathNode *curNode, PathNode *nextNode,
 		ObjectID ignoreBuilding, Coord3D *insertPos1, Coord3D *insertPos2, Coord3D *insertPos3);	///< Return true if the straight line between the given points intersects a tall building.
 	Bool circleClipsTallBuilding(const Coord3D *from, const Coord3D *to, Real radius, ObjectID ignoreBuilding, Coord3D *adjustTo);	///< Return true if the circle at the end of the line between the given points intersects a tall building.

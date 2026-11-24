@@ -2777,6 +2777,148 @@ Strike phase (live build 52b7e14), share of the frame, inclusive:
   together) can save at most roughly half of the ~8% submission cost and of the ~6% per-object
   cost: about 6-7% of the frame, for several days of work with visual-regression risk.
 
+## 2026-11-24 — Route searches: occupied-cell bits (cellBits) and lazy flow fields (lazyFields), both kept
+
+- Counters (big battle, per 150 frames): ~5M checkForMovement calls reading ~45M cells (blocks of
+  1-9 cells around each searched cell), 27-36% of them holding a unit; flow fields: 40-120 field
+  builds (~7 ms each) for ~100-260 field paths, i.e. fields are rarely shared (344 builds for
+  800 paths); the downhill walks cost almost nothing.
+- cellBits (second switch word bit 5, on): one bit per ground cell, set while the cell's unit flags
+  are not NO_UNITS. Every flag write goes through PathfindCell::gxSetFlags, which keeps the bit in
+  step (always, so the switch can flip mid-game). For a ground block fully on the map,
+  checkForMovement reads the bits column by column and runs the original per-cell body only for
+  occupied cells, in the original order. Off-map blocks and bridge layers keep the old loop.
+- lazyFields (second switch word bit 6, on; flow fields are single player only): a field's
+  Dijkstra (Dial buckets) and its walk mask are kept and resumed on each request until the
+  start cell's distance D is final. Every cell nearer than D is then final and every other cell
+  holds more than D, so the downhill walk reads the same cells as with the full field. The mask
+  is filled in on demand with the ignored obstacle of the moment the field was made (cell types
+  only change with s_obstacleSerial, which retires the field). The GPU field path is unchanged.
+- Same game: referee replay matches over 9000 frames (paths-2 and paths-4). Verify mode: the old
+  checkForMovement loop beside the new one, and the full field beside each lazy walk (all cells
+  nearer than D equal, all others above D): 0 mismatches.
+- A/B: fps pairs were useless at machine load 12-33 (the same setting swung ±50%), so I compared
+  strike-phase profiles instead (share of the frame, both switches off vs on, two pairs at load
+  11-25):
+  checkForMovement 5.0% -> 3.7% and 4.7% -> 3.8%; gxFlowFieldPath 3.6% -> 1.7% and 3.1% -> 1.6%;
+  AIUpdateInterface::computePath (incl.) 13.9% -> 11.0% and 12.8% -> 11.0%.
+- Tried, not kept: reusing a field when its rebuilt walk mask is unchanged (fieldReuse). It never
+  happened (0 of 226 rebuilds): each rebuild follows a real walkability change from a building
+  placed or destroyed.
+## 2026-11-24 — Unit AI / state machines: measured, nothing kept (logic-ai agent)
+
+Strike-phase profiles of 66e2829 (builds ai-0, tags ai-prof1/ai-prof2; machine load 27-48):
+- AIUpdateInterface::update 9.9-13.7% inclusive, but its own code is thin: all AI self time
+  (isIdle, isDoingGroundMovement, updateStateMachine, doLocomotor, state updates, findLocomotor,
+  chooseGoodLocomotor, transitions) adds up to ~2-3% of the frame, each item 0.1-0.4%.
+- The rest belongs to other areas: target scans getNextMoodTarget 2.7-4.1% (almost all
+  AI::findClosestEnemy -> PartitionManager::getClosestObject), path following
+  Path::computePointOnPath 1.7% (doLocomotor + getLocomotorDistanceToGoal, with isLinePassable),
+  weapon firing under AIAttackFireWeaponState 1.2-1.7%, locomotor physics math 1.3%.
+- Counter (ai-diag1, per 150 frames in strikes): 3,100-6,700 mood scans by cadence (80% find
+  nothing), 60-960 forced rescans after a kill, ~1,900 from idle units: ~45 scans a frame, all
+  already on the game's own 2-second cadence (MoodAttackCheckRate) with no repeated work to drop.
+- Checked and ruled out: model-condition clears every frame (Drawable already returns early when
+  nothing changes); a second computePointOnPath per frame (Path already caches it, and a memo would
+  change its countdown, so not exact); state-machine create/destroy (0.3%, only on object death).
+- Not built: exact micro-changes here could save at most ~0.5% of the frame, below what this
+  loaded machine can measure. The one real lever in this area is the scan cadence (e.g. back off
+  after misses), which changes the game: it could only be a single-player switch, worth ~1-2%.
+
+## 2026-11-24 — Unit AI: what the states cause (logic-ai agent, second pass)
+
+Counters (build ai-diag2, strike phase, per frame):
+- ~1,000-1,800 AI updates. Attack-move units 600-1,100 and move-to 250-370, all awake every frame
+  (they are moving: needed). Idle units awake 60-92% of frames (turrets tracking, blocked units).
+  Dead units up to ~385 updates a frame (AI_DEAD never sleeps), but the profile puts AIDeadState at
+  0.0%: not worth making exact sleep for.
+- Path requests: 35-70 a frame re-request a moving goal (90% within one cell of the last request),
+  but these are missiles' quick paths that return early when unchanged. Moves started over to the
+  same place grow to ~45 a frame late in the battle. Only 5-10 real route searches run per frame,
+  and the pathfinder already caps work per frame (PATHFIND_CELLS_PER_FRAME), so fewer requests
+  would not cut CPU much. Pathfinder share did not move in the runs below. Not pursued.
+- Target scans: ~45 a frame, 80% find nothing, mostly attack-move units (15-37 a frame) and idle
+  units (5-11).
+
+Kept, off by default — lazyScans (switch word 2, bit 12; single player only, gated like
+ignoreUnitsInPaths): a routine scan that finds nothing waits one more check interval (4 s instead
+of 2 s). Profile pairs at load 11-19 (off -> on), strike phase share of the frame:
+- pair 1: getNextMoodTarget 3.5% -> 2.1%, AIUpdateInterface::update 13.1% -> 10.8%
+- pair 2: getNextMoodTarget 3.5% -> 2.5%, AIUpdateInterface::update 12.9% -> 13.2%
+So scans cost 30-40% less, about 1-1.4% of the frame. Whole-frame A/B could not show it: load
+swung 15 -> 42 between runs (+19% then -34% fps), and with the switch on the battle itself plays
+out differently. Replay matches the recording with the switch off and on (replays ignore it).
+Off by default because units notice newcomers up to 2 s later; the main chat decides.
+## 2026-11-24 — Combat area (weapons, damage, moves): profile; two drawing caches kept (switches boneCache, lightCache; second word bits 20-21, on)
+
+- Profile (lg ca1, machine load 50-75, so strike phases hit the time limit; shares from a 30 s armies
+  window): weapon-status model flags 0.7-0.9% of the frame, of which ~70% was
+  W3DModelDraw::doHideShowProjectileObjects (units that show their loaded missiles): every frame it
+  formatted "BONE%02d" names and searched every sub-object by name (RenderObjClass::Get_Sub_Object_By_Name
+  0.3-0.4%). W3DModelDraw::hideAllHeadlights ran a strstr over every sub-object name on every model
+  state change (0.3%). Moves (setTransformMatrix -> reactToTransformChange) 1.2-2.0%: spread thin
+  (two matrix copies, atan2, partition dirty, drawable Set_Transform; trigger areas 0.1%, pathfinder
+  cell update ~0); damage 0.6-1.1% (half of it ActiveBody::internalChangeHealth -> visual state);
+  particles 0.2-0.6%. Nothing else in this area above ~0.5%.
+- **boneCache** (bit 20): the missile bones' sub-object indices are found once per render object,
+  model state, slot and clip size, then hidden/shown by index (same calls, same order, same
+  bone-children pass, same updateSubObjects). **lightCache** (bit 21): the headlight sub-objects are
+  listed once per render object. Both caches are emptied in nukeCurrentRender, the only way the render
+  object changes. Drawing only; the game is untouched.
+- Same game: referee replay matches over 9000 frames. Verify mode re-does every cached lookup by name
+  and compares: 60,000+ checked, 0 mismatches.
+- Measured (profile share, armies window, switches off -> on): missile bones 0.6% -> 0.2%, headlights
+  0.3% -> 0.1%, by-name sub-object search 0.4% -> 0.1%; about 0.6% of the frame. fps A/B was not
+  measurable (load 37-75, strike phases stopped at the time limit; fps differed 2x between identical runs).
+- Not done (each < 0.3% and/or would change the game): the drawable's second atan2 per move (the
+  object's angle can differ from the matrix's after setOrientation), heap changes in the update queue
+  (heap order is game order), audio per shot (random seeds under RETAIL_COMPATIBLE_CRC), damage
+  victim order.
+
+## 2026-11-24 (later) — clipSkip (second word bit 22, on) and the strike-phase numbers for all three switches
+
+- **clipSkip**: `Drawable::updateDrawableClipStatus` runs every frame for every armed unit and weapon
+  slot (ObjectWeaponStatusHelper) and walked every draw module, although only W3DModelDraw modules
+  with ProjectileBoneFeedbackEnabledSlots act. The drawable now asks its draw modules once which
+  slots they show (`ObjectDrawInterface::gxClipFeedbackSlots`, default "all") and skips the walk for
+  other slots. Draw modules never change after creation. Drawing only.
+- Same game: referee replay matches over 9000 frames with boneCache, lightCache and clipSkip on.
+- Strike-phase profile share (machine rebooted, load 16-26), all three off -> on, two pairs:
+  weapon-status model flags 1.5% / 1.4% -> 0.5% / 0.5%; missile bones 0.8% -> 0.2%; headlights
+  0.5% / 0.4% -> 0.1%. About 1.3% of the strike frame.
+- fps/work A/B, same runs (off -> on): strikes 5.6 -> 7.3 fps (work 176 -> 134 ms) and 4.8 -> 10.1
+  (206 -> 97 ms); armies 8.9 -> 9.8 and 4.7 -> 12.7. Direction agrees but the size is mostly noise
+  (an earlier pair without clipSkip, load 12-33: strike work 124.5 -> 107.8 and 145.8 -> 141.3;
+  armies +9% in one pair). The profile shares are the reliable figure.
+- Looked at and dropped (profile share in strikes, each too thin or not exact): moves
+  (Thing::setTransformMatrix 2.5-3.4% inclusive, spread over matrix copies, atan2, drawable
+  Set_Transform, partition dirty; no piece above 0.3%); W3DModelDraw::adjustTransformMtx (0.3%,
+  a few field reads); weapons firing 1.8-3.6% (damage half; victim order and audio seeds are game
+  state); update-queue heap 0.7% (heap order is game order; sleepyKeys already done); particles
+  0.2-0.6%.
+## 2026-11-24 — Touching-pair list build: same-cells fast path and leaner pair offers (switches cellReuse, leanPairs; second word bits 8-9, on)
+
+- Counters (peak battle, per frame): ~1,100 cell updates, 91% end on exactly the same cells (86% are
+  "small" shapes, 1.7 cells each on average); ~2,100 objects scan their cells and make ~42k pair offers.
+  Each offer cost a cell-list step, a read of the other side's partition data (object pointer) and a
+  probe into a 4 MB pair table: the list build is mostly cache misses.
+- cellReuse (bit 8): the cells a fill covers depend only on a key (whole-cell corners for small shapes,
+  centre cell + cell radius for the retail circle fill, the exact floats for boxes) plus the COI array
+  size. If the key is unchanged, the old remove-all-and-refill only moved each COI to the front of its
+  cell's list; the fast path does just that (and resets the per-cell player count slot). The key is
+  kept on both paths, so flipping the switch mid-game stays exact.
+- leanPairs (bit 9, needs contactArray): offers read only the two partition-data pointers; pairs with an
+  object-less side (fogged ghosts) are kept and skipped when processed (they never were listed, and
+  they don't change the other pairs' order). Repeats are found in a table of 8-byte keys (1 MB, 0 =
+  empty), its used slots listed and emptied at reset, instead of the 16-byte generation table (4 MB).
+- Same game: replay matches over 9000 frames; verify mode (cellReuse compares each reused key's cells
+  with a real refill; the contact-array check skips ghost pairs) 0 mismatches over the whole battle.
+- Measured: fps A/B could not see it (load 12-46 after a reboot; strikes off 5.8/5.0/8.1/5.6/5.6 vs on
+  5.8/3.6/9.1/7.0/3.6). Coarse per-frame timers (two per frame) instead, build ms / processing ms per
+  150-frame window: off 0.33-0.44 while the battle builds up and 0.79-0.80 at the peak; both on
+  0.26-0.32 and 0.56-0.63 (about 20-25% less build work, e.g. peak window 14.2 -> 10.3 ms on the same
+  machine state). Split: leanPairs alone 0.30-0.35 (most of it); cellReuse alone 0.34-0.39, 0.71 at the
+  peak (a small share). Worth roughly 1-3% of a peak frame.
 ## 2026-11-24 — Range searches rebuilt: fewer entries touched (switches searchSlotSkip, laserFilters, denseCellMask, searchCache; second word bits 16-19, on)
 
 - Who searches (per-call-site counters, peak battle): point-defense lasers 44% of all entries walked
@@ -2813,6 +2955,152 @@ Strike phase (live build 52b7e14), share of the frame, inclusive:
 - Not built: coarse 8x8 block masks. Per search 132 cells are in range and 51 kept; the 81 skipped are
   already 4-byte reads from the dense array (well under 2% of a search).
 
+## 2026-11-24 — Five logic branches merged (perf/logic-paths, -ai, -combat, -collide, -query)
+
+- Merged into perf/low-end (1112bed). Conflicts were only the shared switch list, Settings entries
+  and this log; resolved by keeping both sides (one duplicated contactArray line removed).
+  Second switch word default: 15|32|64|256|512|65536|131072|262144|524288|1048576|2097152|4194304
+  (lazyScans stays off).
+- Same game: referee replay matches over 9000 frames; verify mode 0 mismatches (builds merge1).
+- A/B live (ca1 = rev 00057) vs merged, twice: armies +10% / +5% fps (work -8% / -5%), strikes
+  +7% / +7% (work -7% / -7%), aftermath +12% (work -11%). Load 4-22.
+- Not yet in: the range-search agent's 8x8 block summaries (bit 24), still being measured.
+
+## 2026-11-24 — Match rules: game-changing switches decided by the host, carried in the game and the replay
+
+- New helper `gxMatchRule(rule)` (Common/GxMatchRules.h, defined in GameInfo.cpp). Every switch that
+  changes the simulation goes through it: ignoreUnitsInPaths, flowFields, fastInvSqrt, lazyScans
+  and the new coarseStart. The old gates ("never in multiplayer or playback") are gone.
+- The rules travel in the game-options string every player receives and the replay header stores
+  (GameInfoToAsciiString): a `GX=<hex>;` key, written only when a rule is on, so a game without
+  rules sends the retail string. ParseAsciiStringToGameInfo reads it. The LAN host (and the online
+  host) sets the rules from its own Settings when it creates the game; skirmish and campaign
+  recordings store the local rules when recording starts. GameLogic::startNewGame calls
+  gxStartMatchRules(): in a network game or a replay the rules are fixed from TheGameInfo (the
+  host's or the recorded ones) and each player's own switches are ignored; in single player the
+  local switches are read live, as before. One "GXRULES" log line per game says which rules apply.
+- Proof: a skirmish recorded on paths-5 with rules 0x1F (header `GX=1F`) plays back matching for
+  9000 frames with every local switch off ("match rules from the replay: 1F"); the same for a
+  coarseStart recording on paths-6 (0x33) and on paths-8. The old referee replay (no GX key) still
+  matches. An older build refuses the new replay (unknown option key), so the files cannot be
+  mixed up silently.
+- LAN: not run as a two-browser test (the bench has no lobby driver). Each LAN client starts the
+  match from the GameInfo parsed from the host's options string, exactly as a replay does from its
+  header, and gxStartMatchRules takes the rules from that object on every machine, so all peers run
+  the same rules; the replay test exercises that same code path.
+
+## 2026-11-24 — Route queue measured; coarseStart kept (off), pathBudget dropped, ignoreUnits stays off
+
+- Counters (battle benchmark, paths-6/7; deterministic in single player, so identical run to run):
+  the 512-slot route queue is full (max 510) in the armies phase; requests wait 20 logic frames on
+  average, 204 at worst (~7 s); about 90% of re-plan requests are "goal moved" (5-14k per 150
+  frames, mostly repeats of a request already queued), then new orders (~1-7k), path lost and
+  blocked (~50-200 each). Worst single flow-field build: up to ~155 ms (several runs), 18-35 ms
+  common: a spike worth slicing (that would be a match rule).
+- coarseStart (match rule, second switch word bit 7, off): while a unit's full route waits in the
+  queue (moves longer than 200 units), it follows the zone-level route straightened by
+  Path::optimize, then takes the full route when it arrives; the move state does not re-plan
+  while on it. 2,500 units switched per battle; 4.5% of them found the full route pointing back
+  the way they had come, after ~12 units (about one cell) of movement on the coarse one. Replays
+  match. Frame time unchanged (strikes 13.3/14.4 fps vs default 11.9/14.5).
+- pathBudget (match rule, smaller per-frame budget for starting queued searches; 2,500 and 1,500
+  cells tried with coarseStart on): no frame gain (strikes 13.2/13.0 and 13.5/13.0 fps vs default
+  11.9/14.5); a search is never split across frames, so the work is only deferred. Average wait
+  rose from 20 to 37 and 54 frames (+0.5 s and +1.1 s), past the ~200 ms the user accepts. Removed.
+- ignoreUnitsInPaths, measured again: strikes 13.0/13.1 fps vs 11.9/14.5, fewer >100 ms frames
+  (48/34 vs 130/40), average wait 25 frames vs 20; 39% of plans fell back to planning with units
+  because the unit was blocked. No clear gain: proposal is to keep it off by default, now that it
+  could be used in network games.
+
+## 2026-11-24 — Group routes: sharedRoutes (logic-ai agent; merged perf/low-end 445e8b8 first)
+
+What a group move costs today (counters, build ai-diag3, per 150 frames, early battle): the
+benchmark's attack-moves send every unit of a group to the exact same point. The first unit
+reserves that cell; for every other unit findPath fails at checkDestination (the cell is taken)
+and computePath falls back to findClosestPath, which examined 6,000-11,000 cells per call:
+150-280 such calls = 1.0-1.7 million cells, against 10-240 thousand for all successful searches.
+The route queue was backlogged on 136-149 of every 150 frames with 340-470 units waiting.
+Flow fields (paths agent) already share one field per goal area, but the fallback skipped them.
+
+sharedRoutes (switch word 2, bit 13; single player only through one gate,
+AIUpdateInterface::gxSharedRoutes, so it can become a host-decided match rule with a one-line
+change): when that search fails because the goal is taken, the unit takes the nearest free spot
+around the goal (adjustDestination's test over square rings, up to 40 rings,
+Pathfinder::gxAdjustDestinationRings) and plans to it, which uses the shared flow field. The ring
+where the last spot for that goal was found is remembered for 5 s, so the next unit continues
+from there instead of re-testing taken cells. Only if no spot is found does the old fallback run.
+- Counters with it on: fallback 6-20 calls per 150 frames (3-11 thousand cells); successful
+  searches 300-1,300 per 150 frames instead of 120-680; queue backlogged on 15-100 of 150 frames,
+  ~130-170 waiting instead of 340-470.
+- Profiles (load ~6): armies phase findClosestPath 16.7% -> 0.3% of the frame,
+  computePath 19.4% -> 12.8%, but Pathfinder:: 22.3% -> 17.1% only and GameLogic::update the same
+  (52.7% vs 52.3%); strike phase findClosestPath 7.8% -> 0.3%, computePath 13.6% -> 11.7%,
+  Pathfinder:: 16.7% -> 17.5%. The pathfinder works to a fixed cell budget per frame
+  (PATHFIND_CELLS_PER_FRAME) while units are queued, so the budget now goes to other units' routes.
+- Frame time, two pairs off/on (load 7-12): work ms armies 50.9/53.1, 53.6/52.4; strikes
+  108.6/79.9, 75.8/77.4; aftermath 54.8/48.6, 43.7/47.5. No frame-time gain shown.
+- Replay matches with the switch off and on (replays ignore it). Screenshots off/on:
+  ~/generals-bench/ai-shot-{off,on}_battle*.png (armies meet and fight normally).
+Kept, OFF by default: it makes big armies get their routes about 3x sooner, not frames faster.
+Making it a CPU gain would mean lowering the per-frame cell budget while it is on (a game
+change of its own); left for the main chat to decide.
+
+## 2026-11-24 — Spreading AI work over ticks (logic-ai agent)
+
+One gate for every game-changing AI rule: AIUpdateInterface::gxAiRule(bit) (single player only;
+the match-rules wiring changes only that function). lazyScans (bit 12) and sharedRoutes (bit 13)
+now go through it too.
+
+Shares first (build ai-3, strikes / armies, load 3-4, inclusive share of the frame):
+- (b) computer opponent: AIPlayer/AISkirmishPlayer < 0.1%, Player::update 0.2-0.4% (the benchmark
+  armies are scripted). Nothing to gain here; not built.
+- (c) scanners: StealthUpdate 0.7-0.8%, StealthDetectorUpdate 0.3-0.5%, PropagandaTowerBehavior
+  0.4-0.5%, AutoHeal / AutoFindHealing 0.1%. At most ~0.7% from halving them, below what A/B can
+  show, and each carries timing rules (detection lasts updateRate+1, healing per frame). Not built.
+- (d) turrets: TurretAI 1.5-1.9%, part of it their target scans (lazyScans). Halving aim updates
+  would need double turn steps and touches firing; not built for < 1%.
+- (a) target scans: getNextMoodTarget now 1.0-1.5% (after the query agent's work). lazyScans already
+  halves the routine ones (measured earlier 3.5% -> 2.1/2.5%); no further change.
+- The real per-tick cost in AI is AI::update 14-20%: the route queue spends up to
+  PATHFIND_CELLS_PER_FRAME (5,000) cells every frame while units wait.
+
+routeBudget (bit 14, single player via gxAiRule): the queue's per-frame budget is halved
+(processPathfindQueue only; the open-list limits keep retail values). Paired with sharedRoutes,
+which removed the wasted searches, so the queue keeps up. A/B with sharedRoutes on in both
+(A = budget 5,000, B = 2,500), load 2.7-8:
+- pair 1: armies fps 21.8 -> 20.8 (work 40.7 -> 42.5 ms); strikes 16.5 -> 18.1 (59.9 -> 54.5);
+  aftermath 28.4 -> 33.9 (34.6 -> 29.0), 1% low 6.3 -> 20.5
+- pair 2: armies 22.6 -> 22.0 (39.1 -> 40.4); strikes 16.5 -> 17.8 (59.9 -> 55.5);
+  aftermath 28.3 -> 33.1 (34.8 -> 29.7), 1% low 6.9 -> 19.3
+- slowest frames unchanged apart from file loads (f4/f5 start-up, f615 spy-satellite strike).
+- armies-phase profile: AI::update 14.2% -> 14.4% (no backlog there); the gain comes later.
+- Replay matches with all three rules on and with defaults. Screenshot ~/generals-bench/ai-shot-rb_battle*.png.
+Proposed defaults (single player): sharedRoutes + routeBudget ON together (+8-10% fps in strikes,
++17% in aftermath); routeBudget alone NOT (without sharedRoutes the queue is backlogged and units
+would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s later).
+
+## 2026-11-25 — Staggered collisions (switches collideStagger / collideStagger3, second word bits 10 / 11; single player; off)
+
+- Walking and driving units (AI, on the ground, infantry or vehicle, not projectiles) look for
+  touching pairs only on every 2nd (bit 10) or 3rd (bit 11, wins) logic frame, by object ID, so
+  pushes, blocked-by handling, crushing, crate pickups and entering buildings come up to 1 or 2
+  frames late. Movement and cell updates still run every frame (range searches see real positions).
+- A unit skipped on a frame is put back on the dirty list after the pairs are processed (found by
+  ID, as a reaction may have removed it), so it is checked on its turn even if it stopped moving.
+- Each pair once per cycle: this frame's waiting units are marked first (a frame stamp on the
+  partition data); an on-turn unit skips a waiting neighbour that sorts before it (address order) -
+  that neighbour checks the pair on its own turn. Without this, a pair was checked whenever either
+  side was on turn (every-2 saved only 13%).
+- One gate, gxCollideStaggerEvery() in PartitionManager.cpp: single player only (never network
+  games or replay playback); to be wired to the host's match rules (gxMatchRule) at merge. Replay
+  with the switch on still matches (playback ignores it).
+- Measured (collide-5, coarse per-frame timers, collision build + processing summed over the
+  battle's 12 windows of 150 frames; load 6-12): off 95.1 / 98.4 ms, every-2 76.7 / 76.0 (-21%),
+  every-3 61.5 / 65.7 (-34%); ~430 / ~570 units wait per frame. Strikes fps off 13.1 / 12.8,
+  every-2 13.1 / 13.1, every-3 13.7 / 12.7: within noise (collisions are ~11% of a strike frame, so
+  -34% is ~3-4%). Slowest frames unchanged. Screenshots of the crowded fight (collide-voffA vs
+  collide-vs3A battle3) look the same: no units visibly inside each other.
+- Proposed default: every-3 for single player (both switches left off until the match-rule wiring).
 ## 2026-11-24 — Measured, not kept: 8x8 block masks for range searches (would-be switch blockMask, second word bit 24)
 
 - Built on 29c8869: per 8x8 block of cells, the OR of the cells' player masks, recomputed from the

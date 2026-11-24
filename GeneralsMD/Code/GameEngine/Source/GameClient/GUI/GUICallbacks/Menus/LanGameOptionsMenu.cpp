@@ -28,6 +28,7 @@
 // Description: Lan Game Options Menu
 ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxMatchRules.h"
 
 
 #include "Common/PlayerTemplate.h"
@@ -859,6 +860,7 @@ void LanGameOptionsMenuInit( WindowLayout *layout, void *userData )
 		game->setMap( pref.getPreferredMap() );
     game->setStartingCash( pref.getStartingCash() );
     game->setSuperweaponRestriction( pref.getSuperweaponRestricted() ? 1 : 0 );
+		game->setGxMatchRules( gxLocalMatchRules() );	// web port: the host's Settings decide the match rules
 		AsciiString lowerMap = pref.getPreferredMap();
 		lowerMap.toLower();
 		std::map<AsciiString, MapMetaData>::iterator it = TheMapCache->find(lowerMap);

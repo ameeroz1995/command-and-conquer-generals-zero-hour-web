@@ -230,6 +230,9 @@ public:
   inline Bool oldFactionsOnly() const;
   inline void setOldFactionsOnly( Bool oldFactionsOnly );
 
+	UnsignedInt getGxMatchRules() const { return m_gxMatchRules; }	///< web port: match rules (Common/GxMatchRules.h)
+	void setGxMatchRules( UnsignedInt rules ) { m_gxMatchRules = rules; }
+
 protected:
 	Int m_preorderMask;
 	Int m_crcInterval;
@@ -251,6 +254,7 @@ protected:
   Money         m_startingCash;
   UnsignedShort m_superweaponRestriction;
   Bool m_oldFactionsOnly; // Only USA, China, GLA -- not USA Air Force General, GLA Toxic General, et al
+	UnsignedInt m_gxMatchRules;	///< web port: match rules chosen by the host ("GX=" in the options string)
 };
 
 extern GameInfo *TheGameInfo;

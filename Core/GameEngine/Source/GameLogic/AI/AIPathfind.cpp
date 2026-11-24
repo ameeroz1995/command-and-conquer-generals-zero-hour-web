@@ -27,6 +27,7 @@
 // Author: Michael S. Booth, October 2001
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #include <algorithm>
+#include "Common/GxMatchRules.h"
 #include "Common/Recorder.h"
 
 #include "GameLogic/AIPathfind.h"
@@ -1259,13 +1260,42 @@ PathfindCell::~PathfindCell()
 	}
 }
 
+// Web port (switch cellBits, second switch word bit 5): one bit per ground cell, set while the
+// cell's unit flags are not NO_UNITS, kept in step by every flag write (gxSetFlags). Column x's
+// bits start at word x*s_gxOccWords; each column has a spare zero word so two words can be read.
+// checkForMovement reads these bits instead of every cell of its block and visits only the
+// occupied cells, in the same order, so it gives the same answers.
+static const PathfindCell *s_gxOccBase = nullptr;
+static Int s_gxOccH = 0, s_gxOccW = 0, s_gxOccWords = 0;
+static UnsignedInt *s_gxOcc = nullptr;
+static void gxOccAllocate(const PathfindCell *base, Int w, Int h)
+{
+	delete [] s_gxOcc;
+	s_gxOccBase = base; s_gxOccW = w; s_gxOccH = h; s_gxOccWords = (h + 31) / 32 + 1;
+	s_gxOcc = new UnsignedInt[(size_t)w * s_gxOccWords];
+	memset(s_gxOcc, 0, sizeof(UnsignedInt) * (size_t)w * s_gxOccWords);
+	for (Int x = 0; x < w; ++x)
+		for (Int y = 0; y < h; ++y)
+			if (base[x * h + y].getFlags() != PathfindCell::NO_UNITS) s_gxOcc[x * s_gxOccWords + (y >> 5)] |= 1u << (y & 31);
+}
+static void gxOccRelease() { delete [] s_gxOcc; s_gxOcc = nullptr; s_gxOccBase = nullptr; }
+inline void PathfindCell::gxSetFlags(CellFlags f)
+{
+	m_flags = f;
+	if (s_gxOccBase && this >= s_gxOccBase && this < s_gxOccBase + (size_t)s_gxOccW * s_gxOccH) {
+		const Int idx = (Int)(this - s_gxOccBase), x = idx / s_gxOccH, y = idx - x * s_gxOccH;
+		UnsignedInt &word = s_gxOcc[x * s_gxOccWords + (y >> 5)];
+		if (f != NO_UNITS) word |= 1u << (y & 31); else word &= ~(1u << (y & 31));
+	}
+}
+
 /**
  * Reset the cell to default values
  */
 void PathfindCell::reset()
 {
 	m_type = PathfindCell::CELL_CLEAR;
-	m_flags = PathfindCell::NO_UNITS;
+	gxSetFlags(PathfindCell::NO_UNITS);
 	m_zone = 0;
 	m_aircraftGoal = false;
 	m_pinched = false;
@@ -1436,10 +1466,10 @@ void PathfindCell::setGoalUnit(ObjectID unitID, const ICoord2D &pos )
 			if (m_info->m_posUnitID == INVALID_ID) {
 				// No units here.
 				DEBUG_ASSERTCRASH(m_flags==UNIT_GOAL, ("Bad flags."));
-				m_flags = NO_UNITS;
+				gxSetFlags(PathfindCell::NO_UNITS);
 				releaseInfo();
 			} else{
-				m_flags = UNIT_PRESENT_MOVING;
+				gxSetFlags(PathfindCell::UNIT_PRESENT_MOVING);
 			}
 		}	else {
 			DEBUG_ASSERTCRASH(m_flags == NO_UNITS, ("Bad flags."));
@@ -1456,11 +1486,11 @@ void PathfindCell::setGoalUnit(ObjectID unitID, const ICoord2D &pos )
 		}
 		m_info->m_goalUnitID = unitID;
 		if (unitID==m_info->m_posUnitID) {
-			m_flags = UNIT_PRESENT_FIXED;
+			gxSetFlags(PathfindCell::UNIT_PRESENT_FIXED);
 		} else if (m_info->m_posUnitID==INVALID_ID) {
-			m_flags = UNIT_GOAL;
+			gxSetFlags(PathfindCell::UNIT_GOAL);
 		}	else {
-			m_flags = UNIT_GOAL_OTHER_MOVING;
+			gxSetFlags(PathfindCell::UNIT_GOAL_OTHER_MOVING);
 		}
 	}
 }
@@ -1508,10 +1538,10 @@ void PathfindCell::setPosUnit(ObjectID unitID, const ICoord2D &pos )
 			if (m_info->m_goalUnitID == INVALID_ID) {
 				// No units here.
 				DEBUG_ASSERTCRASH(m_flags==UNIT_PRESENT_MOVING, ("Bad flags."));
-				m_flags = NO_UNITS;
+				gxSetFlags(PathfindCell::NO_UNITS);
 				releaseInfo();
 			}	else {
-				m_flags = UNIT_GOAL;
+				gxSetFlags(PathfindCell::UNIT_GOAL);
 			}
 		}	else {
 			DEBUG_ASSERTCRASH(m_flags == NO_UNITS, ("Bad flags."));
@@ -1532,11 +1562,11 @@ void PathfindCell::setPosUnit(ObjectID unitID, const ICoord2D &pos )
 		}
 		m_info->m_posUnitID = unitID;
 		if (unitID==m_info->m_goalUnitID) {
-			m_flags = UNIT_PRESENT_FIXED;
+			gxSetFlags(PathfindCell::UNIT_PRESENT_FIXED);
 		} else if (m_info->m_goalUnitID==INVALID_ID) {
-			m_flags = UNIT_PRESENT_MOVING;
+			gxSetFlags(PathfindCell::UNIT_PRESENT_MOVING);
 		}	else {
-			m_flags = UNIT_GOAL_OTHER_MOVING;
+			gxSetFlags(PathfindCell::UNIT_GOAL_OTHER_MOVING);
 		}
 	}
 }
@@ -4064,6 +4094,7 @@ void Pathfinder::reset()
 	frameToShowObstacles = 0;
 	DEBUG_LOG(("Pathfind cell is %d bytes, PathfindCellInfo is %d bytes", sizeof(PathfindCell), sizeof(PathfindCellInfo)));
 
+	gxOccRelease();
 	delete [] m_blockOfMapCells;
 	m_blockOfMapCells = nullptr;
 
@@ -4774,6 +4805,7 @@ void Pathfinder::newMap()
 		for (i=0; i<=bounds.hi.x; i++) {
 			m_map[i] = &m_blockOfMapCells[i*(bounds.hi.y+1)];
 		}
+		gxOccAllocate(m_blockOfMapCells, bounds.hi.x+1, bounds.hi.y+1);
 		for (i=0; i<LAYER_LAST; i++) {
 			if (!m_layers[i].isUnused()) {
 				m_layers[i].allocateCells(&m_extent);
@@ -5167,8 +5199,7 @@ static int s_gxIgnorePlans = 0, s_gxIgnoreSkippedBlocked = 0;
 // switch ignoreUnitsInPaths (page switch bit 27): single player only, never network games or replays
 static Bool gxIgnoreUnitsFor(const Object *obj)
 {
-	if (!obj || !(GLES3_Page_Switches() & 134217728)) return false;
-	if (!TheGameLogic || TheGameLogic->isInMultiplayerGame() || (TheRecorder && TheRecorder->isPlaybackMode())) return false;
+	if (!obj || !gxMatchRule(GXRULE_IGNORE_UNITS)) return false;
 	const AIUpdateInterface *ai = obj->getAIUpdateInterface();
 	if (ai && (ai->isBlockedAndStuck() || ai->getNumFramesBlocked() > 0)) { s_gxIgnoreSkippedBlocked++; return false; }
 	if ((++s_gxIgnorePlans % 1000) == 0)
@@ -5177,6 +5208,32 @@ static Bool gxIgnoreUnitsFor(const Object *obj)
 }
 #endif
 Bool Pathfinder::checkForMovement(const Object *obj, TCheckMovementInfo &info)
+{
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches2();
+	if (obj && s_gxOcc && (GLES3_Page_Switches2() & 32)) {	// switch cellBits
+		if (!(GLES3_Page_Switches() & 2097152))
+			return gxCheckForMovement(obj, info, true);
+		// verification: the original cell-by-cell loop must give the same answer and flags
+		extern int gx_verify_mismatch, gx_verify_checked;
+		TCheckMovementInfo old = info;
+		const Bool r0 = gxCheckForMovement(obj, old, false);
+		const Bool r1 = gxCheckForMovement(obj, info, true);
+		++gx_verify_checked;
+		if (r0 != r1 || old.allyFixedCount != info.allyFixedCount || old.allyMoving != info.allyMoving
+			|| old.allyGoal != info.allyGoal || old.enemyFixed != info.enemyFixed) {
+			++gx_verify_mismatch;
+			printf("GXVERIFY cellBits mismatch at %d,%d r%d: old %d/%d%d%d%d new %d/%d%d%d%d\n", info.cell.x, info.cell.y, info.radius,
+				r0, old.allyFixedCount, old.allyMoving, old.allyGoal, old.enemyFixed, r1, info.allyFixedCount, info.allyMoving, info.allyGoal, info.enemyFixed);
+		}
+		if (gx_verify_checked % 200000 == 0) printf("GXVERIFY cellBits checked %d, mismatches %d\n", gx_verify_checked, gx_verify_mismatch);
+		return r1;
+	}
+#endif
+	return gxCheckForMovement(obj, info, false);
+}
+
+Bool Pathfinder::gxCheckForMovement(const Object *obj, TCheckMovementInfo &info, Bool useBits)
 {
 	info.allyFixedCount = 0;
 	info.allyMoving = false;
@@ -5199,31 +5256,28 @@ Bool Pathfinder::checkForMovement(const Object *obj, TCheckMovementInfo &info)
 	Int numCellsAbove = info.radius;
 	if (info.centerInCell) numCellsAbove++;
 	Int i, j;
-//	Bool isInfantry = obj->isKindOf(KINDOF_INFANTRY);
-	for (i=info.cell.x-info.radius; i<info.cell.x+numCellsAbove; i++) {
-		for (j=info.cell.y-info.radius; j<info.cell.y+numCellsAbove; j++) {
-			PathfindCell	*cell = getCell(info.layer,i, j);
-			if (!cell) {
-				return false; // off the map, so can't move here.
-			}
+
+	// One cell of the block (the original loop body, after the off-map check).
+	// Returns 0 to go on, -1 for "return false".
+	auto visit = [&](PathfindCell *cell) -> Int {
 #ifdef __EMSCRIPTEN__
-			if (s_gxPlanIgnoringUnits) continue;	// planning around terrain and buildings only
+			if (s_gxPlanIgnoringUnits) return 0;	// planning around terrain and buildings only
 #endif
 
 			PathfindCell::CellFlags flags = cell->getFlags();
 			if ((flags == PathfindCell::UNIT_GOAL) || (flags == PathfindCell::UNIT_GOAL_OTHER_MOVING)) {
 				info.allyGoal = true;
 			} else if (flags == PathfindCell::NO_UNITS) {
-				continue;  // Nobody is here, so it's ok.
+				return 0;  // Nobody is here, so it's ok.
 			}
 
 			ObjectID posUnit = cell->getPosUnit();
 			if (posUnit == obj->getID()) {
-				continue; // we got it.
+				return 0; // we got it.
 			}
 
 			if (posUnit == ignoreId) {
-				continue; // we are ignoring this one.
+				return 0; // we are ignoring this one.
 			}
 
 			Bool check = false;
@@ -5249,24 +5303,24 @@ Bool Pathfinder::checkForMovement(const Object *obj, TCheckMovementInfo &info)
 				}
 			}
 			if (!check || !unit) {
-				continue;
+				return 0;
 			}
 
 #ifdef INFANTRY_MOVES_THROUGH_INFANTRY
 			if (obj->isKindOf(KINDOF_INFANTRY) && unit->isKindOf(KINDOF_INFANTRY)) {
 				// Infantry can run through infantry.
-				continue; //
+				return 0; //
 			}
 #endif
 			// See if it is an ally.
 			// order matters: we want to know if I consider it to be an ally, not vice versa
 			if (obj->getRelationship(unit) == ALLIES) {
 				if (!unit->getAIUpdateInterface()) {
-					return false; // can't path through not-idle units.
+					return -1; // can't path through not-idle units.
 				}
 #if RTS_GENERALS && RETAIL_COMPATIBLE_PATHFINDING
 				if (!unit->getAIUpdateInterface()->isIdle()) {
-					return false; // can't path through not-idle units.
+					return -1; // can't path through not-idle units.
 				}
 #endif
 				Bool found = false;
@@ -5289,6 +5343,37 @@ Bool Pathfinder::checkForMovement(const Object *obj, TCheckMovementInfo &info)
 					info.enemyFixed = true;
 				}
 			}
+			return 0;
+	};
+
+	const Int x0 = info.cell.x-info.radius, x1 = info.cell.x+numCellsAbove-1;
+	const Int y0 = info.cell.y-info.radius, y1 = info.cell.y+numCellsAbove-1;
+	if (useBits && info.layer == LAYER_GROUND && y1 - y0 < 32 && x0 >= m_extent.lo.x && x1 <= m_extent.hi.x
+		&& y0 >= m_extent.lo.y && y1 <= m_extent.hi.y && x1 < s_gxOccW && y1 < s_gxOccH) {
+		// the whole block is on the map: only occupied cells do anything, visited in the same order
+		if (y1 < y0) return true;
+		const UnsignedInt mask = (y1 - y0 == 31) ? 0xffffffffu : ((1u << (y1 - y0 + 1)) - 1);
+		const Int w = y0 >> 5, sh = y0 & 31;
+		for (i = x0; i <= x1; i++) {
+			const UnsignedInt *col = s_gxOcc + i * s_gxOccWords + w;
+			UnsignedInt bits = (UnsignedInt)((((unsigned long long)col[1] << 32) | col[0]) >> sh) & mask;
+			while (bits) {
+				j = y0 + __builtin_ctz(bits);
+				bits &= bits - 1;
+				if (visit(&m_map[i][j]) < 0) return false;
+			}
+		}
+		return true;
+	}
+
+//	Bool isInfantry = obj->isKindOf(KINDOF_INFANTRY);
+	for (i=info.cell.x-info.radius; i<info.cell.x+numCellsAbove; i++) {
+		for (j=info.cell.y-info.radius; j<info.cell.y+numCellsAbove; j++) {
+			PathfindCell	*cell = getCell(info.layer,i, j);
+			if (!cell) {
+				return false; // off the map, so can't move here.
+			}
+			if (visit(cell) < 0) return false;
 		}
 	}
 	return true;
@@ -5395,6 +5480,41 @@ Bool Pathfinder::goalPosition(Object *obj, Coord3D *pos)
 	return true;
 }
 
+
+// Web port (switch sharedRoutes, logic-ai): adjustDestination's test (checkForAdjust) over square
+// rings around dest, nearest ring first, so a caller sending many units to one point can go on from
+// the ring where the last free spot was found instead of searching the taken ones again.
+Bool Pathfinder::gxAdjustDestinationRings(Object *obj, const LocomotorSet& locomotorSet, Coord3D *dest,
+	Int firstRing, Int lastRing, Int *foundRing)
+{
+	Bool isHuman = !(obj->getControllingPlayer() && obj->getControllingPlayer()->getPlayerType() == PLAYER_COMPUTER);
+	Int iRadius;
+	Bool center;
+	getRadiusAndCenter(obj, iRadius, center);
+	Coord3D at = *dest;
+	if (!center) {
+		at.x += PATHFIND_CELL_SIZE_F/2;
+		at.y += PATHFIND_CELL_SIZE_F/2;
+	}
+	ICoord2D c;
+	worldToCell(&at, &c);
+	const PathfindLayerEnum layer = TheTerrainLogic->getLayerForDestination(dest);
+	for (Int r = firstRing; r <= lastRing; ++r) {
+		if (r == 0) {
+			if (checkForAdjust(obj, locomotorSet, isHuman, c.x, c.y, layer, iRadius, center, dest, nullptr)) { *foundRing = 0; return true; }
+			continue;
+		}
+		for (Int x = c.x - r; x <= c.x + r; ++x) {
+			if (checkForAdjust(obj, locomotorSet, isHuman, x, c.y - r, layer, iRadius, center, dest, nullptr)
+					|| checkForAdjust(obj, locomotorSet, isHuman, x, c.y + r, layer, iRadius, center, dest, nullptr)) { *foundRing = r; return true; }
+		}
+		for (Int y = c.y - r + 1; y <= c.y + r - 1; ++y) {
+			if (checkForAdjust(obj, locomotorSet, isHuman, c.x - r, y, layer, iRadius, center, dest, nullptr)
+					|| checkForAdjust(obj, locomotorSet, isHuman, c.x + r, y, layer, iRadius, center, dest, nullptr)) { *foundRing = r; return true; }
+		}
+	}
+	return false;
+}
 
 Bool Pathfinder::checkForAdjust(Object *obj, const LocomotorSet& locomotorSet, Bool isHuman,
 																Int cellX, Int cellY, PathfindLayerEnum layer,
@@ -6105,7 +6225,10 @@ void Pathfinder::processPathfindQueue()
 #ifdef DEBUG_QPF
 	Int pathsFound = 0;
 #endif
-	while (m_cumulativeCellsAllocated < PATHFIND_CELLS_PER_FRAME &&
+	// Web port (switch routeBudget, logic-ai; single player through AIUpdateInterface::gxAiRule):
+	// half the route-search work per frame, so queued units get their routes a little later.
+	const Int gxCellsPerFrame = AIUpdateInterface::gxAiRule(16384) ? PATHFIND_CELLS_PER_FRAME / 2 : PATHFIND_CELLS_PER_FRAME;
+	while (m_cumulativeCellsAllocated < gxCellsPerFrame &&
 		m_queuePRTail!=m_queuePRHead) {
 		Object *obj = TheGameLogic->findObjectByID(m_queuedPathfindRequests[m_queuePRHead]);
 		m_queuedPathfindRequests[m_queuePRHead] = INVALID_ID;
@@ -11436,6 +11559,7 @@ void Pathfinder::loadPostProcess()
 extern int GLES3_Page_Switches();
 extern "C" int GLES3_GPU_Flow_Fields(int n, int w, int h, const unsigned char* const* walks, const unsigned short* const* seeds, unsigned short* const* outs);
 extern "C" int gx_gpu_field_readbacks;
+extern int GLES3_Page_Switches2();
 #endif
 namespace {
 const int GX_FF_AREA = 3;			// areas are 8x8 cells
@@ -11445,6 +11569,18 @@ struct GxField {
 	int ax, ay; LocomotorSurfaceTypeMask surfaces; Bool crusher;
 	unsigned serial; UnsignedInt born, used;
 	std::vector<unsigned short> dist;	// 0xffff = unreachable
+	// Web port (switch lazyFields, second switch word bit 6): the field's Dijkstra runs only as far
+	// as the cells asked about. Once every bucket up to a start cell's distance D is done, all cells
+	// nearer than D are final and every other cell holds more than D, so the downhill walk from that
+	// start reads exactly what the full field would give it. The walk mask is filled in on demand
+	// too, with the obstacle that was ignored when the field was made (cell types only change with
+	// s_obstacleSerial, which retires the field).
+	Bool lazy = false;
+	ObjectID ignore = INVALID_ID;
+	std::vector<unsigned char> walk;	// 0 = not looked at yet, 1 = walkable, 2 = not
+	std::vector<std::vector<int>> buckets;
+	unsigned d = 0; int pending = 0;
+	std::vector<unsigned short> verifyFull;	// verify mode: the full field, to compare with
 };
 std::vector<GxField> s_fields;
 unsigned s_obstacleSerial = 1;
@@ -11456,12 +11592,24 @@ const int DX[8] = { 1, 0, -1, 0, 1, -1, -1, 1 }, DY[8] = { 0, 1, 0, -1, 1, 1, -1
 
 void Pathfinder::gxObstaclesChanged() { s_obstacleSerial++; }
 
+// Match rule coarseStart: the zone-level route (what findPath computes first), straightened, for a
+// unit to follow while its full route waits in the queue.
+Path *Pathfinder::gxCoarsePath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *to )
+{
+	const Coord3D *from = obj->getPosition();
+	Bool isHuman = !(obj->getControllingPlayer() && obj->getControllingPlayer()->getPlayerType() == PLAYER_COMPUTER);
+	m_zoneManager.clearPassableFlags();
+	Path *path = findHierarchicalPath(isHuman, locomotorSet, from, to, obj->getCrusherLevel() > 0);
+	m_zoneManager.setAllPassable();
+	if (path) path->optimize(obj, locomotorSet.getValidSurfaces(), false);
+	return path;
+}
+
 Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo,
 	PathfindCell *startCell, PathfindCell *goalCell, Bool isCrusher, Bool centerInCell )
 {
 #ifdef __EMSCRIPTEN__
-	if (!(GLES3_Page_Switches() & 33554432) || s_inFieldPath) return nullptr;
-	if (!TheGameLogic || TheGameLogic->isInMultiplayerGame() || (TheRecorder && TheRecorder->isPlaybackMode())) return nullptr;
+	if (!gxMatchRule(GXRULE_FLOW_FIELDS) || s_inFieldPath || !TheGameLogic) return nullptr;
 	const int sx = startCell->getXIndex(), sy = startCell->getYIndex(), gx = goalCell->getXIndex(), gy = goalCell->getYIndex();
 	if (abs(sx - gx) <= GX_FF_MIN_CELLS && abs(sy - gy) <= GX_FF_MIN_CELLS) return nullptr;
 	const int x0 = m_extent.lo.x, y0 = m_extent.lo.y, w = m_extent.hi.x - x0 + 1, h = m_extent.hi.y - y0 + 1;
@@ -11469,6 +11617,17 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 	const LocomotorSurfaceTypeMask surfaces = locomotorSet.getValidSurfaces();
 	const int ax = gx >> GX_FF_AREA, ay = gy >> GX_FF_AREA;
 	const UnsignedInt now = TheGameLogic->getFrame();
+	auto gxLazyWalk = [&](GxField &f, size_t idx) -> Bool {	// switch lazyFields: the walk mask, filled in on demand
+		unsigned char &m = f.walk[idx];
+		if (!m) {
+			const ObjectID was = m_ignoreObstacleID;
+			m_ignoreObstacleID = f.ignore;	// as when the field was made
+			PathfindCell *c = getCell(LAYER_GROUND, x0 + (int)(idx % w), y0 + (int)(idx / w));
+			m = c && validMovementPosition(f.crusher, f.surfaces, c) ? 1 : 2;
+			m_ignoreObstacleID = was;
+		}
+		return m == 1;
+	};
 
 	// the shared field for this area, surfaces and crusher flag (built if missing or stale)
 	auto valid = [&](const GxField &f) { return f.ax >= 0 && f.serial == s_obstacleSerial && now - f.born < GX_FF_LIFE; };
@@ -11484,6 +11643,9 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 		slot->ax = ax; slot->ay = ay; slot->surfaces = surfaces; slot->crusher = isCrusher; slot->used = now;
 		std::vector<GxField *> todo(1, slot);
 		const bool gpu = (GLES3_Page_Switches() & 67108864) != 0;
+		slot->lazy = !gpu && (GLES3_Page_Switches2() & 64) != 0;
+		std::vector<GxField *> lazyTodo;
+		if (slot->lazy) { lazyTodo.swap(todo); s_fieldBuilds++; }
 		if (gpu) {
 			// batch: every other field that went stale and was used lately is rebuilt in the same GPU
 			// pass. A field depends only on the buildings on the map (s_obstacleSerial), so building
@@ -11571,9 +11733,78 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 			for (size_t t = 0; t < todo.size(); ++t) cpuField(todo[t]->dist, walks[walkOf[t]]);
 		}
 		s_fieldBuilds += (int)todo.size();
+		for (GxField *lf : lazyTodo) {
+			GxField &f = *lf;
+			f.ignore = m_ignoreObstacleID;
+			f.walk.assign((size_t)w * h, 0);
+			f.dist.assign((size_t)w * h, 0xffff);
+			f.buckets.assign(15, std::vector<int>());
+			f.d = 0; f.pending = 0;
+			for (int y = f.ay << GX_FF_AREA; y < ((f.ay + 1) << GX_FF_AREA); ++y)
+				for (int x = f.ax << GX_FF_AREA; x < ((f.ax + 1) << GX_FF_AREA); ++x) {
+					const int lx = x - x0, ly = y - y0;
+					if (lx < 0 || ly < 0 || lx >= w || ly >= h || !gxLazyWalk(f, (size_t)ly * w + lx)) continue;
+					f.dist[(size_t)ly * w + lx] = 0;
+					f.buckets[0].push_back(ly * w + lx); f.pending++;
+				}
+			f.serial = s_obstacleSerial; f.born = now;
+			f.verifyFull.clear();
+			if (GLES3_Page_Switches() & 2097152) {	// verification: the whole field the original way
+				std::vector<unsigned char> walk((size_t)w * h);
+				for (int y = 0; y < h; ++y)
+					for (int x = 0; x < w; ++x) {
+						PathfindCell *c = getCell(LAYER_GROUND, x0 + x, y0 + y);
+						walk[(size_t)y * w + x] = c && validMovementPosition(f.crusher, f.surfaces, c) ? 1 : 0;
+					}
+				f.verifyFull.assign((size_t)w * h, 0xffff);
+				for (int y = f.ay << GX_FF_AREA; y < ((f.ay + 1) << GX_FF_AREA); ++y)
+					for (int x = f.ax << GX_FF_AREA; x < ((f.ax + 1) << GX_FF_AREA); ++x) {
+						const int lx = x - x0, ly = y - y0;
+						if (lx < 0 || ly < 0 || lx >= w || ly >= h || !walk[(size_t)ly * w + lx]) continue;
+						f.verifyFull[(size_t)ly * w + lx] = 0;
+					}
+				cpuField(f.verifyFull, walk);
+			}
+		}
 		field = slot;
 	}
 	field->used = now;
+	if (field->lazy) {
+		const int lx = sx - x0, ly = sy - y0;
+		if (lx >= 0 && ly >= 0 && lx < w && ly < h) {
+			const size_t target = (size_t)ly * w + lx;
+			GxField &f = *field;
+			while (f.pending > 0 && f.d < 0xfff0 && f.d <= f.dist[target]) {
+				std::vector<int> &b = f.buckets[f.d % 15];
+				for (size_t k = 0; k < b.size(); ++k) {
+					const int idx = b[k];
+					f.pending--;
+					if (f.dist[idx] != f.d) continue;	// a shorter way was found later
+					const int x = idx % w, y = idx / w;
+					for (int n = 0; n < 8; ++n) {
+						const int nx = x + DX[n], ny = y + DY[n];
+						if (nx < 0 || ny < 0 || nx >= w || ny >= h || !gxLazyWalk(f, (size_t)ny * w + nx)) continue;
+						if (n >= 4 && !gxLazyWalk(f, (size_t)y * w + nx) && !gxLazyWalk(f, (size_t)ny * w + x)) continue;	// A* corner rule
+						const unsigned nd = f.d + (n < 4 ? 10 : 14);
+						unsigned short &cur = f.dist[(size_t)ny * w + nx];
+						if (nd < cur) { cur = (unsigned short)nd; f.buckets[nd % 15].push_back(ny * w + nx); f.pending++; }
+					}
+				}
+				b.clear();
+				f.d++;
+			}
+			if (!f.verifyFull.empty()) {
+				extern int gx_verify_mismatch, gx_verify_checked;
+				const unsigned D = f.dist[target];
+				int bad = 0;
+				for (size_t i = 0; i < f.dist.size(); ++i)
+					bad += (f.verifyFull[i] <= D) ? (f.dist[i] != f.verifyFull[i]) : (f.dist[i] <= D);
+				++gx_verify_checked;
+				if (bad) { ++gx_verify_mismatch; printf("GXVERIFY lazyFields mismatch: area %d,%d start %d,%d: %d cells differ\n", f.ax, f.ay, sx, sy, bad); }
+				if (gx_verify_checked % 50 == 0 || bad) printf("GXVERIFY lazyFields walk checked (total checked %d, mismatches %d)\n", gx_verify_checked, gx_verify_mismatch);
+			}
+		}
+	}
 
 	// walk downhill from the start to the goal's area
 	int x = sx - x0, y = sy - y0;

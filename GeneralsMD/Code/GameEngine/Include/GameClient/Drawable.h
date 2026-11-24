@@ -736,6 +736,7 @@ private:
   Bool m_receivesDynamicLights;
 
 #ifdef DIRTY_CONDITION_FLAGS
+	Int m_gxClipSlots;	///< gx clipSkip: weapon slots whose loaded-missile display any draw module shows (-1 = not asked yet)
 	Bool m_isModelDirty;				///< if true, must call replaceModelConditionState() before drawing or accessing drawmodule info
 #endif
 

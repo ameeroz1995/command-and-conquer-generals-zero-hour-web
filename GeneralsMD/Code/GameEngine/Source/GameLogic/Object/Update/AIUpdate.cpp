@@ -33,6 +33,7 @@
 #define DEFINE_AUTOACQUIRE_NAMES
 
 #include "Common/ActionManager.h"
+#include "Common/Recorder.h"
 #include "Common/GameState.h"
 #include "Common/CRCDebug.h"
 #include "Common/GlobalData.h"
@@ -513,7 +514,29 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 		return;
 	}
 	TheAI->pathfinder()->queueForPath(getObject()->getID());
+	gxStartCoarse(destination);
 
+}
+
+// Match rule coarseStart: while the full route waits in the queue, follow the zone-level route.
+void AIUpdateInterface::gxStartCoarse( const Coord3D *destination )
+{
+	extern bool gxMatchRule(unsigned int rule);
+	if (!gxMatchRule(32 /* GXRULE_COARSE_START */) || !isDoingGroundMovement())
+		return;
+	if (m_gxCoarse && m_path && m_gxCoarseTo.x == destination->x && m_gxCoarseTo.y == destination->y)
+		return;	// already on a coarse route there (blocked units ask again every frame)
+	Object *obj = getObject();
+	const Real dx = destination->x - obj->getPosition()->x, dy = destination->y - obj->getPosition()->y;
+	if (dx * dx + dy * dy < 200.0f * 200.0f)
+		return;	// short moves: the full route comes soon enough
+	Path *coarse = TheAI->pathfinder()->gxCoarsePath(obj, m_locomotorSet, destination);
+	if (!coarse)
+		return;
+	deleteInstance(m_path);	// not destroyPath(): the request stays outstanding
+	m_path = coarse;
+	m_gxCoarse = TRUE;
+	m_gxCoarseTo = *destination;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1662,6 +1685,34 @@ Bool AIUpdateInterface::computeQuickPath( const Coord3D *destination )
 }
 
 //-------------------------------------------------------------------------------------------------
+// sharedRoutes: a free spot near a goal that many units were sent to. Spots are taken ring by ring
+// outwards; the ring where the last spot for this goal cell was found is remembered for a few
+// seconds, so the next unit starts there (one step back, in case a spot came free).
+namespace {
+struct GxSpotRing { Int x = 0, y = 0, ring = 0; UnsignedInt frame = 0; };
+GxSpotRing s_gxSpotRings[32];
+const Int GX_SPOT_MAX_RING = 40;	// 81x81 cells around the goal
+}
+static Bool gxFindSpotNearGoal(Object *obj, const LocomotorSet &locos, Coord3D *dest)
+{
+	ICoord2D c;
+	TheAI->pathfinder()->worldToCell(dest, &c);
+	const UnsignedInt now = TheGameLogic->getFrame();
+	GxSpotRing *e = nullptr, *oldest = &s_gxSpotRings[0];
+	for (GxSpotRing &r : s_gxSpotRings) {
+		if (r.frame && r.x == c.x && r.y == c.y && now - r.frame < 5*LOGICFRAMES_PER_SECOND) { e = &r; break; }
+		if (r.frame < oldest->frame) oldest = &r;
+	}
+	const Int first = e && e->ring > 1 ? e->ring - 1 : 1;	// ring 0 is the goal cell itself, which just failed
+	Int found = 0;
+	if (!TheAI->pathfinder()->gxAdjustDestinationRings(obj, locos, dest, first, GX_SPOT_MAX_RING, &found))
+		return FALSE;
+	if (!e) { e = oldest; e->x = c.x; e->y = c.y; }
+	e->ring = found; e->frame = now;
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
 /**
  * Invoke the pathfinder to compute a path to the desired location.
  */
@@ -1727,6 +1778,20 @@ Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Co
 				destination);
 		}
 	}
+	if (theNewPath==nullptr && m_path==nullptr && !m_isBlockedAndStuck && gxAiRule(8192))
+	{
+		// sharedRoutes: a group sent to one point all ask for the same cell, so after the first unit
+		// takes it every other search fails and fell back to findClosestPath, which examines thousands
+		// of cells. Take a free spot near the goal instead (a short spiral) and plan to that; long
+		// routes then come from the shared flow field for the goal's area.
+		Coord3D nearGoal = *destination;
+		if (gxFindSpotNearGoal(getObject(), m_locomotorSet, &nearGoal))
+		{
+			theNewPath = pathServices->findPath( getObject(), m_locomotorSet, getObject()->getPosition(), &nearGoal);
+			if (theNewPath)
+				m_retryPath = true;	// like the closest-path fallback: one more try for the real goal on arrival
+		}
+	}
 	if (theNewPath==nullptr && m_path==nullptr) {
 		Real pathCostFactor = 0.0f;
 		theNewPath = pathServices->findClosestPath( getObject(), m_locomotorSet, getObject()->getPosition(),
@@ -1773,6 +1838,19 @@ Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Co
 		return TRUE;
 
 	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+// The one gate for the game-changing AI rules (switch word 2): bit 12 lazyScans, bit 13
+// sharedRoutes, bit 14 routeBudget. They change the game, so they are match rules (Common/GxMatchRules.h):
+// the host's setting in network games, the recorded one in replays, the local switch in single player.
+Bool AIUpdateInterface::gxAiRule(Int switchBit)
+{
+	extern bool gxMatchRule(unsigned int rule);
+	const unsigned int rule = switchBit == 4096 ? 8 /* GXRULE_LAZY_SCANS */
+		: switchBit == 8192 ? 64 /* GXRULE_SHARED_ROUTES */
+		: switchBit == 16384 ? 128 /* GXRULE_ROUTE_BUDGET */ : 0;
+	return rule != 0 && gxMatchRule(rule);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2020,6 +2098,7 @@ void AIUpdateInterface::destroyPath()
 	// destroy previous path
 	deleteInstance(m_path);
 	m_path = nullptr;
+	m_gxCoarse = FALSE;
 
 	m_waitingForPath = FALSE; // we no longer need it.
 	//CRCDEBUG_LOG(("AIUpdateInterface::destroyPath() - m_isAttackPath = FALSE for object %d", getObject()->getID()));
@@ -4651,6 +4730,12 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	}
 
 	Object *newVictim = TheAI->findClosestEnemy(obj, rangeToFindWithin, flags, getAttackInfo());
+
+	// lazyScans (page switch word 2, bit 12): after a routine scan that found nothing, wait one more
+	// check interval before the next one. Changes the game, so it is a match rule (the host's setting
+	// in network games, the recorded one in replays).
+	if (!newVictim && calledByAI && gxAiRule(4096))
+		m_nextMoodCheckTime += d->m_moodAttackCheckRate;
 
 /*
 DEBUG_LOG(("GNMT frame %d: %s %08lx (con %s %08lx) uses range %f, flags %08lx, %s finds %s %08lx",
