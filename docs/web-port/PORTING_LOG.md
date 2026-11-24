@@ -2711,3 +2711,13 @@ queue's share; the sampling profile's 3.8% for the heap is the reliable figure.)
   (AIUpdateInterface::computePath ~14% of the frame: a failed route search explores everything
   reachable, then a closest-point search runs) and collision reactions. Making those cheaper
   changes how the game plays (single player only, behind a switch).
+
+## 2026-11-24 — Measured, not kept: shorter closest-spot searches (single player)
+
+- Counters (peak battle): failed route searches are cheap (rejected early by checkDestination,
+  ~0.1-1 ms per 150 frames); the cost was the closest-spot searches: ~2 a frame, different units
+  each time (not repeats), ~10,000 cells each, 5-10 ms each before the open-list heap.
+- Tried: stop a closest-spot search after 2,000 cells once it has a candidate (single player,
+  never network games or playback; replay still matched). It fired on ~600 of ~2,700 searches,
+  but the A/B showed no gain: with the heap (5b0c901) these searches are already cheap. It
+  changes unit behaviour for nothing, so it was removed.
