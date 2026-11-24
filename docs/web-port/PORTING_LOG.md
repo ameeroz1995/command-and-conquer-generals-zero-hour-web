@@ -3129,3 +3129,19 @@ The sift's cost is the cache misses on the entries that really move (their keys 
 modules' index fields), which the hole does not avoid; the extra writes it saved were to the
 moving entry, already in cache. Not kept (code reverted), per this round's rule: the full flat
 rewrite of the loop cannot pay more than ~2% and the slice shows nothing.
+
+## 2026-11-24 — paths, ai and collide branches merged (dc2f00b); AI and collision rules are match rules
+
+- Merged perf/logic-paths (match rules, coarseStart), perf/logic-ai (sharedRoutes, routeBudget,
+  gxAiRule) and perf/logic-collide (collideStagger / collideStagger3).
+- gxAiRule(bit) and gxCollideStaggerEvery() now go through gxMatchRule(): new rules
+  GXRULE_SHARED_ROUTES 64, GXRULE_ROUTE_BUDGET 128, GXRULE_COLLIDE_EVERY2 256, GXRULE_COLLIDE_EVERY3
+  512 (Common/GxMatchRules.h; mapped from switch bits 13, 14, 10, 11 in gxLocalMatchRules). The host
+  decides them in network games, the replay header in playback, the local switch in single player.
+  All stay off by default.
+- Build merge2 (wasm cf344897… normal, 71129e83… mt). Referee replay matches (9,000 frames) with
+  defaults, and with sharedRoutes + routeBudget + coarseStart + collideStagger3 switched on locally
+  (playback uses the header's rules: "GXRULES match rules from the replay: 0"). Verify mode: every
+  GXVERIFY line mismatches 0.
+- A/B vs merge1 (live 445e8b8) and rules off/on: run at load 40-100 (five agents profiling), frame
+  rates ~4 fps instead of ~13; not usable. To be rerun on a quiet machine.
