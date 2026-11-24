@@ -11521,6 +11521,7 @@ void Pathfinder::loadPostProcess()
 extern int GLES3_Page_Switches();
 extern "C" int GLES3_GPU_Flow_Fields(int n, int w, int h, const unsigned char* const* walks, const unsigned short* const* seeds, unsigned short* const* outs);
 extern "C" int gx_gpu_field_readbacks;
+extern int GLES3_Page_Switches2();
 #endif
 namespace {
 const int GX_FF_AREA = 3;			// areas are 8x8 cells
@@ -11530,6 +11531,18 @@ struct GxField {
 	int ax, ay; LocomotorSurfaceTypeMask surfaces; Bool crusher;
 	unsigned serial; UnsignedInt born, used;
 	std::vector<unsigned short> dist;	// 0xffff = unreachable
+	// Web port (switch lazyFields, second switch word bit 6): the field's Dijkstra runs only as far
+	// as the cells asked about. Once every bucket up to a start cell's distance D is done, all cells
+	// nearer than D are final and every other cell holds more than D, so the downhill walk from that
+	// start reads exactly what the full field would give it. The walk mask is filled in on demand
+	// too, with the obstacle that was ignored when the field was made (cell types only change with
+	// s_obstacleSerial, which retires the field).
+	Bool lazy = false;
+	ObjectID ignore = INVALID_ID;
+	std::vector<unsigned char> walk;	// 0 = not looked at yet, 1 = walkable, 2 = not
+	std::vector<std::vector<int>> buckets;
+	unsigned d = 0; int pending = 0;
+	std::vector<unsigned short> verifyFull;	// verify mode: the full field, to compare with
 };
 std::vector<GxField> s_fields;
 unsigned s_obstacleSerial = 1;
@@ -11554,6 +11567,17 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 	const LocomotorSurfaceTypeMask surfaces = locomotorSet.getValidSurfaces();
 	const int ax = gx >> GX_FF_AREA, ay = gy >> GX_FF_AREA;
 	const UnsignedInt now = TheGameLogic->getFrame();
+	auto gxLazyWalk = [&](GxField &f, size_t idx) -> Bool {	// switch lazyFields: the walk mask, filled in on demand
+		unsigned char &m = f.walk[idx];
+		if (!m) {
+			const ObjectID was = m_ignoreObstacleID;
+			m_ignoreObstacleID = f.ignore;	// as when the field was made
+			PathfindCell *c = getCell(LAYER_GROUND, x0 + (int)(idx % w), y0 + (int)(idx / w));
+			m = c && validMovementPosition(f.crusher, f.surfaces, c) ? 1 : 2;
+			m_ignoreObstacleID = was;
+		}
+		return m == 1;
+	};
 
 	// the shared field for this area, surfaces and crusher flag (built if missing or stale)
 	auto valid = [&](const GxField &f) { return f.ax >= 0 && f.serial == s_obstacleSerial && now - f.born < GX_FF_LIFE; };
@@ -11569,6 +11593,9 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 		slot->ax = ax; slot->ay = ay; slot->surfaces = surfaces; slot->crusher = isCrusher; slot->used = now;
 		std::vector<GxField *> todo(1, slot);
 		const bool gpu = (GLES3_Page_Switches() & 67108864) != 0;
+		slot->lazy = !gpu && (GLES3_Page_Switches2() & 64) != 0;
+		std::vector<GxField *> lazyTodo;
+		if (slot->lazy) { lazyTodo.swap(todo); s_fieldBuilds++; }
 		if (gpu) {
 			// batch: every other field that went stale and was used lately is rebuilt in the same GPU
 			// pass. A field depends only on the buildings on the map (s_obstacleSerial), so building
@@ -11656,9 +11683,78 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 			for (size_t t = 0; t < todo.size(); ++t) cpuField(todo[t]->dist, walks[walkOf[t]]);
 		}
 		s_fieldBuilds += (int)todo.size();
+		for (GxField *lf : lazyTodo) {
+			GxField &f = *lf;
+			f.ignore = m_ignoreObstacleID;
+			f.walk.assign((size_t)w * h, 0);
+			f.dist.assign((size_t)w * h, 0xffff);
+			f.buckets.assign(15, std::vector<int>());
+			f.d = 0; f.pending = 0;
+			for (int y = f.ay << GX_FF_AREA; y < ((f.ay + 1) << GX_FF_AREA); ++y)
+				for (int x = f.ax << GX_FF_AREA; x < ((f.ax + 1) << GX_FF_AREA); ++x) {
+					const int lx = x - x0, ly = y - y0;
+					if (lx < 0 || ly < 0 || lx >= w || ly >= h || !gxLazyWalk(f, (size_t)ly * w + lx)) continue;
+					f.dist[(size_t)ly * w + lx] = 0;
+					f.buckets[0].push_back(ly * w + lx); f.pending++;
+				}
+			f.serial = s_obstacleSerial; f.born = now;
+			f.verifyFull.clear();
+			if (GLES3_Page_Switches() & 2097152) {	// verification: the whole field the original way
+				std::vector<unsigned char> walk((size_t)w * h);
+				for (int y = 0; y < h; ++y)
+					for (int x = 0; x < w; ++x) {
+						PathfindCell *c = getCell(LAYER_GROUND, x0 + x, y0 + y);
+						walk[(size_t)y * w + x] = c && validMovementPosition(f.crusher, f.surfaces, c) ? 1 : 0;
+					}
+				f.verifyFull.assign((size_t)w * h, 0xffff);
+				for (int y = f.ay << GX_FF_AREA; y < ((f.ay + 1) << GX_FF_AREA); ++y)
+					for (int x = f.ax << GX_FF_AREA; x < ((f.ax + 1) << GX_FF_AREA); ++x) {
+						const int lx = x - x0, ly = y - y0;
+						if (lx < 0 || ly < 0 || lx >= w || ly >= h || !walk[(size_t)ly * w + lx]) continue;
+						f.verifyFull[(size_t)ly * w + lx] = 0;
+					}
+				cpuField(f.verifyFull, walk);
+			}
+		}
 		field = slot;
 	}
 	field->used = now;
+	if (field->lazy) {
+		const int lx = sx - x0, ly = sy - y0;
+		if (lx >= 0 && ly >= 0 && lx < w && ly < h) {
+			const size_t target = (size_t)ly * w + lx;
+			GxField &f = *field;
+			while (f.pending > 0 && f.d < 0xfff0 && f.d <= f.dist[target]) {
+				std::vector<int> &b = f.buckets[f.d % 15];
+				for (size_t k = 0; k < b.size(); ++k) {
+					const int idx = b[k];
+					f.pending--;
+					if (f.dist[idx] != f.d) continue;	// a shorter way was found later
+					const int x = idx % w, y = idx / w;
+					for (int n = 0; n < 8; ++n) {
+						const int nx = x + DX[n], ny = y + DY[n];
+						if (nx < 0 || ny < 0 || nx >= w || ny >= h || !gxLazyWalk(f, (size_t)ny * w + nx)) continue;
+						if (n >= 4 && !gxLazyWalk(f, (size_t)y * w + nx) && !gxLazyWalk(f, (size_t)ny * w + x)) continue;	// A* corner rule
+						const unsigned nd = f.d + (n < 4 ? 10 : 14);
+						unsigned short &cur = f.dist[(size_t)ny * w + nx];
+						if (nd < cur) { cur = (unsigned short)nd; f.buckets[nd % 15].push_back(ny * w + nx); f.pending++; }
+					}
+				}
+				b.clear();
+				f.d++;
+			}
+			if (!f.verifyFull.empty()) {
+				extern int gx_verify_mismatch, gx_verify_checked;
+				const unsigned D = f.dist[target];
+				int bad = 0;
+				for (size_t i = 0; i < f.dist.size(); ++i)
+					bad += (f.verifyFull[i] <= D) ? (f.dist[i] != f.verifyFull[i]) : (f.dist[i] <= D);
+				++gx_verify_checked;
+				if (bad) { ++gx_verify_mismatch; printf("GXVERIFY lazyFields mismatch: area %d,%d start %d,%d: %d cells differ\n", f.ax, f.ay, sx, sy, bad); }
+				if (gx_verify_checked % 50 == 0 || bad) printf("GXVERIFY lazyFields walk checked (total checked %d, mismatches %d)\n", gx_verify_checked, gx_verify_mismatch);
+			}
+		}
+	}
 
 	// walk downhill from the start to the goal's area
 	int x = sx - x0, y = sy - y0;

@@ -52,7 +52,7 @@ double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gle
 static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 // Second switch word (the first is full): bit 0 contactTable, bit 1 sleepyKeys, bit 2 openHeap, bit 3 contactArray (game logic, same game).
-static int g_PageSwitches2 = 15 | 32;
+static int g_PageSwitches2 = 15 | 32 | 64;
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -438,7 +438,8 @@ void GLES3_Begin_Scene() {
                  | (o.sleepyKeys === false ? 0 : 2)     // bit 1: update queue keeps each wake-up time next to its entry (GameLogic.cpp)
                  | (o.openHeap === false ? 0 : 4)       // bit 2: route search candidates in a heap instead of a sorted list (AIPathfind.cpp)
                  | (o.contactArray === false ? 0 : 8)   // bit 3: touching pairs kept in flat arrays, nothing allocated per pair (PartitionManager.cpp; same game)
-                 | (o.cellBits === false ? 0 : 32);     // bit 5: route searches read a bitmap of occupied cells (AIPathfind.cpp; same game)
+                 | (o.cellBits === false ? 0 : 32)      // bit 5: route searches read a bitmap of occupied cells (AIPathfind.cpp; same game)
+                 | (o.lazyFields === false ? 0 : 64);   // bit 6: flow fields computed only as far as the units asking (AIPathfind.cpp; same routes)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
