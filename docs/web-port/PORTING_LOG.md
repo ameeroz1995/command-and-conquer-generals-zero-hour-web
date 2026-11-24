@@ -3101,3 +3101,22 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   -34% is ~3-4%). Slowest frames unchanged. Screenshots of the crowded fight (collide-voffA vs
   collide-vs3A battle3) look the same: no units visibly inside each other.
 - Proposed default: every-3 for single player (both switches left off until the match-rule wiring).
+
+## 2026-11-25 — Round 3: physics as flat arrays (bits 26 / 27) — measured, not built
+
+- Asked: PhysicsBehavior position/velocity/forces in flat arrays with one bulk integration pass.
+- Measured first (temporary timers in PhysicsBehavior::update, phase span = first to last physics
+  call of a frame; physics is the only PHASE_PHYSICS module, so it runs as one block; load 20-37,
+  strikes ~75 ms/frame, 1,000-3,000 physics steps per frame):
+  phase 4.2-9.7 ms/frame (~10% of a strike frame), split per frame:
+  forces + integration (what flat arrays would speed up) 0.5-1.3 ms;
+  terrain height + bounce 0.5-1.2 ms; setTransformMatrix 1.6-3.7 ms (drawable transform,
+  partition refresh/dirty, trigger areas, map extent); tail (airborne check = second terrain
+  query, landing, sleep time) 0.8-1.6 ms; the rest is update-queue dispatch and timer overhead.
+- Result: the integration math is ~1-1.5% of a strike frame. Even halving it (~0.5 ms) is far
+  below what the fps A/B pairs resolve, and a bulk pass could not move the rest: every step
+  writes the object's transform, which feeds the drawable, the partition and triggers in
+  update-queue order. Stopped per the round-3 rule; no code kept, bits 26 / 27 unused.
+- Where physics time actually goes: setTransformMatrix (~40% of the phase, ~4% of the frame).
+  Cheaper ideas there (skip the drawable/trigger work when the position did not change, reuse
+  the ground height from the step for the airborne check) are not data-layout changes; not done.
