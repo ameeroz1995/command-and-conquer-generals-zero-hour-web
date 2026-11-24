@@ -3101,3 +3101,22 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   -34% is ~3-4%). Slowest frames unchanged. Screenshots of the crowded fight (collide-voffA vs
   collide-vs3A battle3) look the same: no units visibly inside each other.
 - Proposed default: every-3 for single player (both switches left off until the match-rule wiring).
+
+## 2026-11-24 — combat round 3: weapons + damage as a data-oriented system — measured, not built
+- Share of the frame, build combat-3 (merge dc2f00b, current switch defaults), profile inclusive:
+  | | strikes (load 60-70) | armies (load 38-55) |
+  |---|---|---|
+  | ObjectWeaponStatusHelper::update (the per-frame weapon-status pass) | 0.4% | 0.7% |
+  | WeaponTemplate::fireWeaponTemplate (firing, incl. damage) | 1.4% | 1.8% |
+  | of which dealDamageInternal / Object::attemptDamage / ActiveBody::attemptDamage | 0.7 / 0.7 / 0.6% | 1.0 / 0.9 / 0.8% |
+  | Weapon::getStatus, updateWeaponSet, chooseBestWeapon, range checks | ≤0.1% each | ≤0.1% each |
+  | GameLogic::update | 38% | 55% |
+- Only the weapon-status helper is a bulk loop (one entry per armed unit, every frame). Firing and
+  damage are events: they touch other objects, random numbers, FX and object creation, so they
+  stay in queue order and have no loop to flatten. Health is read through pointers by AI and
+  targeting at scattered times; a flat health table has no hot loop to speed up.
+- Ceiling: removing the status pass entirely (plus its update-queue entries) saves at most ~0.5-1%
+  of the frame. A/B pairs on this shared machine move ±9% between runs, so a flat-table rewrite
+  (weapon reload/clip/status + body health arrays, kept in sync with the old fields) could not be
+  shown to pay. Stopped before building it, per the round-3 rule. Bits 23/30 and match rule 16384
+  stay unused.
