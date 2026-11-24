@@ -468,6 +468,7 @@ void GLES3_Begin_Scene() {
                  | (o.groupRoute === true ? 4 : 0)      // bit 2: match rule groupRoute, one route search per group order (AIGroup.cpp)
                  | (o.routeQueue === true ? 8 : 0)      // bit 3: match rule routeQueue, no dropped route requests (AIPathfind.cpp)
                  | (o.routeCache === true ? 1048576 : 0)   // bit 20: match rule routeCache, recent routes reused (AIPathfind.cpp)
+                 | (o.routeRefine === true ? 2097152 : 0)  // bit 21: match rule routeRefine, detailed search only for the next stretch (AIPathfind.cpp)
                  | (o.flowCover === true ? 4194304 : 0);   // bit 22: match rule flowCover, flow fields for moves over 8 cells (AIPathfind.cpp)
         });
         g_PageSwitches = EM_ASM_INT({

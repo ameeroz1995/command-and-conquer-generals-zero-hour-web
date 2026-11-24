@@ -21,7 +21,7 @@ enum GxMatchRule
 	GXRULE_GROUP_ROUTE    = 1024,	///< groupRoute: a group order plans one route; members follow offset copies (AIGroup.cpp, AIUpdate.cpp)
 	GXRULE_ROUTE_QUEUE    = 1048576,	///< routeQueue: requests never dropped when the queue is full (AIPathfind.cpp)
 	GXRULE_ROUTE_CACHE    = 2097152,	///< routeCache: a recent route from the same start area to the same goal area is reused, shifted (AIPathfind.cpp)
-	GXRULE_ROUTE_REFINE   = 4194304,	///< routeRefine (reserved)
+	GXRULE_ROUTE_REFINE   = 4194304,	///< routeRefine: long moves search in detail only the next ~30 cells, then follow the zone-level route and extend; closest-spot searches stop at 2,000 cells once they have a spot (AIPathfind.cpp, AIStates.cpp)
 	GXRULE_FLOW_COVER     = 8388608,	///< flowCover: flow fields also for moves over 8 cells (AIPathfind.cpp)
 };
 

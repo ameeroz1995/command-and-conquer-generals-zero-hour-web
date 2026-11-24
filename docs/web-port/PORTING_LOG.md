@@ -3188,3 +3188,31 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
 - Determinism: recorded with groupRoute, routeCache, flowCover, routeQueue, moveAfterTick on
   (GX=B08422) and played back with all of them off locally: matches. Referee replay matches.
 - Not built yet: routeRefine (rule 2^22, bit 21): zone-level plan, detailed only near the unit.
+
+## 2026-11-25 — routeRefine: a stretch at a time, and capped closest-spot searches (paths agent)
+
+- Cells per search kind (battle benchmark, to frame 1,050, default rules): route searches
+  (findPath) 4,584 x ~250 cells (flow fields and the zone-level search already keep them cheap);
+  closest-spot searches (findClosestPath: goal taken or blocked, attack approach) 1,467 x ~4,470
+  cells = 6.6M of the 7.9M cells searched (83%); attack paths 713 x ~250.
+- routeRefine (match rule 2^22, third switch word bit 21, off): (a) a move longer than 40 cells
+  searches in detail only to a point ~30 cells along the zone-level route, then follows the
+  zone-level route; when the unit is within 12 cells of the end of the detailed stretch, the move
+  state asks for the next one (such routes are not put in the route cache). (b) a closest-spot
+  search stops after 2,000 cells once it has a spot.
+- Numbers (to frame 1,050; whole run in brackets; load 14-22):
+  | rules | searches | closest-spot cells each | total cells | wait avg / worst (frames) |
+  |---|---:|---:|---:|---:|
+  | default | 6,286 | 4,471 | 7.87M | 42.1 / 217 (28.8) |
+  | routeRefine (stretches only, before the cap) | 6,182 | 4,782 | 8.35M | 47.3 / 231 (29.1) |
+  | routeRefine with the cap | 7,745 | 1,952 | 6.07M | 30.3 / 122 (22.1) |
+  | groupRoute + routeCache + flowCover | 6,758 | 2,758 | 6.17M | 21.9 / 134 (16.9) |
+  | + routeRefine (stretches only) | 7,489 | 2,943 | 6.46M | 15.2 / 87 (10.6) |
+  | + routeRefine with the cap | 8,306 | 1,660 | 4.72M | 9.4 / 42 (7.2) |
+  fps (single runs): default armies 15.3 / strikes 9.3; all four rules with the cap 12.5 / 9.4
+  (load 22); stretches-only set 16.6 / 12.0 (load 14).
+- Screenshots (armies and strikes) with all four rules on: the moving front stays spread along the
+  road, no single-point clumps, no units left behind; fights resolve.
+- Determinism (paths-22, no diagnostics): referee replay matches; recorded with groupRoute,
+  routeCache, flowCover, routeRefine, routeQueue and moveAfterTick on (GX=F08422) and played back
+  with all of them off locally: matches.

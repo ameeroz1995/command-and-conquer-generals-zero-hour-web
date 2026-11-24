@@ -1691,6 +1691,7 @@ unsigned int gxLocalMatchRules()
 		| ((GLES3_Page_Switches3() & 4) ? GXRULE_GROUP_ROUTE : 0)	// third word bit 2: groupRoute
 		| ((GLES3_Page_Switches3() & 8) ? GXRULE_ROUTE_QUEUE : 0)	// third word bit 3: routeQueue
 		| ((GLES3_Page_Switches3() & 1048576) ? GXRULE_ROUTE_CACHE : 0)	// third word bit 20: routeCache
+		| ((GLES3_Page_Switches3() & 2097152) ? GXRULE_ROUTE_REFINE : 0)	// third word bit 21: routeRefine
 		| ((GLES3_Page_Switches3() & 4194304) ? GXRULE_FLOW_COVER : 0);	// third word bit 22: flowCover
 #else
 	return 0;

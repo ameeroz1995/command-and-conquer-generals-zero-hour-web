@@ -205,6 +205,9 @@ public:
 	struct GxSeg { const PathNode *prev, *node; Coord3D prevPos, nodePos; Coord2D dir; Real len; Bool last; };
 	Bool										m_gxSegsValid = FALSE;
 	std::vector<GxSeg>			m_gxSegs;
+	// Web port (match rule routeRefine): detailed only up to m_gxRefineEnd, zone-level after it
+	Bool										m_gxRefine = FALSE;
+	Coord3D									m_gxRefineEnd;
 };
 
 inline void PathNode::gxTouch() { if (m_gxOwner) m_gxOwner->m_gxSegsValid = FALSE; }

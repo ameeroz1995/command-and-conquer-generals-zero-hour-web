@@ -6791,10 +6791,53 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 
 	m_zoneManager.clearPassableFlags();
 	Path *hPat = findHierarchicalPath(isHuman, locomotorSet, from, rawTo, false);
+	if (!hPat) {
+		m_zoneManager.setAllPassable();
+	}
+	// web port (match rule routeRefine): a long move searches in detail only to a point about 30
+	// cells along the zone-level route, then follows the zone-level route; the move state asks for
+	// the next stretch when the unit nears the end of the detailed one (AIInternalMoveToState)
+	if (hPat && obj && gxMatchRule(GXRULE_ROUTE_REFINE)) {
+		const Real dx = rawTo->x - from->x, dy = rawTo->y - from->y;
+		const Real stretch = 30 * PATHFIND_CELL_SIZE_F;
+		if (dx * dx + dy * dy > sqr(40 * PATHFIND_CELL_SIZE_F)) {
+			// the zone-level route's points, and the first one at least 'stretch' along it
+			std::vector<Coord3D> pts;
+			Bool ground = TRUE;
+			for (PathNode *n = hPat->getFirstNode(); n; n = n->getNext()) {
+				if (n->getLayer() != LAYER_GROUND) ground = FALSE;
+				pts.push_back(*n->getPosition());
+			}
+			size_t cut = 0; Real along = 0;
+			for (size_t k = 1; k < pts.size(); ++k) {
+				along += sqrtf(sqr(pts[k].x - pts[k - 1].x) + sqr(pts[k].y - pts[k - 1].y));
+				if (along >= stretch) { cut = k; break; }
+			}
+			if (ground && cut > 0 && cut + 1 < pts.size()) {
+				deleteInstance(hPat); hPat = nullptr;
+				const Coord3D mid = pts[cut];
+				const Bool wasIgnoring = s_gxPlanIgnoringUnits;
+				if (gxIgnoreUnitsFor(obj)) s_gxPlanIgnoringUnits = true;
+				Path *near = internalFindPath(obj, locomotorSet, from, &mid);
+				s_gxPlanIgnoringUnits = wasIgnoring;
+				if (near && near->getLastNode()) {
+					const Coord3D end = *near->getLastNode()->getPosition();
+					for (size_t k = cut + 1; k + 1 < pts.size(); ++k) near->appendNode(&pts[k], LAYER_GROUND);
+					near->appendNode(rawTo, LAYER_GROUND);
+					near->m_gxRefine = TRUE;
+					near->m_gxRefineEnd = end;
+					return near;
+				}
+				if (near) deleteInstance(near);
+				// no detailed stretch: plan the whole move as before
+				m_zoneManager.clearPassableFlags();
+				hPat = findHierarchicalPath(isHuman, locomotorSet, from, rawTo, false);
+				if (!hPat) m_zoneManager.setAllPassable();
+			}
+		}
+	}
 	if (hPat) {
 		deleteInstance(hPat);
-	}	else {
-		m_zoneManager.setAllPassable();
 	}
 
 #ifdef __EMSCRIPTEN__
@@ -6809,7 +6852,7 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 	Path *pat = internalFindPath(obj, locomotorSet, from, rawTo);
 #endif
 	if (pat!=nullptr) {
-		if (gxCache) gxRouteCacheStore(obj, locomotorSet, from, rawTo, gxRadius, gxCenter, pat);
+		if (gxCache && !pat->m_gxRefine) gxRouteCacheStore(obj, locomotorSet, from, rawTo, gxRadius, gxCenter, pat);
 		return pat;
 	}
 
@@ -9274,6 +9317,12 @@ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet
 					closestDistanceSqr = distSqr;
 				}
 			}
+		}
+
+		// web port (match rule routeRefine): a closest-spot search stops after 2,000 cells once it
+		// has a spot (these searches were ~80% of all route-search work in big battles)
+		if (closesetCell && count > 2000 && gxMatchRule(GXRULE_ROUTE_REFINE)) {
+			break;
 		}
 
 		dx = IABS(goalCell->getXIndex()-parentCell->getXIndex());
