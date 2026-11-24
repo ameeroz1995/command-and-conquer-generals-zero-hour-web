@@ -2776,3 +2776,23 @@ Strike phase (live build 52b7e14), share of the frame, inclusive:
 - So a full rebuild (recorded, sorted draw list submitted with minimal state; per-object data kept
   together) can save at most roughly half of the ~8% submission cost and of the ~6% per-object
   cost: about 6-7% of the frame, for several days of work with visual-regression risk.
+
+## 2026-11-24 — Unit AI / state machines: measured, nothing kept (logic-ai agent)
+
+Strike-phase profiles of 66e2829 (builds ai-0, tags ai-prof1/ai-prof2; machine load 27-48):
+- AIUpdateInterface::update 9.9-13.7% inclusive, but its own code is thin: all AI self time
+  (isIdle, isDoingGroundMovement, updateStateMachine, doLocomotor, state updates, findLocomotor,
+  chooseGoodLocomotor, transitions) adds up to ~2-3% of the frame, each item 0.1-0.4%.
+- The rest belongs to other areas: target scans getNextMoodTarget 2.7-4.1% (almost all
+  AI::findClosestEnemy -> PartitionManager::getClosestObject), path following
+  Path::computePointOnPath 1.7% (doLocomotor + getLocomotorDistanceToGoal, with isLinePassable),
+  weapon firing under AIAttackFireWeaponState 1.2-1.7%, locomotor physics math 1.3%.
+- Counter (ai-diag1, per 150 frames in strikes): 3,100-6,700 mood scans by cadence (80% find
+  nothing), 60-960 forced rescans after a kill, ~1,900 from idle units: ~45 scans a frame, all
+  already on the game's own 2-second cadence (MoodAttackCheckRate) with no repeated work to drop.
+- Checked and ruled out: model-condition clears every frame (Drawable already returns early when
+  nothing changes); a second computePointOnPath per frame (Path already caches it, and a memo would
+  change its countdown, so not exact); state-machine create/destroy (0.3%, only on object death).
+- Not built: exact micro-changes here could save at most ~0.5% of the frame, below what this
+  loaded machine can measure. The one real lever in this area is the scan cadence (e.g. back off
+  after misses), which changes the game: it could only be a single-player switch, worth ~1-2%.
