@@ -2965,3 +2965,36 @@ Off by default because units notice newcomers up to 2 s later; the main chat dec
 - A/B live (ca1 = rev 00057) vs merged, twice: armies +10% / +5% fps (work -8% / -5%), strikes
   +7% / +7% (work -7% / -7%), aftermath +12% (work -11%). Load 4-22.
 - Not yet in: the range-search agent's 8x8 block summaries (bit 24), still being measured.
+
+## 2026-11-24 — Group routes: sharedRoutes (logic-ai agent; merged perf/low-end 445e8b8 first)
+
+What a group move costs today (counters, build ai-diag3, per 150 frames, early battle): the
+benchmark's attack-moves send every unit of a group to the exact same point. The first unit
+reserves that cell; for every other unit findPath fails at checkDestination (the cell is taken)
+and computePath falls back to findClosestPath, which examined 6,000-11,000 cells per call:
+150-280 such calls = 1.0-1.7 million cells, against 10-240 thousand for all successful searches.
+The route queue was backlogged on 136-149 of every 150 frames with 340-470 units waiting.
+Flow fields (paths agent) already share one field per goal area, but the fallback skipped them.
+
+sharedRoutes (switch word 2, bit 13; single player only through one gate,
+AIUpdateInterface::gxSharedRoutes, so it can become a host-decided match rule with a one-line
+change): when that search fails because the goal is taken, the unit takes the nearest free spot
+around the goal (adjustDestination's test over square rings, up to 40 rings,
+Pathfinder::gxAdjustDestinationRings) and plans to it, which uses the shared flow field. The ring
+where the last spot for that goal was found is remembered for 5 s, so the next unit continues
+from there instead of re-testing taken cells. Only if no spot is found does the old fallback run.
+- Counters with it on: fallback 6-20 calls per 150 frames (3-11 thousand cells); successful
+  searches 300-1,300 per 150 frames instead of 120-680; queue backlogged on 15-100 of 150 frames,
+  ~130-170 waiting instead of 340-470.
+- Profiles (load ~6): armies phase findClosestPath 16.7% -> 0.3% of the frame,
+  computePath 19.4% -> 12.8%, but Pathfinder:: 22.3% -> 17.1% only and GameLogic::update the same
+  (52.7% vs 52.3%); strike phase findClosestPath 7.8% -> 0.3%, computePath 13.6% -> 11.7%,
+  Pathfinder:: 16.7% -> 17.5%. The pathfinder works to a fixed cell budget per frame
+  (PATHFIND_CELLS_PER_FRAME) while units are queued, so the budget now goes to other units' routes.
+- Frame time, two pairs off/on (load 7-12): work ms armies 50.9/53.1, 53.6/52.4; strikes
+  108.6/79.9, 75.8/77.4; aftermath 54.8/48.6, 43.7/47.5. No frame-time gain shown.
+- Replay matches with the switch off and on (replays ignore it). Screenshots off/on:
+  ~/generals-bench/ai-shot-{off,on}_battle*.png (armies meet and fight normally).
+Kept, OFF by default: it makes big armies get their routes about 3x sooner, not frames faster.
+Making it a CPU gain would mean lowering the per-frame cell budget while it is on (a game
+change of its own); left for the main chat to decide.

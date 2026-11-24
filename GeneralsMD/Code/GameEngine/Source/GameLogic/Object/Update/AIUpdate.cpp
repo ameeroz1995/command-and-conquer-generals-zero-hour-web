@@ -1663,6 +1663,34 @@ Bool AIUpdateInterface::computeQuickPath( const Coord3D *destination )
 }
 
 //-------------------------------------------------------------------------------------------------
+// sharedRoutes: a free spot near a goal that many units were sent to. Spots are taken ring by ring
+// outwards; the ring where the last spot for this goal cell was found is remembered for a few
+// seconds, so the next unit starts there (one step back, in case a spot came free).
+namespace {
+struct GxSpotRing { Int x = 0, y = 0, ring = 0; UnsignedInt frame = 0; };
+GxSpotRing s_gxSpotRings[32];
+const Int GX_SPOT_MAX_RING = 40;	// 81x81 cells around the goal
+}
+static Bool gxFindSpotNearGoal(Object *obj, const LocomotorSet &locos, Coord3D *dest)
+{
+	ICoord2D c;
+	TheAI->pathfinder()->worldToCell(dest, &c);
+	const UnsignedInt now = TheGameLogic->getFrame();
+	GxSpotRing *e = nullptr, *oldest = &s_gxSpotRings[0];
+	for (GxSpotRing &r : s_gxSpotRings) {
+		if (r.frame && r.x == c.x && r.y == c.y && now - r.frame < 5*LOGICFRAMES_PER_SECOND) { e = &r; break; }
+		if (r.frame < oldest->frame) oldest = &r;
+	}
+	const Int first = e && e->ring > 1 ? e->ring - 1 : 1;	// ring 0 is the goal cell itself, which just failed
+	Int found = 0;
+	if (!TheAI->pathfinder()->gxAdjustDestinationRings(obj, locos, dest, first, GX_SPOT_MAX_RING, &found))
+		return FALSE;
+	if (!e) { e = oldest; e->x = c.x; e->y = c.y; }
+	e->ring = found; e->frame = now;
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
 /**
  * Invoke the pathfinder to compute a path to the desired location.
  */
@@ -1728,6 +1756,20 @@ Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Co
 				destination);
 		}
 	}
+	if (theNewPath==nullptr && m_path==nullptr && !m_isBlockedAndStuck && gxSharedRoutes())
+	{
+		// sharedRoutes: a group sent to one point all ask for the same cell, so after the first unit
+		// takes it every other search fails and fell back to findClosestPath, which examines thousands
+		// of cells. Take a free spot near the goal instead (a short spiral) and plan to that; long
+		// routes then come from the shared flow field for the goal's area.
+		Coord3D nearGoal = *destination;
+		if (gxFindSpotNearGoal(getObject(), m_locomotorSet, &nearGoal))
+		{
+			theNewPath = pathServices->findPath( getObject(), m_locomotorSet, getObject()->getPosition(), &nearGoal);
+			if (theNewPath)
+				m_retryPath = true;	// like the closest-path fallback: one more try for the real goal on arrival
+		}
+	}
 	if (theNewPath==nullptr && m_path==nullptr) {
 		Real pathCostFactor = 0.0f;
 		theNewPath = pathServices->findClosestPath( getObject(), m_locomotorSet, getObject()->getPosition(),
@@ -1774,6 +1816,16 @@ Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Co
 		return TRUE;
 
 	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+// The one gate for the sharedRoutes rule (switch word 2, bit 13). It changes the game, so it is
+// single player only for now; to become a host-decided match rule, only this function changes.
+Bool AIUpdateInterface::gxSharedRoutes()
+{
+	extern int GLES3_Page_Switches2();
+	return (GLES3_Page_Switches2() & 8192) != 0 && TheGameLogic && !TheGameLogic->isInMultiplayerGame()
+		&& !(TheRecorder && TheRecorder->isPlaybackMode());
 }
 
 //-------------------------------------------------------------------------------------------------
