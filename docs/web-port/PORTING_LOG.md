@@ -2776,3 +2776,27 @@ Strike phase (live build 52b7e14), share of the frame, inclusive:
 - So a full rebuild (recorded, sorted draw list submitted with minimal state; per-object data kept
   together) can save at most roughly half of the ~8% submission cost and of the ~6% per-object
   cost: about 6-7% of the frame, for several days of work with visual-regression risk.
+
+## 2026-11-24 — Touching-pair list build: same-cells fast path and leaner pair offers (switches cellReuse, leanPairs; second word bits 8-9, on)
+
+- Counters (peak battle, per frame): ~1,100 cell updates, 91% end on exactly the same cells (86% are
+  "small" shapes, 1.7 cells each on average); ~2,100 objects scan their cells and make ~42k pair offers.
+  Each offer cost a cell-list step, a read of the other side's partition data (object pointer) and a
+  probe into a 4 MB pair table: the list build is mostly cache misses.
+- cellReuse (bit 8): the cells a fill covers depend only on a key (whole-cell corners for small shapes,
+  centre cell + cell radius for the retail circle fill, the exact floats for boxes) plus the COI array
+  size. If the key is unchanged, the old remove-all-and-refill only moved each COI to the front of its
+  cell's list; the fast path does just that (and resets the per-cell player count slot). The key is
+  kept on both paths, so flipping the switch mid-game stays exact.
+- leanPairs (bit 9, needs contactArray): offers read only the two partition-data pointers; pairs with an
+  object-less side (fogged ghosts) are kept and skipped when processed (they never were listed, and
+  they don't change the other pairs' order). Repeats are found in a table of 8-byte keys (1 MB, 0 =
+  empty), its used slots listed and emptied at reset, instead of the 16-byte generation table (4 MB).
+- Same game: replay matches over 9000 frames; verify mode (cellReuse compares each reused key's cells
+  with a real refill; the contact-array check skips ghost pairs) 0 mismatches over the whole battle.
+- Measured: fps A/B could not see it (load 12-46 after a reboot; strikes off 5.8/5.0/8.1/5.6/5.6 vs on
+  5.8/3.6/9.1/7.0/3.6). Coarse per-frame timers (two per frame) instead, build ms / processing ms per
+  150-frame window: off 0.33-0.44 while the battle builds up and 0.79-0.80 at the peak; both on
+  0.26-0.32 and 0.56-0.63 (about 20-25% less build work, e.g. peak window 14.2 -> 10.3 ms on the same
+  machine state). Split: leanPairs alone 0.30-0.35 (most of it); cellReuse alone 0.34-0.39, 0.71 at the
+  peak (a small share). Worth roughly 1-3% of a peak frame.

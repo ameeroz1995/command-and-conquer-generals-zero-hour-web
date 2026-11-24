@@ -406,6 +406,7 @@ private:
 	ObjectShroudStatus					m_shroudednessPrevious[MAX_PLAYER_COUNT];	///<previous frames value of m_shroudedness
 	Bool												m_everSeenByPlayer[MAX_PLAYER_COUNT];		///<whether this object has ever been seen by a given player.
 	const PartitionCell					*m_lastCell;							///< The last cell I thought my center was in.
+	Int													m_gxFillKey[8];						///< web port (cellReuse): what the last cell fill depended on; [0] == 0: none
 
 	/**
 		Given a shape's geometry and size parameters, calculate the maximum number of COIs

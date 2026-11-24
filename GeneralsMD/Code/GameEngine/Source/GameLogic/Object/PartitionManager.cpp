@@ -93,8 +93,10 @@
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
 extern int gx_verify_mismatch, gx_verify_checked;	// GameLogic.cpp
+extern int GLES3_Page_Switches2();
 #else
 static int GLES3_Page_Switches() { return 0; }
+static int GLES3_Page_Switches2() { return 0; }
 static int gx_verify_mismatch, gx_verify_checked;
 #endif
 
@@ -1050,6 +1052,18 @@ private:
 	Bool m_gxVerify;	///< verify mode: the old list is built too and compared before processing
 	static void gxGrow();
 
+	// Web port (switch leanPairs, second switch word bit 9; needs contactArray): offers read only
+	// the two partition-data pointers. Pairs with an object-less side (ghosts of fogged dead
+	// buildings) are kept and skipped when processed instead of being turned away here; that
+	// does not change the order of the other pairs. Repeats are found in a table of 8-byte keys
+	// (0 = empty) a quarter of the size of the generation table; the used slots are listed and
+	// emptied when the list is reset.
+	static unsigned long long* s_gxKeys;
+	static UnsignedInt s_gxKeyBits;
+	static std::vector<UnsignedInt> s_gxUsed;
+	Bool m_gxLean;
+	static void gxGrowLean();
+
 public:
 
 	PartitionContactList()
@@ -1059,6 +1073,7 @@ public:
 		m_gxHash = nullptr;
 		m_gxArray = false;
 		m_gxVerify = false;
+		m_gxLean = false;
 #ifdef __EMSCRIPTEN__
 		extern int GLES3_Page_Switches2();
 		if (GLES3_Page_Switches2() & 8)
@@ -1066,6 +1081,15 @@ public:
 			m_gxArray = true;
 			m_gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
 			s_gxPairs.clear();
+			if (GLES3_Page_Switches2() & 512)
+			{
+				m_gxLean = true;
+				if (!s_gxKeys)
+				{
+					s_gxKeyBits = 17;
+					s_gxKeys = (unsigned long long*)calloc((size_t)1 << s_gxKeyBits, sizeof(unsigned long long));
+				}
+			}
 			if (!s_gxSlots)
 			{
 				s_gxSlotBits = 18;
@@ -1650,6 +1674,7 @@ PartitionData::PartitionData()
 	m_doneFlag = 0;
 	m_dirtyStatus = NOT_DIRTY;
 	m_lastCell = nullptr;
+	memset(m_gxFillKey, 0, sizeof(m_gxFillKey));
 	for (int i = 0; i < MAX_PLAYER_COUNT; ++i)
 	{
 		m_everSeenByPlayer[i] = false;
@@ -2213,6 +2238,69 @@ void PartitionData::updateCellsTouched()
 		return;
 	}
 
+	// Web port (switch cellReuse, second switch word bit 8): the cells a fill covers depend only on
+	// the values in this key (whole cells for small and round shapes, the exact floats for boxes)
+	// and on the size of the COI array. If the key is unchanged, so are the cells, in the same
+	// order; taking every COI out of its cell list and adding it again would only move each one
+	// to the front of its list (one COI per cell), so that is all the fast path does. The key is
+	// kept on both paths so the switch can be flipped mid-game.
+	Int key[8];
+	{
+		Real r = majorRadius;
+		key[1] = isSmall ? 1 : (geom == GEOMETRY_BOX ? 3 : 2);
+		if (isSmall)
+		{
+			Real halfCellSize = ThePartitionManager->getCellSize() * 0.5f;
+			if (r > halfCellSize)
+				r = halfCellSize;
+			ThePartitionManager->worldToCell(pos.x - r, pos.y - r, &key[2], &key[3]);
+			ThePartitionManager->worldToCell(pos.x + r, pos.y + r, &key[4], &key[5]);
+			key[6] = 0;
+		}
+		else if (geom == GEOMETRY_BOX)
+		{
+			memcpy(&key[2], &pos.x, 4); memcpy(&key[3], &pos.y, 4); memcpy(&key[4], &majorRadius, 4);
+			memcpy(&key[5], &minorRadius, 4); memcpy(&key[6], &angle, 4);
+		}
+		else
+		{
+			ThePartitionManager->worldToCell(pos.x, pos.y, &key[2], &key[3]);
+			key[4] = ThePartitionManager->worldToCellDist(r);
+			key[5] = key[6] = 0;
+#if !(RETAIL_COMPATIBLE_CRC || RETAIL_COMPATIBLE_CIRCLE_FILL_ALGORITHM)
+			key[1] = 0;	// the precise fill uses the exact position: never reused
+#endif
+		}
+		key[7] = m_coiArrayCount;
+		key[0] = (key[1] != 0 && m_coiInUseCount == m_gxFillKey[0]) ? 1 : 0;	// [0]: COIs in use after the last fill
+		for (Int i = 1; key[0] && i < 8; ++i)
+			if (key[i] != m_gxFillKey[i])
+				key[0] = 0;
+	}
+	const Bool gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
+	if (key[0] && (GLES3_Page_Switches2() & 256) && !gxVerify)
+	{
+		const Int slot = gxSlotOf(this);
+		CellAndObjectIntersection *coi = m_coiArray;
+		for (Int i = m_coiInUseCount; i > 0; --i, ++coi)
+		{
+			if (coi->getPrevCoi())
+			{
+				PartitionCell *cell = coi->getCell();
+				cell->friend_removeFromCellList(coi);
+				cell->friend_addToCellList(coi);
+			}
+			coi->gxSetPlayerSlot(slot);
+		}
+	}
+	else
+	{
+	PartitionCell *gxOld[64];
+	const Bool gxCheck = gxVerify && key[0] && m_coiInUseCount <= 64;
+	if (gxCheck)
+		for (Int i = 0; i < m_coiInUseCount; ++i)
+			gxOld[i] = m_coiArray[i].getCell();
+	const Int gxOldCount = m_coiInUseCount;
 	removeAllTouchedCells();
 	if (isSmall)
 	{
@@ -2242,6 +2330,23 @@ void PartitionData::updateCellsTouched()
 			}
 		};
 	}
+	if (gxCheck)
+	{
+		Bool same = gxOldCount == m_coiInUseCount;
+		for (Int i = 0; same && i < m_coiInUseCount; ++i)
+			same = gxOld[i] == m_coiArray[i].getCell();
+		++gx_verify_checked;
+		if (!same)
+		{
+			++gx_verify_mismatch;
+			printf("GXVERIFY cellReuse mismatch: kind %d, %d cells vs %d\n", key[1], gxOldCount, m_coiInUseCount);
+		}
+		if (gx_verify_checked % 20000 == 0)
+			printf("GXVERIFY cellReuse checked %d, mismatches %d\n", gx_verify_checked, gx_verify_mismatch);
+	}
+	}
+	key[0] = m_coiInUseCount;
+	memcpy(m_gxFillKey, key, sizeof(key));
 
 	Int currentCellIndexX, currentCellIndexY;
 	ThePartitionManager->worldToCell( pos.x, pos.y, &currentCellIndexX, &currentCellIndexY );
@@ -2536,12 +2641,38 @@ void PartitionContactList::addToContactList( PartitionData *obj, PartitionData *
 	if (obj == other || obj == nullptr || other == nullptr)
 		return;
 
+	if (m_gxLean)
+	{
+		const UnsignedInt pa = (UnsignedInt)(uintptr_t)obj, pb = (UnsignedInt)(uintptr_t)other;
+		const unsigned long long key = pa < pb ? ((unsigned long long)pa << 32) | pb : ((unsigned long long)pb << 32) | pa;
+		if (s_gxPairs.size() * 2 >= ((size_t)1 << s_gxKeyBits))
+			gxGrowLean();
+		const UnsignedInt mask = (1u << s_gxKeyBits) - 1;
+		UnsignedInt h = (UnsignedInt)((key * 0x9E3779B97F4A7C15ull) >> (64 - s_gxKeyBits));
+		Bool repeat = false;
+		for (unsigned long long k; (k = s_gxKeys[h]) != 0; h = (h + 1) & mask)
+			if (k == key)
+			{
+				repeat = true;
+				break;
+			}
+		if (!repeat)
+		{
+			s_gxKeys[h] = key;
+			s_gxUsed.push_back(h);
+			GxPair np = { obj, other };
+			s_gxPairs.push_back(np);
+		}
+		if (!m_gxVerify)
+			return;
+	}
+
 	Object* obj_obj = obj->getObject();
 	Object* other_obj = other->getObject();
 	if (obj_obj == nullptr || other_obj == nullptr)
 		return;
 
-	if (m_gxArray)
+	if (m_gxArray && !m_gxLean)
 	{
 		const UnsignedInt pa = (UnsignedInt)(uintptr_t)obj, pb = (UnsignedInt)(uintptr_t)other;
 		const unsigned long long key = pa < pb ? ((unsigned long long)pa << 32) | pb : ((unsigned long long)pb << 32) | pa;
@@ -2685,6 +2816,29 @@ PartitionContactListNode** PartitionContactList::s_gxBig = nullptr;
 PartitionContactList::GxSlot* PartitionContactList::s_gxSlots = nullptr;
 UnsignedInt PartitionContactList::s_gxSlotBits = 0, PartitionContactList::s_gxGen = 0;
 std::vector<PartitionContactList::GxPair> PartitionContactList::s_gxPairs;
+unsigned long long* PartitionContactList::s_gxKeys = nullptr;
+UnsignedInt PartitionContactList::s_gxKeyBits = 0;
+std::vector<UnsignedInt> PartitionContactList::s_gxUsed;
+
+// More pairs than half the slots: twice the slots, the current pairs put back.
+void PartitionContactList::gxGrowLean()
+{
+	free(s_gxKeys);
+	++s_gxKeyBits;
+	s_gxKeys = (unsigned long long*)calloc((size_t)1 << s_gxKeyBits, sizeof(unsigned long long));
+	s_gxUsed.clear();
+	const UnsignedInt mask = (1u << s_gxKeyBits) - 1;
+	for (const GxPair &p : s_gxPairs)
+	{
+		const UnsignedInt pa = (UnsignedInt)(uintptr_t)p.a, pb = (UnsignedInt)(uintptr_t)p.b;
+		const unsigned long long key = pa < pb ? ((unsigned long long)pa << 32) | pb : ((unsigned long long)pb << 32) | pa;
+		UnsignedInt h = (UnsignedInt)((key * 0x9E3779B97F4A7C15ull) >> (64 - s_gxKeyBits));
+		while (s_gxKeys[h] != 0)
+			h = (h + 1) & mask;
+		s_gxKeys[h] = key;
+		s_gxUsed.push_back(h);
+	}
+}
 
 // More pairs than half the slots: twice the slots, the current pairs put back.
 void PartitionContactList::gxGrow()
@@ -2712,6 +2866,9 @@ void PartitionContactList::resetContactList()
 	if (m_gxArray)
 	{
 		s_gxPairs.clear();
+		for (UnsignedInt h : s_gxUsed)
+			s_gxKeys[h] = 0;
+		s_gxUsed.clear();
 		if (!m_gxVerify)
 			return;
 	}
@@ -2740,6 +2897,8 @@ void PartitionContactList::gxProcessPair(PartitionData*& a, PartitionData*& b)
 
 	Object* obj = a->getObject();
 	Object* other = b->getObject();
+	if (obj == nullptr || other == nullptr)
+		return;	// only with leanPairs: a pair with a ghost, which the original never listed
 
 	// Web port (switch collisionOrder, page bit 29): the bit test first, then the geometry.
 	// Both only decide whether to skip this pair and change nothing, so the order is free.
@@ -2805,11 +2964,18 @@ void PartitionContactList::processContactList()
 		{
 			size_t k = s_gxPairs.size(), n = 0;
 			Bool same = true;
+			// leanPairs also lists pairs with a ghost side, which the old list never has
+			#define GX_SKIP_GHOSTS while (m_gxLean && k > 0 && (!s_gxPairs[k-1].a->getObject() || !s_gxPairs[k-1].b->getObject())) --k
 			for (PartitionContactListNode* cd = m_contactList; cd; cd = cd->m_next, ++n)
+			{
+				GX_SKIP_GHOSTS;
 				if (k == 0 || s_gxPairs[--k].a != cd->m_obj || s_gxPairs[k].b != cd->m_other)
 					same = false;
+			}
+			GX_SKIP_GHOSTS;
+			#undef GX_SKIP_GHOSTS
 			++gx_verify_checked;
-			if (!same || n != s_gxPairs.size())
+			if (!same || k != 0)
 			{
 				++gx_verify_mismatch;
 				printf("GXVERIFY contact array mismatch: %d pairs vs %d\n", (int)s_gxPairs.size(), (int)n);
