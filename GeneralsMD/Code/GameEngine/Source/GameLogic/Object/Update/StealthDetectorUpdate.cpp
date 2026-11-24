@@ -188,6 +188,15 @@ UpdateSleepTime StealthDetectorUpdate::update()
 	PartitionFilterAcceptByKindOf					filterKindof(data->m_extraDetectKindof, data->m_extraDetectKindofNot);
 	PartitionFilterSameMapStatus					filterMapStatus(getObject());
 	PartitionFilter*											filters[] = { &filterStealthOrStealthGarrisoned, &filterTeam, &filterKindof, &filterMapStatus, nullptr };
+	// web port (switch searchSlotSkip): the team filter first, so the search skips cells and
+	// entries of our allies. The filters only test, so their order doesn't change the result.
+	PartitionFilter*											gxFilters[] = { &filterTeam, &filterStealthOrStealthGarrisoned, &filterKindof, &filterMapStatus, nullptr };
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches2();
+	PartitionFilter **useFilters = (GLES3_Page_Switches2() & 65536) ? gxFilters : filters;
+#else
+	PartitionFilter **useFilters = filters;
+#endif
 
 	Real visionRange = self->getVisionRange();
 	if( data->m_detectionRange > 0.0f )
@@ -197,7 +206,7 @@ UpdateSleepTime StealthDetectorUpdate::update()
 	Bool foundSomeone = FALSE;
 
 	SimpleObjectIterator *iter = ThePartitionManager->iterateObjectsInRange(
-								self, visionRange, FROM_CENTER_2D, filters);
+								self, visionRange, FROM_CENTER_2D, useFilters);
 	MemoryPoolObjectHolder hold(iter);
 	for (Object *them = iter->first(); them; them = iter->next())
 	{

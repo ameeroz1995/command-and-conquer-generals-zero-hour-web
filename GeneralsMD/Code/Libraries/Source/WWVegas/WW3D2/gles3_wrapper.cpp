@@ -52,7 +52,7 @@ double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gle
 static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 // Second switch word (the first is full): bit 0 contactTable, bit 1 sleepyKeys, bit 2 openHeap, bit 3 contactArray (game logic, same game).
-static int g_PageSwitches2 = 15;
+static int g_PageSwitches2 = 15 | 65536 | 131072 | 262144 | 524288;
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -437,7 +437,11 @@ void GLES3_Begin_Scene() {
             return (o.contactTable === false ? 0 : 1)   // bit 0: touching-pair table sized for big battles (PartitionManager.cpp)
                  | (o.sleepyKeys === false ? 0 : 2)     // bit 1: update queue keeps each wake-up time next to its entry (GameLogic.cpp)
                  | (o.openHeap === false ? 0 : 4)       // bit 2: route search candidates in a heap instead of a sorted list (AIPathfind.cpp)
-                 | (o.contactArray === false ? 0 : 8);  // bit 3: touching pairs kept in flat arrays, nothing allocated per pair (PartitionManager.cpp; same game)
+                 | (o.contactArray === false ? 0 : 8)    // bit 3: touching pairs kept in flat arrays, nothing allocated per pair (PartitionManager.cpp; same game)
+                 | (o.searchSlotSkip === false ? 0 : 65536)  // bit 16: range searches skip entries of players the relationship filter rejects (PartitionManager.cpp; same game)
+                 | (o.laserFilters === false ? 0 : 131072)   // bit 17: point-defense lasers filter inside the range search (PointDefenseLaserUpdate.cpp; same game)
+                 | (o.denseCellMask === false ? 0 : 262144)  // bit 18: range searches read each cell's player mask from one dense array (PartitionManager.cpp; same game)
+                 | (o.searchCache === false ? 0 : 524288);   // bit 19: range searches turn far entries away by a cached position (PartitionManager.cpp; same game)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;

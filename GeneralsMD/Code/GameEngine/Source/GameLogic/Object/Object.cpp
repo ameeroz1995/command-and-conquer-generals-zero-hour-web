@@ -798,6 +798,8 @@ void Object::setGeometryInfoZ( Real newZ )
 {
 	// A Z change only does not need to un/register with the PartitionManager
 	m_geometryInfo.setMaxHeightAbovePosition( newZ );
+	if (m_partitionData)
+		m_partitionData->gxRefreshPlace();	// web port: the bounding sphere may have grown
 
 	if (m_drawable)
 		m_drawable->reactToGeometryChange();
@@ -1816,6 +1818,10 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
 	{
   	m_drawable->setTransformMatrix( this->getTransformMatrix() );
 	}
+
+	// web port (switch searchCache): range searches keep a copy of where we are
+	if (m_partitionData)
+		m_partitionData->gxRefreshPlace();
 
 	Bool posDiff = isPosDifferent(oldPos, getPosition());
 	Bool angDiff = isAngleDifferent(oldAngle, getOrientation());

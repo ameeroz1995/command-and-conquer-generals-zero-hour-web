@@ -2776,3 +2776,39 @@ Strike phase (live build 52b7e14), share of the frame, inclusive:
 - So a full rebuild (recorded, sorted draw list submitted with minimal state; per-object data kept
   together) can save at most roughly half of the ~8% submission cost and of the ~6% per-object
   cost: about 6-7% of the frame, for several days of work with visual-regression risk.
+
+## 2026-11-24 — Range searches rebuilt: fewer entries touched (switches searchSlotSkip, laserFilters, denseCellMask, searchCache; second word bits 16-19, on)
+
+- Who searches (per-call-site counters, peak battle): point-defense lasers 44% of all entries walked
+  (no filters: every unit in scan range was listed, then rejected in the update), stealth detectors
+  23% (first filter "is stealthed", the team filter second, so no cell skip), potential-collision
+  searches 12%, findClosestEnemy 9%.
+- Changes (all exact):
+  - laserFilters: PointDefenseLaserUpdate passes its own rejections as filters (enemy first), so the
+    search skips non-enemy cells and lists only targets. The list is unsorted; dropping entries keeps
+    the order of the rest.
+  - searchSlotSkip: each cell keeps one COI sublist per player slot, in the cell list's relative order
+    (a per-cell insertion sequence; slot changes re-link by sequence). A search whose first filter
+    admits only some players walks only those players' lists, merged back by sequence. Also: the
+    relationship filter (no allies admitted, neutrals allowed) now gives the player mask, and stealth
+    detectors put their team filter first (filters only test, so order doesn't change the result).
+  - denseCellMask: every cell's player mask is mirrored in one 4-byte-per-cell array; the ring walk
+    reads it before touching the (200-byte) cell.
+  - searchCache: each COI holds its object's x, y and max(bounding circle, sphere) radius, refreshed on
+    every transform change, cell coverage and Z-geometry change. An entry farther than range + both
+    radii + 1 unit (2D centre distance; a lower bound for all four distance types) is turned away
+    without reading the module or the object. The slack makes float rounding irrelevant.
+- getClosestObjects is now a wrapper around gxClosestImpl(flags). Verify mode runs every search twice
+  (fast and the plain walk with nothing skipped, alternating order), compares the objects that passed
+  (in order), the result, its distance and vector and the iterator list, and times both runs.
+- Same game: verify 0 mismatches (183k-246k searches per run, 7 runs; 32k laser scans compared with
+  the unfiltered list); referee replay matches over 9000 frames.
+- Paired timing inside verify runs (load-proof): search time / plain walk = 0.59 with today's live code
+  (cell skip only), 0.25 with all four. Per switch (all on minus one): minus slot lists 0.55, minus
+  cache 0.34, minus dense mask 0.36. Per-player lists vs a per-entry slot check: entries walked per
+  search 258 -> 206, 0.345 -> 0.287. Laser scans (whole scan, alternating): unfiltered 609 ms,
+  filtered 104 ms.
+- A/B (four switches off vs on, twice, load 4-5): strikes fps 13.9 -> 14.8 and 13.8 -> 14.7 (+6.5%),
+  work 71.0 -> 66.9 and 71.5 -> 67.3 ms (-6%); armies and aftermath flat.
+- Not built: coarse 8x8 block masks. Per search 132 cells are in range and 51 kept; the 81 skipped are
+  already 4-byte reads from the dense array (well under 2% of a search).

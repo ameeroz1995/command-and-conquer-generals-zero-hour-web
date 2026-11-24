@@ -48,6 +48,9 @@
 //         Includes
 //-----------------------------------------------------------------------------
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 #include "Common/ActionManager.h"
 #include "Common/DiscreteCircle.h"
@@ -92,9 +95,11 @@
 // web port: performance switches (gles3_wrapper.cpp) and verify counters
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches2();
 extern int gx_verify_mismatch, gx_verify_checked;	// GameLogic.cpp
 #else
 static int GLES3_Page_Switches() { return 0; }
+static int GLES3_Page_Switches2() { return 0; }
 static int gx_verify_mismatch, gx_verify_checked;
 #endif
 
@@ -1060,7 +1065,6 @@ public:
 		m_gxArray = false;
 		m_gxVerify = false;
 #ifdef __EMSCRIPTEN__
-		extern int GLES3_Page_Switches2();
 		if (GLES3_Page_Switches2() & 8)
 		{
 			m_gxArray = true;
@@ -1192,6 +1196,10 @@ try_again:
 //-----------------------------------------------------------------------------
 CellAndObjectIntersection::CellAndObjectIntersection()
 {
+	m_gxX = m_gxY = 0.0f;
+	m_gxR = HUGE_DIST;
+	m_gxSlotPrev = m_gxSlotNext = nullptr;
+	m_gxSeq = 0;
 	m_cell = nullptr;
 	m_module = nullptr;
 	m_prevCoi = nullptr;
@@ -1212,6 +1220,8 @@ static Int gxSlotOf(const PartitionData *module)
 // Set by Team::setControllingPlayer: a whole team changed owner without its objects hearing of
 // it, so the counts may be stale; searches stop skipping for the rest of the game.
 Bool g_gxCellCountsStale = false;
+UnsignedInt *g_gxCellMasks = nullptr;
+Int g_gxCellMaskW = 0;
 
 void CellAndObjectIntersection::gxSetPlayerSlot(Int slot)
 {
@@ -1219,8 +1229,41 @@ void CellAndObjectIntersection::gxSetPlayerSlot(Int slot)
 	{
 		m_cell->gxCount(m_gxPlayer, -1);
 		m_cell->gxCount(slot, +1);
+		gxSlotUnlink();
+		gxSlotLink(slot);
 	}
 	m_gxPlayer = slot;
+}
+
+void CellAndObjectIntersection::gxSlotLink(Int slot)
+{
+	// the list runs from high to low sequence, like the cell list; a new COI has the highest, so
+	// it normally goes first (a slot change walks to its place)
+	CellAndObjectIntersection *prev = nullptr, *next = m_cell->gxSlotHead(slot);
+	while (next && next->m_gxSeq > m_gxSeq)
+	{
+		prev = next;
+		next = next->m_gxSlotNext;
+	}
+	m_gxSlotPrev = prev;
+	m_gxSlotNext = next;
+	if (prev)
+		prev->m_gxSlotNext = this;
+	else
+		m_cell->gxSlotHead(slot) = this;
+	if (next)
+		next->m_gxSlotPrev = this;
+}
+
+void CellAndObjectIntersection::gxSlotUnlink()
+{
+	if (m_gxSlotPrev)
+		m_gxSlotPrev->m_gxSlotNext = m_gxSlotNext;
+	else
+		m_cell->gxSlotHead(m_gxPlayer) = m_gxSlotNext;
+	if (m_gxSlotNext)
+		m_gxSlotNext->m_gxSlotPrev = m_gxSlotPrev;
+	m_gxSlotPrev = m_gxSlotNext = nullptr;
 }
 
 //-----------------------------------------------------------------------------
@@ -1290,10 +1333,24 @@ void CellAndObjectIntersection::addCoverage(PartitionCell *cell, PartitionData *
 		cell->friend_addToCellList(this);
 		m_gxPlayer = gxSlotOf(module);
 		cell->gxCount(m_gxPlayer, +1);
+		m_cell = cell;
+		m_gxSeq = cell->gxTakeSeq();
+		gxSlotLink(m_gxPlayer);
 	}
 
 	m_cell = cell;
 	m_module = module;
+
+	// web port (switch searchCache): where the object is now; no object (a ghost): never turned
+	// away by the cached test
+	const Object *o = module->getObject();
+	if (o)
+	{
+		const GeometryInfo &g = o->getGeometryInfo();
+		gxSetPlace(o->getPosition()->x, o->getPosition()->y, max(g.getBoundingCircleRadius(), g.getBoundingSphereRadius()));
+	}
+	else
+		gxSetPlace(0.0f, 0.0f, HUGE_DIST);
 }
 
 //-----------------------------------------------------------------------------
@@ -1307,6 +1364,7 @@ void CellAndObjectIntersection::removeAllCoverage()
 
 	m_cell->friend_removeFromCellList(this);
 	m_cell->gxCount(m_gxPlayer, -1);
+	gxSlotUnlink();
 	m_cell = nullptr;
 	m_module = nullptr;
 }
@@ -1323,6 +1381,8 @@ PartitionCell::PartitionCell()
 	m_coiCount = 0;
 	memset(m_gxCount, 0, sizeof(m_gxCount));
 	m_gxMask = 0;
+	memset(m_gxSlotHead, 0, sizeof(m_gxSlotHead));
+	m_gxNextSeq = 0;
 #ifdef PM_CACHE_TERRAIN_HEIGHT
 	m_loTerrainZ = HUGE_DIST;		// huge positive
 	m_hiTerrainZ = -HUGE_DIST;	// huge negative
@@ -2908,6 +2968,10 @@ void PartitionManager::init()
 		m_cellCountY = REAL_TO_INT_CEIL(m_worldExtents.height() * m_cellSizeInv);
 		m_totalCellCount = m_cellCountX * m_cellCountY;
 		m_cells = MSGNEW("PartitionManager_Cells") PartitionCell[m_totalCellCount];
+		delete [] g_gxCellMasks;
+		g_gxCellMasks = MSGNEW("PartitionManager_CellMasks") UnsignedInt[m_totalCellCount];
+		memset(g_gxCellMasks, 0, m_totalCellCount * sizeof(UnsignedInt));
+		g_gxCellMaskW = m_cellCountX;
 		for (Int x = 0; x < m_cellCountX; x++)
 		{
 			for (Int y = 0; y < m_cellCountY; y++)
@@ -2997,6 +3061,9 @@ void PartitionManager::shutdown()
 
 	delete [] m_cells;
 	m_cells = nullptr;
+	delete [] g_gxCellMasks;
+	g_gxCellMasks = nullptr;
+	g_gxCellMaskW = 0;
 
 	m_cellSize = m_cellSizeInv = 0.0f;
 	m_cellCountX = 0;
@@ -3499,6 +3566,7 @@ void PartitionManager::calcRadiusVec()
 //DECLARE_PERF_TIMER(getClosestObjects)
 
 // The player slots whose objects could pass filters[0], or all slots (no skipping).
+// Slot MAX_PLAYER_COUNT (no player) is in the mask when neutrals pass.
 static UnsignedInt gxEnemySlots(PartitionFilter **filters)
 {
 #ifndef __EMSCRIPTEN__
@@ -3506,8 +3574,14 @@ static UnsignedInt gxEnemySlots(PartitionFilter **filters)
 #endif
 	if (!filters || !filters[0] || g_gxCellCountsStale || !(GLES3_Page_Switches() & 268435456))
 		return 0xffffffffu;
+	Int allow = 1 << ENEMIES;
 	const Object *me = filters[0]->gxEnemiesOf();
-	const Team *myTeam = me ? me->getTeam() : nullptr;
+	// switch searchSlotSkip (second word bit 16): also a relationship filter that lets no allies through
+	if (!me && (GLES3_Page_Switches2() & 65536))
+		me = filters[0]->gxRelationOf(allow);
+	if (!me || (allow & (1 << ALLIES)))
+		return 0xffffffffu;	// allies include undetected defectors of any player: no skipping
+	const Team *myTeam = me->getTeam();
 	const Player *myPlayer = myTeam ? myTeam->getControllingPlayer() : nullptr;
 	if (!myPlayer || me->getIsUndetectedDefector() || myTeam->gxHasTeamOverrides() || myPlayer->gxHasTeamOverrides())
 		return 0xffffffffu;
@@ -3519,30 +3593,41 @@ static UnsignedInt gxEnemySlots(PartitionFilter **filters)
 		if (!t || p->getPlayerIndex() != i)
 			return 0xffffffffu;
 		// with no team-level overrides on our side, every team of player i gets this answer
-		if (myTeam->getRelationship(t) == ENEMIES)
+		if (allow & (1 << myTeam->getRelationship(t)))
 			mask |= 1u << i;
 	}
-	return mask;	// slot MAX_PLAYER_COUNT (ghosts, ownerless) never passes: NEUTRAL
+	if (allow & (1 << NEUTRAL))
+		mask |= 1u << MAX_PLAYER_COUNT;	// no team or no player: NEUTRAL
+	return mask;
 }
 
-// Verify mode: a skipped cell must hold nothing filters[0] would let through.
-static void gxVerifyCellSkip(PartitionCell *cell, const Object *self, PartitionFilter *f)
+#ifdef FASTER_GCO
+
+// Web port: what a range search may skip (gxClosestImpl's gxFlags). Each is exact: it only
+// turns away entries the plain walk would also turn away, before reading them.
+enum
 {
-	for (CellAndObjectIntersection *c = cell->getFirstCoiInCell(); c; c = c->getNextCoi())
-	{
-		Object *o = c->getModule()->getObject();
-		if (!o || o == self)
-			continue;
-		++gx_verify_checked;
-		if (f->allow(o))
-		{
-			++gx_verify_mismatch;
-			printf("GXVERIFY cell skip mismatch: object %u (player %d)\n", o->getID(), o->getControllingPlayer() ? o->getControllingPlayer()->getPlayerIndex() : -1);
-		}
-	}
-	if (gx_verify_checked % 20000 < 8)
-		printf("GXVERIFY cell skip checked %d, mismatches %d\n", gx_verify_checked, gx_verify_mismatch);
+	GX_GCO_CELLS = 1,		// cells holding no player in the mask (switch enemySearchSkip)
+	GX_GCO_ENTRIES = 2,		// entries of players not in the mask (switch searchSlotSkip)
+	GX_GCO_DENSE = 4,		// read cell masks from the dense array (switch denseCellMask)
+	GX_GCO_CACHE = 8		// entries farther than the range by their cached place (switch searchCache)
+};
+
+void PartitionData::gxRefreshPlace()
+{
+	const Object *o = m_object;
+	if (!o)
+		return;
+	const Coord3D *p = o->getPosition();
+	const GeometryInfo &g = o->getGeometryInfo();
+	const Real r = max(g.getBoundingCircleRadius(), g.getBoundingSphereRadius());
+	for (Int i = 0; i < m_coiInUseCount; ++i)
+		m_coiArray[i].gxSetPlace(p->x, p->y, r);
 }
+
+Bool g_gxNoSearchVerify = false;	// set while a caller times its own searches (verify mode)
+static UnsignedInt gx_gco_calls;	// verify mode: searches checked, and the time of both runs
+static double gx_gco_fastMs, gx_gco_refMs;
 
 Object *PartitionManager::getClosestObjects(
 	const Object *obj,
@@ -3555,28 +3640,88 @@ Object *PartitionManager::getClosestObjects(
 	Coord3D *closestVecArg
 )
 {
-	//USE_PERF_TIMER(getClosestObjects)
-
-#ifdef DUMP_PERF_STATS
-	if (TheGameLogic->getFrame() != s_gcoPerfFrame)
+	UnsignedInt flags = 0;
+	UnsignedInt mask = 0xffffffffu;
+#ifdef __EMSCRIPTEN__
+	const Int sw = GLES3_Page_Switches2();
+	if (sw & 524288)
+		flags |= GX_GCO_CACHE;
+	mask = gxEnemySlots(filters);
+	if (mask != 0xffffffffu)
 	{
-		s_gcoPerfFrame = TheGameLogic->getFrame();
-		s_countInClosestObjectsThisFrame = 0;
-		s_timeInClosestObjectsThisFrame = 0;
+		flags |= GX_GCO_CELLS;
+		if (sw & 65536)
+			flags |= GX_GCO_ENTRIES;
+		if (sw & 262144)
+			flags |= GX_GCO_DENSE;
 	}
-	++s_countInClosestObjects;
-	++s_countInClosestObjectsThisFrame;
-
-	Int64 startTime64;
-	GetPrecisionTimer(&startTime64);
+	if (!(GLES3_Page_Switches() & 2097152) || g_gxNoSearchVerify)
+		return gxClosestImpl(obj, pos, maxDist, dc, filters, iterArg, closestDistArg, closestVecArg, flags, mask, nullptr);
+#else
+	return gxClosestImpl(obj, pos, maxDist, dc, filters, iterArg, closestDistArg, closestVecArg, flags, mask, nullptr);
 #endif
+#ifdef __EMSCRIPTEN__
 
-#ifdef RTS_DEBUG
-	static Int theEntrancyCount = 0;
-	DEBUG_ASSERTCRASH(theEntrancyCount == 0, ("sorry, this routine is not reentrant"));
-	++theEntrancyCount;
+	// Verify mode: the same search again with nothing skipped, the order of the two runs
+	// alternating; the objects that passed (in order), the result, its distance and vector must
+	// match. Both runs are timed (paired, so machine load hits both alike).
+	static std::vector<Object*> traceFast, traceRef;
+	traceFast.clear();
+	traceRef.clear();
+	SimpleObjectIterator *refIter = iterArg ? newInstance(SimpleObjectIterator) : nullptr;
+	Real distFast = -1.0f, distRef = -1.0f;
+	Coord3D vecFast, vecRef;
+	vecFast.zero();
+	vecRef.zero();
+	Object *fast, *ref;
+	const Bool fastFirst = (gx_gco_calls & 1) == 0;
+	double t0 = emscripten_get_now();
+	if (fastFirst)
+		fast = gxClosestImpl(obj, pos, maxDist, dc, filters, iterArg, &distFast, &vecFast, flags, mask, &traceFast);
+	double t1 = emscripten_get_now();
+	ref = gxClosestImpl(obj, pos, maxDist, dc, filters, refIter, &distRef, &vecRef, 0, 0xffffffffu, &traceRef);
+	double t2 = emscripten_get_now();
+	if (!fastFirst)
+		fast = gxClosestImpl(obj, pos, maxDist, dc, filters, iterArg, &distFast, &vecFast, flags, mask, &traceFast);
+	double t3 = emscripten_get_now();
+	gx_gco_fastMs += (t1 - t0) + (t3 - t2);
+	gx_gco_refMs += t2 - t1;
+	++gx_gco_calls;
+	++gx_verify_checked;
+	Bool same = fast == ref && traceFast == traceRef && memcmp(&distFast, &distRef, sizeof(Real)) == 0
+		&& (!fast || memcmp(&vecFast, &vecRef, sizeof(Coord3D)) == 0);	// with no result the vector is unset
+	if (refIter)
+	{
+		Real nf, nr;
+		Object *a = iterArg->firstWithNumeric(&nf), *b = refIter->firstWithNumeric(&nr);
+		for (; a && b && same; a = iterArg->nextWithNumeric(&nf), b = refIter->nextWithNumeric(&nr))
+			same = a == b && memcmp(&nf, &nr, sizeof(Real)) == 0;
+		if (a || b)
+			same = false;
+		iterArg->first();
+		deleteInstance(refIter);
+	}
+	if (!same)
+	{
+		++gx_verify_mismatch;
+		printf("GXVERIFY search mismatch: flags %u, %d/%d passed, result %u/%u\n", flags, (Int)traceFast.size(), (Int)traceRef.size(),
+			fast ? fast->getID() : 0, ref ? ref->getID() : 0);
+	}
+	if (gx_gco_calls % 3000 == 0)
+		printf("GXVERIFY searches checked %u, mismatches %d (all checks); fast %.1f ms, plain %.1f ms\n", gx_gco_calls, gx_verify_mismatch,
+			gx_gco_fastMs, gx_gco_refMs);
+	if (closestDistArg)
+		*closestDistArg = distFast;
+	if (closestVecArg)
+		*closestVecArg = vecFast;
+	return fast;
 #endif
+}
 
+Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,
+	PartitionFilter **filters, SimpleObjectIterator *iterArg, Real *closestDistArg, Coord3D *closestVecArg,
+	UnsignedInt gxFlags, UnsignedInt gxEnemyMask, std::vector<Object*> *trace)
+{
 	DEBUG_ASSERTCRASH((obj==nullptr) != (pos == nullptr), ("either obj or pos must be null"));
 
 	DistCalcProc distProc = theDistCalcProcs[dc];
@@ -3605,61 +3750,99 @@ Object *PartitionManager::getClosestObjects(
 	closestVec.z = maxDist;
 #endif
 
-#ifdef FASTER_GCO
-
 	Int maxRadius = m_maxGcoRadius;
 	if (maxDist < HUGE_DIST)
 	{
 		// don't go outwards any farther than necessary.
 		maxRadius = minInt(m_maxGcoRadius, worldToCellDist(maxDist));
 	}
-#if defined(INTENSE_DEBUG)
-	/*
-		Note, if you ever enable this code, be forewarned that it can give
-		you "false positives" for objects that are located just off the map... (srj)
-	*/
-	Int maxRadiusLimit = maxRadius + 3;
-	if (maxRadiusLimit > m_maxGcoRadius) maxRadiusLimit = m_maxGcoRadius;
-#else
 	Int maxRadiusLimit = maxRadius;
-#endif
 
 	Bool foundAny = false;
 
 	static Int theIterFlag = 1;	// nonzero, thanks
 	++theIterFlag;
 
-	// Web port (switch enemySearchSkip, page bit 28): when the first filter keeps only live
-	// enemies of 'me', a cell holding nobody of a player 'me' is enemies with can't add anything;
-	// skip it. Same result and order: those objects would all be rejected by that filter, and the
-	// done flags only matter for objects that pass. Only when the relation depends on the player
-	// alone (no team-level overrides) and no team has changed owner.
-	const UnsignedInt gxEnemyMask = gxEnemySlots(filters);
-	const Bool gxVerify = gxEnemyMask != 0xffffffffu && (GLES3_Page_Switches() & 2097152) != 0;
+	// Web port (switch searchCache): an entry whose cached centre is farther than the range plus
+	// both radii plus one unit can't pass the distance test, whatever the distance type (every
+	// type measures at least the 2D centre distance minus the two radii). The unit of slack makes
+	// rounding irrelevant. gxLimit follows closestDistSqr.
+	const Bool gxCache = (gxFlags & GX_GCO_CACHE) != 0 && maxDist < HUGE_DIST;
+	const Bool gxBoundary = dc == FROM_BOUNDINGSPHERE_2D || dc == FROM_BOUNDINGSPHERE_3D;
+	Real gxMyR = 0.0f;
+	if (gxBoundary && objToUse)
+		gxMyR = max(objToUse->getGeometryInfo().getBoundingCircleRadius(), objToUse->getGeometryInfo().getBoundingSphereRadius());
+	Real gxLimit = gxCache ? sqrtf(closestDistSqr) + gxMyR + 1.0f : 0.0f;
+	const Real px = objPos->x, py = objPos->y;
 
 	/*
 		m_radiusVec[curRadius] contains a list of the cells (foo) that could
 		contain objects that are <= (curRadius * cellSize) distance away from cell (0,0).
 	*/
-  for (Int curRadius = 0; curRadius <= maxRadiusLimit; ++curRadius)
-  {
-    const OffsetVec& offsets = m_radiusVec[curRadius];
+	for (Int curRadius = 0; curRadius <= maxRadiusLimit; ++curRadius)
+	{
+		const OffsetVec& offsets = m_radiusVec[curRadius];
 		if (offsets.empty())
 			continue;
-    for (OffsetVec::const_iterator it = offsets.begin(); it != offsets.end(); ++it)
+		for (OffsetVec::const_iterator it = offsets.begin(); it != offsets.end(); ++it)
 		{
-			PartitionCell* thisCell = getCellAt(cellCenterX + it->x, cellCenterY + it->y);
-			if (thisCell == nullptr)
+			const Int gxX = cellCenterX + it->x, gxY = cellCenterY + it->y;
+			if (gxX < 0 || gxY < 0 || gxX >= m_cellCountX || gxY >= m_cellCountY)
 				continue;
-			if (!(thisCell->gxPlayerMask() & gxEnemyMask))
-			{
-				if (!gxVerify)
-					continue;
-				gxVerifyCellSkip(thisCell, obj, filters[0]);	// check the skip, then search as before
-			}
+			if ((gxFlags & GX_GCO_DENSE) && !(g_gxCellMasks[gxY * m_cellCountX + gxX] & gxEnemyMask))
+				continue;
+			PartitionCell* thisCell = &m_cells[gxY * m_cellCountX + gxX];
+			// Web port (switch enemySearchSkip): when the first filter keeps only objects of some
+			// players' (gxEnemySlots), a cell holding nobody of those players can't add anything.
+			// Same result and order: those objects would all be rejected by that filter, and the
+			// done flags only matter for objects that pass.
+			if ((gxFlags & GX_GCO_CELLS) && !(thisCell->gxPlayerMask() & gxEnemyMask))
+				continue;
 
-			for (CellAndObjectIntersection *thisCoi = thisCell->getFirstCoiInCell(); thisCoi; thisCoi = thisCoi->getNextCoi())
+			// switch searchSlotSkip: walk only the lists of the players in the mask, merged back into the
+			// cell list's order by sequence (high to low), so entries of other players are never read
+			// (same reasoning as the cell skip). Otherwise the whole cell list.
+			CellAndObjectIntersection *gxHeads[MAX_PLAYER_COUNT + 1];
+			Int gxHeadCount = 0;
+			const Bool gxSlots = (gxFlags & GX_GCO_ENTRIES) != 0;
+			if (gxSlots)
 			{
+				for (UnsignedInt m = thisCell->gxPlayerMask() & gxEnemyMask; m; m &= m - 1)
+				{
+					CellAndObjectIntersection *h = thisCell->gxSlotHead(__builtin_ctz(m));
+					if (h)
+						gxHeads[gxHeadCount++] = h;
+				}
+			}
+			CellAndObjectIntersection *thisCoi = nullptr;
+			for (Bool first = true; ; first = false)
+			{
+				if (gxSlots)
+				{
+					if (gxHeadCount == 0)
+						break;
+					Int best = 0;
+					for (Int i = 1; i < gxHeadCount; ++i)
+						if (gxHeads[i]->gxSeq() > gxHeads[best]->gxSeq())
+							best = i;
+					thisCoi = gxHeads[best];
+					gxHeads[best] = thisCoi->gxSlotNext();
+					if (!gxHeads[best])
+						gxHeads[best] = gxHeads[--gxHeadCount];
+				}
+				else
+				{
+					thisCoi = first ? thisCell->getFirstCoiInCell() : thisCoi->getNextCoi();
+					if (!thisCoi)
+						break;
+				}
+				if (gxCache)
+				{
+					const Real dx = thisCoi->gxX() - px, dy = thisCoi->gxY() - py, lim = gxLimit + thisCoi->gxR();
+					if (dx * dx + dy * dy > lim * lim)
+						continue;	// every COI of this object says the same: no done flag needed
+				}
+
 				PartitionData *thisMod = thisCoi->getModule();
 				Object *thisObj = thisMod->getObject();
 
@@ -3681,6 +3864,9 @@ Object *PartitionManager::getClosestObjects(
 				if (!filtersAllow(filters, thisObj))
 					continue;
 
+				if (trace)
+					trace->push_back(thisObj);
+
 				// ok, this is within the range, and the filters allow it.
 				// add it to the iter, if we have one....
 				if (iterArg)
@@ -3695,6 +3881,8 @@ Object *PartitionManager::getClosestObjects(
 					closestObj = thisObj;
 					closestDistSqr = thisDistSqr;
 					closestVec = distVec;
+					if (gxCache)
+						gxLimit = sqrtf(closestDistSqr) + gxMyR + 1.0f;
 
 					if (!foundAny)
 					{
@@ -3703,86 +3891,9 @@ Object *PartitionManager::getClosestObjects(
 					}
 					foundAny = true;
 				}
-
-			}
-		}
-  }
-
-#else // not FASTER_GCO
-
-	CellOutwardIterator iter(this, cellCenterX, cellCenterY);
-	if (maxDist < HUGE_DIST)
-	{
-		// don't go outwards any farther than necessary.
-		Int max = worldToCellDist(maxDist) + 1;
-		// default value for "max" is largest possible, based on map size, so we should
-		// never make it any larger than that
-		if (max < iter.getMaxRadius())
-			iter.setMaxRadius(max);
-	}
-
-	Bool foundAny = false;
-
-	static Int theIterFlag = 1;	// nonzero, thanks
-	++theIterFlag;
-
-	PartitionCell *thisCell;
-	while ((thisCell = iter.nextNonEmpty()) != nullptr)
-	{
-		CellAndObjectIntersection *nextCoi;
-		for (CellAndObjectIntersection *thisCoi = thisCell->getFirstCoiInCell(); thisCoi; thisCoi = nextCoi)
-		{
-			nextCoi = thisCoi->getNextCoi();
-
-			PartitionData *thisMod = thisCoi->getModule();
-
-			Object *thisObj = thisMod->getObject();
-
-			// never compare against ourself.
-			if (thisObj == obj)
-				continue;
-
-			if (thisMod->friend_getDoneFlag() == theIterFlag)
-				continue;
-
-			thisMod->friend_setDoneFlag(theIterFlag);
-
-			// hmm, ok, calc the distance.
-			Real thisDistSqr;
-			Coord3D distVec;
-			if (!(*distProc)(objPos, objToUse, thisObj->getPosition(), thisObj, &thisDistSqr, &distVec, closestDistSqr))
-				continue;
-
-			// check the filters now
-			if (!filtersAllow(filters, thisObj))
-				continue;
-
-			// ok, guess this is a winner!
-			if (iterArg)
-			{
-				iterArg->insert(thisObj, thisDistSqr);
-			}
-			else
-			{
-				closestObj = thisObj;
-				closestDistSqr = thisDistSqr;
-				closestVec = distVec;
-
-				if (!foundAny)
-				{
-					// if not adding to iterArg, we want to stop once we have the closest object.
-					// since all objects in this radius (and the next radius, due to slop) might
-					// be slightly closer, we still have to check all of them. so set the termination
-					// radius to be our-current-radius-plus-1. (if we ARE adding to the iterArg, we skip
-					// this, cuz we want to go all the way out to the original max we specified as an arg.)
-					iter.setMaxRadius(iter.getCurCellRadius() + 2);
-				}
-				foundAny = true;
 			}
 		}
 	}
-
-#endif  // not FASTER_GCO
 
 	if (closestVecArg)
 	{
@@ -3792,20 +3903,13 @@ Object *PartitionManager::getClosestObjects(
 	{
 		*closestDistArg = (Real)sqrtf(closestDistSqr);
 	}
-
-#ifdef RTS_DEBUG
-	--theEntrancyCount;
-#endif
-#ifdef DUMP_PERF_STATS
-	Int64 endTime64;
-	GetPrecisionTimer(&endTime64);
-	Int64 delta = (endTime64 - startTime64);
-	s_timeInClosestObjects += delta;
-	s_timeInClosestObjectsThisFrame += delta;
-#endif
-
 	return closestObj;	// might be null...
 }
+
+#else
+#error "web port: getClosestObjects is only written for FASTER_GCO"
+#endif // FASTER_GCO
+
 
 
 //-----------------------------------------------------------------------------
