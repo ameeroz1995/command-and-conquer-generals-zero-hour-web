@@ -440,7 +440,7 @@ void GLES3_Begin_Scene() {
                  | (o.contactArray === false ? 0 : 8)   // bit 3: touching pairs kept in flat arrays, nothing allocated per pair (PartitionManager.cpp; same game)
                  | (o.cellBits === false ? 0 : 32)      // bit 5: route searches read a bitmap of occupied cells (AIPathfind.cpp; same game)
                  | (o.lazyFields === false ? 0 : 64)    // bit 6: flow fields computed only as far as the units asking (AIPathfind.cpp; same routes)
-                 | (o.pathBudget === true ? 128 : 0)    // bit 7: match rule pathBudget, half the per-frame route search budget (AIPathfind.cpp)
+                 | (o.coarseStart === true ? 128 : 0)   // bit 7: match rule coarseStart, units follow the zone-level route while their full route is queued (AIUpdate.cpp)
                  | (o.lazyScans === true ? 4096 : 0)    // bit 12: routine enemy scans that find nothing wait twice as long (AIUpdate.cpp; match rule)
                  | (o.boneCache === false ? 0 : 1048576)  // bit 20: loaded-missile bones found by index, not by name every frame (W3DModelDraw.cpp; drawing only)
                  | (o.lightCache === false ? 0 : 2097152)  // bit 21: headlight sub-objects listed once per model (W3DModelDraw.cpp; drawing only)

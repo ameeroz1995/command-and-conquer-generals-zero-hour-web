@@ -1661,7 +1661,6 @@ StateReturnType AIInternalMoveToState::onEnter()
 	}
 
 	// request a path to the destination
-	{ extern int gx_replanReason; gx_replanReason = 0; }	// GXDIAG: new order
 	if (!computePath())
 	{
 		ai->friend_endingMove();
@@ -1883,7 +1882,6 @@ StateReturnType AIInternalMoveToState::update()
 		if (forceRecompute || !isSamePosition(obj->getPosition(), &m_pathGoalPosition, &m_goalPosition ))
 		{
 			// goal moved - repath
-			{ extern int gx_replanReason; gx_replanReason = blocked ? 1 : (thePath == nullptr ? 2 : 3); }	// GXDIAG
 			if (!computePath())
 			{
 				//Kris: 7/01/03 (Temporary debug hook for units not being able to leave maps)
