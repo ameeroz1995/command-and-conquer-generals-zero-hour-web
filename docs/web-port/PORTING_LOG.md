@@ -3216,3 +3216,23 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
 - Determinism (paths-22, no diagnostics): referee replay matches; recorded with groupRoute,
   routeCache, flowCover, routeRefine, routeQueue and moveAfterTick on (GX=F08422) and played back
   with all of them off locally: matches.
+
+## 2026-11-25 — Route-planning CPU share, and routeQueue staggering (paths agent)
+
+- Profile pairs (paths-23, armies phase, share of the frame; load 8-10 except the first "off" run,
+  which ended at 29), rules off -> groupRoute + routeCache + flowCover + routeRefine on:
+  AIUpdateInterface::computePath (all route planning) 19.3% -> 9.5% and 18.1% -> 9.5%;
+  findClosestPath 18.0% -> 6.9% and 15.5% -> 6.7%; findPath 1.3-2.5% -> 2.7-2.8%; flow fields
+  1.0-1.6% -> 1.8-1.9%. Route planning's CPU share halves; the same pair's fps were flat
+  (armies 14.2 -> 14.2, strikes 10.4 -> 10.1), the time going to the rest of the frame.
+- routeQueue (match rule 2^20, third word bit 3) now also staggers the queue: requests queued in
+  one frame become eligible 64 a frame, in request order; coarse starts (a zone-level search each)
+  run 32 a frame, in request order, instead of all at the order; and a closest-spot search does
+  not start once the frame has used half its 5,000 cells (it waits for the next frame). Budget
+  unchanged.
+- A/B, all four route rules on, routeQueue off -> on (load 8-10): strikes fps 10.5 -> 10.8 and
+  11.8 -> 12.4; strikes 1% low 4.2 -> 5.6 and 4.9 -> 6.0; strikes p90 126 -> 110 and 112 -> 96 ms;
+  frames over 100 ms in strikes 348 -> 251 and 188 -> 55, in armies 38 -> 21 and 9 -> 7. Slowest
+  battle frames (after the two loading frames) 366 -> 291 and 271 -> 252 ms.
+- Determinism: referee replay matches; recorded with the four route rules plus routeQueue on
+  (GX=F00422) and played back with them off locally: matches.
