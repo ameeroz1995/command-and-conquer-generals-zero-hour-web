@@ -3101,3 +3101,31 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   -34% is ~3-4%). Slowest frames unchanged. Screenshots of the crowded fight (collide-voffA vs
   collide-vs3A battle3) look the same: no units visibly inside each other.
 - Proposed default: every-3 for single player (both switches left off until the match-rule wiring).
+
+## 2026-11-24 — Round 3, update loop as a flat system (logic-ai agent): measured, stopped
+
+Merged perf/low-end dc2f00b first.
+
+What the loop is: m_sleepyUpdates is a binary heap of update modules keyed by
+(next frame << 2 | phase), with the key copy beside each entry already (sleepyKeys). Many entries
+share a key each frame, and the order among them, which is the simulation order, comes from the
+heap's exact sift mechanics. So a same-game rebuild must keep that heap algorithm; only where its
+data lives can change. Every entry popped is then run through its module's own update(), which
+touches the module and its object anyway.
+
+Share of the frame (build ai-5, load 30-52, inclusive): armies — sifting (rebalance*) 1.3%,
+GameLogic::update's own code 1.1%; strikes — 0.8% and 0.7%. AIUpdateInterface::update 6.4-7.8%,
+StateMachine::updateStateMachine 4.4-5.3%: the state work under it is mostly route searches, enemy
+searches and weapons (other agents' systems). Ceiling for rebuilding the loop: about 2%.
+
+Prototype (holeSift, bit 15): the sift held the moving entry aside and slid the others into the
+hole, writing the index into a module once per level instead of twice. Verify mode (the swapping
+sift replayed on copies every 97th call and compared, entry by entry, with indexes): 0 mismatches.
+Replay matched.
+- profile pair, strikes (load 8-12): sifting 1.6% off, 1.6% on.
+- A/B pairs, work ms off/on (load 8-30): armies 59.8/62.1, 67.5/51.9; strikes 85.5/97.6, 82.8/75.8;
+  aftermath 68.4/53.3, 43.8/75.3. Noise in both directions, no gain.
+The sift's cost is the cache misses on the entries that really move (their keys and their
+modules' index fields), which the hole does not avoid; the extra writes it saved were to the
+moving entry, already in cache. Not kept (code reverted), per this round's rule: the full flat
+rewrite of the loop cannot pay more than ~2% and the slice shows nothing.
