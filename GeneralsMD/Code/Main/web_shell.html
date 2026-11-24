@@ -1257,6 +1257,7 @@
             { key: 'desync', def: low, reload: true, label: 'SHOW FRAMES IMMEDIATELY', note: 'Frames skip the browser\'s compositor (normal build only): more frames on weak machines, can look uneven. On by default on weak machines.' },
             { key: 'precompile', def: true, reload: true, label: 'PREPARE SHADERS AT START', note: 'Compiles the shaders the last sessions used before the first frame, instead of mid-game.' },
             { key: 'bigFileCache', def: true, reload: true, label: 'KEEP GAME FILES IN MEMORY', note: 'Up to 256 MB of closed files stay loaded so they are not read again. Off: 16 MB.' },
+            { key: 'warmBattleFiles', def: true, label: 'READ BATTLE FILES AHEAD', note: 'When a match starts, the unit models, textures and sounds a battle usually needs (about 60 MB) are read in the background, so the first explosion or new unit doesn\'t freeze the game while they load. Off on devices with 2 GB or less.' },
             { key: 'panCache', def: false, label: 'SLIDE THE GROUND WHILE THE CAMERA MOVES (EXPERIMENT)', note: 'While you scroll, the ground is drawn every third frame and its picture is slid in between. Slopes can shimmer and the screen edge can show gaps. Needs the ground reuse switch and antialiasing off.' },
             { key: 'asyncSounds', def: true, label: 'LOAD SOUNDS IN THE BACKGROUND', note: 'A sound that is not loaded yet is skipped once instead of freezing the game while it loads.' }
           ];

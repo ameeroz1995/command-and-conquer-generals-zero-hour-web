@@ -239,6 +239,61 @@ EM_JS(int, Range_Ready_JS, (const char *url, unsigned int start, unsigned int en
 });
 
 // ============================================================================
+// Warm reads (Warm_Match_Files with the switch warmBattleFiles): the exact bytes of files the
+// match will likely need, fetched in the background (neighbours in one archive merged into
+// requests of <= 2 MB, 3 at a time so a synchronous read never queues behind many) and kept
+// here by path until the first read takes them (Warm_Take_JS), at most 128 MB.
+// ============================================================================
+EM_JS(void, Warm_Queue_JS, (const char *url, const char *paths, const unsigned *offs, const unsigned *sizes, int n), {
+  const u = UTF8ToString(url);
+  const names = UTF8ToString(paths).split('\n');
+  const W = Module.gxWarm || (Module.gxWarm = { map: new Map(), bytes: 0, q: [], live: 0 });
+  const O = function (k) { return HEAPU32[(offs >> 2) + k] >>> 0; };
+  const Z = function (k) { return HEAPU32[(sizes >> 2) + k] >>> 0; };
+  for (let i = 0; i < n;) {  // offsets ascending (the caller sorts)
+    const o0 = O(i); let end = o0 + Z(i), j = i;
+    while (j + 1 < n && O(j + 1) - end <= 65536 && O(j + 1) + Z(j + 1) - o0 <= 2097152) { j++; end = Math.max(end, O(j) + Z(j)); }
+    const files = [];
+    for (let k = i; k <= j; k++) files.push([names[k], O(k) - o0, Z(k)]);
+    W.q.push([u, o0, end - 1, files]);
+    i = j + 1;
+  }
+  const pump = function () {
+    while (W.live < 3 && W.q.length) {
+      const r = W.q.shift(); W.live++;
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', r[0], true);
+      xhr.responseType = 'arraybuffer';
+      xhr.setRequestHeader('Range', 'bytes=' + r[1] + '-' + r[2]);
+      xhr.onloadend = function () {
+        W.live--;
+        // 206 only: a 200 would be the whole archive, not the range
+        if (xhr.status === 206 && xhr.response) {
+          const all = new Uint8Array(xhr.response);
+          for (const f of r[3])
+            if (f[1] + f[2] <= all.length && W.bytes + f[2] <= 134217728 && !W.map.has(f[0])) {
+              W.map.set(f[0], all.slice(f[1], f[1] + f[2])); W.bytes += f[2];
+            }
+        }
+        pump();
+      };
+      xhr.send(null);
+    }
+  };
+  pump();
+});
+
+EM_JS(int, Warm_Take_JS, (const char *path, void *buf, unsigned size), {
+  const W = Module.gxWarm;
+  if (!W || !W.map.size) return 0;
+  const k = UTF8ToString(path), d = W.map.get(k);
+  if (d === undefined || d.length !== (size >>> 0)) return 0;
+  W.map.delete(k); W.bytes -= d.length;
+  HEAPU8.set(d, buf >>> 0);
+  return 1;
+});
+
+// ============================================================================
 // Byte order conversion (big-endian to host)
 // ============================================================================
 unsigned int BigVFS::BE_To_Host(unsigned int be_value) {
@@ -627,7 +682,7 @@ bool BigVFS::Read_File_Sync(const char *path, void **out_data,
   // can be transiently corrupted when two async chains call Fetch_Range_JS
   // concurrently; the second call may see garbage arguments and throw
   // "TypeError: Failed to fetch" without the request reaching the server).
-  int bytes_read = -1;
+  int bytes_read = Warm_Take_JS(norm.c_str(), data_copy, entry->size) ? (int)entry->size : -1;
   for (int attempt = 0; attempt < 3 && bytes_read <= 0; ++attempt) {
     if (attempt > 0) {
       fprintf(stderr,
@@ -758,8 +813,45 @@ void BigVFS::Note_Match_Read(const std::string &norm) {
     fclose(f);
   }
 }
+#include "gx_battle_files.inc"
 void BigVFS::Warm_Match_Files() {
   Load_Match_Files();
+  // Switch warmBattleFiles (on; off on a device reporting <= 2 GB): the remembered files plus
+  // the shipped battle list, read as exact ranges (Warm_Queue_JS). The 1 MB windows below
+  // can't hold a long list: the battle's 1159 files (60 MB) span 246 windows, more than the
+  // 100 MB window cache, so they evicted each other.
+  const bool exact = MAIN_THREAD_EM_ASM_INT({
+    var o = typeof window !== 'undefined' && window.GeneralsX && window.GeneralsX.opt;
+    return (o && o.warmBattleFiles === false) || (navigator.deviceMemory || 8) <= 2 ? 0 : 1; }) != 0;
+  if (exact) {
+    std::set<std::string> want = s_matchFiles;
+    for (const char *p = kGxBattleFiles; *p;) {
+      const char *e = strchr(p, '\n');
+      want.insert(std::string(p, e - p));
+      p = e + 1;
+    }
+    struct W { unsigned off, size; const std::string *path; };
+    std::vector<std::vector<W>> per(archives.size());
+    int started = 0; double bytes = 0;
+    for (const std::string &p : want) {
+      if (cache.find(p) != cache.end()) continue;
+      const BigFileEntry *entry = Find_File(p.c_str());
+      if (!entry || entry->size == 0 || archives[entry->archive_index].preloaded_buffer) continue;
+      per[entry->archive_index].push_back({entry->offset, entry->size, &p});
+      started++; bytes += entry->size;
+    }
+    for (size_t a = 0; a < per.size(); a++) {
+      std::vector<W> &v = per[a];
+      if (v.empty()) continue;
+      std::sort(v.begin(), v.end(), [](const W &x, const W &y) { return x.off < y.off; });
+      std::string names; std::vector<unsigned> offs, sizes;
+      for (const W &w : v) { names += *w.path; names += '\n'; offs.push_back(w.off); sizes.push_back(w.size); }
+      Warm_Queue_JS(GX_FETCH_URL(archives[a].url), names.c_str(), offs.data(), sizes.data(), (int)v.size());
+    }
+    printf("GXWARM %d files (%.1f MB) of %d listed (%d remembered) reading in the background\n",
+           started, bytes / 1048576.0, (int)want.size(), (int)s_matchFiles.size());
+    return;
+  }
   int started = 0;
   for (const std::string &p : s_matchFiles)
     if (!File_Ready(p.c_str())) started++;

@@ -2625,3 +2625,23 @@ Parallel paths v2: no copies (a worker's first touch of a cell makes a clean scr
 read from the shared cell), and the game thread serves units while the workers compute, waiting only for
 the result it needs (and for every worker before a normal search or a flow-field change). Verify: 1,058
 checked, 0 mismatches; replay matches (9,000 frames). A/B: armies 13.0 → 9.9 fps (was 10.8 → 5.3).
+
+## 2026-11-24 — Battle files read ahead (switch warmBattleFiles, on)
+
+- Profile of the strike phase (live build 1e2f9e6, normal build): synchronous file reads 17%
+  (`send` 12.9% + `doXHR` 4.4%); particles ~2%, see-through sorting 1.7%, culling 0.5%, the fog
+  of war texture 0%. So the GPU particle/fog/culling ideas were not built: ≤ 4% to gain.
+- The reads are first uses mid-match (the first strike's frame read 232 files, 1.8 s). The
+  remembered-files warm-up (Session 33) only helps from the second match, and its 1 MB windows
+  can't hold a long list: the battle's 1159 files (52 MB) span 246 windows, more than the
+  100 MB window cache.
+- Now: a shipped list (`gx_battle_files.inc`, the files a benchmark battle reads on a fresh
+  profile) plus the remembered files, fetched as exact ranges when a match starts
+  (`Warm_Queue_JS`: neighbours merged into ≤ 2 MB requests, 3 in flight; kept by path until
+  the first read takes them, ≤ 128 MB). Off on ≤ 2 GB devices; switch off = the old warm-up.
+- Measured (machine swapping, fps noisy; the stall frames are the clear signal): off, frame 616
+  233 files 1.74 s plus 40- and 33-file stalls; on, no strike frame above 20 file reads and none
+  in the 10 slowest. Strikes 7.3 -> 9.5 fps in solo runs. Multithreaded: frame 616 0.35 s.
+  The army spawn at frame 4-5 (373 files) still stalls: the warm-up has only just started.
+- Caveat: the list comes from this benchmark, so the benchmark is its best case; a real match
+  uses a subset and the rest stays in memory unused (≤ 52 MB).
