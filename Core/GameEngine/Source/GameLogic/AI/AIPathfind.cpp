@@ -119,7 +119,11 @@ constexpr const UnsignedInt MAX_CELL_COUNT = 500;
 constexpr const UnsignedInt MAX_ADJUSTMENT_CELL_COUNT = 400;
 constexpr const UnsignedInt MAX_SAFE_PATH_CELL_COUNT = 2000;
 
-constexpr const int GX_CPOP_SEGMENTS_BIT = 0;	// web port: second switch word bit for cpopSegments (assigned by the main chat)
+static long long s_gdCells = 0;	// GXDIAG
+static UnsignedInt s_gdQueuedAt[PATHFIND_QUEUE_LEN]; static long long s_gdWaitSum = 0, s_gdQueueSum = 0; static int s_gdWaitN = 0, s_gdQueueMax = 0, s_gdDropped = 0; static UnsignedInt s_gdWaitMax = 0;	// GXDIAG
+int gd_coarse[4] = { 0 }, gd_group[4] = { 0 };	// GXDIAG
+struct GxQueued { ObjectID id; UnsignedInt frame; };
+static std::vector<GxQueued> s_gxOverflow;	// web port (match rule routeQueue): requests waiting for a queue slot
 constexpr const UnsignedInt PATHFIND_CELLS_PER_FRAME = 5000; // Number of cells we will search pathfinding per frame.
 constexpr const UnsignedInt CELL_INFOS_TO_ALLOCATE = 30000;
 
@@ -812,8 +816,8 @@ void Path::computePointOnPath(
 	Coord2D segmentDirNorm;
 	Real segmentLength;
 #ifdef __EMSCRIPTEN__
-	extern int GLES3_Page_Switches(), GLES3_Page_Switches2();
-	const Bool gxSegs = (GLES3_Page_Switches2() & GX_CPOP_SEGMENTS_BIT) != 0;	// switch cpopSegments
+	extern int GLES3_Page_Switches(), GLES3_Page_Switches3();
+	const Bool gxSegs = (GLES3_Page_Switches3() & 1) != 0;	// switch cpopSegments (third word bit 0)
 	const Bool gxVerifySegs = gxSegs && (GLES3_Page_Switches() & 2097152) != 0;
 #else
 	const Bool gxSegs = FALSE, gxVerifySegs = FALSE;
@@ -4182,6 +4186,8 @@ Pathfinder::~Pathfinder()
 void Pathfinder::reset()
 {
 	frameToShowObstacles = 0;
+	s_gxOverflow.clear();
+	{ extern void gxRouteCacheClear(); gxRouteCacheClear(); }
 	DEBUG_LOG(("Pathfind cell is %d bytes, PathfindCellInfo is %d bytes", sizeof(PathfindCell), sizeof(PathfindCellInfo)));
 
 	gxOccRelease();
@@ -6076,16 +6082,31 @@ Bool Pathfinder::queueForPath(ObjectID id)
 		}
 	}
 
+	// web port (match rule routeQueue): while requests wait for a slot, new ones queue behind them
+	if (!s_gxOverflow.empty() && gxMatchRule(GXRULE_ROUTE_QUEUE)) {
+		for (size_t k = 0; k < s_gxOverflow.size(); ++k) if (s_gxOverflow[k].id == id) return true;
+		s_gxOverflow.push_back(GxQueued{ id, TheGameLogic->getFrame() });
+		return true;
+	}
+
 	// Tail is the first available slot.
 	Int nextSlot = m_queuePRTail+1;
 	if (nextSlot >= PATHFIND_QUEUE_LEN) {
 		nextSlot = 0;
 	}
 	if (nextSlot==m_queuePRHead) {
+		// web port (match rule routeQueue): keep the request for when a slot frees up
+		if (gxMatchRule(GXRULE_ROUTE_QUEUE)) {
+			for (size_t k = 0; k < s_gxOverflow.size(); ++k) if (s_gxOverflow[k].id == id) return true;
+			s_gxOverflow.push_back(GxQueued{ id, TheGameLogic->getFrame() });
+			return true;
+		}
+		s_gdDropped++;	// GXDIAG
 		DEBUG_CRASH(("Ran out of pathfind queue slots."));
 		return false;
 	}
 	m_queuedPathfindRequests[m_queuePRTail] = id;
+	s_gdQueuedAt[m_queuePRTail] = TheGameLogic->getFrame();	// GXDIAG
 	m_queuePRTail = nextSlot;
 	return true;
 }
@@ -6320,6 +6341,7 @@ void Pathfinder::processPathfindQueue()
 	const Int gxCellsPerFrame = AIUpdateInterface::gxAiRule(16384) ? PATHFIND_CELLS_PER_FRAME / 2 : PATHFIND_CELLS_PER_FRAME;
 	while (m_cumulativeCellsAllocated < gxCellsPerFrame &&
 		m_queuePRTail!=m_queuePRHead) {
+		{ const UnsignedInt w = TheGameLogic->getFrame() - s_gdQueuedAt[m_queuePRHead]; s_gdWaitSum += w; s_gdWaitN++; if (w > s_gdWaitMax) s_gdWaitMax = w; }	// GXDIAG
 		Object *obj = TheGameLogic->findObjectByID(m_queuedPathfindRequests[m_queuePRHead]);
 		m_queuedPathfindRequests[m_queuePRHead] = INVALID_ID;
 		if (obj) {
@@ -6349,6 +6371,32 @@ void Pathfinder::processPathfindQueue()
 #endif
 	}	
 #endif
+	s_gdCells += m_cumulativeCellsAllocated;	// GXDIAG
+	// web port (match rule routeQueue): requests that found the queue full join it, oldest first
+	if (!s_gxOverflow.empty()) {
+		size_t k = 0;
+		for (; k < s_gxOverflow.size(); ++k) {
+			Int nextSlot = m_queuePRTail + 1;
+			if (nextSlot >= PATHFIND_QUEUE_LEN) nextSlot = 0;
+			if (nextSlot == m_queuePRHead) break;
+			m_queuedPathfindRequests[m_queuePRTail] = s_gxOverflow[k].id;
+			s_gdQueuedAt[m_queuePRTail] = s_gxOverflow[k].frame;	// GXDIAG: the wait counts from the first request
+			m_queuePRTail = nextSlot;
+		}
+		s_gxOverflow.erase(s_gxOverflow.begin(), s_gxOverflow.begin() + k);
+	}
+	{	// GXDIAG
+		const Int q = (m_queuePRTail - m_queuePRHead + PATHFIND_QUEUE_LEN) % PATHFIND_QUEUE_LEN + (Int)s_gxOverflow.size();
+		s_gdQueueSum += q; if (q > s_gdQueueMax) s_gdQueueMax = q;
+		if (TheGameLogic->getFrame() % 150 == 0) {
+			extern int gd_coarse[4], gd_group[4], gd_cache[3];
+			printf("GXQ f%u rules %X budget %d: searches %d, wait avg %.2f max %u, queue avg %.1f max %d, dropped %d, coarse %d switched %d wrongway %d moved10 %d | group routes %d, hints %d, used %d, separated %d, blocked %d | cache hits %d misses %d stores %d | cells %lld\n", TheGameLogic->getFrame(), gxCurrentMatchRules(), gxCellsPerFrame,
+				s_gdWaitN, s_gdWaitN ? (double)s_gdWaitSum / s_gdWaitN : 0.0, s_gdWaitMax, s_gdQueueSum / 150.0, s_gdQueueMax, s_gdDropped, gd_coarse[0], gd_coarse[1], gd_coarse[2], gd_coarse[3], gd_group[0], gd_group[1] % 1000000, gd_group[1] / 1000000, gd_group[2], gd_group[3], gd_cache[0], gd_cache[1], gd_cache[2], s_gdCells);
+			for (int q = 0; q < 4; ++q) gd_coarse[q] = gd_group[q] = 0;
+			gd_cache[0] = gd_cache[1] = gd_cache[2] = 0; s_gdCells = 0;
+			s_gdWaitSum = s_gdQueueSum = 0; s_gdWaitN = s_gdQueueMax = s_gdDropped = 0; s_gdWaitMax = 0;
+		}
+	}
 #if defined(RTS_DEBUG)
 	doDebugIcons();
 #endif
@@ -6739,11 +6787,22 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
  * Find a short, valid path between given locations.
  * Uses A* algorithm.
  */
+static Path *gxRouteCacheLookup( Pathfinder *pf, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center );
+static void gxRouteCacheStore( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center, Path *path );
+
 Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
 													 const Coord3D *rawTo)
 {
 	if (!clientSafeQuickDoesPathExist(locomotorSet, from, rawTo)) {
 		return nullptr;
+	}
+	// web port (match rule routeCache): a recent route from about here to about there, shifted
+	const Bool gxCache = obj && gxMatchRule(GXRULE_ROUTE_CACHE);
+	Int gxRadius = 0; Bool gxCenter = true;
+	if (gxCache) {
+		getRadiusAndCenter(obj, gxRadius, gxCenter);
+		if (Path *hit = gxRouteCacheLookup(this, obj, locomotorSet, from, rawTo, gxRadius, gxCenter))
+			return hit;
 	}
 	Bool isHuman = true;
 	if (obj && obj->getControllingPlayer() && (obj->getControllingPlayer()->getPlayerType()==PLAYER_COMPUTER)) {
@@ -6770,6 +6829,7 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 	Path *pat = internalFindPath(obj, locomotorSet, from, rawTo);
 #endif
 	if (pat!=nullptr) {
+		if (gxCache) gxRouteCacheStore(obj, locomotorSet, from, rawTo, gxRadius, gxCenter, pat);
 		return pat;
 	}
 
@@ -11947,3 +12007,75 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 	return nullptr;
 #endif
 }
+
+// ================================================================================================
+// Web port (match rule routeCache): recent routes, reused for a unit of the same kind and size
+// starting within 4 cells of a cached route's start and going within 4 cells of its goal. The
+// copy is shifted by the start offset, starts at the unit and ends at its own goal; a copy whose
+// shifted points would stand on a blocked cell is not used. Routes expire after 300 frames or
+// when buildings change (s_obstacleSerial).
+// ================================================================================================
+namespace {
+struct GxCachedRoute {
+	LocomotorSurfaceTypeMask surfaces; Bool crusher; Int radius; Bool center;
+	Coord3D from, to; unsigned serial; UnsignedInt born, used;
+	std::vector<Coord3D> pts;	// inner points (without start and end)
+};
+std::vector<GxCachedRoute> s_routeCache;
+}
+int gd_cache[3] = { 0 };	// GXDIAG: hits, misses, stores
+
+static Path *gxRouteCacheLookup( Pathfinder *pf, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center )
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	const LocomotorSurfaceTypeMask surfaces = locomotorSet.getValidSurfaces();
+	const Bool crusher = obj->getCrusherLevel() > 0;
+	const Real near2 = sqr(4 * PATHFIND_CELL_SIZE_F);
+	for (GxCachedRoute &r : s_routeCache) {
+		if (r.surfaces != surfaces || r.crusher != crusher || r.radius != radius || r.center != center) continue;
+		if (r.serial != s_obstacleSerial || now - r.born > 300) continue;
+		const Real ox = from->x - r.from.x, oy = from->y - r.from.y;
+		if (ox * ox + oy * oy > near2) continue;
+		const Real gx = to->x - r.to.x, gy = to->y - r.to.y;
+		if (gx * gx + gy * gy > near2) continue;
+		Bool ok = TRUE;
+		for (const Coord3D &p0 : r.pts) {
+			Coord3D p = p0; p.x += ox; p.y += oy;
+			if (!pf->validMovementPosition(crusher, LAYER_GROUND, locomotorSet, &p)) { ok = FALSE; break; }
+		}
+		if (!ok) continue;
+		Path *path = newInstance(Path);
+		path->appendNode(from, LAYER_GROUND);
+		for (const Coord3D &p0 : r.pts) { Coord3D p = p0; p.x += ox; p.y += oy; path->appendNode(&p, LAYER_GROUND); }
+		path->appendNode(to, LAYER_GROUND);
+		for (PathNode *node = path->getFirstNode(); node && node->getNext(); node = node->getNext())
+			node->setNextOptimized(node->getNext());
+		path->markOptimized();
+		r.used = now;
+		gd_cache[0]++;
+		return path;
+	}
+	gd_cache[1]++;
+	return nullptr;
+}
+
+static void gxRouteCacheStore( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center, Path *path )
+{
+	std::vector<Coord3D> pts;
+	const PathNode *first = path->getFirstNode();
+	for (const PathNode *node = first; node; node = node->getNextOptimized()) {
+		if (node->getLayer() != LAYER_GROUND) return;	// bridges: not cached
+		pts.push_back(*node->getPosition());
+	}
+	if (pts.size() < 3) return;
+	const UnsignedInt now = TheGameLogic->getFrame();
+	GxCachedRoute *slot = nullptr;
+	if (s_routeCache.size() < 64) { s_routeCache.push_back(GxCachedRoute()); slot = &s_routeCache.back(); }
+	else { slot = &s_routeCache[0]; for (GxCachedRoute &r : s_routeCache) if (r.used < slot->used) slot = &r; }
+	slot->surfaces = locomotorSet.getValidSurfaces(); slot->crusher = obj->getCrusherLevel() > 0;
+	slot->radius = radius; slot->center = center;
+	slot->from = *from; slot->to = *to; slot->serial = s_obstacleSerial; slot->born = slot->used = now;
+	slot->pts.assign(pts.begin() + 1, pts.end() - 1);
+	gd_cache[2]++;
+}
+void gxRouteCacheClear() { s_routeCache.clear(); }

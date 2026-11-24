@@ -40,6 +40,7 @@ class Object;
 class Weapon;
 class PathfindZoneManager;
 class PathfindCell;
+class Path;
 
 // How close is close enough when moving.
 
@@ -687,7 +688,8 @@ public:
 	Bool clientSafeQuickDoesPathExistForUI( const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to );  ///< Can we build any path at all between the locations	(terrain only - fast)
 	Bool slowDoesPathExist( Object *obj, const Coord3D *from,
 		const Coord3D *to, ObjectID ignoreObject=INVALID_ID );  ///< Can we build any path at all between the locations	(terrain, buildings & units check - slower)
-	Path *gxCoarsePath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *to );	///< web port (match rule coarseStart): straightened zone-level route
+	Path *gxCoarsePath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *to );
+	Path *gxFindPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to ) { return findPath(obj, locomotorSet, from, to); }	///< web port (match rule groupRoute): findPath for AIGroup	///< web port (match rule coarseStart): straightened zone-level route
 
 	Bool queueForPath(ObjectID id);	 ///< The object wants to request a pathfind, so put it on the list to process.
 	void processPathfindQueue(); ///< Process some or all of the queued pathfinds.

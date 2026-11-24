@@ -3887,6 +3887,9 @@ void GameLogic::update()
 
 	validateSleepyUpdate();
 
+	// web port (match rule moveAfterTick, paths agent): every unit's locomotion in one pass
+	{ extern void gxRunMovementPass(); gxRunMovementPass(); }
+
 	// update the Artificial Intelligence system
 	{
 		TheAI->UPDATE();
