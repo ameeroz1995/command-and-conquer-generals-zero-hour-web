@@ -2732,3 +2732,18 @@ queue's share; the sampling profile's 3.8% for the heap is the reliable figure.)
   collide interface on every collision. Tried (exact; replay matched): each object's collide
   modules listed once. A/B showed no difference at machine load 8-19 (fps 7-9, noise larger than
   a 2% change); not kept until it can be measured on a quiet machine.
+
+## 2026-11-24 — Touching-pair list rebuilt as flat arrays (switch contactArray, second word bit 3, on)
+
+- The pair list (PartitionContactList) allocated a node per pair (~51k a frame at the peak),
+  probed hash chains for repeats and freed every node at the end of the frame. Now: pairs go into
+  one array in discovery order and are processed newest first (the old list put each new pair at
+  its head); repeats (either order) are turned away by an open-addressing table of pointer pairs
+  whose slots carry a frame generation, so nothing is allocated, freed or cleared per pair. The
+  pair body is one shared function (gxProcessPair) taking references, so a reaction that removes a
+  partition data mid-frame still nulls later pairs, as before. The table doubles if pairs pass half
+  its slots.
+- Same game: referee replay matches over 9000 frames; verify mode builds the old list alongside and
+  compared every frame's pairs and order: 0 mismatches.
+- A/B (off vs on, twice, load 7-9): strikes fps 12.2 -> 12.8 and 11.4 -> 12.0 (+5%), work -5%/-4%;
+  aftermath +1% / +7%; armies +1%.

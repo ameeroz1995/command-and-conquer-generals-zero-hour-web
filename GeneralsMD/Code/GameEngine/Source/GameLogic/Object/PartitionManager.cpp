@@ -1036,6 +1036,20 @@ private:
 	static PartitionContactListNode** s_gxBig;
 	PartitionContactListNode** m_gxHash;	// the big table, or null for m_contactHash
 
+	// Web port (switch contactArray, second switch word bit 3): the pair list rebuilt as flat
+	// arrays. Pairs go into one array in the order they are found; the original list put each new
+	// pair at its head, so it is walked backwards here. Repeats (either order) are turned away by
+	// an open-addressing table of pointer pairs whose slots belong to one frame's generation, so
+	// nothing is allocated, freed or cleared per pair. Same pairs, same order, same reactions.
+	struct GxPair { PartitionData* a; PartitionData* b; };
+	struct GxSlot { unsigned long long key; UnsignedInt gen; };
+	static std::vector<GxPair> s_gxPairs;
+	static GxSlot* s_gxSlots;
+	static UnsignedInt s_gxSlotBits, s_gxGen;
+	Bool m_gxArray;
+	Bool m_gxVerify;	///< verify mode: the old list is built too and compared before processing
+	static void gxGrow();
+
 public:
 
 	PartitionContactList()
@@ -1043,9 +1057,27 @@ public:
 		memset(m_contactHash, 0, sizeof(m_contactHash));
 		m_contactList = nullptr;
 		m_gxHash = nullptr;
+		m_gxArray = false;
+		m_gxVerify = false;
 #ifdef __EMSCRIPTEN__
 		extern int GLES3_Page_Switches2();
-		if (GLES3_Page_Switches2() & 1)
+		if (GLES3_Page_Switches2() & 8)
+		{
+			m_gxArray = true;
+			m_gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
+			s_gxPairs.clear();
+			if (!s_gxSlots)
+			{
+				s_gxSlotBits = 18;
+				s_gxSlots = (GxSlot*)calloc((size_t)1 << s_gxSlotBits, sizeof(GxSlot));
+			}
+			if (++s_gxGen == 0)	// wrapped: old stamps could match again
+			{
+				memset(s_gxSlots, 0, sizeof(GxSlot) << s_gxSlotBits);
+				s_gxGen = 1;
+			}
+		}
+		else if (GLES3_Page_Switches2() & 1)
 		{
 			if (!s_gxBig)
 				s_gxBig = (PartitionContactListNode**)calloc((size_t)1 << GX_BIG_BITS, sizeof(PartitionContactListNode*));
@@ -1073,6 +1105,7 @@ public:
 		actions for each object in the pair.
 	*/
 	void processContactList();
+	void gxProcessPair(PartitionData*& a, PartitionData*& b);
 
 	/**
 		discard the contents of the contact list.
@@ -2508,6 +2541,39 @@ void PartitionContactList::addToContactList( PartitionData *obj, PartitionData *
 	if (obj_obj == nullptr || other_obj == nullptr)
 		return;
 
+	if (m_gxArray)
+	{
+		const UnsignedInt pa = (UnsignedInt)(uintptr_t)obj, pb = (UnsignedInt)(uintptr_t)other;
+		const unsigned long long key = pa < pb ? ((unsigned long long)pa << 32) | pb : ((unsigned long long)pb << 32) | pa;
+		if (s_gxPairs.size() * 2 >= ((size_t)1 << s_gxSlotBits))
+			gxGrow();
+		const UnsignedInt mask = (1u << s_gxSlotBits) - 1;
+		UnsignedInt h = (UnsignedInt)((key * 0x9E3779B97F4A7C15ull) >> (64 - s_gxSlotBits));
+		for (;; h = (h + 1) & mask)
+		{
+			GxSlot &slot = s_gxSlots[h];
+			if (slot.gen != s_gxGen)
+			{
+				slot.gen = s_gxGen;
+				slot.key = key;
+				break;
+			}
+			if (slot.key == key)
+			{
+				if (!m_gxVerify)
+					return;	// already noted
+				goto gxOld;
+			}
+		}
+		{
+			GxPair np = { obj, other };
+			s_gxPairs.push_back(np);
+		}
+		if (!m_gxVerify)
+			return;
+	}
+gxOld:
+
 	// compute hash index based on object's ids.
 	UnsignedInt hashValue = hash2ints(obj_obj->getID(), other_obj->getID());
 	PartitionContactListNode** table = m_contactHash;
@@ -2596,6 +2662,13 @@ aggcount,aggtotal/(aggcount*PartitionContactList_SOCKET_COUNT),(aggfull*100)/(ag
 //-----------------------------------------------------------------------------
 void PartitionContactList::removeSpecificPartitionData(PartitionData* data)
 {
+	if (m_gxArray)
+	{
+		for (GxPair &p : s_gxPairs)
+			if (p.a == data || p.b == data)
+				p.a = p.b = nullptr;
+		return;
+	}
 	for (PartitionContactListNode* cd = m_contactList; cd; cd = cd->m_next)
 	{
 		if (cd->m_obj == data || cd->m_other == data)
@@ -2609,8 +2682,39 @@ void PartitionContactList::removeSpecificPartitionData(PartitionData* data)
 //-----------------------------------------------------------------------------
 PartitionContactListNode** PartitionContactList::s_gxBig = nullptr;
 
+PartitionContactList::GxSlot* PartitionContactList::s_gxSlots = nullptr;
+UnsignedInt PartitionContactList::s_gxSlotBits = 0, PartitionContactList::s_gxGen = 0;
+std::vector<PartitionContactList::GxPair> PartitionContactList::s_gxPairs;
+
+// More pairs than half the slots: twice the slots, the current pairs put back.
+void PartitionContactList::gxGrow()
+{
+	free(s_gxSlots);
+	++s_gxSlotBits;
+	s_gxSlots = (GxSlot*)calloc((size_t)1 << s_gxSlotBits, sizeof(GxSlot));
+	s_gxGen = 1;
+	const UnsignedInt mask = (1u << s_gxSlotBits) - 1;
+	for (const GxPair &p : s_gxPairs)
+	{
+		// removed pairs (nulled) can't occur while pairs are still being added
+		const UnsignedInt pa = (UnsignedInt)(uintptr_t)p.a, pb = (UnsignedInt)(uintptr_t)p.b;
+		const unsigned long long key = pa < pb ? ((unsigned long long)pa << 32) | pb : ((unsigned long long)pb << 32) | pa;
+		UnsignedInt h = (UnsignedInt)((key * 0x9E3779B97F4A7C15ull) >> (64 - s_gxSlotBits));
+		while (s_gxSlots[h].gen == s_gxGen)
+			h = (h + 1) & mask;
+		s_gxSlots[h].gen = s_gxGen;
+		s_gxSlots[h].key = key;
+	}
+}
+
 void PartitionContactList::resetContactList()
 {
+	if (m_gxArray)
+	{
+		s_gxPairs.clear();
+		if (!m_gxVerify)
+			return;
+	}
 	// remove items from hash table
 	PartitionContactListNode* cdnext;
 	for (PartitionContactListNode* cd = m_contactList; cd; cd = cdnext)
@@ -2627,44 +2731,44 @@ void PartitionContactList::resetContactList()
 }
 
 //-----------------------------------------------------------------------------
-void PartitionContactList::processContactList()
+// One touching pair: the original loop body. a and b are references into the list so a
+// collision reaction that removes a partition data (removeSpecificPartitionData) is seen.
+void PartitionContactList::gxProcessPair(PartitionData*& a, PartitionData*& b)
 {
-	for (PartitionContactListNode* cd = m_contactList; cd; cd = cd->m_next)
-	{
-		if (cd->m_obj == nullptr || cd->m_other == nullptr)
-			continue;
+	if (a == nullptr || b == nullptr)
+		return;
 
-		Object* obj = cd->m_obj->getObject();
-		Object* other = cd->m_other->getObject();
+	Object* obj = a->getObject();
+	Object* other = b->getObject();
 
-		// Web port (switch collisionOrder, page bit 29): the bit test first, then the geometry.
-		// Both only decide whether to skip this pair and change nothing, so the order is free.
-		const Bool gxStatusFirst = (GLES3_Page_Switches() & 536870912) != 0;
-		if( gxStatusFirst && ( obj->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ||
-				other->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ) )
-			continue;
+	// Web port (switch collisionOrder, page bit 29): the bit test first, then the geometry.
+	// Both only decide whether to skip this pair and change nothing, so the order is free.
+	const Bool gxStatusFirst = (GLES3_Page_Switches() & 536870912) != 0;
+	if( gxStatusFirst && ( obj->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ||
+			other->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ) )
+		return;
 
-		// we know that their partitions overlap; determine if they REALLY collide
-		// before proceeding...
-		CollideLocAndNormal cinfo;
-		if (!cd->m_obj->friend_collidesWith(cd->m_other, &cinfo))
-			continue;
+	// we know that their partitions overlap; determine if they REALLY collide
+	// before proceeding...
+	CollideLocAndNormal cinfo;
+	if (!a->friend_collidesWith(b, &cinfo))
+		return;
 
-		if( !gxStatusFirst && ( obj->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ||
-				other->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ) )
-			continue;
+	if( !gxStatusFirst && ( obj->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ||
+			other->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ) )
+		return;
 
-		DEBUG_ASSERTCRASH(!(obj->isKindOf(KINDOF_IMMOBILE) && other->isKindOf(KINDOF_IMMOBILE)),
-			("we should never have collisions between two immobile things reported"));
+	DEBUG_ASSERTCRASH(!(obj->isKindOf(KINDOF_IMMOBILE) && other->isKindOf(KINDOF_IMMOBILE)),
+		("we should never have collisions between two immobile things reported"));
 
-		// the onCollide() calls can remove the object(s) from the partition mgr,
-		// thus destroying the partitiondata for 'em. go ahead and null these out here
-		// so we won't be tempted to use 'em (since they might be bogus).
-		cd->m_obj = nullptr;
-		cd->m_other = nullptr;
+	// the onCollide() calls can remove the object(s) from the partition mgr,
+	// thus destroying the partitiondata for 'em. go ahead and null these out here
+	// so we won't be tempted to use 'em (since they might be bogus).
+	a = nullptr;
+	b = nullptr;
 
-		obj->onCollide(other, &cinfo.loc, &cinfo.normal);
-		flipCoord3D(&cinfo.normal);
+	obj->onCollide(other, &cinfo.loc, &cinfo.normal);
+	flipCoord3D(&cinfo.normal);
 
  		//Before checking the "other" case, make sure that the previous collision didn't
  		//absorb him. This becomes a conflict for pilots giving veterancy to transports
@@ -2675,22 +2779,52 @@ void PartitionContactList::processContactList()
  			other->onCollide(obj, &cinfo.loc, &cinfo.normal);
  		}
 
-		//
-		// NOTE: it is VERY IMPORTANT (for performance reasons) to not re-dirty immobile things.
-		//
-		// NOTE also that we re-get partitiondata from the object, since it might have been
-		// removed from the partition system by the onCollide call...
-		//
-		if (!obj->isDestroyed() && obj->friend_getPartitionData() != nullptr && !obj->isKindOf(KINDOF_IMMOBILE))
-		{
+	//
+	// NOTE: it is VERY IMPORTANT (for performance reasons) to not re-dirty immobile things.
+	//
+	// NOTE also that we re-get partitiondata from the object, since it might have been
+	// removed from the partition system by the onCollide call...
+	//
+	if (!obj->isDestroyed() && obj->friend_getPartitionData() != nullptr && !obj->isKindOf(KINDOF_IMMOBILE))
+	{
 //DEBUG_LOG(("%d: re-dirtying collision of %s %08lx with %s %08lx",TheGameLogic->getFrame(),obj->getTemplate()->getName().str(),obj,other->getTemplate()->getName().str(),other));
-			obj->friend_getPartitionData()->makeDirty(false);
-		}
-		if (!other->isDestroyed() && other->friend_getPartitionData() != nullptr && !other->isKindOf(KINDOF_IMMOBILE))
-		{
+		obj->friend_getPartitionData()->makeDirty(false);
+	}
+	if (!other->isDestroyed() && other->friend_getPartitionData() != nullptr && !other->isKindOf(KINDOF_IMMOBILE))
+	{
 //DEBUG_LOG(("%d: re-dirtying collision of %s %08lx with %s %08lx [other]",TheGameLogic->getFrame(),other->getTemplate()->getName().str(),other,obj->getTemplate()->getName().str(),obj));
-			other->friend_getPartitionData()->makeDirty(false);
+		other->friend_getPartitionData()->makeDirty(false);
+	}
+}
+
+void PartitionContactList::processContactList()
+{
+	if (m_gxArray)
+	{
+		if (m_gxVerify)
+		{
+			size_t k = s_gxPairs.size(), n = 0;
+			Bool same = true;
+			for (PartitionContactListNode* cd = m_contactList; cd; cd = cd->m_next, ++n)
+				if (k == 0 || s_gxPairs[--k].a != cd->m_obj || s_gxPairs[k].b != cd->m_other)
+					same = false;
+			++gx_verify_checked;
+			if (!same || n != s_gxPairs.size())
+			{
+				++gx_verify_mismatch;
+				printf("GXVERIFY contact array mismatch: %d pairs vs %d\n", (int)s_gxPairs.size(), (int)n);
+			}
+			if (gx_verify_checked % 300 == 0)
+				printf("GXVERIFY contact array frames checked %d, mismatches %d\n", gx_verify_checked, gx_verify_mismatch);
 		}
+		// newest first, as the original list was built by putting each new pair at its head
+		for (size_t k = s_gxPairs.size(); k-- > 0; )
+			gxProcessPair(s_gxPairs[k].a, s_gxPairs[k].b);
+		return;
+	}
+	for (PartitionContactListNode* cd = m_contactList; cd; cd = cd->m_next)
+	{
+		gxProcessPair(cd->m_obj, cd->m_other);
 	}
 }
 
