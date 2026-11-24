@@ -1347,6 +1347,34 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
             ++gx_d3d_dip_drew;
             return 0;
         }
+        if (gx_multi_count) { // DX8Wrapper::Draw_Triangles_Multi: many parts of the bound buffers, one call
+            {   // test check: every part's indices inside the bound buffers (GXMD log)
+                static unsigned bad = 0, total = 0, last_report = 0;
+                const UINT stride = _stride(0);
+                const size_t nv = stride ? current_vb->buf.data.size() / stride : 0;
+                const size_t ni = current_ib->buf.data.size() / 2;
+                const unsigned short* ix = (const unsigned short*)current_ib->buf.data.data();
+                for (unsigned i = 0; i < gx_multi_count; i++) {
+                    total++;
+                    const size_t f = (size_t)gx_multi_offsets[i] / 2, c = (size_t)gx_multi_counts[i];
+                    bool ok = f + c <= ni;
+                    for (size_t k = 0; ok && k < c; k++) if ((size_t)ix[f + k] + base_vtx_index >= nv) ok = false;
+                    if (!ok) bad++;
+                }
+                if (bad && total - last_report > 20000) { last_report = total; printf("GXMD bad=%u of %u base=%u nv=%u ni=%u\n", bad, total, (unsigned)base_vtx_index, (unsigned)nv, (unsigned)ni); }
+            }
+            if (!GLES3_Draw_Triangles_Multi(gx_multi_counts, gx_multi_offsets, gx_multi_count, gx_multi_matrices, gx_multi_uv)) {
+                float was[16];
+                GLES3_Get_Transform(GLES3_TS_WORLD, was); // the engine's transform cache still holds it
+                for (unsigned i = 0; i < gx_multi_count; i++) { // one by one (no program slot left)
+                    GLES3_Set_Transform(GLES3_TS_WORLD, gx_multi_matrices + i * 16);
+                    GLES3_Draw_Triangles(4, (unsigned)gx_multi_offsets[i] / 2, (unsigned)gx_multi_counts[i] / 3, 0, 0);
+                }
+                GLES3_Set_Transform(GLES3_TS_WORLD, was);
+            }
+            ++gx_d3d_dip_drew;
+            return 0;
+        }
         if (gx_instance_count) { // DX8Wrapper::Draw_Triangles_Instanced: one draw, many world matrices
             GLES3_Draw_Triangles_Instanced((unsigned int)PrimType, StartIndex, PrimCount, MinIndex, NumVertices,
                                            gx_instance_matrices, gx_instance_count);

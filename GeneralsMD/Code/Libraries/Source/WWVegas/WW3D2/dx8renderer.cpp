@@ -43,6 +43,9 @@
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
+#ifdef __EMSCRIPTEN__
+#include <emscripten/em_asm.h>
+#endif
 #include <algorithm>
 #include <cstdint>
 #include "dx8renderer.h"
@@ -1832,6 +1835,7 @@ static const std::vector<unsigned short> & GX_Skin_Indices(DX8PolygonRendererCla
 // 3 alpha, 4 additive, 5 user data, 6 lone (next task is another part), 7 lighting differs,
 // 8 other mismatch, 9 cap reached; 10 batches drawn, 11 instances in them.
 unsigned gx_inst_why[12] = {};
+const unsigned short * gx_debug_ib_data(); // gles3 test hook: CPU copy of the bound index buffer
 static bool Same_Lighting(const LightEnvironmentClass * a, const LightEnvironmentClass * b)
 {
 	if (a == b) return true;
@@ -2074,6 +2078,121 @@ void DX8TextureCategoryClass::Render()
 			const int why = mesh->Peek_Model()->Get_Flag(MeshModelClass::SKIN) ? 0 : is_sorting ? 1 : renderer->Is_Strip() ? 2 :
 				mesh->Get_Alpha_Override() != 1.0f ? 3 : mesh->Is_Additive() ? 4 : 5;
 			gx_inst_why[why]++;
+		}
+		// Multi-part draw (Settings switch multiDraw): every rigid part of this material group that
+		// stands in the same light, whatever its mesh, in one call (DX8Wrapper::Draw_Triangles_Multi).
+		if (can_instance && (GLES3_Page_Switches3() & 1073741824) && GLES3_Multi_Draw_Available()) {
+			auto joins = [&](PolyRenderTaskClass * t) {
+				MeshClass * m = t->Peek_Mesh();
+				DX8PolygonRendererClass * r = t->Peek_Polygon_Renderer();
+				if (m->Get_Base_Vertex_Offset() != mesh->Get_Base_Vertex_Offset() || m->Peek_Model()->Get_Flag(MeshModelClass::SKIN) || r->Is_Strip() ||
+				    m->Get_Alpha_Override() != 1.0f || m->Is_Additive()) return false;
+				if (m->Peek_Model()->Get_Flag(MeshGeometryClass::SORT) && WW3D::Is_Sorting_Enabled()) return false;
+				if (DX8RendererDebugger::Is_Enabled() && m->Is_Disabled_By_Debugger()) return false;
+				const bool tread = m->Get_User_Data() && *(int *)m->Get_User_Data() == RenderObjClass::USER_DATA_MATERIAL_OVERRIDE;
+				if (tread ? !tread_mapper : m->Get_User_Data() != nullptr) return false;
+				return Same_Lighting(m->Get_Lighting_Environment(), mesh->Get_Lighting_Environment());
+			};
+			static std::vector<PolyRenderTaskClass*> group;
+			group.clear();
+			static int dbg = -1; // test only: Module.gxMDDebug 2 = identical parts only
+			if (dbg < 0) dbg = EM_ASM_INT({ var s = window.GeneralsX && window.GeneralsX.settings; return s ? s.mdDebug | 0 : 0; });
+			for (PolyRenderTaskClass * t = prt; t && group.size() < 1024; t = t->Get_Next_Visible())
+				if (t == prt || (joins(t) && (dbg != 2 || t->Peek_Polygon_Renderer() == renderer))) group.push_back(t);
+			if (group.size() >= 2) {
+				static std::vector<float> mats, uvs;
+				static std::vector<int> counts, offsets;
+				const size_t n = group.size();
+				mats.resize(n * 16); counts.resize(n); offsets.resize(n);
+				if (tread_mapper) uvs.resize(n * 2);
+				for (size_t b = 0; b < n; ++b) {
+					MeshClass * b_mesh = group[b]->Peek_Mesh();
+					DX8PolygonRendererClass * r = group[b]->Peek_Polygon_Renderer();
+					const Matrix3D * world_transform = &b_mesh->Get_Transform();
+					Matrix3D tmp_world;
+					if (b_mesh->Is_Transform_Identity()) { // as the one-by-one path: its stored transform isn't used
+						tmp_world.Make_Identity();
+						world_transform = &tmp_world;
+					} else if (b_mesh->Peek_Model()->Get_Flag(MeshModelClass::ALIGNED)) {
+						Vector3 mesh_position, camera_z_vector;
+						TheDX8MeshRenderer.Peek_Camera()->Get_Transform().Get_Z_Vector(&camera_z_vector);
+						b_mesh->Get_Transform().Get_Translation(&mesh_position);
+						tmp_world.Obj_Look_At(mesh_position, mesh_position + camera_z_vector, 0.0f);
+						world_transform = &tmp_world;
+					} else if (b_mesh->Peek_Model()->Get_Flag(MeshModelClass::ORIENTED)) {
+						Vector3 mesh_position, camera_position;
+						TheDX8MeshRenderer.Peek_Camera()->Get_Transform().Get_Translation(&camera_position);
+						b_mesh->Get_Transform().Get_Translation(&mesh_position);
+						tmp_world.Obj_Look_At(mesh_position, camera_position, 0.0f);
+						world_transform = &tmp_world;
+					}
+					D3DMATRIX dxm = To_D3DMATRIX(*world_transform);
+					memcpy(&mats[b * 16], &dxm, 16 * sizeof(float));
+					{   // test: unusual parts (GXMD3 log)
+						static unsigned shown = 0;
+						float mx = 0; for (int q = 0; q < 16; q++) { float v = fabsf(mats[b * 16 + q]); if (!(v <= mx)) mx = v; }
+						const bool odd = r->Get_Index_Offset() + r->Get_Index_Count() > 65535 || !(mx < 100000.0f) || b_mesh->Get_ObjectScale() != 1.0f;
+						if (odd && shown++ < 40) printf("GXMD3 part %s ioff=%u n=%u scale=%g maxm=%g ident=%d flags=%x grp=%u\n", b_mesh->Get_Name(), r->Get_Index_Offset(),
+							r->Get_Index_Count(), b_mesh->Get_ObjectScale(), mx, b_mesh->Is_Transform_Identity() ? 1 : 0,
+							(unsigned)(b_mesh->Peek_Model()->Get_Flag(MeshModelClass::ALIGNED) ? 1 : 0) | (b_mesh->Peek_Model()->Get_Flag(MeshModelClass::ORIENTED) ? 2 : 0), (unsigned)n);
+					}
+					counts[b] = (int)r->Get_Index_Count();
+					offsets[b] = (int)(r->Get_Index_Offset() * 2);
+					{   // test check: are its indices inside its own declared vertex range? (GXMD2 log)
+						static unsigned bad = 0, tot = 0;
+						IndexBufferClass * ibc = nullptr; (void)ibc;
+						tot++;
+						const unsigned lo = r->Get_Min_Vertex_Index(), hi = lo + r->Get_Vertex_Index_Range();
+						const unsigned short * ix = gx_debug_ib_data();
+						if (ix) {
+							bool ok = true; unsigned mn = 65535, mx = 0;
+							for (unsigned k = 0; k < r->Get_Index_Count(); k++) { unsigned v = ix[r->Get_Index_Offset() + k]; if (v < mn) mn = v; if (v > mx) mx = v; if (v < lo || v >= hi) ok = false; }
+							if (!ok && ++bad < 20) printf("GXMD2 bad part: index_offset=%u count=%u min=%u range=%u vertex_offset=%u used %u..%u base=%d identity=%d\n",
+								r->Get_Index_Offset(), r->Get_Index_Count(), lo, r->Get_Vertex_Index_Range(), r->Get_Vertex_Offset(), mn, mx,
+								b_mesh->Get_Base_Vertex_Offset(), b_mesh->Is_Transform_Identity() ? 1 : 0);
+						}
+					}
+					if (tread_mapper) {
+						const RenderObjClass::Material_Override * ov = (const RenderObjClass::Material_Override *)b_mesh->Get_User_Data();
+						uvs[b * 2 + 0] = ov->customUVOffset.X - WWMath::Floor(ov->customUVOffset.X);
+						uvs[b * 2 + 1] = ov->customUVOffset.Y - WWMath::Floor(ov->customUVOffset.Y);
+					}
+				}
+				LightEnvironmentClass * lenv = mesh->Get_Lighting_Environment();
+				if (lenv != nullptr) DX8Wrapper::Set_Light_Environment(lenv);
+				DX8Wrapper::Set_Index_Buffer_Index_Offset(mesh->Get_Base_Vertex_Offset());
+				if (tread_mapper) {
+					Vector2 old_offset;
+					const unsigned int old_sync = tread_mapper->Get_LastUsedSyncTime();
+					tread_mapper->Get_Current_UV_Offset(old_offset);
+					tread_mapper->Set_LastUsedSyncTime(WW3D::Get_Sync_Time());
+					tread_mapper->Set_Current_UV_Offset(Vector2(0.0f, 0.0f));
+					DX8Wrapper::Set_Material(nullptr);
+					DX8Wrapper::Set_Material(vmaterial);
+					DX8Wrapper::Draw_Triangles_Multi(counts.data(), offsets.data(), (unsigned)n, mats.data(), uvs.data());
+					tread_mapper->Set_LastUsedSyncTime(old_sync);
+					tread_mapper->Set_Current_UV_Offset(old_offset);
+					DX8Wrapper::Set_Material(nullptr);
+					DX8Wrapper::Set_Material(vmaterial);
+				} else {
+					DX8Wrapper::Draw_Triangles_Multi(counts.data(), offsets.data(), (unsigned)n, mats.data(), nullptr);
+				}
+				gx_inst_why[10]++; gx_inst_why[11] += (unsigned)n;
+				// Take the drawn tasks out of the list (they are spread through it).
+				static std::unordered_set<PolyRenderTaskClass*> drawn;
+				drawn.clear();
+				drawn.insert(group.begin(), group.end());
+				PolyRenderTaskClass * keep_head = nullptr, * keep_tail = nullptr;
+				for (PolyRenderTaskClass * t = render_task_head; t; ) {
+					PolyRenderTaskClass * next = t->Get_Next_Visible();
+					if (drawn.count(t)) { delete t; }
+					else { t->Set_Next_Visible(nullptr); if (keep_tail) keep_tail->Set_Next_Visible(t); else keep_head = t; keep_tail = t; }
+					t = next;
+				}
+				render_task_head = keep_head;
+				prt = (last_prt == nullptr) ? render_task_head : last_prt->Get_Next_Visible();
+				continue;
+			}
 		}
 		if (can_instance) {
 			int batch_count = 1;

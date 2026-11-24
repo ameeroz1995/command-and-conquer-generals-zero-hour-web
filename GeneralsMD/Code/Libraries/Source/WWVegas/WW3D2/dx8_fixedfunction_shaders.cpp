@@ -87,6 +87,10 @@ layout(location = 13) in float a_Bone;        // GPU skinning: the bone this ver
 
 // Transform matrices (view and projection are in GXScene)
 uniform mat4 u_World;
+#if GX_MDRAW
+// Multi-part draw (GLES3_Draw_Triangles_Multi): per draw, 4 texels of world matrix and 1 of uv offset.
+uniform highp sampler2D u_DrawTex;
+#endif
 uniform bool u_InstancingEnabled;
 // GPU skinning (infantry): u_SkinBones > 0 means every instance is a skinned mesh with that many
 // bones; u_BoneTex holds one row per instance, three texels per bone (the rows of its 3x4
@@ -179,6 +183,10 @@ void main() {
     if (u_InstancingEnabled) {
         worldMat = a_InstanceWorld;
     }
+#if GX_MDRAW
+    worldMat = mat4(texelFetch(u_DrawTex, ivec2(0, gl_DrawID), 0), texelFetch(u_DrawTex, ivec2(1, gl_DrawID), 0),
+                    texelFetch(u_DrawTex, ivec2(2, gl_DrawID), 0), texelFetch(u_DrawTex, ivec2(3, gl_DrawID), 0));
+#endif
     if (u_SkinBones > 0) {
         int b = int(a_Bone + 0.5) * 3;
         vec4 r0 = texelFetch(u_BoneTex, ivec2(b, gl_InstanceID), 0);
@@ -214,6 +222,9 @@ void main() {
     v_TexCoord3 = (GX_PS || GX_STAGES > 3) ? stage_texcoord(3, viewPos.xyz, eyeNormal) : unused;
 #endif
     if (u_InstancingEnabled) v_TexCoord0.xy += a_InstanceUV;
+#if GX_MDRAW
+    v_TexCoord0.xy += texelFetch(u_DrawTex, ivec2(4, gl_DrawID), 0).xy;
+#endif
 #if GX_SHROUD
     v_ShroudUV = (u_ShroudMatrix * vec4(viewPos.xyz, 1.0)).xy;
 #endif
@@ -566,7 +577,7 @@ extern "C" {
 // shader, texture coordinates, lights and colour sources for the vertex shader), or nullptr.
 static std::string Variant_Source(const char* base, unsigned int h, bool is_fragment, const GLES3_FFKey* key) {
     const char* body = strchr(base, '\n') + 1; // after "#version 300 es"
-    char defs[384];
+    char defs[448];
     auto b = [](bool v) { return v ? "true" : "false"; }; // GLSL has no int -> bool
     bool ps = (h & 32) != 0;
     unsigned int psgen = ps ? (h >> 6) & 15 : 0; // ps.1.1 handle compiled to GLSL
@@ -575,12 +586,15 @@ static std::string Variant_Source(const char* base, unsigned int h, bool is_frag
     int n = snprintf(defs, sizeof(defs),
              "#version 300 es\n#define GX_LIGHT %s\n#define GX_FOG %s\n#define GX_ATEST %s\n"
              "#define GX_PRE %s\n#define GX_SPEC %s\n#define GX_PS %s\n#define GX_STAGES %d\n"
-             "#define GX_PSGEN %d\n#define GX_FFGEN %d\n#define GX_VGEN %d\n#define GX_SHROUD %d\n",
+             "#define GX_PSGEN %d\n#define GX_FFGEN %d\n#define GX_VGEN %d\n#define GX_SHROUD %d\n#define GX_MDRAW %d\n",
              b(h & 1), b(h & 2), b(h & 4), b(h & 8), b(h & 16), b(ps), stages,
-             is_fragment && psgen ? 1 : 0, ffgen ? 1 : 0, !is_fragment && key ? 1 : 0, key && key->fold ? 1 : 0);
+             is_fragment && psgen ? 1 : 0, ffgen ? 1 : 0, !is_fragment && key ? 1 : 0, key && key->fold ? 1 : 0,
+             !is_fragment && key && key->mdraw ? 1 : 0);
     if (is_fragment && key && key->afunc) snprintf(defs + n, sizeof(defs) - n, "#define GX_AFUNC %d\n", key->afunc);
     if (!is_fragment && key) snprintf(defs + n, sizeof(defs) - n, "#define GX_CV %d\n", key->cvert);
     std::string s = std::string(defs) + body;
+    // gl_DrawID (multi-part draw): the extension line goes right after #version.
+    if (!is_fragment && key && key->mdraw) s.insert(16, "#extension GL_ANGLE_multi_draw : require\n");
     // Item 9 of the low-end plan: on weak machines (window.gxLowEnd) the fragment shader does
     // its colour maths at mediump, which integrated and mobile GPUs run at 16 bits, faster.
     // The scene block (shared with the vertex shader, so its precision must match) stays

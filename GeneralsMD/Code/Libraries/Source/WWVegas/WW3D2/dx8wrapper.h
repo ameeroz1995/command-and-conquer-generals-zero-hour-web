@@ -360,6 +360,11 @@ public:
 		unsigned int bones,
 		unsigned int instance_count,
 		unsigned int bone_buffer);
+	// Web port: many index ranges of the bound buffers in one call, each with its own world
+	// matrix (16 floats, D3D layout) and optional stage 0 uv offset (GLES3_Draw_Triangles_Multi).
+	static const unsigned short* GX_Debug_IB_Data(); // test: CPU copy of the bound static index buffer
+	static void Draw_Triangles_Multi(const int* index_counts, const int* byte_offsets, unsigned int count,
+		const float* world_matrices, const float* uv_offsets);
 	static void Draw_Triangles_Instanced(
 		unsigned short start_index,
 		unsigned short polygon_count,
