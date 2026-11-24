@@ -3101,3 +3101,19 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   -34% is ~3-4%). Slowest frames unchanged. Screenshots of the crowded fight (collide-voffA vs
   collide-vs3A battle3) look the same: no units visibly inside each other.
 - Proposed default: every-3 for single player (both switches left off until the match-rule wiring).
+
+## 2026-11-24 — Round 3, movement as a data-oriented system: measured, not built
+
+- Profile on dc2f00b (paths-9), share of the frame, inclusive: AIUpdateInterface::doLocomotor
+  3.0% (strikes) / 3.3% (armies); all Locomotor:: code 1.8% / 1.9%, of which Locomotor's own code
+  is ~0.1% self (the rest is what it calls: physics forces, terrain heights);
+  Path::computePointOnPath 2.5% / 2.4% (partly inside doLocomotor); PhysicsBehavior::update
+  3.1% / 2.2% (the collide agent's system). Load was high (fps ~5), shares still comparable.
+- Ceiling: movement is ~3% of the frame. Flat arrays plus one bulk locomotion pass would keep the
+  same per-unit math and calls (physics, terrain, path walk), so even halving it saves ~1.5%.
+  That is below what the bench can show (A/B pairs swing 10-20% at today's load). Per the round-3
+  rule (prove the slice pays first), the rewrite was not started. Match rule 1024 and second-word
+  bits 24/25 are still free.
+- If anything here is worth doing, it is Path::computePointOnPath (2.5%): it walks the path's
+  node list for every moving unit every frame; its cache returns a stale answer only up to 20
+  times. An exact cheaper lookup (resume from the last segment) is a small, separate change.
