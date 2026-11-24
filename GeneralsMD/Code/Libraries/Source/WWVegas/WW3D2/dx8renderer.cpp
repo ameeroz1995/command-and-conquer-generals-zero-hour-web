@@ -820,6 +820,9 @@ void DX8RigidFVFCategoryContainer::Log(bool only_visible)
 
 void DX8RigidFVFCategoryContainer::Render()
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(3); // draw counts by kind (benchmark)
+#endif
 	if (!Anything_To_Render()) return;
 	AnythingToRender=false;
 
@@ -1315,6 +1318,9 @@ void DX8SkinFVFCategoryContainer::Log(bool only_visible)
 
 void DX8SkinFVFCategoryContainer::Render()
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(4); // draw counts by kind (benchmark)
+#endif
 	SNAPSHOT_SAY(("DX8SkinFVFCategoryContainer::Render()"));
 	if (!Anything_To_Render()) {
 		SNAPSHOT_SAY(("Nothing to render"));
@@ -1822,6 +1828,10 @@ static const std::vector<unsigned short> & GX_Skin_Indices(DX8PolygonRendererCla
 // LightEnvironmentClass, but units standing in the same light hold the same values, so two
 // environments are compared by what they contain: comparing the pointers never batched
 // anything (400 identical tanks were 4000+ draw calls).
+// Why rigid draws stay single (GXINST log line, gles3_wrapper.cpp): 0 skin, 1 sorted, 2 strip,
+// 3 alpha, 4 additive, 5 user data, 6 lone (next task is another part), 7 lighting differs,
+// 8 other mismatch, 9 cap reached; 10 batches drawn, 11 instances in them.
+unsigned gx_inst_why[12] = {};
 static bool Same_Lighting(const LightEnvironmentClass * a, const LightEnvironmentClass * b)
 {
 	if (a == b) return true;
@@ -2060,6 +2070,11 @@ void DX8TextureCategoryClass::Render()
 		}
 		bool can_instance = batch_units && !mesh->Peek_Model()->Get_Flag(MeshModelClass::SKIN) && !is_sorting && !renderer->Is_Strip() && (mesh->Get_Alpha_Override() == 1.0f) && !mesh->Is_Additive() && (!mesh->Get_User_Data() || tread_mapper) && (!DX8RendererDebugger::Is_Enabled() || !mesh->Is_Disabled_By_Debugger());
 
+		if (batch_units && !can_instance) {
+			const int why = mesh->Peek_Model()->Get_Flag(MeshModelClass::SKIN) ? 0 : is_sorting ? 1 : renderer->Is_Strip() ? 2 :
+				mesh->Get_Alpha_Override() != 1.0f ? 3 : mesh->Is_Additive() ? 4 : 5;
+			gx_inst_why[why]++;
+		}
 		if (can_instance) {
 			int batch_count = 1;
 			PolyRenderTaskClass* batch_tasks[128];
@@ -2087,6 +2102,13 @@ void DX8TextureCategoryClass::Render()
 					break;
 				}
 			}
+			if (batch_count >= 128) gx_inst_why[9]++;
+			else if (batch_count == 1) {
+				if (!lookahead || lookahead->Peek_Polygon_Renderer() != renderer) gx_inst_why[6]++;
+				else if (!Same_Lighting(lookahead->Peek_Mesh()->Get_Lighting_Environment(), mesh->Get_Lighting_Environment())) gx_inst_why[7]++;
+				else gx_inst_why[8]++;
+			}
+			if (batch_count > 1) { gx_inst_why[10]++; gx_inst_why[11] += batch_count; }
 
 			if (batch_count > 1) {
 				// Prepare the world matrices

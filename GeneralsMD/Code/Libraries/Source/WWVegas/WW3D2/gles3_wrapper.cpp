@@ -48,7 +48,8 @@ static GLES3_PipelineState g_State;
 static bool g_Initialized = false;
 static bool g_SceneDirty = true; // GXScene inputs changed since the last upload (Upload_Scene_Block)
 static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
-static int g_SwapCount = 0;         // frames presented, for Module.gxFps (render scale Auto)
+static int g_SwapCount = 0;
+int gx_total_swaps = 0;         // frames presented, for Module.gxFps (render scale Auto)
 double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gles3_mainloop) -> Module.gxWorkMs
 static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
@@ -65,6 +66,7 @@ static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Lay
 // Ground cache (GLES3_Ground_Cache_Begin): every texture and buffer upload takes the next
 // serial, so "same texture id" also means "same contents" in a draw's fingerprint.
 unsigned int gx_content_serial = 0;
+int gx_draw_cat = 0; unsigned gx_draw_cat_count[16] = {}; // draws by kind, set by scopes in the render functions
 static std::vector<unsigned int> g_TexSerial; // by GL texture id
 int gx_gc_hits = 0, gx_gc_captures = 0, gx_gc_plain = 0, gx_gc_slides = 0;
 const float* gx_skin_palette = nullptr; unsigned int gx_skin_bones = 0; GLuint gx_skin_bone_buffer = 0; // a skinned instanced draw in progress (with gx_instance_count)
@@ -507,6 +509,23 @@ void GLES3_Begin_Scene() {
                  | (o.allyTable === false ? 0 : 1073741824); // bit 30: who-is-an-ally answers from a table (Player.cpp; same game)
         });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
+        {   // GXCAT: draws per frame by kind over the last second (benchmark logs)
+            static int last_swaps = 0; extern int gx_total_swaps;
+            const int frames = gx_total_swaps - last_swaps; last_swaps = gx_total_swaps;
+            if (frames > 0) {
+                static const char* names[16] = { "other", "terrain", "water", "rigid", "skin", "particles", "sorted", "ui", "shadows",
+                                                 "tracks", "lines", "trees", "roads", "shroud", "smudge", "dazzle" };
+                char line[512]; int n = snprintf(line, sizeof(line), "GXCAT frames=%d", frames);
+                for (int c = 0; c < 16; c++) { n += snprintf(line + n, sizeof(line) - n, " %s=%.0f", names[c], gx_draw_cat_count[c] / (double)frames); gx_draw_cat_count[c] = 0; }
+                printf("%s\n", line);
+                extern unsigned gx_inst_why[12];
+                printf("GXINST skin=%.0f sorted=%.0f strip=%.0f alpha=%.0f additive=%.0f userdata=%.0f lone=%.0f lighting=%.0f other=%.0f cap=%.0f batches=%.0f instances=%.0f\n",
+                       gx_inst_why[0] / (double)frames, gx_inst_why[1] / (double)frames, gx_inst_why[2] / (double)frames, gx_inst_why[3] / (double)frames,
+                       gx_inst_why[4] / (double)frames, gx_inst_why[5] / (double)frames, gx_inst_why[6] / (double)frames, gx_inst_why[7] / (double)frames,
+                       gx_inst_why[8] / (double)frames, gx_inst_why[9] / (double)frames, gx_inst_why[10] / (double)frames, gx_inst_why[11] / (double)frames);
+                memset(gx_inst_why, 0, sizeof(gx_inst_why));
+            }
+        }
         // Not on WebGPU yet: shroud fold, ground cache, pan cache, unit batching, GPU skinning.
         if (GXW_On()) g_PageSwitches &= ~(1 | 8 | 128 | 4096 | 16384);
 #ifdef __EMSCRIPTEN_PTHREADS__
@@ -618,6 +637,7 @@ void GLES3_Swap_Buffers() {
     if (t0 == 0) t0 = now;
     if (++n, now - t0 >= 5000.0) { printf("GXFRAME fps=%.1f\n", n * 1000.0 / (now - t0)); t0 = now; n = 0; }
     g_SwapCount++;
+    gx_total_swaps++;
     if (GXW_On()) { GXW_Present(); return; }
     if (TheSDL3Window && !GLES3_WORKER_BUILD) {
         SDL_GL_SwapWindow(TheSDL3Window);

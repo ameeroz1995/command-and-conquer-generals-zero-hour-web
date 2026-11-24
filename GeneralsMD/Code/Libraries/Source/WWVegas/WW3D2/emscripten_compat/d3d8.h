@@ -25,6 +25,7 @@
 #include <emscripten.h>
 #include <emscripten/html5.h>
 #include "../gles3_webgpu.h"
+extern int gx_draw_cat; extern unsigned gx_draw_cat_count[16]; // draws by kind (GXCAT log, gles3_wrapper.cpp)
 extern "C" double gx_mem_buffer_bytes, gx_mem_texture_bytes; // CPU copies of buffers and textures kept, for the benchmark
 extern "C" unsigned gx_stat_tex_refills; // a dropped texture copy needed again (benchmark counter)
 #endif
@@ -1256,6 +1257,7 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
 
     virtual HRESULT DrawPrimitive(D3DPRIMITIVETYPE PrimType, UINT StartVertex,
                                 UINT PrimCount) override {
+        gx_draw_cat_count[gx_draw_cat & 15]++;
         if (!current_vb || current_vb->buf.data.empty()) return 0;
         if (GXW_On()) {
             current_vb->Upload_And_Bind();
@@ -1273,6 +1275,7 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
                                   const void *pVertexStreamZeroData,
                                   UINT VertexStreamZeroStride) override {
         if (!pVertexStreamZeroData || !PrimCount) return 0;
+        gx_draw_cat_count[gx_draw_cat & 15]++;
         // Compute vertex count for this primitive type
         unsigned int vertex_count = 0;
         switch ((unsigned int)PrimType) {
@@ -1309,6 +1312,7 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
         // Counters declared with C linkage at file scope; defined in
         // dx8wrapper.cpp.
         ++gx_d3d_dip_called;
+        gx_draw_cat_count[gx_draw_cat & 15]++;
         if (!current_vb) { ++gx_d3d_dip_no_vb; return 0; }
         if (current_vb->buf.data.empty()) { ++gx_d3d_dip_empty_vb; return 0; }
         if (!current_ib) { ++gx_d3d_dip_no_ib; return 0; }
@@ -1364,6 +1368,7 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
                                          const void *pVertexStreamZeroData,
                                          UINT VertexStreamZeroStride) override {
         if (!pVertexStreamZeroData || !pIndexData || !PrimCount) return 0;
+        gx_draw_cat_count[gx_draw_cat & 15]++;
         unsigned int index_count = 0;
         switch ((unsigned int)PrimType) {
             case 4: index_count = PrimCount * 3; break; // TRIANGLELIST

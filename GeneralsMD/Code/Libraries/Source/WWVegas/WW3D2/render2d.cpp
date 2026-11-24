@@ -602,6 +602,9 @@ void (*Render2DClass::PreRenderHook)( Render2DClass *about ) = nullptr;
 
 void Render2DClass::Render()
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(7); // draw counts by kind (benchmark)
+#endif
 	if ( !Indices.Count() || IsHidden) {
 		return;
 	}

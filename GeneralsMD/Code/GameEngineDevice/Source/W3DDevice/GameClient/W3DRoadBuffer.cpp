@@ -3271,6 +3271,9 @@ void W3DRoadBuffer::updateCenter()
 void W3DRoadBuffer::drawRoads(CameraClass * camera, TextureClass *cloudTexture, TextureClass *noiseTexture, Bool wireframe,
 															Int minX, Int maxX, Int minY, Int maxY, RefRenderObjListIterator *pDynamicLightsIterator)
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(12); // draw counts by kind (benchmark)
+#endif
 	IRegion2D bounds;
 	bounds.lo.x = minX*MAP_XY_FACTOR;
 	bounds.hi.x = maxX*MAP_XY_FACTOR;
