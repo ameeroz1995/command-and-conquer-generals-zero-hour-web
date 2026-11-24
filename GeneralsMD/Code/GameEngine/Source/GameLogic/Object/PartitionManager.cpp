@@ -77,6 +77,7 @@
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/StealthUpdate.h"
 #include "GameLogic/PartitionManager.h"
+#include "Common/Recorder.h"
 #include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/Squad.h"
 #include "GameLogic/GhostObject.h"
@@ -1734,6 +1735,7 @@ PartitionData::PartitionData()
 	m_dirtyStatus = NOT_DIRTY;
 	m_lastCell = nullptr;
 	memset(m_gxFillKey, 0, sizeof(m_gxFillKey));
+	m_gxDeferStamp = 0;
 	for (int i = 0; i < MAX_PLAYER_COUNT; ++i)
 	{
 		m_everSeenByPlayer[i] = false;
@@ -2155,6 +2157,8 @@ void PartitionData::doSmallFill(
 }
 
 //-----------------------------------------------------------------------------
+static UnsignedInt g_gxDeferStamp = 0;	// collideStagger: this frame's stamp (frame + 1), 0 when off
+
 void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 {
 // actually, we do occasionally want to detect collisions of dead AIs.
@@ -2185,6 +2189,10 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 			PartitionData *that = coi->getModule();
 			if (this != that)
 			{
+				// collideStagger: a neighbour waiting its turn this frame checks this pair itself on
+				// its turn, unless it sorts after us (then we do it now): each pair once per cycle
+				if (g_gxDeferStamp && that->gxDeferStamp() == g_gxDeferStamp && that < this)
+					continue;
 				ctList->addToContactList(this, that);
 			}
 		}
@@ -3058,6 +3066,30 @@ void PartitionContactList::processContactList()
 //-----------------------------------------------------------------------------
 
 //-----------------------------------------------------------------------------
+// Web port (switches collideStagger / collideStagger3, second switch word bits 10 / 11): staggered
+// collisions. Moving ground units look for touching pairs only every 2nd (bit 10) or 3rd (bit 11)
+// logic frame, by object ID, so collision reactions (pushes, blocked-by, crushing, crates,
+// entering buildings) come up to 2 frames late. A unit skipped on a frame stays dirty and is
+// checked on its turn. Changes the game: the one gate below. Single player only for now (never
+// network games or replays); to be moved onto the host's match rules (gxMatchRule) when merged.
+Int gxCollideStaggerEvery()
+{
+	// match rules (Common/GxMatchRules.h): the host's setting in network games, the recorded one in replays
+	extern bool gxMatchRule(unsigned int rule);
+	if (!TheGameLogic)
+		return 1;
+	return gxMatchRule(512 /* GXRULE_COLLIDE_EVERY3 */) ? 3 : gxMatchRule(256 /* GXRULE_COLLIDE_EVERY2 */) ? 2 : 1;
+}
+
+// Only units that walk or drive: projectiles, aircraft and anything without AI keep checking
+// every frame (a late missile hit or a late landing would be visible).
+static Bool gxStaggers(const Object *o)
+{
+	return o->getAIUpdateInterface() != nullptr && !o->isAboveTerrain()
+		&& (o->isKindOf(KINDOF_INFANTRY) || o->isKindOf(KINDOF_VEHICLE)) && !o->isKindOf(KINDOF_PROJECTILE);
+}
+
+//-----------------------------------------------------------------------------
 PartitionManager::PartitionManager()
 {
 	m_moduleList = nullptr;
@@ -3254,6 +3286,23 @@ void PartitionManager::update()
 
 		PartitionContactList ctList;
 		TheContactList = &ctList;
+		const Int gxEvery = gxCollideStaggerEvery();
+		const UnsignedInt gxFrame = TheGameLogic ? TheGameLogic->getFrame() : 0;
+		static std::vector<ObjectID> s_gxLater;
+		s_gxLater.clear();
+		g_gxDeferStamp = 0;
+		if (gxEvery > 1)
+		{
+			// mark this frame's waiting units first, so pair offers can see them
+			g_gxDeferStamp = gxFrame + 1;
+			for (PartitionData *d = m_dirtyModules; d; d = d->gxNextDirty())
+			{
+				const Object *o = d->getObject();
+				if (o && d->isInNeedOfCollisionCheck() && !o->isKindOf(KINDOF_IMMOBILE)
+						&& (o->getID() + gxFrame) % gxEvery != 0 && gxStaggers(o))
+					d->gxSetDeferStamp(g_gxDeferStamp);
+			}
+		}
 		while (m_dirtyModules)
 		{
 #ifdef INTENSE_DEBUG
@@ -3280,11 +3329,23 @@ void PartitionManager::update()
 
 			if (collideEm && !dirty->getObject()->isKindOf(KINDOF_IMMOBILE))
 			{
-				dirty->addPossibleCollisions(&ctList);
+				// staggered collisions: a ground unit not on its turn stays dirty for a later frame
+				// (its cells are still updated now, so range searches see where it is)
+				if (g_gxDeferStamp && dirty->gxDeferStamp() == g_gxDeferStamp)
+					s_gxLater.push_back(dirty->getObject()->getID());
+				else
+					dirty->addPossibleCollisions(&ctList);
 			}
 		}
 
 		ctList.processContactList();
+		// put the deferred units back on the dirty list (found by ID: a reaction may have removed them)
+		for (ObjectID id : s_gxLater)
+		{
+			Object *o = TheGameLogic->findObjectByID(id);
+			if (o && !o->isDestroyed() && o->friend_getPartitionData())
+				o->friend_getPartitionData()->makeDirty(false);
+		}
 #ifdef INTENSE_DEBUG
 		DEBUG_ASSERTLOG(cc==0,("updated partition info for %d objects",cc));
 #endif

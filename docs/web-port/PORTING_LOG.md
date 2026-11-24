@@ -3078,3 +3078,26 @@ which removed the wasted searches, so the queue keeps up. A/B with sharedRoutes 
 Proposed defaults (single player): sharedRoutes + routeBudget ON together (+8-10% fps in strikes,
 +17% in aftermath); routeBudget alone NOT (without sharedRoutes the queue is backlogged and units
 would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s later).
+
+## 2026-11-25 — Staggered collisions (switches collideStagger / collideStagger3, second word bits 10 / 11; single player; off)
+
+- Walking and driving units (AI, on the ground, infantry or vehicle, not projectiles) look for
+  touching pairs only on every 2nd (bit 10) or 3rd (bit 11, wins) logic frame, by object ID, so
+  pushes, blocked-by handling, crushing, crate pickups and entering buildings come up to 1 or 2
+  frames late. Movement and cell updates still run every frame (range searches see real positions).
+- A unit skipped on a frame is put back on the dirty list after the pairs are processed (found by
+  ID, as a reaction may have removed it), so it is checked on its turn even if it stopped moving.
+- Each pair once per cycle: this frame's waiting units are marked first (a frame stamp on the
+  partition data); an on-turn unit skips a waiting neighbour that sorts before it (address order) -
+  that neighbour checks the pair on its own turn. Without this, a pair was checked whenever either
+  side was on turn (every-2 saved only 13%).
+- One gate, gxCollideStaggerEvery() in PartitionManager.cpp: single player only (never network
+  games or replay playback); to be wired to the host's match rules (gxMatchRule) at merge. Replay
+  with the switch on still matches (playback ignores it).
+- Measured (collide-5, coarse per-frame timers, collision build + processing summed over the
+  battle's 12 windows of 150 frames; load 6-12): off 95.1 / 98.4 ms, every-2 76.7 / 76.0 (-21%),
+  every-3 61.5 / 65.7 (-34%); ~430 / ~570 units wait per frame. Strikes fps off 13.1 / 12.8,
+  every-2 13.1 / 13.1, every-3 13.7 / 12.7: within noise (collisions are ~11% of a strike frame, so
+  -34% is ~3-4%). Slowest frames unchanged. Screenshots of the crowded fight (collide-voffA vs
+  collide-vs3A battle3) look the same: no units visibly inside each other.
+- Proposed default: every-3 for single player (both switches left off until the match-rule wiring).
