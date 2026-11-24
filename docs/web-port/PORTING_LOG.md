@@ -2954,3 +2954,14 @@ Off by default because units notice newcomers up to 2 s later; the main chat dec
   work 71.0 -> 66.9 and 71.5 -> 67.3 ms (-6%); armies and aftermath flat.
 - Not built: coarse 8x8 block masks. Per search 132 cells are in range and 51 kept; the 81 skipped are
   already 4-byte reads from the dense array (well under 2% of a search).
+
+## 2026-11-24 — Five logic branches merged (perf/logic-paths, -ai, -combat, -collide, -query)
+
+- Merged into perf/low-end (1112bed). Conflicts were only the shared switch list, Settings entries
+  and this log; resolved by keeping both sides (one duplicated contactArray line removed).
+  Second switch word default: 15|32|64|256|512|65536|131072|262144|524288|1048576|2097152|4194304
+  (lazyScans stays off).
+- Same game: referee replay matches over 9000 frames; verify mode 0 mismatches (builds merge1).
+- A/B live (ca1 = rev 00057) vs merged, twice: armies +10% / +5% fps (work -8% / -5%), strikes
+  +7% / +7% (work -7% / -7%), aftermath +12% (work -11%). Load 4-22.
+- Not yet in: the range-search agent's 8x8 block summaries (bit 24), still being measured.
