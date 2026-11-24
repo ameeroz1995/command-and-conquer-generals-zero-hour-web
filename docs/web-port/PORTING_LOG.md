@@ -2802,3 +2802,25 @@ Strike phase (live build 52b7e14), share of the frame, inclusive:
   object's angle can differ from the matrix's after setOrientation), heap changes in the update queue
   (heap order is game order), audio per shot (random seeds under RETAIL_COMPATIBLE_CRC), damage
   victim order.
+
+## 2026-11-24 (later) — clipSkip (second word bit 22, on) and the strike-phase numbers for all three switches
+
+- **clipSkip**: `Drawable::updateDrawableClipStatus` runs every frame for every armed unit and weapon
+  slot (ObjectWeaponStatusHelper) and walked every draw module, although only W3DModelDraw modules
+  with ProjectileBoneFeedbackEnabledSlots act. The drawable now asks its draw modules once which
+  slots they show (`ObjectDrawInterface::gxClipFeedbackSlots`, default "all") and skips the walk for
+  other slots. Draw modules never change after creation. Drawing only.
+- Same game: referee replay matches over 9000 frames with boneCache, lightCache and clipSkip on.
+- Strike-phase profile share (machine rebooted, load 16-26), all three off -> on, two pairs:
+  weapon-status model flags 1.5% / 1.4% -> 0.5% / 0.5%; missile bones 0.8% -> 0.2%; headlights
+  0.5% / 0.4% -> 0.1%. About 1.3% of the strike frame.
+- fps/work A/B, same runs (off -> on): strikes 5.6 -> 7.3 fps (work 176 -> 134 ms) and 4.8 -> 10.1
+  (206 -> 97 ms); armies 8.9 -> 9.8 and 4.7 -> 12.7. Direction agrees but the size is mostly noise
+  (an earlier pair without clipSkip, load 12-33: strike work 124.5 -> 107.8 and 145.8 -> 141.3;
+  armies +9% in one pair). The profile shares are the reliable figure.
+- Looked at and dropped (profile share in strikes, each too thin or not exact): moves
+  (Thing::setTransformMatrix 2.5-3.4% inclusive, spread over matrix copies, atan2, drawable
+  Set_Transform, partition dirty; no piece above 0.3%); W3DModelDraw::adjustTransformMtx (0.3%,
+  a few field reads); weapons firing 1.8-3.6% (damage half; victim order and audio seeds are game
+  state); update-queue heap 0.7% (heap order is game order; sleepyKeys already done); particles
+  0.2-0.6%.
