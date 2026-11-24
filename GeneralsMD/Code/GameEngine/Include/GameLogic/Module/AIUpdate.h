@@ -466,6 +466,7 @@ public:
 	void requestSafePath( ObjectID repulsor1 );	///< computes path to attack the current target, returns false if no path
 
 	Bool isWaitingForPath() const {return m_waitingForPath;}
+	Bool gxOnCoarsePath() const { return m_gxCoarse && m_path != nullptr; }	///< web port (match rule coarseStart): following the zone-level route while the full one is queued
 	Bool isAttackPath() const {return m_isAttackPath;} ///< True if we have a path to an attack location.
 	void cancelPath(); ///< Called if we no longer need the path.
 	Path* getPath() { return m_path; }				///< return the agent's current path
@@ -781,6 +782,10 @@ private:
 	// -------------------------------------------------------------------
 	Bool				m_doFinalPosition;					///< True if we are moving towards final position in a non-physics kind of way.
 	Bool				m_waitingForPath;						///< True if we have a pathfind request outstanding.
+	Bool				m_gxCoarse = FALSE;					///< web port: m_path is the coarse route (not saved: a load waits for the full route)
+	Coord3D			m_gxCoarseFrom;							///< web port: where the coarse route started (for the wrong-way count)
+	Coord3D			m_gxCoarseTo;								///< web port: where the coarse route goes
+	void				gxStartCoarse( const Coord3D *destination );
 	Bool				m_isAttackPath;							///< True if we have an attack path.
 	Bool				m_isFinalGoal;							///< True if this path ends at our destination (as opposed to an intermediate point on a waypoint path).
 	Bool				m_isApproachPath;						///< True if we are just approaching to tighten.

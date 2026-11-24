@@ -12,7 +12,11 @@ enum GxMatchRule
 	GXRULE_FAST_INV_SQRT  = 4,	///< fastInvSqrt: Quake-style 1/sqrt (wwmath.h)
 	GXRULE_LAZY_SCANS     = 8,	///< lazyScans: idle enemy scans that found nothing wait longer (AIUpdate.cpp)
 	GXRULE_PATH_BUDGET    = 16,	///< pathBudget: smaller per-frame route search budget (AIPathfind.cpp)
+	GXRULE_COARSE_START   = 32,	///< coarseStart: move along the zone-level route while the full one is queued (AIUpdate.cpp)
+	// bits 8-15: the pathBudget level, cells per frame / 100 (0 = 2500)
 };
+
+int gxPathBudgetCells();				///< cells per frame for starting queued route searches under pathBudget
 
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for
 void gxStartMatchRules();				///< at the start of every game: fix the rules for a network game or replay

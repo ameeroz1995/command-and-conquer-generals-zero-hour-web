@@ -401,6 +401,25 @@ void AIUpdateInterface::doPathfind( PathfindServicesInterface *pathfinder )
 	}
 	//CRCDEBUG_LOG(("AIUpdateInterface::doPathfind() for object %d", getObject()->getID()));
 	m_waitingForPath = FALSE;
+	struct GxCoarseEnd {	// coarse route replaced by whatever the search gives: count where the unit went meanwhile
+		AIUpdateInterface *ai; Bool wasCoarse;
+		~GxCoarseEnd() {
+			if (!wasCoarse) return;
+			ai->m_gxCoarse = FALSE;
+			if (ai->m_path == nullptr) return;
+			extern int gx_coarse[4];
+			const Coord3D *p = ai->getObject()->getPosition();
+			const Real mx = p->x - ai->m_gxCoarseFrom.x, my = p->y - ai->m_gxCoarseFrom.y;
+			const Real moved = sqrtf(mx * mx + my * my);
+			gx_coarse[1]++; gx_coarse[3] += (int)(moved * 10);
+			const PathNode *n = ai->m_path->getFirstNode();
+			const PathNode *next = n ? n->getNextOptimized() : nullptr;
+			if (next && moved > 5.0f) {
+				const Real dx = next->getPosition()->x - p->x, dy = next->getPosition()->y - p->y;
+				if (dx * mx + dy * my < 0) gx_coarse[2]++;	// the full route leads back the way the unit came
+			}
+		}
+	} gxCoarseEnd{ this, m_gxCoarse };
 	if (m_isSafePath) {
 		destroyPath();
 		Coord3D pos1, pos2;
@@ -487,6 +506,7 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 	//DEBUG_LOG(("Request Frame %d, obj %s %x", TheGameLogic->getFrame(), getObject()->getTemplate()->getName().str(), getObject()));
 	m_requestedDestination = *destination;
 	m_isFinalGoal = isFinalGoal;
+	{ extern int gx_replan[5], gx_replanReason; gx_replan[gx_replanReason]++; gx_replanReason = 4; }	// GXDIAG
 	CRCDEBUG_LOG(("AIUpdateInterface::requestPath() - m_isAttackPath = FALSE for object %d", getObject()->getID()));
 	m_isAttackPath = FALSE;
 	m_requestedVictimID = INVALID_ID;
@@ -514,7 +534,32 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 		return;
 	}
 	TheAI->pathfinder()->queueForPath(getObject()->getID());
+	gxStartCoarse(destination);
 
+}
+
+// Match rule coarseStart: while the full route waits in the queue, follow the zone-level route.
+void AIUpdateInterface::gxStartCoarse( const Coord3D *destination )
+{
+	extern bool gxMatchRule(unsigned int rule);
+	if (!gxMatchRule(32 /* GXRULE_COARSE_START */) || !isDoingGroundMovement())
+		return;
+	if (m_gxCoarse && m_path && m_gxCoarseTo.x == destination->x && m_gxCoarseTo.y == destination->y)
+		return;	// already on a coarse route there (blocked units ask again every frame)
+	Object *obj = getObject();
+	const Real dx = destination->x - obj->getPosition()->x, dy = destination->y - obj->getPosition()->y;
+	if (dx * dx + dy * dy < 200.0f * 200.0f)
+		return;	// short moves: the full route comes soon enough
+	Path *coarse = TheAI->pathfinder()->gxCoarsePath(obj, m_locomotorSet, destination);
+	if (!coarse)
+		return;
+	deleteInstance(m_path);	// not destroyPath(): the request stays outstanding
+	m_path = coarse;
+	m_gxCoarse = TRUE;
+	m_gxCoarseFrom = *obj->getPosition();
+	m_gxCoarseTo = *destination;
+	extern int gx_coarse[4];
+	gx_coarse[0]++;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2021,6 +2066,7 @@ void AIUpdateInterface::destroyPath()
 	// destroy previous path
 	deleteInstance(m_path);
 	m_path = nullptr;
+	m_gxCoarse = FALSE;
 
 	m_waitingForPath = FALSE; // we no longer need it.
 	//CRCDEBUG_LOG(("AIUpdateInterface::destroyPath() - m_isAttackPath = FALSE for object %d", getObject()->getID()));

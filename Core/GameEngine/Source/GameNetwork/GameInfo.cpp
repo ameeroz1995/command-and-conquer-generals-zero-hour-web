@@ -1666,6 +1666,7 @@ void SkirmishGameInfo::loadPostProcess()
 // Web port: match rules (Common/GxMatchRules.h)
 //----------------------------------------------------------------------------------------------------------
 #ifdef __EMSCRIPTEN__
+#include <emscripten.h>
 extern int GLES3_Page_Switches();
 extern int GLES3_Page_Switches2();
 #endif
@@ -1680,7 +1681,9 @@ unsigned int gxLocalMatchRules()
 		| ((s1 & 33554432) ? GXRULE_FLOW_FIELDS : 0)		// bit 25: flowFields
 		| ((s1 & 8388608) ? GXRULE_FAST_INV_SQRT : 0)		// bit 23: fastInvSqrt
 		| ((s2 & 4096) ? GXRULE_LAZY_SCANS : 0)				// second word bit 12: lazyScans
-		| ((s2 & 128) ? GXRULE_PATH_BUDGET : 0);			// second word bit 7: pathBudget
+		| ((s2 & 128) ? GXRULE_PATH_BUDGET : 0)			// second word bit 7: pathBudget
+		| (EM_ASM_INT({ var o = (window.GeneralsX && window.GeneralsX.opt) || {}; return o.coarseStart === true ? 1 : 0; }) ? GXRULE_COARSE_START : 0)
+		| ((EM_ASM_INT({ var o = (window.GeneralsX && window.GeneralsX.opt) || {}; return Math.max(0, Math.min(255, Math.round((+o.pathBudgetCells || 0) / 100))); }) & 255) << 8);
 #else
 	return 0;
 #endif
@@ -1703,4 +1706,10 @@ bool gxMatchRule(unsigned int rule)
 unsigned int gxCurrentMatchRules()
 {
 	return s_gxMatchRulesFixed ? s_gxMatchRules : gxLocalMatchRules();
+}
+
+int gxPathBudgetCells()
+{
+	const int level = (gxCurrentMatchRules() >> 8) & 255;
+	return level ? level * 100 : 2500;
 }

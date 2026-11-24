@@ -120,9 +120,13 @@ constexpr const UnsignedInt MAX_ADJUSTMENT_CELL_COUNT = 400;
 constexpr const UnsignedInt MAX_SAFE_PATH_CELL_COUNT = 2000;
 
 constexpr const UnsignedInt PATHFIND_CELLS_PER_FRAME = 5000; // Number of cells we will search pathfinding per frame.
-constexpr const Int GX_PATH_BUDGET_CELLS = 2500;	// web port (match rule pathBudget): cells per frame for starting queued searches
 static UnsignedInt s_gxQueuedAt[PATHFIND_QUEUE_LEN];	// frame each queued request arrived
-static long long s_gxWaitSum = 0, s_gxQueueSum = 0; static int s_gxWaitN = 0; static UnsignedInt s_gxWaitMax = 0;	// GXDIAG
+static long long s_gxWaitSum = 0, s_gxQueueSum = 0; static int s_gxWaitN = 0, s_gxQueueMax = 0; static UnsignedInt s_gxWaitMax = 0;	// GXDIAG
+static double s_gxWorstFieldMs = 0;	// GXDIAG
+int gx_replan[5] = { 0 }, gx_coarse[4] = { 0 }, gx_replanReason = 4;	// GXDIAG: requests by reason; coarse starts, switches, wrong-way, distance moved x10
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 constexpr const UnsignedInt CELL_INFOS_TO_ALLOCATE = 30000;
 
 //-----------------------------------------------------------------------------------
@@ -6195,7 +6199,7 @@ void Pathfinder::processPathfindQueue()
 	Int pathsFound = 0;
 #endif
 	// web port (match rule pathBudget): a smaller per-frame budget for starting queued searches
-	const Int cellBudget = gxMatchRule(GXRULE_PATH_BUDGET) ? GX_PATH_BUDGET_CELLS : PATHFIND_CELLS_PER_FRAME;
+	const Int cellBudget = gxMatchRule(GXRULE_PATH_BUDGET) ? gxPathBudgetCells() : PATHFIND_CELLS_PER_FRAME;
 	const UnsignedInt gxNow = TheGameLogic->getFrame();
 	while (m_cumulativeCellsAllocated < cellBudget &&
 		m_queuePRTail!=m_queuePRHead) {
@@ -6234,11 +6238,15 @@ void Pathfinder::processPathfindQueue()
 #endif
 	{	// GXDIAG
 		const Int queued = (m_queuePRTail - m_queuePRHead + PATHFIND_QUEUE_LEN) % PATHFIND_QUEUE_LEN;
-		s_gxQueueSum += queued;
+		s_gxQueueSum += queued; if (queued > s_gxQueueMax) s_gxQueueMax = queued;
 		if (gxNow % 150 == 0) {
-			printf("GXPATHQ f%u rule %d: searches started %d, waited avg %.2f max %u frames, queue avg %.1f\n", gxNow,
-				gxMatchRule(GXRULE_PATH_BUDGET) ? 1 : 0, s_gxWaitN, s_gxWaitN ? (double)s_gxWaitSum / s_gxWaitN : 0.0, s_gxWaitMax, s_gxQueueSum / 150.0);
-			s_gxWaitSum = 0; s_gxWaitN = 0; s_gxWaitMax = 0; s_gxQueueSum = 0;
+			extern int gx_replan[5], gx_coarse[4];
+			printf("GXPATHQ f%u budget %d: searches started %d, waited avg %.2f max %u frames, queue avg %.1f max %d | requests: new order %d, blocked %d, path lost %d, goal moved %d, other states %d | coarse starts %d, switched %d, wrong way %d, avg moved %.1f | worst field build %.2f ms\n", gxNow,
+				cellBudget, s_gxWaitN, s_gxWaitN ? (double)s_gxWaitSum / s_gxWaitN : 0.0, s_gxWaitMax, s_gxQueueSum / 150.0, s_gxQueueMax,
+				gx_replan[0], gx_replan[1], gx_replan[2], gx_replan[3], gx_replan[4], gx_coarse[0], gx_coarse[1], gx_coarse[2], gx_coarse[1] ? gx_coarse[3] / 10.0 / gx_coarse[1] : 0.0, s_gxWorstFieldMs);
+			s_gxWaitSum = 0; s_gxWaitN = 0; s_gxWaitMax = 0; s_gxQueueSum = 0; s_gxQueueMax = 0; s_gxWorstFieldMs = 0;
+			for (int q = 0; q < 5; ++q) gx_replan[q] = 0;
+			for (int q = 0; q < 4; ++q) gx_coarse[q] = 0;
 		}
 	}
 #if defined(RTS_DEBUG)
@@ -11574,6 +11582,19 @@ const int DX[8] = { 1, 0, -1, 0, 1, -1, -1, 1 }, DY[8] = { 0, 1, 0, -1, 1, 1, -1
 
 void Pathfinder::gxObstaclesChanged() { s_obstacleSerial++; }
 
+// Match rule coarseStart: the zone-level route (what findPath computes first), straightened, for a
+// unit to follow while its full route waits in the queue.
+Path *Pathfinder::gxCoarsePath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *to )
+{
+	const Coord3D *from = obj->getPosition();
+	Bool isHuman = !(obj->getControllingPlayer() && obj->getControllingPlayer()->getPlayerType() == PLAYER_COMPUTER);
+	m_zoneManager.clearPassableFlags();
+	Path *path = findHierarchicalPath(isHuman, locomotorSet, from, to, obj->getCrusherLevel() > 0);
+	m_zoneManager.setAllPassable();
+	if (path) path->optimize(obj, locomotorSet.getValidSurfaces(), false);
+	return path;
+}
+
 Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo,
 	PathfindCell *startCell, PathfindCell *goalCell, Bool isCrusher, Bool centerInCell )
 {
@@ -11600,6 +11621,8 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 
 	// the shared field for this area, surfaces and crusher flag (built if missing or stale)
 	auto valid = [&](const GxField &f) { return f.ax >= 0 && f.serial == s_obstacleSerial && now - f.born < GX_FF_LIFE; };
+	const double gxT0 = emscripten_get_now();	// GXDIAG
+	struct GxT { double t0; ~GxT() { const double d = emscripten_get_now() - t0; if (d > s_gxWorstFieldMs) s_gxWorstFieldMs = d; } } gxT{ gxT0 };
 	GxField *field = nullptr, *slot = nullptr;
 	for (GxField &f : s_fields)
 		if (f.ax == ax && f.ay == ay && f.surfaces == surfaces && f.crusher == isCrusher) { if (valid(f)) field = &f; else slot = &f; break; }
