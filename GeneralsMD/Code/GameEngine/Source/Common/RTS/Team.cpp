@@ -1391,6 +1391,8 @@ Player *Team::getControllingPlayer() const
 // ------------------------------------------------------------------------
 void Team::setControllingPlayer(Player *newController)
 {
+	extern Bool g_gxCellCountsStale;	// PartitionManager.cpp: per-cell player counts no longer trusted
+	g_gxCellCountsStale = true;
 	Player* oldOwner = m_proto->getControllingPlayer();
 	// nullptr is not allowed, but is caught by TeamPrototype::setControllingPlayer()
 	m_proto->setControllingPlayer(newController);
@@ -1466,6 +1468,8 @@ Int Team::getTargetableCount() const
 }
 
 // ------------------------------------------------------------------------
+Bool Team::gxHasTeamOverrides() const { return !m_teamRelations->m_map.empty(); }
+
 Relationship Team::getRelationship(const Team *that) const
 {
 	// do we have an override for that particular team? if so, return it.

@@ -542,6 +542,7 @@ public:
 
 	/// get the relationship between this->that.
 	Relationship getRelationship(const Team *that) const;
+	Bool gxHasTeamOverrides() const;	///< web port: any team-level relation override (PartitionManager enemy search skip)
 
 	/// set the relationship between this->that. (note that this doesn't affect the that->this relationship.)
 	void setPlayerRelationship(const Player *that, Relationship r);
@@ -786,6 +787,10 @@ private:
 	PlayerTeamList				m_playerTeamPrototypes;				///< ALL the teams we control, via prototype
 	PlayerRelationMap			*m_playerRelations;						///< allies & enemies
 	TeamRelationMap				*m_teamRelations;							///< allies & enemies
+	// web port (switch allyTable, page bit 30): m_playerRelations as a table by player index,
+	// rebuilt when g_gxRelationGen moves (every relation map write bumps it). Not saved.
+	mutable Relationship	m_gxRel[MAX_PLAYER_COUNT];
+	mutable UnsignedInt		m_gxRelGen = 0;
 
 	AcademyStats					m_academyStats;				///< Keeps track of various statistics in order to provide advice to the player about how to improve playing.
 

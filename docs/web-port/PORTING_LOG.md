@@ -2654,3 +2654,21 @@ checked, 0 mismatches; replay matches (9,000 frames). A/B: armies 13.0 → 9.9 f
   Page bits 28/29 are free again. Check: both builds compile, referee replay matches over 9000
   frames.
 - Next logic work: see LOGIC_IDEAS.md (profile of the strike phase and five candidate savings).
+
+## 2026-11-24 — Three same-game logic savings (switches enemySearchSkip, collisionOrder, allyTable; on)
+
+- **enemySearchSkip** (bit 28): each partition cell counts its objects per controlling player
+  (`PartitionCell::m_gxCount`/`m_gxMask`, kept on COI add/remove and moved by
+  `PartitionData::gxTeamChanged` from `Object::setOrRestoreTeam`). `getClosestObjects` skips a
+  cell when its first filter is "live enemies of X" (`PartitionFilter::gxEnemiesOf`) and the cell
+  holds nobody X is enemies with. Off for the game when X's side has team-level relation
+  overrides, X is an undetected defector, or a script moved a team to another player.
+- **collisionOrder** (bit 29): collision pairs test the NO_COLLISIONS status bit before the shape.
+- **allyTable** (bit 30): `Player::getRelationship` answers from a per-player table rebuilt when
+  any relation map is written (`g_gxRelationGen`).
+- Same game: referee replay matches over 9000 frames; verify mode checked ~40.5 M objects in
+  skipped cells, 0 that the filter would have let through.
+- Benchmark A/B (all three off vs on, machine loaded): work ms armies 91.0 -> 87.4 (-4%),
+  strikes 93.6 -> 90.5 (-3%), aftermath 55.8 -> 53.3 (-5%); fps +2/+3/+5%. Less than the ~10%
+  estimated in LOGIC_IDEAS.md: collisionOrder and allyTable are small; most of the skip's
+  saving is the distance tests on allies.

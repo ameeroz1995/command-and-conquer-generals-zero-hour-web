@@ -515,6 +515,7 @@ private:
 	const Object *m_obj;
 public:
 	PartitionFilterLiveMapEnemies(const Object *obj) : m_obj(obj) { }
+	virtual const Object *gxEnemiesOf() const { return m_obj; }	// web port: PartitionManager skips ally-only cells
 
 	virtual Bool allow(Object *objOther)
 	{

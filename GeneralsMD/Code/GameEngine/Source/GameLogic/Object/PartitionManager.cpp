@@ -59,6 +59,7 @@
 #include "Common/PerfTimer.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
+#include "Common/Team.h"
 #include "Common/Radar.h"
 #include "Common/ThingFactory.h"	// for bullet type hack
 #include "Common/ThingTemplate.h"
@@ -86,6 +87,15 @@
 
 #ifdef PM_CACHE_TERRAIN_HEIGHT
 #include "Common/MapObject.h"
+#endif
+
+// web port: performance switches (gles3_wrapper.cpp) and verify counters
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+extern int gx_verify_mismatch, gx_verify_checked;	// GameLogic.cpp
+#else
+static int GLES3_Page_Switches() { return 0; }
+static int gx_verify_mismatch, gx_verify_checked;
 #endif
 
 #ifdef DUMP_PERF_STATS
@@ -1135,6 +1145,31 @@ CellAndObjectIntersection::CellAndObjectIntersection()
 	m_module = nullptr;
 	m_prevCoi = nullptr;
 	m_nextCoi = nullptr;
+	m_gxPlayer = MAX_PLAYER_COUNT;
+}
+
+// Web port: the per-cell player counts (PartitionCell::m_gxCount, switch enemySearchSkip).
+// The slot is the object's controlling player when it enters the cell, moved by
+// PartitionData::gxTeamChanged; ghosts and ownerless objects use MAX_PLAYER_COUNT.
+static Int gxSlotOf(const PartitionData *module)
+{
+	const Object *obj = module ? module->getObject() : nullptr;
+	const Player *p = obj ? obj->getControllingPlayer() : nullptr;
+	Int i = p ? p->getPlayerIndex() : MAX_PLAYER_COUNT;
+	return (i >= 0 && i < MAX_PLAYER_COUNT) ? i : MAX_PLAYER_COUNT;
+}
+// Set by Team::setControllingPlayer: a whole team changed owner without its objects hearing of
+// it, so the counts may be stale; searches stop skipping for the rest of the game.
+Bool g_gxCellCountsStale = false;
+
+void CellAndObjectIntersection::gxSetPlayerSlot(Int slot)
+{
+	if (m_cell && slot != m_gxPlayer)
+	{
+		m_cell->gxCount(m_gxPlayer, -1);
+		m_cell->gxCount(slot, +1);
+	}
+	m_gxPlayer = slot;
 }
 
 //-----------------------------------------------------------------------------
@@ -1200,7 +1235,11 @@ void CellAndObjectIntersection::addCoverage(PartitionCell *cell, PartitionData *
 	}
 
 	if (m_cell == nullptr)
+	{
 		cell->friend_addToCellList(this);
+		m_gxPlayer = gxSlotOf(module);
+		cell->gxCount(m_gxPlayer, +1);
+	}
 
 	m_cell = cell;
 	m_module = module;
@@ -1216,6 +1255,7 @@ void CellAndObjectIntersection::removeAllCoverage()
 	}
 
 	m_cell->friend_removeFromCellList(this);
+	m_cell->gxCount(m_gxPlayer, -1);
 	m_cell = nullptr;
 	m_module = nullptr;
 }
@@ -1230,6 +1270,8 @@ PartitionCell::PartitionCell()
 	m_cellX = m_cellY = 0;
 	m_firstCoiInCell = nullptr;
 	m_coiCount = 0;
+	memset(m_gxCount, 0, sizeof(m_gxCount));
+	m_gxMask = 0;
 #ifdef PM_CACHE_TERRAIN_HEIGHT
 	m_loTerrainZ = HUGE_DIST;		// huge positive
 	m_hiTerrainZ = -HUGE_DIST;	// huge negative
@@ -1720,6 +1762,16 @@ ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 	}
 
 	return m_shroudedness[playerIndex];
+}
+
+//-----------------------------------------------------------------------------
+void PartitionData::gxTeamChanged()
+{
+	const Int slot = gxSlotOf(this);
+	CellAndObjectIntersection *coi = m_coiArray;
+	for (Int i = m_coiArrayCount; i > 0; --i, ++coi)
+		if (coi->getModule())
+			coi->gxSetPlayerSlot(slot);
 }
 
 //-----------------------------------------------------------------------------
@@ -2552,17 +2604,24 @@ void PartitionContactList::processContactList()
 		if (cd->m_obj == nullptr || cd->m_other == nullptr)
 			continue;
 
+		Object* obj = cd->m_obj->getObject();
+		Object* other = cd->m_other->getObject();
+
+		// Web port (switch collisionOrder, page bit 29): the bit test first, then the geometry.
+		// Both only decide whether to skip this pair and change nothing, so the order is free.
+		const Bool gxStatusFirst = (GLES3_Page_Switches() & 536870912) != 0;
+		if( gxStatusFirst && ( obj->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ||
+				other->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ) )
+			continue;
+
 		// we know that their partitions overlap; determine if they REALLY collide
 		// before proceeding...
 		CollideLocAndNormal cinfo;
 		if (!cd->m_obj->friend_collidesWith(cd->m_other, &cinfo))
 			continue;
 
-		Object* obj = cd->m_obj->getObject();
-		Object* other = cd->m_other->getObject();
-
-		if( obj->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ||
-				other->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) )
+		if( !gxStatusFirst && ( obj->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ||
+				other->getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) ) )
 			continue;
 
 		DEBUG_ASSERTCRASH(!(obj->isKindOf(KINDOF_IMMOBILE) && other->isKindOf(KINDOF_IMMOBILE)),
@@ -2733,6 +2792,7 @@ void PartitionManager::getPMStats(double& gcoTimeThisFrameTotal, double& gcoTime
 //-----------------------------------------------------------------------------
 void PartitionManager::reset()
 {
+	g_gxCellCountsStale = false;	// web port: a new game trusts the per-cell player counts again
 #ifdef DUMP_PERF_STATS
 	s_countInClosestObjects = 0;
 	s_timeInClosestObjects = 0;
@@ -3273,6 +3333,53 @@ void PartitionManager::calcRadiusVec()
 
 //-----------------------------------------------------------------------------
 //DECLARE_PERF_TIMER(getClosestObjects)
+
+// The player slots whose objects could pass filters[0], or all slots (no skipping).
+static UnsignedInt gxEnemySlots(PartitionFilter **filters)
+{
+#ifndef __EMSCRIPTEN__
+	return 0xffffffffu;
+#endif
+	if (!filters || !filters[0] || g_gxCellCountsStale || !(GLES3_Page_Switches() & 268435456))
+		return 0xffffffffu;
+	const Object *me = filters[0]->gxEnemiesOf();
+	const Team *myTeam = me ? me->getTeam() : nullptr;
+	const Player *myPlayer = myTeam ? myTeam->getControllingPlayer() : nullptr;
+	if (!myPlayer || me->getIsUndetectedDefector() || myTeam->gxHasTeamOverrides() || myPlayer->gxHasTeamOverrides())
+		return 0xffffffffu;
+	UnsignedInt mask = 0;
+	for (Int i = 0; i < ThePlayerList->getPlayerCount() && i < MAX_PLAYER_COUNT; ++i)
+	{
+		const Player *p = ThePlayerList->getNthPlayer(i);
+		const Team *t = p ? p->getDefaultTeam() : nullptr;
+		if (!t || p->getPlayerIndex() != i)
+			return 0xffffffffu;
+		// with no team-level overrides on our side, every team of player i gets this answer
+		if (myTeam->getRelationship(t) == ENEMIES)
+			mask |= 1u << i;
+	}
+	return mask;	// slot MAX_PLAYER_COUNT (ghosts, ownerless) never passes: NEUTRAL
+}
+
+// Verify mode: a skipped cell must hold nothing filters[0] would let through.
+static void gxVerifyCellSkip(PartitionCell *cell, const Object *self, PartitionFilter *f)
+{
+	for (CellAndObjectIntersection *c = cell->getFirstCoiInCell(); c; c = c->getNextCoi())
+	{
+		Object *o = c->getModule()->getObject();
+		if (!o || o == self)
+			continue;
+		++gx_verify_checked;
+		if (f->allow(o))
+		{
+			++gx_verify_mismatch;
+			printf("GXVERIFY cell skip mismatch: object %u (player %d)\n", o->getID(), o->getControllingPlayer() ? o->getControllingPlayer()->getPlayerIndex() : -1);
+		}
+	}
+	if (gx_verify_checked % 20000 < 8)
+		printf("GXVERIFY cell skip checked %d, mismatches %d\n", gx_verify_checked, gx_verify_mismatch);
+}
+
 Object *PartitionManager::getClosestObjects(
 	const Object *obj,
 	const Coord3D *pos,
@@ -3358,6 +3465,14 @@ Object *PartitionManager::getClosestObjects(
 	static Int theIterFlag = 1;	// nonzero, thanks
 	++theIterFlag;
 
+	// Web port (switch enemySearchSkip, page bit 28): when the first filter keeps only live
+	// enemies of 'me', a cell holding nobody of a player 'me' is enemies with can't add anything;
+	// skip it. Same result and order: those objects would all be rejected by that filter, and the
+	// done flags only matter for objects that pass. Only when the relation depends on the player
+	// alone (no team-level overrides) and no team has changed owner.
+	const UnsignedInt gxEnemyMask = gxEnemySlots(filters);
+	const Bool gxVerify = gxEnemyMask != 0xffffffffu && (GLES3_Page_Switches() & 2097152) != 0;
+
 	/*
 		m_radiusVec[curRadius] contains a list of the cells (foo) that could
 		contain objects that are <= (curRadius * cellSize) distance away from cell (0,0).
@@ -3372,6 +3487,12 @@ Object *PartitionManager::getClosestObjects(
 			PartitionCell* thisCell = getCellAt(cellCenterX + it->x, cellCenterY + it->y);
 			if (thisCell == nullptr)
 				continue;
+			if (!(thisCell->gxPlayerMask() & gxEnemyMask))
+			{
+				if (!gxVerify)
+					continue;
+				gxVerifyCellSkip(thisCell, obj, filters[0]);	// check the skip, then search as before
+			}
 
 			for (CellAndObjectIntersection *thisCoi = thisCell->getFirstCoiInCell(); thisCoi; thisCoi = thisCoi->getNextCoi())
 			{

@@ -532,6 +532,14 @@ Player::~Player()
 
 //=============================================================================
 //DECLARE_PERF_TIMER(Player_getRelationship)
+UnsignedInt g_gxRelationGen = 0;	// web port: bumped on every player relation map write (allyTable)
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#endif
+
+Bool Player::gxHasTeamOverrides() const { return !m_teamRelations->m_map.empty(); }
+
+//=============================================================================
 Relationship Player::getRelationship(const Team *that) const
 {
 	//USE_PERF_TIMER(Player_getRelationship)
@@ -548,6 +556,25 @@ Relationship Player::getRelationship(const Team *that) const
 		}
 
 		// hummm... well, do we have something for that team's player?
+#ifdef __EMSCRIPTEN__
+		if (GLES3_Page_Switches() & 1073741824)
+		{
+			const Player* thatPlayer = that->getControllingPlayer();
+			const Int idx = thatPlayer ? thatPlayer->getPlayerIndex() : -1;
+			if (idx < 0 || idx >= MAX_PLAYER_COUNT)
+				return NEUTRAL;	// the map is keyed by player index: none of these can be in it
+			if (m_gxRelGen != g_gxRelationGen + 1)
+			{
+				for (Int i = 0; i < MAX_PLAYER_COUNT; ++i)
+					m_gxRel[i] = NEUTRAL;
+				for (PlayerRelationMapType::const_iterator it = m_playerRelations->m_map.begin(); it != m_playerRelations->m_map.end(); ++it)
+					if ((*it).first >= 0 && (*it).first < MAX_PLAYER_COUNT)
+						m_gxRel[(*it).first] = (*it).second;
+				m_gxRelGen = g_gxRelationGen + 1;	// + 1: a new Player (0) never matches
+			}
+			return m_gxRel[idx];
+		}
+#endif
 		if (!m_playerRelations->m_map.empty())
 		{
 			const Player* thatPlayer = that->getControllingPlayer();
@@ -571,6 +598,7 @@ void Player::setPlayerRelationship(const Player *that, Relationship r)
 	{
 		// note that this creates the entry if it doesn't exist.
 		m_playerRelations->m_map[that->getPlayerIndex()] = r;
+		++g_gxRelationGen;
 	}
 }
 
@@ -582,6 +610,7 @@ Bool Player::removePlayerRelationship(const Player *that)
 		if (that == nullptr)
 		{
 			m_playerRelations->m_map.clear();
+			++g_gxRelationGen;
 			return true;
 		}
 		else
@@ -590,6 +619,7 @@ Bool Player::removePlayerRelationship(const Player *that)
 			if (it != m_playerRelations->m_map.end())
 			{
 				m_playerRelations->m_map.erase(it);
+				++g_gxRelationGen;
 				return true;
 			}
 		}
@@ -989,6 +1019,7 @@ void Player::initFromDict(const Dict* d)
 
 	/// @todo Ack!  the todo in PlayerList::reset() mentioning the need for a Player::reset() really needs to get done.
 	m_playerRelations->m_map.clear(); // For now, it has been decided to just fix this one.  Dear god me must reset.
+	++g_gxRelationGen;
 	m_teamRelations->m_map.clear(); // For now, it has been decided to just fix this one.  Dear god me must reset.
 
 	Int i;
@@ -4370,6 +4401,7 @@ void Player::xfer( Xfer *xfer )
 
 	// player relations
 	xfer->xferSnapshot( m_playerRelations );
+	++g_gxRelationGen;
 
 	// team relations
 	xfer->xferSnapshot( m_teamRelations );

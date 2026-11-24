@@ -355,6 +355,7 @@ public:
 
 	*/
 	Relationship getRelationship(const Team *that) const;
+	Bool gxHasTeamOverrides() const;	///< web port: any team-level relation override (PartitionManager enemy search skip)
 
 	/**
 		set a special relationship between this team and that team, that overrides

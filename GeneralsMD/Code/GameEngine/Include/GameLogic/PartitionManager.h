@@ -191,8 +191,11 @@ private:
 	PartitionCell							*m_cell;									///< the cell being touched
 	PartitionData							*m_module;								///< the module (and thus, Object) touching
 	CellAndObjectIntersection *m_prevCoi, *m_nextCoi;		///< if in use, next/prev in this cell. if not in use, next/prev free in this module.
+	Int												m_gxPlayer;								///< web port: the player slot counted in the cell (see PartitionCell::m_gxCount)
 
 public:
+	Int gxPlayerSlot() const { return m_gxPlayer; }
+	void gxSetPlayerSlot(Int slot);	///< moves this COI's count in its cell to another player slot
 
 	// Note, we allocate these in arrays, thus we must have a default ctor (and NOT descend from MPO)
 	CellAndObjectIntersection();
@@ -303,8 +306,15 @@ private:
 	Short													m_coiCount;					///< number of COIs in this cell.
 	Short													m_cellX;						///< x-coord of this cell within the Partition Mgr coords (NOT in world coords)
 	Short													m_cellY;						///< y-coord of this cell within the Partition Mgr coords (NOT in world coords)
+	// Web port (switch enemySearchSkip): objects in this cell per controlling player (slot
+	// MAX_PLAYER_COUNT = no object or no player), and a bit per slot that is non-zero. Enemy
+	// searches skip cells holding no one who could be an enemy. Not saved: rebuilt as objects register.
+	UnsignedShort									m_gxCount[MAX_PLAYER_COUNT + 1];
+	UnsignedInt										m_gxMask;
 
 public:
+	UnsignedInt gxPlayerMask() const { return m_gxMask; }
+	void gxCount(Int slot, Int delta) { m_gxCount[slot] += delta; if (m_gxCount[slot]) m_gxMask |= 1u << slot; else m_gxMask &= ~(1u << slot); }
 
 	// Note, we allocate these in arrays, thus we must have a default ctor (and NOT descend from MPO)
 	PartitionCell();
@@ -553,6 +563,7 @@ public:
 	// these are only for use by getClosestObjects.
 	// (note, if we ever use other bits in this, smarten this up...)
 	Int friend_getDoneFlag() { return m_doneFlag; }
+	void gxTeamChanged();	///< web port: the object changed player: move its per-cell counts
 	void friend_setDoneFlag(Int i) { m_doneFlag = i; }
 
 	Bool isInListDirtyModules(PartitionData* const* pListHead) const
@@ -597,6 +608,9 @@ class PartitionFilter
 {
 public:
 	virtual Bool allow(Object *objOther) = 0;
+	/// web port: non-null when this filter rejects everything that isn't a live enemy of the
+	/// returned object (AI.cpp PartitionFilterLiveMapEnemies), so searches may skip ally-only cells
+	virtual const Object *gxEnemiesOf() const { return nullptr; }
 #if defined(RTS_DEBUG)
 	virtual const char* debugGetName() = 0;
 #endif
