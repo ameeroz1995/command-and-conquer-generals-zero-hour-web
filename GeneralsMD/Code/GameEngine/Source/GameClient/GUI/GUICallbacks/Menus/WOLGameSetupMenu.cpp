@@ -29,6 +29,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxMatchRules.h"
 
 #include "Common/GameEngine.h"
 #include "Common/GameState.h"
@@ -1377,6 +1378,7 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 		// This should probably be enforced at the gamespy level as well, to prevent exploits.
 		Int isUsingStats = TheGameSpyGame->getUseStats();
 		game->setStartingCash( isUsingStats? TheMultiplayerSettings->getDefaultStartingMoney() : customPref.getStartingCash() );
+		game->setGxMatchRules( gxLocalMatchRules() );	// web port: the host's Settings decide the match rules
 		game->setSuperweaponRestriction( isUsingStats? 0 : customPref.getSuperweaponRestricted() ? 1 : 0 );
 		if (isUsingStats)
 			game->setOldFactionsOnly( 0 );

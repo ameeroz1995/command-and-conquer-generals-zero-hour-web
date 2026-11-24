@@ -85,6 +85,7 @@
 #include "GameLogic/CaveSystem.h"
 #include "GameLogic/CrateSystem.h"
 #include "GameLogic/FPUControl.h"
+#include "Common/GxMatchRules.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Locomotor.h"
 #include "GameLogic/Object.h"
@@ -1247,6 +1248,7 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
     }
   }
 
+	gxStartMatchRules();	// web port: network games and replays use the host's match rules
 	checkForDuplicateColors( TheGameInfo );
 
 	Bool isSkirmishOrSkirmishReplay = FALSE;

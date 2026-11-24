@@ -44,6 +44,9 @@
 #include "GameNetwork/LANAPI.h"						// for testing packet size
 #include "GameNetwork/LANAPICallbacks.h"	// for testing packet size
 #include "strtok_r.h"
+#include "Common/GxMatchRules.h"
+#include "Common/Recorder.h"
+#include "GameNetwork/NetworkDefs.h"
 
 
 
@@ -307,6 +310,7 @@ void GameInfo::reset()
 	m_useStats = TRUE;
 	m_surrendered = FALSE;
   m_oldFactionsOnly = FALSE;
+	m_gxMatchRules = 0;
 //	m_localIP = 0; // BGC - actually we don't want this to be reset since the m_localIP is
 										// set properly in the constructor of LANGameInfo which uses this as a base class.
 	m_mapCRC = 0;
@@ -926,6 +930,13 @@ AsciiString GameInfoToAsciiString( const GameInfo *game )
 		game->getMapCRC(), game->getMapSize(), game->getSeed(), game->getCRCInterval(), game->getSuperweaponRestriction(),
 		game->getStartingCash().countMoney(), game->oldFactionsOnly() ? 'Y' : 'N' );
 #endif
+	// web port: match rules, only when any is on (so a game without them sends the retail string)
+	if (game->getGxMatchRules())
+	{
+		AsciiString rules;
+		rules.format("GX=%X;", game->getGxMatchRules());
+		optionsString.concat(rules);
+	}
 
 	//add player info for each slot
 	optionsString.concat(slotListID);
@@ -1015,6 +1026,7 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
 	Int crc = 100;
 	Bool sawCRC = FALSE;
   Bool oldFactionsOnly = FALSE;
+	UnsignedInt gxMatchRules = 0;
 	Int useStats = TRUE;
   Money startingCash = TheGlobalData->m_defaultStartingCash;
   UnsignedShort restriction = 0; // Always the default
@@ -1131,6 +1143,10 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
       startingCash.init();
       startingCash.deposit( startingCashAmount, FALSE, FALSE );
       sawStartingCash = TRUE;
+    }
+    else if (key.compare("GX") == 0 )
+    {
+      gxMatchRules = strtoul( val.str(), nullptr, 16 );
     }
     else if (key.compare("O") == 0 )
     {
@@ -1505,6 +1521,7 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
 		game->setSuperweaponRestriction(restriction);
 		game->setStartingCash(startingCash);
 		game->setOldFactionsOnly(oldFactionsOnly);
+		game->setGxMatchRules(gxMatchRules);
 
 		return true;
 	}
@@ -1643,3 +1660,47 @@ void SkirmishGameInfo::loadPostProcess()
 }
 
 
+
+
+//----------------------------------------------------------------------------------------------------------
+// Web port: match rules (Common/GxMatchRules.h)
+//----------------------------------------------------------------------------------------------------------
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches2();
+#endif
+static UnsignedInt s_gxMatchRules = 0;
+static Bool s_gxMatchRulesFixed = FALSE;
+
+unsigned int gxLocalMatchRules()
+{
+#ifdef __EMSCRIPTEN__
+	const int s1 = GLES3_Page_Switches(), s2 = GLES3_Page_Switches2();
+	return ((s1 & 134217728) ? GXRULE_IGNORE_UNITS : 0)	// page switch bit 27: ignoreUnitsInPaths
+		| ((s1 & 33554432) ? GXRULE_FLOW_FIELDS : 0)		// bit 25: flowFields
+		| ((s1 & 8388608) ? GXRULE_FAST_INV_SQRT : 0)		// bit 23: fastInvSqrt
+		| ((s2 & 4096) ? GXRULE_LAZY_SCANS : 0)				// second word bit 12: lazyScans
+		| ((s2 & 128) ? GXRULE_PATH_BUDGET : 0);			// second word bit 7: pathBudget
+#else
+	return 0;
+#endif
+}
+
+void gxStartMatchRules()
+{
+	const Bool playback = TheRecorder && TheRecorder->isPlaybackMode();
+	s_gxMatchRulesFixed = TheNetwork != nullptr || playback;
+	s_gxMatchRules = s_gxMatchRulesFixed ? (TheGameInfo ? TheGameInfo->getGxMatchRules() : 0) : 0;
+	printf("GXRULES match rules %s: %X\n", s_gxMatchRulesFixed ? (playback ? "from the replay" : "from the host") : "local switches",
+		s_gxMatchRulesFixed ? s_gxMatchRules : gxLocalMatchRules());
+}
+
+bool gxMatchRule(unsigned int rule)
+{
+	return ((s_gxMatchRulesFixed ? s_gxMatchRules : gxLocalMatchRules()) & rule) != 0;
+}
+
+unsigned int gxCurrentMatchRules()
+{
+	return s_gxMatchRulesFixed ? s_gxMatchRules : gxLocalMatchRules();
+}

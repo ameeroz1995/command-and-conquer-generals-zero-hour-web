@@ -27,6 +27,7 @@
 // Author: Michael S. Booth, October 2001
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #include <algorithm>
+#include "Common/GxMatchRules.h"
 #include "Common/Recorder.h"
 
 #include "GameLogic/AIPathfind.h"
@@ -119,6 +120,9 @@ constexpr const UnsignedInt MAX_ADJUSTMENT_CELL_COUNT = 400;
 constexpr const UnsignedInt MAX_SAFE_PATH_CELL_COUNT = 2000;
 
 constexpr const UnsignedInt PATHFIND_CELLS_PER_FRAME = 5000; // Number of cells we will search pathfinding per frame.
+constexpr const Int GX_PATH_BUDGET_CELLS = 2500;	// web port (match rule pathBudget): cells per frame for starting queued searches
+static UnsignedInt s_gxQueuedAt[PATHFIND_QUEUE_LEN];	// frame each queued request arrived
+static long long s_gxWaitSum = 0, s_gxQueueSum = 0; static int s_gxWaitN = 0; static UnsignedInt s_gxWaitMax = 0;	// GXDIAG
 constexpr const UnsignedInt CELL_INFOS_TO_ALLOCATE = 30000;
 
 //-----------------------------------------------------------------------------------
@@ -5198,8 +5202,7 @@ static int s_gxIgnorePlans = 0, s_gxIgnoreSkippedBlocked = 0;
 // switch ignoreUnitsInPaths (page switch bit 27): single player only, never network games or replays
 static Bool gxIgnoreUnitsFor(const Object *obj)
 {
-	if (!obj || !(GLES3_Page_Switches() & 134217728)) return false;
-	if (!TheGameLogic || TheGameLogic->isInMultiplayerGame() || (TheRecorder && TheRecorder->isPlaybackMode())) return false;
+	if (!obj || !gxMatchRule(GXRULE_IGNORE_UNITS)) return false;
 	const AIUpdateInterface *ai = obj->getAIUpdateInterface();
 	if (ai && (ai->isBlockedAndStuck() || ai->getNumFramesBlocked() > 0)) { s_gxIgnoreSkippedBlocked++; return false; }
 	if ((++s_gxIgnorePlans % 1000) == 0)
@@ -5961,6 +5964,7 @@ Bool Pathfinder::queueForPath(ObjectID id)
 		return false;
 	}
 	m_queuedPathfindRequests[m_queuePRTail] = id;
+	s_gxQueuedAt[m_queuePRTail] = TheGameLogic ? TheGameLogic->getFrame() : 0;
 	m_queuePRTail = nextSlot;
 	return true;
 }
@@ -6190,8 +6194,15 @@ void Pathfinder::processPathfindQueue()
 #ifdef DEBUG_QPF
 	Int pathsFound = 0;
 #endif
-	while (m_cumulativeCellsAllocated < PATHFIND_CELLS_PER_FRAME &&
+	// web port (match rule pathBudget): a smaller per-frame budget for starting queued searches
+	const Int cellBudget = gxMatchRule(GXRULE_PATH_BUDGET) ? GX_PATH_BUDGET_CELLS : PATHFIND_CELLS_PER_FRAME;
+	const UnsignedInt gxNow = TheGameLogic->getFrame();
+	while (m_cumulativeCellsAllocated < cellBudget &&
 		m_queuePRTail!=m_queuePRHead) {
+		{	// GXDIAG how long requests waited in the queue
+			const UnsignedInt waited = gxNow - s_gxQueuedAt[m_queuePRHead];
+			s_gxWaitSum += waited; s_gxWaitN++; if (waited > s_gxWaitMax) s_gxWaitMax = waited;
+		}
 		Object *obj = TheGameLogic->findObjectByID(m_queuedPathfindRequests[m_queuePRHead]);
 		m_queuedPathfindRequests[m_queuePRHead] = INVALID_ID;
 		if (obj) {
@@ -6221,6 +6232,15 @@ void Pathfinder::processPathfindQueue()
 #endif
 	}	
 #endif
+	{	// GXDIAG
+		const Int queued = (m_queuePRTail - m_queuePRHead + PATHFIND_QUEUE_LEN) % PATHFIND_QUEUE_LEN;
+		s_gxQueueSum += queued;
+		if (gxNow % 150 == 0) {
+			printf("GXPATHQ f%u rule %d: searches started %d, waited avg %.2f max %u frames, queue avg %.1f\n", gxNow,
+				gxMatchRule(GXRULE_PATH_BUDGET) ? 1 : 0, s_gxWaitN, s_gxWaitN ? (double)s_gxWaitSum / s_gxWaitN : 0.0, s_gxWaitMax, s_gxQueueSum / 150.0);
+			s_gxWaitSum = 0; s_gxWaitN = 0; s_gxWaitMax = 0; s_gxQueueSum = 0;
+		}
+	}
 #if defined(RTS_DEBUG)
 	doDebugIcons();
 #endif
@@ -11558,8 +11578,7 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 	PathfindCell *startCell, PathfindCell *goalCell, Bool isCrusher, Bool centerInCell )
 {
 #ifdef __EMSCRIPTEN__
-	if (!(GLES3_Page_Switches() & 33554432) || s_inFieldPath) return nullptr;
-	if (!TheGameLogic || TheGameLogic->isInMultiplayerGame() || (TheRecorder && TheRecorder->isPlaybackMode())) return nullptr;
+	if (!gxMatchRule(GXRULE_FLOW_FIELDS) || s_inFieldPath || !TheGameLogic) return nullptr;
 	const int sx = startCell->getXIndex(), sy = startCell->getYIndex(), gx = goalCell->getXIndex(), gy = goalCell->getYIndex();
 	if (abs(sx - gx) <= GX_FF_MIN_CELLS && abs(sy - gy) <= GX_FF_MIN_CELLS) return nullptr;
 	const int x0 = m_extent.lo.x, y0 = m_extent.lo.y, w = m_extent.hi.x - x0 + 1, h = m_extent.hi.y - y0 + 1;
