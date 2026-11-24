@@ -1684,7 +1684,8 @@ unsigned int gxLocalMatchRules()
 		| ((s2 & 8192) ? GXRULE_SHARED_ROUTES : 0)			// bit 13: sharedRoutes
 		| ((s2 & 16384) ? GXRULE_ROUTE_BUDGET : 0)			// bit 14: routeBudget
 		| ((s2 & 1024) ? GXRULE_COLLIDE_EVERY2 : 0)			// bit 10: collideStagger
-		| ((s2 & 2048) ? GXRULE_COLLIDE_EVERY3 : 0);		// bit 11: collideStagger3
+		| ((s2 & 2048) ? GXRULE_COLLIDE_EVERY3 : 0)		// bit 11: collideStagger3
+		| ((s2 & 134217728) ? GXRULE_PHYS_BULK : 0);		// bit 27: physBulk
 #else
 	return 0;
 #endif

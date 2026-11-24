@@ -3145,3 +3145,33 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   built: physics every 2nd frame for ground units (locomotors push every frame: visible jerks,
   wrong speeds); bulk integrate-then-commit (same calls, same cost). Still nothing measurable;
   match rule 2048 left unused.
+
+## 2026-11-25 — Physics flat pass built anyway (switch physReuse bit 26, on; match rule physBulk 2048 / bit 27, off)
+
+Built per the user's round-3 decision (small gains meant to add up). Two parts:
+- physReuse (second word bit 26, default ON, same game): the physics step already looks up the
+  ground height at the unit's x, y and layer; that is exactly what Object::calculateHeightAboveTerrain()
+  computes for the airborne check after the move, so the step stores it in the height cache
+  (Thing::gxSetHeightAboveTerrain) instead of a second terrain lookup. Only when the position after
+  setTransformMatrix still has that x, y. Verify mode: 1,060,000 checks in the battle, 0 mismatches.
+- physBulk (match rule GXRULE_PHYS_BULK 2048, second word bit 27, default OFF, drifts): at the first
+  physics update of a frame, one pass over a flat list of all PhysicsBehaviors (creation = object ID
+  order, compacted in the pass) integrates gravity, friction and velocity for every unit whose
+  physics runs this frame; each unit's own update then only moves it. A force applied to a unit
+  by another unit's physics step after the pass counts next frame (the drift). Units not covered
+  (woken during the phase, held) integrate inline as before.
+- Dropped: skipping setTransformMatrix when the matrix did not change. Not the same game: the
+  battle's physics call counts drifted from the first 150 frames (260 vs 261), and with only the
+  height reuse they match off exactly (261, 674, 1180, ... 1922). Setting an unchanged transform still
+  refreshes something the simulation reads (most likely the drawable's transform, which weapon
+  launch bones are read from).
+- Replays (final build phys-7, wasm c9e96a89…): referee replay matches (9,000 frames) with defaults and with physBulk on locally;
+  recorded a skirmish with physBulk on (phys-bulk6.rep, header rules 0x802) and it replays to a
+  match. Screenshots (phys6-bulk*/reuse*/off* battle2-7): normal fights, nothing stuck or piled up
+  (shots are taken by wall time, so scenes differ between runs).
+- A/B (build phys-6t, physics-phase timer, the first 6 windows of 150 frames that every run
+  reached = the same 8,858 physics calls for off/reuse; load 8-19, very noisy):
+  off 44.4 / 37.4 ms, physReuse 32.9 / 26.3 ms (-28%, both pairs), physBulk (+ physReuse)
+  28.5 / 33.8 ms (same as physReuse: one pair each way). Strikes fps off 5.8 / 8.2, physReuse
+  8.7 / 11.1, physBulk 10.7 / 8.4: load noise, physics is ~10% of a strike frame. physBulk gives
+  nothing measurable on its own and is not slower; left off for the combined measurement.
