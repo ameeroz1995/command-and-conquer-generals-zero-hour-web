@@ -3117,3 +3117,11 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
 - If anything here is worth doing, it is Path::computePointOnPath (2.5%): it walks the path's
   node list for every moving unit every frame; its cache returns a stale answer only up to 20
   times. An exact cheaper lookup (resume from the last segment) is a small, separate change.
+- computePointOnPath, counted (paths-10, battle benchmark): ~400 full computations a frame (of
+  ~1,300 calls; the rest hit its cache), each walking 30-48 path segments (flow-field routes keep
+  many nodes), ~15k segment visits a frame. An exact lookup must still test every segment for the
+  closest one, so a flat segment array only makes each visit cheaper: ~0.3-0.4% of the frame at
+  best, below what the bench resolves, and it needs an owner link plus invalidation in every
+  PathNode setter (paths are edited in place from AIUpdate and several Pathfinder functions). Not
+  built. A windowed search around the last closest segment would cut more but changes results
+  (match rule 1024), for well under 1% of the frame: not worth the visual checks.
