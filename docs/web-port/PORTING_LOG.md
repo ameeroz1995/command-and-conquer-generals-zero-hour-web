@@ -2812,3 +2812,17 @@ Strike phase (live build 52b7e14), share of the frame, inclusive:
   work 71.0 -> 66.9 and 71.5 -> 67.3 ms (-6%); armies and aftermath flat.
 - Not built: coarse 8x8 block masks. Per search 132 cells are in range and 51 kept; the 81 skipped are
   already 4-byte reads from the dense array (well under 2% of a search).
+
+## 2026-11-24 — Measured, not kept: 8x8 block masks for range searches (would-be switch blockMask, second word bit 24)
+
+- Built on 29c8869: per 8x8 block of cells, the OR of the cells' player masks, recomputed from the
+  dense cell masks whenever a cell's mask changes; the ring walk checked the block before the cell,
+  so the visited cells and their order were unchanged.
+- Same game: verify (every search against the plain walk) 0 mismatches in 4 runs, plus a direct check
+  that no skipped block held a wanted cell; referee replay matched over 9000 frames.
+- Paired timing (fast / plain walk): on 0.231 and 0.255, off 0.245 and 0.251: no difference. fps A/B
+  (blockMask off vs on): pair 1 unusable (load jumped 3 -> 24), pair 2 at load 9-12 strikes 13.7 ->
+  13.0, work 71.9 -> 76.0 ms. Reason: after the dense mask a skipped cell costs one 4-byte read from
+  a small array; the ring walk itself (offset list) is what's left, and blocks can't skip it without
+  changing the visit order. Removed; the patch is kept outside the repo
+  (side-session notes, logic-query-blockmask.patch).
