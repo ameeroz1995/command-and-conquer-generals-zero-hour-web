@@ -2096,22 +2096,32 @@ Bool ParticleSystem::update( Int localPlayerIndex  )
 	//
 	// Update all particles in the system
 	//
-	Particle *p = m_systemParticlesHead;
+	// particleStagger (second switch word bit 30, drawing only): half the systems move their
+	// particles on even frames, half on odd, two steps at a time (one pass over the list).
+	extern int GLES3_Page_Switches2();
+	Int gxSteps = 1;
+	if (GLES3_Page_Switches2() & 1073741824)
+		gxSteps = ((TheGameLogic->getFrame() + (UnsignedInt)m_systemID) & 1) ? 0 : 2;
+	Particle *p = gxSteps ? m_systemParticlesHead : nullptr;
 	Particle *oldParticle;
 	while (p)
 	{
-
-		// apply 'gravity' force
-		if (m_gravity != 0.0f)
+		Bool alive = true;
+		for (Int step = 0; step < gxSteps && alive; ++step)
 		{
-			Coord3D force;
-			force.x = 0.0f;
-			force.y = 0.0f;
-			force.z = m_gravity;
-			p->applyForce( &force );
+			// apply 'gravity' force
+			if (m_gravity != 0.0f)
+			{
+				Coord3D force;
+				force.x = 0.0f;
+				force.y = 0.0f;
+				force.z = m_gravity;
+				p->applyForce( &force );
+			}
+			alive = p->update();
 		}
 
-		if (p->update() == false)
+		if (alive == false)
 		{
 			oldParticle = p;
 			p = p->m_systemNext;

@@ -66,6 +66,8 @@
 #include "ww3d.h"
 #include "wwmemlog.h"
 #include "animatedsoundmgr.h"
+#include "rinfo.h"
+#include "camera.h"
 
 
 /***********************************************************************************************
@@ -294,7 +296,21 @@ void Animatable3DObjClass::Render(RenderInfoClass & rinfo)
 	//
 	const bool isSingleAnim = CurMotionMode == SINGLE_ANIM && ModeAnim.AnimMode != ANIM_MODE_MANUAL;
 
-	if (isSingleAnim || !Is_Hierarchy_Valid() || Are_Sub_Object_Transforms_Dirty()) {
+	if (!Is_Hierarchy_Valid() || Are_Sub_Object_Transforms_Dirty()) {
+		Update_Sub_Object_Transforms();
+	} else if (isSingleAnim) {
+		// animStagger (second switch word bit 23, drawing only): a unit that has not moved and is
+		// small on screen advances its animation every 2nd drawn frame; the animation clock still
+		// runs, so the next update catches up the full time.
+		extern int GLES3_Page_Switches2();
+		if (GLES3_Page_Switches2() & 8388608) {
+			const SphereClass & s = CachedBoundingSphere;
+			const Vector3 d = s.Center - rinfo.Camera.Get_Position();
+			const float r = s.Radius * 50.0f;		// staggered when radius/distance < 1/50
+			if (r * r < d.Length2() && ((WW3D::Get_Frame_Count() + ((unsigned)(size_t)this >> 6)) & 1)) {
+				return;
+			}
+		}
 		Update_Sub_Object_Transforms();
 	}
 }
