@@ -2776,3 +2776,29 @@ Strike phase (live build 52b7e14), share of the frame, inclusive:
 - So a full rebuild (recorded, sorted draw list submitted with minimal state; per-object data kept
   together) can save at most roughly half of the ~8% submission cost and of the ~6% per-object
   cost: about 6-7% of the frame, for several days of work with visual-regression risk.
+
+## 2026-11-24 — Combat area (weapons, damage, moves): profile; two drawing caches kept (switches boneCache, lightCache; second word bits 20-21, on)
+
+- Profile (lg ca1, machine load 50-75, so strike phases hit the time limit; shares from a 30 s armies
+  window): weapon-status model flags 0.7-0.9% of the frame, of which ~70% was
+  W3DModelDraw::doHideShowProjectileObjects (units that show their loaded missiles): every frame it
+  formatted "BONE%02d" names and searched every sub-object by name (RenderObjClass::Get_Sub_Object_By_Name
+  0.3-0.4%). W3DModelDraw::hideAllHeadlights ran a strstr over every sub-object name on every model
+  state change (0.3%). Moves (setTransformMatrix -> reactToTransformChange) 1.2-2.0%: spread thin
+  (two matrix copies, atan2, partition dirty, drawable Set_Transform; trigger areas 0.1%, pathfinder
+  cell update ~0); damage 0.6-1.1% (half of it ActiveBody::internalChangeHealth -> visual state);
+  particles 0.2-0.6%. Nothing else in this area above ~0.5%.
+- **boneCache** (bit 20): the missile bones' sub-object indices are found once per render object,
+  model state, slot and clip size, then hidden/shown by index (same calls, same order, same
+  bone-children pass, same updateSubObjects). **lightCache** (bit 21): the headlight sub-objects are
+  listed once per render object. Both caches are emptied in nukeCurrentRender, the only way the render
+  object changes. Drawing only; the game is untouched.
+- Same game: referee replay matches over 9000 frames. Verify mode re-does every cached lookup by name
+  and compares: 60,000+ checked, 0 mismatches.
+- Measured (profile share, armies window, switches off -> on): missile bones 0.6% -> 0.2%, headlights
+  0.3% -> 0.1%, by-name sub-object search 0.4% -> 0.1%; about 0.6% of the frame. fps A/B was not
+  measurable (load 37-75, strike phases stopped at the time limit; fps differed 2x between identical runs).
+- Not done (each < 0.3% and/or would change the game): the drawable's second atan2 per move (the
+  object's angle can differ from the matrix's after setOrientation), heap changes in the update queue
+  (heap order is game order), audio per shot (random seeds under RETAIL_COMPATIBLE_CRC), damage
+  victim order.

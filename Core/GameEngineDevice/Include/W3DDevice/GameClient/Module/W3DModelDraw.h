@@ -508,6 +508,15 @@ private:
 	Bool													m_pauseAnimation;
 	Int														m_animationMode;
 
+	// gx (switches boneCache / lightCache): sub-object indices looked up by name once per render
+	// object instead of on every call. Emptied in nukeCurrentRender (the only way the render object changes).
+	struct GxProjBones { const RenderObjClass* robj; const ModelConditionInfo* state; UnsignedInt maxCount; std::vector<Int> idx; };
+	GxProjBones										m_gxProjBones[WEAPONSLOT_COUNT];
+	const RenderObjClass*					m_gxLightsRobj;
+	std::vector<Int>							m_gxLights;
+	void gxForgetSubObjIndices();
+	void gxHideShowSubObjIndex(Int objIndex, Bool hide);
+
 	void adjustAnimation(const ModelConditionInfo* prevState, Real prevAnimFraction);
 	Real getCurrentAnimFraction() const;
 	void applyCorrectModelStateAnimation();
