@@ -3136,3 +3136,12 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
 - Where physics time actually goes: setTransformMatrix (~40% of the phase, ~4% of the frame).
   Cheaper ideas there (skip the drawable/trigger work when the position did not change, reuse
   the ground height from the step for the airborne check) are not data-layout changes; not done.
+- Rechecked after the rule change (drift allowed behind match rule 2048, behaviour-outer passes
+  approved), with the transform update split as well (build phys-2, load 11-24; extra timers
+  inflate it): per strike frame setTransformMatrix is drawable transform ~33%, partition
+  refresh/dirty ~18%, trigger areas + pathfinder position ~14%, map extent ~8%, the rest matrix
+  copies / yaw (atan2). Each piece is under ~1 ms of a ~90 ms frame, and a bulk physics pass
+  already exists (physics is its own update phase). Drift-allowed options considered and not
+  built: physics every 2nd frame for ground units (locomotors push every frame: visible jerks,
+  wrong speeds); bulk integrate-then-commit (same calls, same cost). Still nothing measurable;
+  match rule 2048 left unused.
