@@ -2747,3 +2747,17 @@ queue's share; the sampling profile's 3.8% for the heap is the reliable figure.)
   compared every frame's pairs and order: 0 mismatches.
 - A/B (off vs on, twice, load 7-9): strikes fps 12.2 -> 12.8 and 11.4 -> 12.0 (+5%), work -5%/-4%;
   aftermath +1% / +7%; armies +1%.
+
+## 2026-11-24 — Nearest-object search: measured, rebuild not kept
+
+- Counters (peak battle, per frame): ~180 searches (70% iterate-all-in-range), ~31k cells visited,
+  ~89k COI visits for ~41k distinct distance tests (objects in several cells), ~27k within range,
+  ~12k passing the filters.
+- Tried (cellArrays): each cell's COI list mirrored as a plain array of modules (reversed, read from
+  the back = list order). First version also stored the object pointer and verify mode caught it:
+  a dead building remembered under the fog keeps its module in the cells with the object cleared
+  (unRegisterObject), so the stored pointer went stale. Fixed by reading the object from the module;
+  then replay matched and verify found 0 mismatches.
+- A/B twice: +1%/-1% and +6% strikes / -4% aftermath: no clear gain. The list walk is not the cost;
+  each visit still reads the module and the object. Not kept. A real gain needs positions and
+  sizes in dense per-object arrays (a change to the whole object system).
