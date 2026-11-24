@@ -13,6 +13,10 @@ enum GxMatchRule
 	GXRULE_LAZY_SCANS     = 8,	///< lazyScans: idle enemy scans that found nothing wait longer (AIUpdate.cpp)
 	// 16: was pathBudget (a smaller per-frame route search budget): measured, no gain, removed
 	GXRULE_COARSE_START   = 32,	///< coarseStart: move along the zone-level route while the full one is queued (AIUpdate.cpp)
+	GXRULE_SHARED_ROUTES  = 64,	///< sharedRoutes: units sent to one taken point plan to free spots near it (AIUpdate.cpp)
+	GXRULE_ROUTE_BUDGET   = 128,	///< routeBudget: half the route-search work per frame (AIPathfind.cpp)
+	GXRULE_COLLIDE_EVERY2 = 256,	///< collideStagger: ground units look for touching units every 2nd frame (PartitionManager.cpp)
+	GXRULE_COLLIDE_EVERY3 = 512,	///< collideStagger3: every 3rd frame (PartitionManager.cpp)
 };
 
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for

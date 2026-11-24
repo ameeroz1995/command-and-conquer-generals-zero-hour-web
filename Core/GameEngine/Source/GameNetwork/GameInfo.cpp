@@ -1680,7 +1680,11 @@ unsigned int gxLocalMatchRules()
 		| ((s1 & 33554432) ? GXRULE_FLOW_FIELDS : 0)		// bit 25: flowFields
 		| ((s1 & 8388608) ? GXRULE_FAST_INV_SQRT : 0)		// bit 23: fastInvSqrt
 		| ((s2 & 4096) ? GXRULE_LAZY_SCANS : 0)				// second word bit 12: lazyScans
-		| ((s2 & 128) ? GXRULE_COARSE_START : 0);			// second word bit 7: coarseStart
+		| ((s2 & 128) ? GXRULE_COARSE_START : 0)			// second word bit 7: coarseStart
+		| ((s2 & 8192) ? GXRULE_SHARED_ROUTES : 0)			// bit 13: sharedRoutes
+		| ((s2 & 16384) ? GXRULE_ROUTE_BUDGET : 0)			// bit 14: routeBudget
+		| ((s2 & 1024) ? GXRULE_COLLIDE_EVERY2 : 0)			// bit 10: collideStagger
+		| ((s2 & 2048) ? GXRULE_COLLIDE_EVERY3 : 0);		// bit 11: collideStagger3
 #else
 	return 0;
 #endif

@@ -759,6 +759,9 @@ public:
 	// Adjusts the destination to a spot near dest that is not occupied by other units.
 	Bool adjustDestination(Object *obj, const LocomotorSet& locomotorSet,
 		Coord3D *dest, const Coord3D *groupDest=nullptr);
+	/// Web port (sharedRoutes, logic-ai): adjustDestination's test over square rings firstRing..lastRing around dest.
+	Bool gxAdjustDestinationRings(Object *obj, const LocomotorSet& locomotorSet, Coord3D *dest,
+		Int firstRing, Int lastRing, Int *foundRing);
 
 	// Adjusts the destination to a spot near dest for landing that is not occupied by other units.
 	Bool adjustToLandingDestination(Object *obj, Coord3D *dest);

@@ -671,6 +671,7 @@ public:
 	Int getTmpValue() {return m_tmpInt;}
 
 	Bool getRetryPath() {return m_retryPath;}
+	static Bool gxAiRule(Int switchBit);	///< web port: the one gate for game-changing AI rules (AIUpdate.cpp)
 
 	void setAllowedToChase( Bool allow ) { m_allowedToChase = allow; }
 	Bool isAllowedToChase() const { return m_allowedToChase; }

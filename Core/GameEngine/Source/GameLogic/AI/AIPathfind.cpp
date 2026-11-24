@@ -5481,6 +5481,41 @@ Bool Pathfinder::goalPosition(Object *obj, Coord3D *pos)
 }
 
 
+// Web port (switch sharedRoutes, logic-ai): adjustDestination's test (checkForAdjust) over square
+// rings around dest, nearest ring first, so a caller sending many units to one point can go on from
+// the ring where the last free spot was found instead of searching the taken ones again.
+Bool Pathfinder::gxAdjustDestinationRings(Object *obj, const LocomotorSet& locomotorSet, Coord3D *dest,
+	Int firstRing, Int lastRing, Int *foundRing)
+{
+	Bool isHuman = !(obj->getControllingPlayer() && obj->getControllingPlayer()->getPlayerType() == PLAYER_COMPUTER);
+	Int iRadius;
+	Bool center;
+	getRadiusAndCenter(obj, iRadius, center);
+	Coord3D at = *dest;
+	if (!center) {
+		at.x += PATHFIND_CELL_SIZE_F/2;
+		at.y += PATHFIND_CELL_SIZE_F/2;
+	}
+	ICoord2D c;
+	worldToCell(&at, &c);
+	const PathfindLayerEnum layer = TheTerrainLogic->getLayerForDestination(dest);
+	for (Int r = firstRing; r <= lastRing; ++r) {
+		if (r == 0) {
+			if (checkForAdjust(obj, locomotorSet, isHuman, c.x, c.y, layer, iRadius, center, dest, nullptr)) { *foundRing = 0; return true; }
+			continue;
+		}
+		for (Int x = c.x - r; x <= c.x + r; ++x) {
+			if (checkForAdjust(obj, locomotorSet, isHuman, x, c.y - r, layer, iRadius, center, dest, nullptr)
+					|| checkForAdjust(obj, locomotorSet, isHuman, x, c.y + r, layer, iRadius, center, dest, nullptr)) { *foundRing = r; return true; }
+		}
+		for (Int y = c.y - r + 1; y <= c.y + r - 1; ++y) {
+			if (checkForAdjust(obj, locomotorSet, isHuman, c.x - r, y, layer, iRadius, center, dest, nullptr)
+					|| checkForAdjust(obj, locomotorSet, isHuman, c.x + r, y, layer, iRadius, center, dest, nullptr)) { *foundRing = r; return true; }
+		}
+	}
+	return false;
+}
+
 Bool Pathfinder::checkForAdjust(Object *obj, const LocomotorSet& locomotorSet, Bool isHuman,
 																Int cellX, Int cellY, PathfindLayerEnum layer,
 																Int iRadius, Bool center, Coord3D *dest, const Coord3D *groupDest)
@@ -6190,7 +6225,10 @@ void Pathfinder::processPathfindQueue()
 #ifdef DEBUG_QPF
 	Int pathsFound = 0;
 #endif
-	while (m_cumulativeCellsAllocated < PATHFIND_CELLS_PER_FRAME &&
+	// Web port (switch routeBudget, logic-ai; single player through AIUpdateInterface::gxAiRule):
+	// half the route-search work per frame, so queued units get their routes a little later.
+	const Int gxCellsPerFrame = AIUpdateInterface::gxAiRule(16384) ? PATHFIND_CELLS_PER_FRAME / 2 : PATHFIND_CELLS_PER_FRAME;
+	while (m_cumulativeCellsAllocated < gxCellsPerFrame &&
 		m_queuePRTail!=m_queuePRHead) {
 		Object *obj = TheGameLogic->findObjectByID(m_queuedPathfindRequests[m_queuePRHead]);
 		m_queuedPathfindRequests[m_queuePRHead] = INVALID_ID;
