@@ -2697,3 +2697,17 @@ queue's share; the sampling profile's 3.8% for the heap is the reliable figure.)
   fps +10% / +7%. Machine load 8-25 during runs.
 - Bench tool fix (generals-bench-mcp server.py `_finish`): lanes are closed before a job is marked
   done; a waiting cli.py used to exit first and leave the browser running into the next run.
+
+## 2026-11-24 — Measured, not kept: skipping far-apart collision pairs
+
+- Coarse per-frame timers (peak battle, per frame): ~4,400 moved objects, ~95k pair offers,
+  ~51k distinct touching pairs, ~6.4k (13%) truly touching; building the list 7-8 ms, testing it
+  11.5 ms (including the collision reactions), freeing it 1.9 ms.
+- Tried (exact; replay matched, verify 0 mismatches): skip pairs farther apart than both shapes'
+  reach (bounding circle x sqrt 2 + 1) before the shape test, and offer a neighbour once per
+  object. A/B: within 1-2% (no gain): the shape tests are cheap; the 11.5 ms is mostly the
+  collision reactions (onCollide: physics pushes), which are real game work. Removed.
+- What is left in logic is mostly game behaviour: units re-planning routes when blocked
+  (AIUpdateInterface::computePath ~14% of the frame: a failed route search explores everything
+  reachable, then a closest-point search runs) and collision reactions. Making those cheaper
+  changes how the game plays (single player only, behind a switch).
