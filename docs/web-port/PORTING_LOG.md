@@ -3141,3 +3141,14 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   10.95 -> 9.60 and 11.00 -> 9.46 ms (-12%, -14%). Load 13-31.
 - fps A/B (pairPlace off/on): one usable pair at load 7: armies 16.3 -> 16.6, strikes 12.1 -> 12.0,
   aftermath 19.4 -> 22.5; the other pairs ran at load 16-50 and stopped at the time limit.
+
+## 2026-11-25 — Fix: cellReuse fast path kept the per-player search lists out of step
+
+- cellReuse (unchanged cells: move each COI to the front of its cell list) put the COI at the head
+  without a new sequence number, so the cell list was no longer in sequence order and searchSlotSkip's
+  merge of per-player lists could visit candidates in a different order than the plain walk (ties
+  and iterator order). Verify mode never saw it: it turned the fast path off.
+- Now CellAndObjectIntersection::gxMoveToFront takes a new sequence and re-links the slot list; in
+  verify mode the fast path runs on odd frames (the fill check on even ones), so the search check
+  covers lists it reordered.
+- Verify: 90k searches, 0 mismatches; cellReuse checks 0 mismatches; referee replay matches.

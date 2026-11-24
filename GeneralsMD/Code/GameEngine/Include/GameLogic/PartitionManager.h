@@ -207,6 +207,7 @@ private:
 
 public:
 	UnsignedInt gxSeq() const { return m_gxSeq; }
+	void gxMoveToFront();	///< web port: to the head of its cell list, keeping the per-slot lists in step (switch cellReuse)
 	CellAndObjectIntersection *gxSlotNext() const { return m_gxSlotNext; }
 	Int gxPlayerSlot() const { return m_gxPlayer; }
 	Real gxX() const { return m_gxX; }

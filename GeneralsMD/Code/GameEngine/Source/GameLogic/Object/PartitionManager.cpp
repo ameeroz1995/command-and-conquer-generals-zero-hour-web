@@ -1280,6 +1280,17 @@ void CellAndObjectIntersection::gxSlotLink(Int slot)
 		next->m_gxSlotPrev = this;
 }
 
+void CellAndObjectIntersection::gxMoveToFront()
+{
+	// the cell list runs from high to low sequence (switch searchSlotSkip merges per-slot lists by
+	// it), so the COI put at the head takes a new, highest sequence and moves in its slot list too
+	m_cell->friend_removeFromCellList(this);
+	m_cell->friend_addToCellList(this);
+	gxSlotUnlink();
+	m_gxSeq = m_cell->gxTakeSeq();
+	gxSlotLink(m_gxPlayer);
+}
+
 void CellAndObjectIntersection::gxSlotUnlink()
 {
 	if (m_gxSlotPrev)
@@ -2360,18 +2371,17 @@ void PartitionData::updateCellsTouched()
 				key[0] = 0;
 	}
 	const Bool gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
-	if (key[0] && (GLES3_Page_Switches2() & 256) && !gxVerify)
+	// verify mode: the fast path runs on odd frames (so the range-search check sees lists it reordered)
+	// and the fill check on even ones
+	const Bool gxVerifyFast = gxVerify && TheGameLogic && (TheGameLogic->getFrame() & 1);
+	if (key[0] && (GLES3_Page_Switches2() & 256) && (!gxVerify || gxVerifyFast))
 	{
 		const Int slot = gxSlotOf(this);
 		CellAndObjectIntersection *coi = m_coiArray;
 		for (Int i = m_coiInUseCount; i > 0; --i, ++coi)
 		{
 			if (coi->getPrevCoi())
-			{
-				PartitionCell *cell = coi->getCell();
-				cell->friend_removeFromCellList(coi);
-				cell->friend_addToCellList(coi);
-			}
+				coi->gxMoveToFront();
 			coi->gxSetPlayerSlot(slot);
 		}
 	}
