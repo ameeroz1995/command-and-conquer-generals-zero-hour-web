@@ -438,6 +438,7 @@ private:
 	ObjectShroudStatus					m_shroudednessPrevious[MAX_PLAYER_COUNT];	///<previous frames value of m_shroudedness
 	Bool												m_everSeenByPlayer[MAX_PLAYER_COUNT];		///<whether this object has ever been seen by a given player.
 	const PartitionCell					*m_lastCell;							///< The last cell I thought my center was in.
+	UnsignedInt									m_gxDeferStamp;						///< web port (collideStagger): frame stamp when this unit waits its turn
 	Int													m_gxFillKey[8];						///< web port (cellReuse): what the last cell fill depended on; [0] == 0: none
 
 public:
@@ -558,6 +559,9 @@ public:
 
 	Bool isInNeedOfUpdatingCells() const { return m_dirtyStatus == NEED_CELL_UPDATE_AND_COLLISION_CHECK; }
 	Bool isInNeedOfCollisionCheck() const { return m_dirtyStatus != NOT_DIRTY; }
+	UnsignedInt gxDeferStamp() const { return m_gxDeferStamp; }
+	PartitionData *gxNextDirty() const { return m_nextDirty; }
+	void gxSetDeferStamp(UnsignedInt s) { m_gxDeferStamp = s; }
 
 	void invalidateShroudedStatusForPlayer(Int playerIndex);
 	void invalidateShroudedStatusForAllPlayers();
