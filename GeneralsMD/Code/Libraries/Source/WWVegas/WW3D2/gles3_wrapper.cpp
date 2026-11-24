@@ -52,7 +52,7 @@ double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gle
 static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 // Second switch word (the first is full): bit 0 contactTable, bit 1 sleepyKeys, bit 2 openHeap, bit 3 contactArray (game logic, same game).
-static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304;
+static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 512;
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -443,7 +443,10 @@ void GLES3_Begin_Scene() {
                  | (o.lazyScans === true ? 4096 : 0)    // bit 12: routine enemy scans that find nothing wait twice as long (AIUpdate.cpp; single player only)
                  | (o.boneCache === false ? 0 : 1048576)  // bit 20: loaded-missile bones found by index, not by name every frame (W3DModelDraw.cpp; drawing only)
                  | (o.lightCache === false ? 0 : 2097152)  // bit 21: headlight sub-objects listed once per model (W3DModelDraw.cpp; drawing only)
-                 | (o.clipSkip === false ? 0 : 4194304);  // bit 22: loaded-missile display asked only of models that show it (Drawable.cpp; drawing only)
+                 | (o.clipSkip === false ? 0 : 4194304)   // bit 22: loaded-missile display asked only of models that show it (Drawable.cpp; drawing only)
+                 | (o.contactArray === false ? 0 : 8)  // bit 3: touching pairs kept in flat arrays, nothing allocated per pair (PartitionManager.cpp; same game)
+                 | (o.cellReuse === false ? 0 : 256)  // bit 8: a moved unit still on the same map squares is moved to the front of their lists, not refilled (PartitionManager.cpp; same game)
+                 | (o.leanPairs === false ? 0 : 512);  // bit 9: touching-pair offers read no unit data and use a 4x smaller table (PartitionManager.cpp; same game)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
