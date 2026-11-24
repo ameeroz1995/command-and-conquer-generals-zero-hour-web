@@ -3145,3 +3145,21 @@ rewrite of the loop cannot pay more than ~2% and the slice shows nothing.
   GXVERIFY line mismatches 0.
 - A/B vs merge1 (live 445e8b8) and rules off/on: run at load 40-100 (five agents profiling), frame
   rates ~4 fps instead of ~13; not usable. To be rerun on a quiet machine.
+
+## 2026-11-24 — Round 3 update 3: drifting update loop (4-ary queue) built, measured, not kept (logic-ai)
+
+Merged perf/low-end 501981e first. Built behind match rule 4096 (GXRULE_UPDATE_LOOP, second-word
+bit 15, default off): the update queue as a 4-ary heap (half as deep, the moving entry held aside
+and the others sliding into the hole). The heap is binary at every game start and switches shape
+only at the start of the update pass by a rebuild, so record and playback follow the same steps.
+- Determinism: old referee replay matches (rule off); a skirmish recorded with the rule on replays
+  to a match (rules from the replay header 0x1002). Verify mode with the rule on: the queue is a
+  valid 4-ary heap with right indexes and keys every frame, 0 mismatches.
+- Profile pair, strikes (load 17-21): sifting 2.2% -> 1.9% of the frame.
+- A/B pairs off/on (load 15-30), work ms: armies 80.4/94.3, 59.0/76.5; strikes 116.9/141.8,
+  108.9/161.3 — and with the rule on the strike phase hit the benchmark's time limit both times.
+  Screenshots (~/generals-bench/ai-ul-{off1,on1}_battle*.png): at the same shot the armies had not
+  met yet with the rule on. The order of updates due on the same frame changes, and the battle
+  plays out differently and heavier; the queue itself got only 0.3 points cheaper.
+Not kept (code reverted): it is measurably slower in its own pairs. The update queue's turn order
+is part of how the battle unfolds; a cheaper queue would have to keep today's tie order.
