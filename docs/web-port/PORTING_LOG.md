@@ -2849,3 +2849,50 @@ So scans cost 30-40% less, about 1-1.4% of the frame. Whole-frame A/B could not 
 swung 15 -> 42 between runs (+19% then -34% fps), and with the switch on the battle itself plays
 out differently. Replay matches the recording with the switch off and on (replays ignore it).
 Off by default because units notice newcomers up to 2 s later; the main chat decides.
+## 2026-11-24 — Combat area (weapons, damage, moves): profile; two drawing caches kept (switches boneCache, lightCache; second word bits 20-21, on)
+
+- Profile (lg ca1, machine load 50-75, so strike phases hit the time limit; shares from a 30 s armies
+  window): weapon-status model flags 0.7-0.9% of the frame, of which ~70% was
+  W3DModelDraw::doHideShowProjectileObjects (units that show their loaded missiles): every frame it
+  formatted "BONE%02d" names and searched every sub-object by name (RenderObjClass::Get_Sub_Object_By_Name
+  0.3-0.4%). W3DModelDraw::hideAllHeadlights ran a strstr over every sub-object name on every model
+  state change (0.3%). Moves (setTransformMatrix -> reactToTransformChange) 1.2-2.0%: spread thin
+  (two matrix copies, atan2, partition dirty, drawable Set_Transform; trigger areas 0.1%, pathfinder
+  cell update ~0); damage 0.6-1.1% (half of it ActiveBody::internalChangeHealth -> visual state);
+  particles 0.2-0.6%. Nothing else in this area above ~0.5%.
+- **boneCache** (bit 20): the missile bones' sub-object indices are found once per render object,
+  model state, slot and clip size, then hidden/shown by index (same calls, same order, same
+  bone-children pass, same updateSubObjects). **lightCache** (bit 21): the headlight sub-objects are
+  listed once per render object. Both caches are emptied in nukeCurrentRender, the only way the render
+  object changes. Drawing only; the game is untouched.
+- Same game: referee replay matches over 9000 frames. Verify mode re-does every cached lookup by name
+  and compares: 60,000+ checked, 0 mismatches.
+- Measured (profile share, armies window, switches off -> on): missile bones 0.6% -> 0.2%, headlights
+  0.3% -> 0.1%, by-name sub-object search 0.4% -> 0.1%; about 0.6% of the frame. fps A/B was not
+  measurable (load 37-75, strike phases stopped at the time limit; fps differed 2x between identical runs).
+- Not done (each < 0.3% and/or would change the game): the drawable's second atan2 per move (the
+  object's angle can differ from the matrix's after setOrientation), heap changes in the update queue
+  (heap order is game order), audio per shot (random seeds under RETAIL_COMPATIBLE_CRC), damage
+  victim order.
+
+## 2026-11-24 (later) — clipSkip (second word bit 22, on) and the strike-phase numbers for all three switches
+
+- **clipSkip**: `Drawable::updateDrawableClipStatus` runs every frame for every armed unit and weapon
+  slot (ObjectWeaponStatusHelper) and walked every draw module, although only W3DModelDraw modules
+  with ProjectileBoneFeedbackEnabledSlots act. The drawable now asks its draw modules once which
+  slots they show (`ObjectDrawInterface::gxClipFeedbackSlots`, default "all") and skips the walk for
+  other slots. Draw modules never change after creation. Drawing only.
+- Same game: referee replay matches over 9000 frames with boneCache, lightCache and clipSkip on.
+- Strike-phase profile share (machine rebooted, load 16-26), all three off -> on, two pairs:
+  weapon-status model flags 1.5% / 1.4% -> 0.5% / 0.5%; missile bones 0.8% -> 0.2%; headlights
+  0.5% / 0.4% -> 0.1%. About 1.3% of the strike frame.
+- fps/work A/B, same runs (off -> on): strikes 5.6 -> 7.3 fps (work 176 -> 134 ms) and 4.8 -> 10.1
+  (206 -> 97 ms); armies 8.9 -> 9.8 and 4.7 -> 12.7. Direction agrees but the size is mostly noise
+  (an earlier pair without clipSkip, load 12-33: strike work 124.5 -> 107.8 and 145.8 -> 141.3;
+  armies +9% in one pair). The profile shares are the reliable figure.
+- Looked at and dropped (profile share in strikes, each too thin or not exact): moves
+  (Thing::setTransformMatrix 2.5-3.4% inclusive, spread over matrix copies, atan2, drawable
+  Set_Transform, partition dirty; no piece above 0.3%); W3DModelDraw::adjustTransformMtx (0.3%,
+  a few field reads); weapons firing 1.8-3.6% (damage half; victim order and audio seeds are game
+  state); update-queue heap 0.7% (heap order is game order; sleepyKeys already done); particles
+  0.2-0.6%.

@@ -377,6 +377,7 @@ public:
 	virtual Bool getCurrentWorldspaceClientBonePositions(const char* boneName, Matrix3D& transform) const;
 	virtual Bool getProjectileLaunchOffset(const ModelConditionFlags& condition, WeaponSlotType wslot, Int specificBarrelToUse, Matrix3D* launchPos, WhichTurretType tur, Coord3D* turretRotPos, Coord3D* turretPitchPos = nullptr) const;
 	virtual void updateProjectileClipStatus( UnsignedInt shotsRemaining, UnsignedInt maxShots, WeaponSlotType slot ); ///< This will do the show/hide work if ProjectileBoneFeedbackEnabled is set.
+	virtual Int gxClipFeedbackSlots() const { return getW3DModelDrawModuleData()->m_projectileBoneFeedbackEnabledSlots; }
 	virtual void updateDrawModuleSupplyStatus( Int maxSupply, Int currentSupply ); ///< This will do visual feedback on Supplies carried
 	virtual void notifyDrawModuleDependencyCleared(){}///< if you were waiting for something before you drew, it's ready now
 
@@ -507,6 +508,15 @@ private:
 	Bool													m_hideHeadlights;
 	Bool													m_pauseAnimation;
 	Int														m_animationMode;
+
+	// gx (switches boneCache / lightCache): sub-object indices looked up by name once per render
+	// object instead of on every call. Emptied in nukeCurrentRender (the only way the render object changes).
+	struct GxProjBones { const RenderObjClass* robj; const ModelConditionInfo* state; UnsignedInt maxCount; std::vector<Int> idx; };
+	GxProjBones										m_gxProjBones[WEAPONSLOT_COUNT];
+	const RenderObjClass*					m_gxLightsRobj;
+	std::vector<Int>							m_gxLights;
+	void gxForgetSubObjIndices();
+	void gxHideShowSubObjIndex(Int objIndex, Bool hide);
 
 	void adjustAnimation(const ModelConditionInfo* prevState, Real prevAnimFraction);
 	Real getCurrentAnimFraction() const;
