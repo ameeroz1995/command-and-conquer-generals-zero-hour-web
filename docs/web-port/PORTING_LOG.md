@@ -2721,3 +2721,14 @@ queue's share; the sampling profile's 3.8% for the heap is the reliable figure.)
   never network games or playback; replay still matched). It fired on ~600 of ~2,700 searches,
   but the A/B showed no gain: with the heap (5b0c901) these searches are already cheap. It
   changes unit behaviour for nothing, so it was removed.
+
+## 2026-11-24 — Behaviours, collisions, weapons: profile; collide-module list not kept
+
+- Strike phase, share of the frame (lg3): collision reactions 6.7% (physics push 3.7%, AI
+  "blocked by" handling 2.7%); weapons firing 3.4% (damage 2.4%); moving objects
+  (setTransformMatrix -> reactToTransformChange) 3.1%; weapon-status model flags 1.5% (mostly
+  feeding the drawable).
+- Object::onCollide had 2.7% self time: it asks every behaviour module (20-40 per unit) for a
+  collide interface on every collision. Tried (exact; replay matched): each object's collide
+  modules listed once. A/B showed no difference at machine load 8-19 (fps 7-9, noise larger than
+  a 2% change); not kept until it can be measured on a quiet machine.
