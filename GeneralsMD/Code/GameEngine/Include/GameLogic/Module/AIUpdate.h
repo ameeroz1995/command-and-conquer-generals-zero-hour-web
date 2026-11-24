@@ -460,10 +460,6 @@ private:
 
 public:
 	void doPathfind( PathfindServicesInterface *pathfinder );
-#ifdef __EMSCRIPTEN__
-	/// web port, switch parallelPaths: the search doPathfind is about to make: 1 = the approach path's findClosestPath, 2 = computePath's findPath, 0 = another kind
-	Int gxPredictSearch( Coord3D *to, Bool *blocked, ObjectID *ignore ) const;
-#endif
 	void requestPath( Coord3D *destination, Bool isGoalDestination );	///< Queues a request to pathfind to destination.
 	void requestAttackPath( ObjectID victimID, const Coord3D* victimPos );	///< computes path to attack the current target, returns false if no path
 	void requestApproachPath( Coord3D *destination );	///< computes path to attack the current target, returns false if no path

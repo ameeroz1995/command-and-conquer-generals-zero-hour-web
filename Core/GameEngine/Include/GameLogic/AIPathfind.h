@@ -40,27 +40,6 @@ class Object;
 class Weapon;
 class PathfindZoneManager;
 class PathfindCell;
-class PathfindCellInfo;
-
-// Web port, switch parallelPaths (multithreaded build only): searches run on worker threads, each
-// with its own copy of the search state ("overlay") instead of the shared cells' PathfindCellInfo.
-#if defined(__EMSCRIPTEN_PTHREADS__)
-#define GX_PARALLEL_PATHS 1
-struct GxSlot { const PathfindCell *cell; PathfindCellInfo *info; unsigned char state; };	///< state 1 info, 2 released
-struct GxCellRef { unsigned gen; int slot; };
-struct GxSearchView {	///< what the inline accessors need (GxSearchCtx starts with it)
-	const PathfindCell *base; size_t count; unsigned gen;
-	GxCellRef *refs; unsigned *readGen; GxSlot *slotsPtr;
-};
-struct GxSearchCtx;
-extern thread_local GxSearchCtx *tl_gxCtx;	///< set while a worker runs a search
-#define GX_VIEW() (reinterpret_cast<GxSearchView *>(tl_gxCtx))
-extern bool g_gxDirtyTracking;	///< set while the game thread consumes searches made in parallel
-extern unsigned g_gxEpoch;	///< stamp of this frame's searches made ahead (cells and infos changed since carry it)
-PathfindCellInfo *gxCtxInfo(const PathfindCell *cell);	///< the overlay's info for a cell (made from the shared one on first touch)
-void gxCtxRead(const PathfindCell *cell);	///< a worker read the cell's unit data
-void gxMarkDirty(const PathfindCell *cell);	///< the game thread changed a cell's unit data or search info
-#endif
 
 // How close is close enough when moving.
 
@@ -229,9 +208,6 @@ enum {MAX_WALL_PIECES = 128};
 class PathfindCellInfo
 {
 	friend class PathfindCell;
-	friend struct GxSearchCtx;
-	friend PathfindCellInfo *gxCtxInfo(const PathfindCell *cell);
-	friend bool gxIsDirty(const PathfindCell *cell);
 public:
 #if RETAIL_COMPATIBLE_PATHFINDING
 	static void forceCleanPathFindCellInfos();
@@ -263,9 +239,6 @@ protected:
 
 	ObjectID m_obstacleID;	///< the object ID who overlaps this cell
 
-#if defined(GX_PARALLEL_PATHS)
-	unsigned m_gxStamp;	///< web port: g_gxEpoch when last touched by the game thread
-#endif
 	UnsignedInt m_isFree:1;
 	UnsignedInt m_blockedByAlly:1;///< True if this cell is blocked by an allied unit.
 	UnsignedInt m_obstacleIsFence:1;///< True if occupied by a fence.
@@ -333,8 +306,8 @@ public:
 	Bool removeObstacle( Object *obstacle );				///< unflag this cell as an obstacle, from the given one
 	void setType( CellType type );	///< set the cell type
 	CellType getType() const { return (CellType)m_type; }				///< get the cell type
-	CellFlags getFlags() const { R(); return (CellFlags)m_flags; }				///< get the cell type
-	Bool isAircraftGoal() const {R(); return m_aircraftGoal != 0;}
+	CellFlags getFlags() const { return (CellFlags)m_flags; }				///< get the cell type
+	Bool isAircraftGoal() const {return m_aircraftGoal != 0;}
 
 	Bool isObstaclePresent( ObjectID objID ) const;					///< return true if the given object ID is registered as an obstacle in this cell
 #if RETAIL_COMPATIBLE_PATHFINDING_ALLOCATION
@@ -371,34 +344,26 @@ public:
 	/// remove all cells from closed list.
 	static Int releaseOpenList( PathfindCellList &list );
 
-	/// the info the search uses: the shared one, or a worker's own copy (switch parallelPaths)
-#if defined(GX_PARALLEL_PATHS)
-	inline PathfindCellInfo *I() const;
-	inline void R() const { if (tl_gxCtx) { GxSearchView *v = GX_VIEW(); size_t i = (size_t)(this - v->base); if (i < v->count && v->readGen[i] == v->gen) return; gxCtxRead(this); } }
-#else
-	inline PathfindCellInfo *I() const { return m_info; }
-	inline void R() const {}
-#endif
-	inline PathfindCell *getNextOpen() {return I()->m_nextOpen?I()->m_nextOpen->m_cell: nullptr;}
+	inline PathfindCell *getNextOpen() {return m_info->m_nextOpen?m_info->m_nextOpen->m_cell: nullptr;}
 
-	inline UnsignedShort getXIndex() const {return I()->m_pos.x;}
-	inline UnsignedShort getYIndex() const {return I()->m_pos.y;}
+	inline UnsignedShort getXIndex() const {return m_info->m_pos.x;}
+	inline UnsignedShort getYIndex() const {return m_info->m_pos.y;}
 
 	inline Bool isBlockedByAlly() const;
 	inline void setBlockedByAlly(Bool blocked);
 
-	inline Bool getOpen() const {return I()->m_open;}
-	inline Bool getClosed() const {return I()->m_closed;}
-	inline UnsignedInt getCostSoFar() const {return I()->m_costSoFar;}
-	inline UnsignedInt getTotalCost() const {return I()->m_totalCost;}
+	inline Bool getOpen() const {return m_info->m_open;}
+	inline Bool getClosed() const {return m_info->m_closed;}
+	inline UnsignedInt getCostSoFar() const {return m_info->m_costSoFar;}
+	inline UnsignedInt getTotalCost() const {return m_info->m_totalCost;}
 
-	inline void setCostSoFar(UnsignedInt cost) { if( PathfindCellInfo *i = I() ) i->m_costSoFar = cost;}
-	inline void setTotalCost(UnsignedInt cost) { if( PathfindCellInfo *i = I() ) i->m_totalCost = cost;}
+	inline void setCostSoFar(UnsignedInt cost) { if( m_info ) m_info->m_costSoFar = cost;}
+	inline void setTotalCost(UnsignedInt cost) { if( m_info ) m_info->m_totalCost = cost;}
 
 	void setParentCell(PathfindCell* parent);
 	void clearParentCell();
 	void setParentCellHierarchical(PathfindCell* parent);
-	inline PathfindCell* getParentCell() const {PathfindCellInfo *i = I(); return i ? i->m_pathParent ? i->m_pathParent->m_cell : nullptr : nullptr;}
+	inline PathfindCell* getParentCell() const {return m_info ? m_info->m_pathParent ? m_info->m_pathParent->m_cell : nullptr : nullptr;}
 
 	Bool startPathfind( PathfindCell *goalCell );
 	Bool getPinched() const {return m_pinched;}
@@ -406,15 +371,15 @@ public:
 
 	Bool allocateInfo(const ICoord2D &pos);
 	void releaseInfo();
-	Bool hasInfo() const {return I()!=nullptr;}
+	Bool hasInfo() const {return m_info!=nullptr;}
 	zoneStorageType getZone() const {return m_zone;}
 	void setZone(zoneStorageType zone) {m_zone = zone;}
 	void setGoalUnit(ObjectID unit, const ICoord2D &pos );
 	void setGoalAircraft(ObjectID unit, const ICoord2D &pos );
 	void setPosUnit(ObjectID unit, const ICoord2D &pos );
-	inline ObjectID getGoalUnit() const {R(); ObjectID id = m_info?m_info->m_goalUnitID:INVALID_ID; return id;}
-	inline ObjectID getGoalAircraft() const {R(); ObjectID id = m_info?m_info->m_goalAircraftID:INVALID_ID; return id;}
-	inline ObjectID getPosUnit() const {R(); ObjectID id = m_info?m_info->m_posUnitID:INVALID_ID; return id;}
+	inline ObjectID getGoalUnit() const {ObjectID id = m_info?m_info->m_goalUnitID:INVALID_ID; return id;}
+	inline ObjectID getGoalAircraft() const {ObjectID id = m_info?m_info->m_goalAircraftID:INVALID_ID; return id;}
+	inline ObjectID getPosUnit() const {ObjectID id = m_info?m_info->m_posUnitID:INVALID_ID; return id;}
 
 	inline ObjectID getObstacleID() const;
 
@@ -425,14 +390,7 @@ public:
 	PathfindLayerEnum getConnectLayer() const { return (PathfindLayerEnum)m_connectsToLayer; }				///< get the cell layer connect id
 
 private:
-	friend struct GxSearchCtx;
-	friend PathfindCellInfo *gxCtxInfo(const PathfindCell *cell);
-	friend void gxMarkDirty(const PathfindCell *cell);
-	friend bool gxIsDirty(const PathfindCell *cell);
 	PathfindCellInfo *m_info;
-#if defined(GX_PARALLEL_PATHS)
-	mutable unsigned m_gxStamp = 0;	///< web port: g_gxEpoch when the game thread last changed this cell
-#endif
 	ObjectID m_obstacleID;	                  ///< the object ID who overlaps this cell
 	UnsignedInt m_blockedByAlly : 1;          ///< True if this cell is blocked by an allied unit.
 	UnsignedInt m_obstacleIsFence : 1;        ///< True if occupied by a fence.
@@ -448,18 +406,6 @@ private:
 	UnsignedByte m_layer : 4;                 ///< Layer of this cell.
 };
 
-#if defined(GX_PARALLEL_PATHS)
-inline PathfindCellInfo *PathfindCell::I() const
-{
-	if (tl_gxCtx) {
-		GxSearchView *v = GX_VIEW();
-		size_t i = (size_t)(this - v->base);
-		if (i < v->count && v->refs[i].gen == v->gen) { const GxSlot &s = v->slotsPtr[v->refs[i].slot]; return s.state == 1 ? s.info : nullptr; }
-		return gxCtxInfo(this);
-	}
-	return m_info;
-}
-#endif
 typedef PathfindCell *PathfindCellP;
 
 
@@ -748,8 +694,6 @@ public:
 	Path *gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo,
 		PathfindCell *startCell, PathfindCell *goalCell, Bool isCrusher, Bool centerInCell );	///< web port: long ground paths from a shared field (switch flowFields)
 	static void gxObstaclesChanged();	///< web port: buildings placed or removed: shared fields are stale
-	Bool gxFlowFieldsHold();	///< web port: collect WebGPU fields; true = a field due this frame is not back yet, hold the logic frame
-	void gxWalkMask(unsigned char *out, LocomotorSurfaceTypeMask surfaces, Bool crusher);	///< web port: 1 per walkable ground cell over m_extent
 	PathfindCell *getCell( PathfindLayerEnum layer, const Coord3D *pos );				///< Given a position, return associated grid cell
 	PathfindCell *getClippedCell( PathfindLayerEnum layer, const Coord3D *pos );				///< Given a position, return associated grid cell
 	void clip(Coord3D *from, Coord3D *to);
@@ -914,22 +858,6 @@ protected:
 	void checkChangeLayers(PathfindCell *parentCell);
 
 	bool checkCellOutsideExtents(ICoord2D& cell);
-
-#if defined(GX_PARALLEL_PATHS)
-	// switch parallelPaths: the per-search members, redirected to a worker's own copy while it searches
-	friend struct GxSearchCtx;
-	PathfindCellList &gxS_openList();
-	PathfindCellList &gxS_closedList();
-	Bool &gxS_isTunneling();
-	Int &gxS_cells();
-	ObjectID &gxS_ignoreObstacleID();
-	void gxSpeculatePaths();	///< top of processPathfindQueue: run the queued searches on workers
-	void gxEndSpeculation();	///< end of processPathfindQueue: drop unused results
-	Bool gxTakeClosest(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies);
-	Bool gxTakeFind(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo);
-	Bool gxTakeClosestBody(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies);
-	Bool gxTakeFindBody(Path *&out, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo);
-#endif
 
 #if defined(RTS_DEBUG)
 	void doDebugIcons() ;

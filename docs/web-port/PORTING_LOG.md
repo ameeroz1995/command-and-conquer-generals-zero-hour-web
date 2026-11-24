@@ -2645,3 +2645,12 @@ checked, 0 mismatches; replay matches (9,000 frames). A/B: armies 13.0 → 9.9 f
   The army spawn at frame 4-5 (373 files) still stalls: the warm-up has only just started.
 - Caveat: the list comes from this benchmark, so the benchmark is its best case; a real match
   uses a subset and the rest stays in memory unused (≤ 52 MB).
+
+## 2026-11-24 — Parallel path searches and WebGPU flow fields removed
+
+- Both were exact but slower (armies −24% and −19%); removed at the user's request. The path
+  files, GameMemory.cpp, AIUpdate, GameLogic.cpp, gles3_mainloop.cpp, gles3_wrapper.cpp and
+  web.cmake are back to 0bca474 (ignore-units routes kept); their Settings entries are gone.
+  Page bits 28/29 are free again. Check: both builds compile, referee replay matches over 9000
+  frames.
+- Next logic work: see LOGIC_IDEAS.md (profile of the strike phase and five candidate savings).

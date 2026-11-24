@@ -107,7 +107,6 @@ static void GX_PaceFrames(float fps) {
 // ============================================================================
 extern "C" { void (*gx_frame_hook)(double work_ms) = nullptr; }
 static double gx_last_work_ms = 0;
-extern "C" double gx_work_ms() { return gx_last_work_ms; }	// game work of the last frame (flow fields pick their builder by it)
 
 static void emscripten_main_loop_callback() {
     if (g_Loop.shutdown_requested) {
