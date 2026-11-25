@@ -3911,3 +3911,12 @@ Stays default off.
   countdown and factor, granted-frames countdown); update() uses each piece only when its inputs are unchanged.
   The rest (AI victim, status bits, containers, sounds) stays in the apply step.
 - Both under rowKernels (fourth word bit 12). Referee + query-mgr5.rep match (query-32).
+
+## simdPairs (fourth word bit 17, default on) and verify checks for the SIMD culls
+- addPossibleCollisions (pairOffer path): neighbour COIs are gathered 4 at a time into f32x4 and culled by the
+  same f32 distance test (drop only when > limit², NaN kept); kept lanes get the scalar test unchanged.
+- Verify: every lane the SIMD cull drops (simdPairs and simdSearch) is rechecked with the scalar test.
+  Battle verify on query-34 (300 s, pairOffer + scanManager): simdPairs 9.6M and simdSearch 9.8M dropped lanes
+  checked, 0 mismatches; fogKeep 2.54M checks, 0. Replays referee, query-mgr5, query-mgr6 match (query-33).
+- Battle counters (query-33, tickTiming): pairs tested 3942/tick, SIMD-culled 4395/tick; search entries 27446,
+  SIMD-culled 5880/tick.

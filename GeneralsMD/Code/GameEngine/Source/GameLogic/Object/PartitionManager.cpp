@@ -56,7 +56,10 @@
 #include "Common/GxMatchRules.h"
 #include "Common/ActionManager.h"
 #include "Common/DiscreteCircle.h"
-#include "Common/GxTime.h"
+#include "Common/GxTime.h"	// also declares GLES3_Page_Switches4
+#ifdef __wasm_simd128__
+#include <wasm_simd128.h>
+#endif
 #include "Common/GameEngine.h"
 #include "Common/GameState.h"
 #include "Common/GameUtility.h"
@@ -2296,10 +2299,56 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 		if (cell->getCoiCount() < 2)
 			continue;
 
-		for (CellAndObjectIntersection *coi = cell->getFirstCoiInCell(); coi; coi = coi->getNextCoi())
+		// switch simdPairs (fourth word bit 17; same game as pairOffer alone): the clearly-apart test for 4
+		// neighbours at a time with wasm SIMD, the same f32 expression as below; a lane it keeps runs the
+		// scalar test too, so the result is the scalar one
+		UnsignedInt gxLanes = ~0u;
+		Int gxLane = 0;
+#ifdef __wasm_simd128__
+		const Bool gxSimd = gxOffer && (GLES3_Page_Switches4() & 131072);
+#endif
+		for (CellAndObjectIntersection *coi = cell->getFirstCoiInCell(); coi; coi = coi->getNextCoi(), ++gxLane)
 		{
+#ifdef __wasm_simd128__
+			if (gxSimd && (gxLane & 3) == 0)
+			{
+				gxLanes = ~0u;
+				CellAndObjectIntersection *q1 = coi->getNextCoi(), *q2 = q1 ? q1->getNextCoi() : nullptr, *q3 = q2 ? q2->getNextCoi() : nullptr;
+				if (q3)
+				{
+					const v128_t vx = wasm_f32x4_make(coi->gxX(), q1->gxX(), q2->gxX(), q3->gxX());
+					const v128_t vy = wasm_f32x4_make(coi->gxY(), q1->gxY(), q2->gxY(), q3->gxY());
+					const v128_t vr = wasm_f32x4_make(coi->gxR(), q1->gxR(), q2->gxR(), q3->gxR());
+					const v128_t dx = wasm_f32x4_sub(vx, wasm_f32x4_splat(m_gx->x));
+					const v128_t dy = wasm_f32x4_sub(vy, wasm_f32x4_splat(m_gx->y));
+					const v128_t lim = wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_add(vr, wasm_f32x4_splat(m_gx->r)), wasm_f32x4_splat(1.4143f)), wasm_f32x4_splat(1.0f));
+					const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy));
+					gxLanes = (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim))));
+					gxCount(GXC_PAIRS_SIMD_CULLED, 4 - __builtin_popcount(gxLanes));
+				}
+			}
+			if (gxSimd && !((gxLanes >> (gxLane & 3)) & 1))
+			{
+				if (GLES3_Page_Switches() & 2097152)
+				{
+					// verify: the scalar test must turn this neighbour away too
+					static unsigned s_checked, s_bad;
+					const Real dx = coi->gxX() - m_gx->x, dy = coi->gxY() - m_gx->y, lim = (coi->gxR() + m_gx->r) * 1.4143f + 1.0f;
+					++s_checked;
+					if (!(dx * dx + dy * dy > lim * lim))
+					{
+						++s_bad;
+						printf("GXVERIFY simdPairs mismatch: kept by the scalar test (d2 %g lim2 %g)\n", dx * dx + dy * dy, lim * lim);
+					}
+					if (s_checked % 200000 == 0)
+						printf("GXVERIFY simdPairs dropped lanes checked %u, mismatches %u\n", s_checked, s_bad);
+				}
+				continue;
+			}
+#endif
 			if (gxOffer)
 			{
+				gxCount(GXC_PAIRS_TESTED);
 				const Real dx = coi->gxX() - m_gx->x, dy = coi->gxY() - m_gx->y, lim = (coi->gxR() + m_gx->r) * 1.4143f + 1.0f;
 				if (dx * dx + dy * dy > lim * lim)
 					continue;
@@ -4145,14 +4194,6 @@ static UnsignedInt gxEnemySlots(PartitionFilter **filters)
 // - Result cache: within a tick, a search with the same searcher (or point), range, distance type,
 //   mode and filter classes reuses the first answer (units that died since are left out).
 // Changes the game (answers as of the tick's first search): a match rule, default off.
-#ifdef __wasm_simd128__
-#include <wasm_simd128.h>
-#endif
-#ifdef __EMSCRIPTEN__
-extern int GLES3_Page_Switches4();
-#else
-static int GLES3_Page_Switches4() { return 0; }
-#endif
 static unsigned long long g_gxSimdCulled = 0;	// lanes the SIMD cull dropped (verify report)
 static std::vector<Int> s_gxSnapStart, s_gxSnapSlots;	// per cell: first index into slots; one more at the end
 static std::vector<UnsignedInt> s_gxSnapStamp;			// per slot: last search that looked at it
@@ -4628,7 +4669,23 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 						}
 					}
 					if (!((gxLanes >> ((k - s_gxSnapStart[ci]) & 3)) & 1))
+					{
+						if (GLES3_Page_Switches() & 2097152)
+						{
+							// verify: the scalar cull at the current limit must turn it away too
+							static unsigned s_checked, s_bad;
+							const Real dx = S.x[s] - px, dy = S.y[s] - py, lim = gxLimit + s_gxSnapR[s];
+							++s_checked;
+							if (!(dx * dx + dy * dy > lim * lim))
+							{
+								++s_bad;
+								printf("GXVERIFY simdSearch mismatch: kept by the scalar test (d2 %g lim2 %g)\n", dx * dx + dy * dy, lim * lim);
+							}
+							if (s_checked % 200000 == 0)
+								printf("GXVERIFY simdSearch dropped lanes checked %u, mismatches %u\n", s_checked, s_bad);
+						}
 						continue;
+					}
 #endif
 					Object *thisObj = S.obj[s];
 					if (!thisObj || thisObj == obj)

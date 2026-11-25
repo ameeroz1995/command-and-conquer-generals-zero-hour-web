@@ -18,7 +18,10 @@
 #include <emscripten.h>
 extern int GLES3_Page_Switches4();
 #else
+#ifndef GX_SWITCHES4_FALLBACK
+#define GX_SWITCHES4_FALLBACK
 static inline int GLES3_Page_Switches4() { return 0; }
+#endif
 static inline double emscripten_get_now() { return 0.0; }
 #endif
 
@@ -27,6 +30,7 @@ enum GxCountId
 {
 	GXC_SEARCHES, GXC_SEARCH_CELLS, GXC_SEARCH_ENTRIES, GXC_SEARCH_UNITS, GXC_SIMD_CULLED,
 	GXC_FOG_CIRCLES, GXC_FOG_CELLS, GXC_FOG_STATUS_CALLS, GXC_FOG_RECOMPUTES, GXC_FOG_KEPT,
+	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED,
 	GXC_COUNT
 };
 
@@ -75,7 +79,7 @@ inline void gxTimeTickEnd()
 	if (++s.ticks % 300) return;
 	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal" };
 	static const char *cn[GXC_COUNT] = { "searches", "searchCells", "searchEntries", "searchUnits", "simdCulled",
-		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept" };
+		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept", "pairsTested", "pairsSimdCulled" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())
