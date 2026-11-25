@@ -69,17 +69,17 @@ Thing::Thing( const ThingTemplate *thingTemplate )
 #if defined(RTS_DEBUG)
 	m_templateName = thingTemplate->getName();
 #endif
-	m_transform.Make_Identity();
+	m_gxThing->m_transform.Make_Identity();
 	m_gxSlot = -1;
 	m_gxPosInStore = false;
-	m_cachedPos.x = InitialThingPosX;
-	m_cachedPos.y = InitialThingPosY;
-	m_cachedPos.z = 0.0f;
-	m_cachedAngle = 0.0f;
-	m_cachedDirVector.zero();
-	m_cachedAltitudeAboveTerrain = 0;
-	m_cachedAltitudeAboveTerrainOrWater = 0;
-	m_cacheFlags = 0;
+	m_gxThing->m_cachedPos.x = InitialThingPosX;
+	m_gxThing->m_cachedPos.y = InitialThingPosY;
+	m_gxThing->m_cachedPos.z = 0.0f;
+	m_gxThing->m_cachedAngle = 0.0f;
+	m_gxThing->m_cachedDirVector.zero();
+	m_gxThing->m_cachedAltitudeAboveTerrain = 0;
+	m_gxThing->m_cachedAltitudeAboveTerrainOrWater = 0;
+	m_gxThing->m_cacheFlags = 0;
 
 }
 
@@ -108,16 +108,16 @@ Bool Thing::isPositioned() const
 const Coord3D* Thing::getUnitDirectionVector2D() const
 {
 	//USE_PERF_TIMER(ThingMatrixStuff)
-	if (!(m_cacheFlags & VALID_DIRVECTOR))
+	if (!(m_gxThing->m_cacheFlags & VALID_DIRVECTOR))
 	{
 		Real angle = getOrientation();
-		m_cachedDirVector.x = Cos( angle );
-		m_cachedDirVector.y = Sin( angle );
-		m_cachedDirVector.z = 0;
-		m_cacheFlags |= VALID_DIRVECTOR;
+		m_gxThing->m_cachedDirVector.x = Cos( angle );
+		m_gxThing->m_cachedDirVector.y = Sin( angle );
+		m_gxThing->m_cachedDirVector.z = 0;
+		m_gxThing->m_cacheFlags |= VALID_DIRVECTOR;
 	}
 
-	return &m_cachedDirVector;
+	return &m_gxThing->m_cachedDirVector;
 }
 
 //=============================================================================
@@ -129,7 +129,7 @@ void Thing::getUnitDirectionVector2D(Coord3D& dir) const
 //=============================================================================
 void Thing::getUnitDirectionVector3D(Coord3D& dir) const
 {
-	Vector3 vdir = m_transform.Get_X_Vector();
+	Vector3 vdir = m_gxThing->m_transform.Get_X_Vector();
 	vdir.Normalize();
 	dir.x = vdir.X;
 	dir.y = vdir.Y;
@@ -143,20 +143,20 @@ void Thing::setPositionZ( Real z )
 	//USE_PERF_TIMER(ThingMatrixStuff)
 	if( !m_template->isKindOf( KINDOF_STICK_TO_TERRAIN_SLOPE) )
 	{
-		Real oldAngle = m_cachedAngle;
+		Real oldAngle = m_gxThing->m_cachedAngle;
 		Coord3D oldPos = gxPos();
-		Matrix3D oldMtx = m_transform;
+		Matrix3D oldMtx = m_gxThing->m_transform;
 
-		m_transform.Set_Z_Translation( z );
+		m_gxThing->m_transform.Set_Z_Translation( z );
 		gxPos().z = z;
 
-		if (m_cacheFlags & VALID_ALTITUDE_TERRAIN)
+		if (m_gxThing->m_cacheFlags & VALID_ALTITUDE_TERRAIN)
 		{
-			m_cachedAltitudeAboveTerrain += (z - oldPos.z);
+			m_gxThing->m_cachedAltitudeAboveTerrain += (z - oldPos.z);
 		}
-		if (m_cacheFlags & VALID_ALTITUDE_SEALEVEL)
+		if (m_gxThing->m_cacheFlags & VALID_ALTITUDE_SEALEVEL)
 		{
-			m_cachedAltitudeAboveTerrainOrWater += (z - oldPos.z);
+			m_gxThing->m_cachedAltitudeAboveTerrainOrWater += (z - oldPos.z);
 		}
 
 		reactToTransformChange(&oldMtx, &oldPos, oldAngle);
@@ -179,16 +179,16 @@ void Thing::setPosition( const Coord3D *pos )
 	//USE_PERF_TIMER(ThingMatrixStuff)
 	if( !m_template->isKindOf( KINDOF_STICK_TO_TERRAIN_SLOPE) )
 	{
-		Real oldAngle = m_cachedAngle;
+		Real oldAngle = m_gxThing->m_cachedAngle;
 		Coord3D oldPos = gxPos();
-		Matrix3D oldMtx = m_transform;
+		Matrix3D oldMtx = m_gxThing->m_transform;
 
 		//DEBUG_ASSERTCRASH(!(_isnan(pos->x) || _isnan(pos->y) || _isnan(pos->z)), ("Drawable/Object position NAN! '%s'", m_template->getName().str() ));
-		m_transform.Set_X_Translation( pos->x );
-		m_transform.Set_Y_Translation( pos->y );
-		m_transform.Set_Z_Translation( pos->z );
+		m_gxThing->m_transform.Set_X_Translation( pos->x );
+		m_gxThing->m_transform.Set_Y_Translation( pos->y );
+		m_gxThing->m_transform.Set_Z_Translation( pos->z );
 		gxPos() = *pos;
-		m_cacheFlags &= ~(VALID_ALTITUDE_TERRAIN | VALID_ALTITUDE_SEALEVEL);	// but don't clear the dir flags.
+		m_gxThing->m_cacheFlags &= ~(VALID_ALTITUDE_TERRAIN | VALID_ALTITUDE_SEALEVEL);	// but don't clear the dir flags.
 
 		reactToTransformChange(&oldMtx, &oldPos, oldAngle);
 	}
@@ -212,18 +212,18 @@ void Thing::setOrientation( Real angle )
 	// or aligned with the terrain if we have the magic flag set.
 	// don't want this? call setTransformMatrix instead.
 
-	Real oldAngle = m_cachedAngle;
+	Real oldAngle = m_gxThing->m_cachedAngle;
 	Coord3D oldPos = gxPos();
-	Matrix3D oldMtx = m_transform;
+	Matrix3D oldMtx = m_gxThing->m_transform;
 
-	pos.x = m_transform.Get_X_Translation();
-	pos.y = m_transform.Get_Y_Translation();
-	pos.z = m_transform.Get_Z_Translation();
+	pos.x = m_gxThing->m_transform.Get_X_Translation();
+	pos.y = m_gxThing->m_transform.Get_Y_Translation();
+	pos.z = m_gxThing->m_transform.Get_Z_Translation();
 	if( m_template->isKindOf( KINDOF_STICK_TO_TERRAIN_SLOPE) )
 	{
 		Matrix3D mtx;
 		const Bool stickToGround = true;	// yes, set the "z" pos
-		TheTerrainLogic->alignOnTerrain(angle, pos, stickToGround, m_transform );
+		TheTerrainLogic->alignOnTerrain(angle, pos, stickToGround, m_gxThing->m_transform );
 	}
 	else
 	{
@@ -238,15 +238,15 @@ void Thing::setOrientation( Real angle )
 		y.crossProduct( &z, &u, &y );
 		x.crossProduct( &y, &z, &x );
 
-		m_transform.Set(  x.x, y.x, z.x, pos.x,
+		m_gxThing->m_transform.Set(  x.x, y.x, z.x, pos.x,
 											x.y, y.y, z.y, pos.y,
 											x.z, y.z, z.z, pos.z );
 	}
 
 	//DEBUG_ASSERTCRASH(-PI <= angle && angle <= PI, ("Please pass only normalized (-PI..PI) angles to setOrientation (%f).", angle));
-	m_cachedAngle = normalizeAngle(angle);
+	m_gxThing->m_cachedAngle = normalizeAngle(angle);
 	gxPos() = pos;
-	m_cacheFlags &= ~VALID_DIRVECTOR;	// but don't clear the altitude flags.
+	m_gxThing->m_cacheFlags &= ~VALID_DIRVECTOR;	// but don't clear the altitude flags.
 
 	reactToTransformChange(&oldMtx, &oldPos, oldAngle);
 	DEBUG_ASSERTCRASH(!(_isnan(getPosition()->x) || _isnan(getPosition()->y) || _isnan(getPosition()->z)), ("Drawable/Object position NAN! '%s'", m_template->getName().str() ));
@@ -258,16 +258,16 @@ void Thing::setOrientation( Real angle )
 void Thing::setTransformMatrix( const Matrix3D *mx )
 {
 	//USE_PERF_TIMER(ThingMatrixStuff)
-	Real oldAngle = m_cachedAngle;
+	Real oldAngle = m_gxThing->m_cachedAngle;
 	Coord3D oldPos = gxPos();
-	Matrix3D oldMtx = m_transform;
+	Matrix3D oldMtx = m_gxThing->m_transform;
 
-	m_transform = *mx;
-	gxPos().x = m_transform.Get_X_Translation();
-	gxPos().y = m_transform.Get_Y_Translation();
-	gxPos().z = m_transform.Get_Z_Translation();
-	m_cachedAngle = m_transform.Get_Z_Rotation();
-	m_cacheFlags = 0;
+	m_gxThing->m_transform = *mx;
+	gxPos().x = m_gxThing->m_transform.Get_X_Translation();
+	gxPos().y = m_gxThing->m_transform.Get_Y_Translation();
+	gxPos().z = m_gxThing->m_transform.Get_Z_Translation();
+	m_gxThing->m_cachedAngle = m_gxThing->m_transform.Get_Z_Rotation();
+	m_gxThing->m_cacheFlags = 0;
 
 	reactToTransformChange(&oldMtx, &oldPos, oldAngle);
 	DEBUG_ASSERTCRASH(!(_isnan(getPosition()->x) || _isnan(getPosition()->y) || _isnan(getPosition()->z)), ("Drawable/Object position NAN! '%s'", m_template->getName().str() ));
@@ -304,33 +304,33 @@ Real Thing::calculateHeightAboveTerrain() const
 //-------------------------------------------------------------------------------------------------
 Real Thing::getHeightAboveTerrain() const
 {
-	if (!(m_cacheFlags & VALID_ALTITUDE_TERRAIN))
+	if (!(m_gxThing->m_cacheFlags & VALID_ALTITUDE_TERRAIN))
 	{
-		m_cachedAltitudeAboveTerrain = calculateHeightAboveTerrain();
-		m_cacheFlags |= VALID_ALTITUDE_TERRAIN;
+		m_gxThing->m_cachedAltitudeAboveTerrain = calculateHeightAboveTerrain();
+		m_gxThing->m_cacheFlags |= VALID_ALTITUDE_TERRAIN;
 	}
-	return m_cachedAltitudeAboveTerrain;
+	return m_gxThing->m_cachedAltitudeAboveTerrain;
 }
 
 //-------------------------------------------------------------------------------------------------
 Real Thing::getHeightAboveTerrainOrWater() const
 {
 	//USE_PERF_TIMER(ThingMatrixStuff)
-	if (!(m_cacheFlags & VALID_ALTITUDE_SEALEVEL))
+	if (!(m_gxThing->m_cacheFlags & VALID_ALTITUDE_SEALEVEL))
 	{
 		const Coord3D* pos = getPosition();
 		Real waterZ;
 		if (TheTerrainLogic->isUnderwater(pos->x, pos->y, &waterZ))
 		{
-			m_cachedAltitudeAboveTerrainOrWater = pos->z - waterZ;
+			m_gxThing->m_cachedAltitudeAboveTerrainOrWater = pos->z - waterZ;
 		}
 		else
 		{
-			m_cachedAltitudeAboveTerrainOrWater = getHeightAboveTerrain();
+			m_gxThing->m_cachedAltitudeAboveTerrainOrWater = getHeightAboveTerrain();
 		}
-		m_cacheFlags |= VALID_ALTITUDE_SEALEVEL;
+		m_gxThing->m_cacheFlags |= VALID_ALTITUDE_SEALEVEL;
 	}
-	return m_cachedAltitudeAboveTerrainOrWater;
+	return m_gxThing->m_cachedAltitudeAboveTerrainOrWater;
 }
 
 //=============================================================================
@@ -351,9 +351,9 @@ void Thing::convertBonePosToWorldPos(const Coord3D* bonePos, const Matrix3D* bon
 	if (worldTransform)
 	{
 #ifdef ALLOW_TEMPORARIES
-		*worldTransform = m_transform * (*boneTransform);
+		*worldTransform = m_gxThing->m_transform * (*boneTransform);
 #else
-		worldTransform->mul(m_transform, *boneTransform);
+		worldTransform->mul(m_gxThing->m_transform, *boneTransform);
 #endif
 	}
 	if (worldPos)
@@ -362,7 +362,7 @@ void Thing::convertBonePosToWorldPos(const Coord3D* bonePos, const Matrix3D* bon
 		vector.X = bonePos->x;
 		vector.Y = bonePos->y;
 		vector.Z = bonePos->z;
-		m_transform.Transform_Vector(m_transform, vector, &vector);
+		m_gxThing->m_transform.Transform_Vector(m_gxThing->m_transform, vector, &vector);
 		worldPos->x = vector.X;
 		worldPos->y = vector.Y;
 		worldPos->z = vector.Z;
@@ -390,7 +390,7 @@ void Thing::transformPoint( const Coord3D *in, Coord3D *out )
 	vectorIn.Z = in->z;
 
 	// do the transform
-	m_transform.Transform_Vector( m_transform, vectorIn, &vectorOut );
+	m_gxThing->m_transform.Transform_Vector( m_gxThing->m_transform, vectorIn, &vectorOut );
 
 	// store converted vector in 'out'
 	out->x = vectorOut.X;
@@ -407,8 +407,8 @@ void Thing::gxSetPosInStore(Bool on)
 	if (on == m_gxPosInStore || m_gxSlot < 0)
 		return;
 	if (on)
-		{ TheGxUnitStore.x[m_gxSlot] = m_cachedPos.x; TheGxUnitStore.y[m_gxSlot] = m_cachedPos.y; TheGxUnitStore.z[m_gxSlot] = m_cachedPos.z; }
+		{ TheGxUnitStore.x[m_gxSlot] = m_gxThing->m_cachedPos.x; TheGxUnitStore.y[m_gxSlot] = m_gxThing->m_cachedPos.y; TheGxUnitStore.z[m_gxSlot] = m_gxThing->m_cachedPos.z; }
 	else
-		m_cachedPos = TheGxUnitStore.posOf(m_gxSlot);
+		m_gxThing->m_cachedPos = TheGxUnitStore.posOf(m_gxSlot);
 	m_gxPosInStore = on;
 }

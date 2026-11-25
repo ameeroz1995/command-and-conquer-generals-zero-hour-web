@@ -32,6 +32,7 @@
 #include "ref_ptr.h"
 
 #include "Common/Geometry.h"
+#include "Common/GxComponentPool.h"
 #include "Common/Snapshot.h"
 #include "Common/SpecialPowerMaskType.h"
 #include "Common/DisabledTypes.h"
@@ -170,24 +171,24 @@ public:
 
 	void onDestroy();																							///< run during TheGameLogic::destroyObject
 
-	Object* getNextObject() { return m_next; }
-	const Object* getNextObject() const { return m_next; }
-	Object* getPrevObject() { return m_prev; }
-	const Object* getPrevObject() const { return m_prev; }
-	void friend_setNextObject(Object* obj) { m_next = obj; }
-	void friend_setPrevObject(Object* obj) { m_prev = obj; }
+	Object* getNextObject() { return m_gxObj->m_next; }
+	const Object* getNextObject() const { return m_gxObj->m_next; }
+	Object* getPrevObject() { return m_gxObj->m_prev; }
+	const Object* getPrevObject() const { return m_gxObj->m_prev; }
+	void friend_setNextObject(Object* obj) { m_gxObj->m_next = obj; }
+	void friend_setPrevObject(Object* obj) { m_gxObj->m_prev = obj; }
 
 	void updateObjValuesFromMapProperties(Dict* properties);			///< Brings in properties set in the editor.
 
 	// ids and binding
-	ObjectID getID() const { return m_id; }												///< this object's unique ID
+	ObjectID getID() const { return m_gxObj->m_id; }												///< this object's unique ID
 	void friend_bindToDrawable( Drawable *draw );									///< set drawable association. for use ONLY by GameLogic!
-	Drawable* getDrawable() const { return m_drawable; }					///< drawable (if any) bound to obj
+	Drawable* getDrawable() const { return m_gxObj->m_drawable; }					///< drawable (if any) bound to obj
 
-	ObjectID getProducerID() const { return m_producerID; }
+	ObjectID getProducerID() const { return m_gxObj->m_producerID; }
 	void setProducer(const Object* obj);
 
-	ObjectID getBuilderID() const { return m_builderID; }
+	ObjectID getBuilderID() const { return m_gxObj->m_builderID; }
 	void setBuilder( const Object *obj );
 
 	void enterGroup( AIGroup *group );							///< become a member of the AIGroup
@@ -208,8 +209,8 @@ public:
 	Bool checkAndDetonateBoobyTrap(const Object *victim);
 
 	// cannot set velocity, since this is calculated from position every frame
-	Bool isDestroyed() const { return m_status.test( OBJECT_STATUS_DESTROYED ); }		///< Returns TRUE if object has been destroyed
-	Bool isAirborneTarget() const { return m_status.test( OBJECT_STATUS_AIRBORNE_TARGET ); }	///< Our locomotor will control marking us as a valid target for anti air weapons or not
+	Bool isDestroyed() const { return m_gxObj->m_status.test( OBJECT_STATUS_DESTROYED ); }		///< Returns TRUE if object has been destroyed
+	Bool isAirborneTarget() const { return m_gxObj->m_status.test( OBJECT_STATUS_AIRBORNE_TARGET ); }	///< Our locomotor will control marking us as a valid target for anti air weapons or not
 	Bool isUsingAirborneLocomotor() const;										///< returns true if the current locomotor is an airborne one
 
 	/// central place for us to put any additional capture logic
@@ -234,15 +235,15 @@ public:
 	void scoreTheKill( const Object *victim );						///< I just killed this object.
 	void onVeterancyLevelChanged( VeterancyLevel oldLevel, VeterancyLevel newLevel, Bool provideFeedback = TRUE );	///< I just achieved this level right this moment
 	void createVeterancyLevelFX(VeterancyLevel oldLevel, VeterancyLevel newLevel);
-	ExperienceTracker* getExperienceTracker() {return m_experienceTracker;}
-	const ExperienceTracker* getExperienceTracker() const {return m_experienceTracker;}
+	ExperienceTracker* getExperienceTracker() {return m_gxObj->m_experienceTracker;}
+	const ExperienceTracker* getExperienceTracker() const {return m_gxObj->m_experienceTracker;}
 	VeterancyLevel getVeterancyLevel() const;
 
-	inline const AsciiString& getName() const { return m_name; }
-	inline void setName( const AsciiString& newName ) { m_name = newName; }
+	inline const AsciiString& getName() const { return m_gxObj->m_name; }
+	inline void setName( const AsciiString& newName ) { m_gxObj->m_name = newName; }
 
-	inline Team* getTeam() { return m_team; }
-	inline const Team *getTeam() const { return m_team; }
+	inline Team* getTeam() { return m_gxObj->m_team; }
+	inline const Team *getTeam() const { return m_gxObj->m_team; }
 
 	void restoreOriginalTeam();
 
@@ -254,7 +255,7 @@ public:
 
 	Color getIndicatorColor() const;
 	Color getNightIndicatorColor() const;
-	Bool hasCustomIndicatorColor() const { return m_indicatorColor != 0; }
+	Bool hasCustomIndicatorColor() const { return m_gxObj->m_indicatorColor != 0; }
 	void setCustomIndicatorColor(Color c);
 	void removeCustomIndicatorColor();
 
@@ -264,15 +265,15 @@ public:
 	Bool isLocallyViewed() const;
 	Bool isNeutralControlled() const;
 
-	Bool getIsUndetectedDefector() const { return BitIsSet(m_privateStatus, UNDETECTED_DEFECTOR); }
+	Bool getIsUndetectedDefector() const { return BitIsSet(m_gxObj->m_privateStatus, UNDETECTED_DEFECTOR); }
 	void friend_setUndetectedDefector(Bool status);
 
-	inline Bool isOffMap() const { return BitIsSet(m_privateStatus, OFF_MAP); }
+	inline Bool isOffMap() const { return BitIsSet(m_gxObj->m_privateStatus, OFF_MAP); }
 
-	inline Bool isCaptured() const { return BitIsSet(m_privateStatus, CAPTURED); }
+	inline Bool isCaptured() const { return BitIsSet(m_gxObj->m_privateStatus, CAPTURED); }
 	void setCaptured(Bool isCaptured);
 
-	inline const GeometryInfo& getGeometryInfo() const { return m_geometryInfo; }
+	inline const GeometryInfo& getGeometryInfo() const { return m_gxObj->m_geometryInfo; }
 	void setGeometryInfo(const GeometryInfo& geom);
 	void setGeometryInfoZ( Real newZ );
 
@@ -285,26 +286,26 @@ public:
 	//This is a good creation inspector. There's been multitudes of issues with conflicts of
 	//Objects getting constructed causing crashes either because the modules aren't created
 	//yet, and there's stuff being done inside of setTeam() that cares.
-	Bool areModulesReady() const { return m_modulesReady; }
+	Bool areModulesReady() const { return m_gxObj->m_modulesReady; }
 
-	BehaviorModule** getBehaviorModules() const { return m_behaviors; }
+	BehaviorModule** getBehaviorModules() const { return m_gxObj->m_behaviors; }
 
-	BodyModuleInterface* getBodyModule() const { return m_body; }
-	ContainModuleInterface* getContain() const { return m_contain; }
-  StealthUpdate*          getStealth() const { return m_stealth; }
+	BodyModuleInterface* getBodyModule() const { return m_gxObj->m_body; }
+	ContainModuleInterface* getContain() const { return m_gxObj->m_contain; }
+  StealthUpdate*          getStealth() const { return m_gxObj->m_stealth; }
 	SpawnBehaviorInterface* getSpawnBehaviorInterface() const;
 	ProjectileUpdateInterface* getProjectileUpdateInterface() const;
 
 
 	// special case for the AIUpdateInterface, since it will be referred to a great deal
-	inline AIUpdateInterface *getAIUpdateInterface() { return m_ai; }
-	inline const AIUpdateInterface* getAIUpdateInterface() const { return m_ai; }
+	inline AIUpdateInterface *getAIUpdateInterface() { return m_gxObj->m_ai; }
+	inline const AIUpdateInterface* getAIUpdateInterface() const { return m_gxObj->m_ai; }
 
-	inline AIUpdateInterface *getAI() { return m_ai; }
-	inline const AIUpdateInterface* getAI() const { return m_ai; }
+	inline AIUpdateInterface *getAI() { return m_gxObj->m_ai; }
+	inline const AIUpdateInterface* getAI() const { return m_gxObj->m_ai; }
 
-	inline PhysicsBehavior* getPhysics() { return m_physics; }
-	inline const PhysicsBehavior* getPhysics() const { return m_physics; }
+	inline PhysicsBehavior* getPhysics() { return m_gxObj->m_physics; }
+	inline const PhysicsBehavior* getPhysics() const { return m_gxObj->m_physics; }
 	void topple( const Coord3D *toppleDirection, Real toppleSpeed, UnsignedInt options );
 
 	UpdateModule* findUpdateModule(NameKeyType key) const { return (UpdateModule*)findModule(key); }
@@ -335,12 +336,12 @@ public:
 	CountermeasuresBehaviorInterface* getCountermeasuresBehaviorInterface();
 	const CountermeasuresBehaviorInterface* getCountermeasuresBehaviorInterface() const;
 
-	inline ObjectStatusMaskType getStatusBits() const { return m_status; }
-	inline Bool testStatus( ObjectStatusTypes bit ) const { return m_status.test( bit ); }
+	inline ObjectStatusMaskType getStatusBits() const { return m_gxObj->m_status; }
+	inline Bool testStatus( ObjectStatusTypes bit ) const { return m_gxObj->m_status.test( bit ); }
 	void setStatus( ObjectStatusMaskType objectStatus, Bool set = true );
 	inline void clearStatus( ObjectStatusMaskType objectStatus ) { setStatus( objectStatus, false ); }
 	void updateUpgradeModules();	///< We need to go through our Upgrade Modules and see which should be activated
-	const UpgradeMaskType& getObjectCompletedUpgradeMask() const { return m_objectUpgradesCompleted; } ///< Upgrades I complete locally
+	const UpgradeMaskType& getObjectCompletedUpgradeMask() const { return m_gxObj->m_objectUpgradesCompleted; } ///< Upgrades I complete locally
 
 	//This function sucks.
 	//It was added for objects that can disguise as other objects and contain upgraded subobject overrides.
@@ -351,7 +352,7 @@ public:
 	void forceRefreshSubObjectUpgradeStatus();
 
 	// Useful for status bits that can be set by the scripting system
-	inline Bool testScriptStatusBit(ObjectScriptStatusBit b) const { return BitIsSet(m_scriptStatus, b); }
+	inline Bool testScriptStatusBit(ObjectScriptStatusBit b) const { return BitIsSet(m_gxObj->m_scriptStatus, b); }
 	void setScriptStatus( ObjectScriptStatusBit bit, Bool set = true );
 	inline void clearScriptStatus( ObjectScriptStatusBit bit ) { setScriptStatus(bit, false); }
 
@@ -365,10 +366,10 @@ public:
 	Bool isMassSelectable() const;
 
 	// User specified formation.
-	void setFormationID(enum FormationID id) {m_formationID = id;}
-	enum FormationID getFormationID() const {return m_formationID;}
-	void setFormationOffset(const Coord2D& offset) {m_formationOffset = offset;}
-	void getFormationOffset(Coord2D* offset) const {*offset = m_formationOffset;}
+	void setFormationID(enum FormationID id) {m_gxObj->m_formationID = id;}
+	enum FormationID getFormationID() const {return m_gxObj->m_formationID;}
+	void setFormationOffset(const Coord2D& offset) {m_gxObj->m_formationOffset = offset;}
+	void getFormationOffset(Coord2D* offset) const {*offset = m_gxObj->m_formationOffset;}
 
 
 //THIS FUNCTION BELONGS AT THE OBJECT LEVEL BECAUSE THERE IS AT LEAST ONE SPECIAL UNIT
@@ -378,11 +379,11 @@ public:
 	void getHealthBoxPosition(Coord3D& pos) const;
 	Bool getHealthBoxDimensions(Real &healthBoxHeight, Real &healthBoxWidth) const;
 
-	inline Bool isEffectivelyDead() const { return (m_privateStatus & EFFECTIVELY_DEAD) != 0; }
+	inline Bool isEffectivelyDead() const { return (m_gxObj->m_privateStatus & EFFECTIVELY_DEAD) != 0; }
 	void setEffectivelyDead(Bool dead);
 
-	void markSingleUseCommandUsed() { m_singleUseCommandUsed = true; }
-	Bool hasSingleUseCommandBeenUsed() const { return m_singleUseCommandUsed; }
+	void markSingleUseCommandUsed() { m_gxObj->m_singleUseCommandUsed = true; }
+	Bool hasSingleUseCommandBeenUsed() const { return m_gxObj->m_singleUseCommandUsed; }
 
 	/// returns true iff the object can run over the other object.
 	Bool canCrushOrSquish(Object *otherObj, CrushSquishTestType testType = TEST_CRUSH_OR_SQUISH) const;
@@ -400,14 +401,14 @@ public:
 	ObjectID calculateCountermeasureToDivertTo( const Object& victim );
 
 	void calcNaturalRallyPoint(Coord2D *pt); ///< calc the "natural" starting rally point
-  void setConstructionPercent( Real percent ) { m_constructionPercent = percent; }
-	Real getConstructionPercent() const { return m_constructionPercent; }
+  void setConstructionPercent( Real percent ) { m_gxObj->m_constructionPercent = percent; }
+	Real getConstructionPercent() const { return m_gxObj->m_constructionPercent; }
 
   void setLayer( PathfindLayerEnum layer );
-	PathfindLayerEnum getLayer() const { return m_layer; }
+	PathfindLayerEnum getLayer() const { return m_gxObj->m_layer; }
 
   void setDestinationLayer( PathfindLayerEnum layer );
-	PathfindLayerEnum getDestinationLayer() const { return m_destinationLayer; }
+	PathfindLayerEnum getDestinationLayer() const { return m_gxObj->m_destinationLayer; }
 
 	void prependToList(Object **pListHead);
 	void removeFromList(Object **pListHead);
@@ -417,13 +418,13 @@ public:
 	static void friend_deleteInstance(Object* object) { deleteInstance(object); }
 
 	/// cache the partition module (should be called only by PartitionData)
-	void friend_setPartitionData(PartitionData *pd) { m_partitionData = pd; }
-	PartitionData *friend_getPartitionData() const { return m_partitionData; }
+	void friend_setPartitionData(PartitionData *pd) { m_gxObj->m_partitionData = pd; }
+	PartitionData *friend_getPartitionData() const { return m_gxObj->m_partitionData; }
 
 	// web port (round 4): hot fields whose truth is the unit store
 	Real getBoundingCircleRadius() const;	///< the store's radius (set from the geometry by setGeometryInfo)
 	Int gxPlayerIndex() const;				///< the store's controlling-player index (-1 none; set on every team or owner change)
-	const PartitionData *friend_getConstPartitionData() const { return m_partitionData; }
+	const PartitionData *friend_getConstPartitionData() const { return m_gxObj->m_partitionData; }
 	Bool hasGhostObject() const; ///< This object has a ghost object. This does not imply that a ghost snapshot is taken or active.
 
 	void onPartitionCellChange();///< We have moved a 'significant' amount, so do maintenance that can be considered 'cell-based'
@@ -442,19 +443,19 @@ public:
 	void friend_notifyOfNewMapBoundary();
 
 	// data for the radar
-	void friend_setRadarData( RadarObject *rd ) { m_radarData = rd; }
-	RadarObject *friend_getRadarData() { return m_radarData; }
+	void friend_setRadarData( RadarObject *rd ) { m_gxObj->m_radarData = rd; }
+	RadarObject *friend_getRadarData() { return m_gxObj->m_radarData; }
 	RadarPriorityType getRadarPriority() const;
 
 	// contained-by
-	inline Object *getContainedBy() { return m_containedBy; }
-	inline const Object *getContainedBy() const { return m_containedBy; }
-	inline UnsignedInt getContainedByFrame() const { return m_containedByFrame; }
-	inline Bool isContained() const { return m_containedBy != nullptr; }
+	inline Object *getContainedBy() { return m_gxObj->m_containedBy; }
+	inline const Object *getContainedBy() const { return m_gxObj->m_containedBy; }
+	inline UnsignedInt getContainedByFrame() const { return m_gxObj->m_containedByFrame; }
+	inline Bool isContained() const { return m_gxObj->m_containedBy != nullptr; }
 	void onContainedBy( Object *containedBy );
 	void onRemovedFrom( Object *removedFrom );
 	Int getTransportSlotCount() const;
-	void friend_setContainedBy( Object *containedBy ) { m_containedBy = containedBy; }
+	void friend_setContainedBy( Object *containedBy ) { m_gxObj->m_containedBy = containedBy; }
 	const Object* getEnclosingContainedBy() const; ///< Find the first enclosing container in the containment chain.
 	const Object* getOuterObject() const; ///< Get the top-level object
 
@@ -474,7 +475,7 @@ public:
 		 For Object specific dynamic command sets.  Different from the Science specific ones handled in ThingTemplate
 	*/
 	const AsciiString& getCommandSetString() const;
-	void setCommandSetStringOverride( AsciiString newCommandSetString ) { m_commandSetStringOverride = newCommandSetString; }
+	void setCommandSetStringOverride( AsciiString newCommandSetString ) { m_gxObj->m_commandSetStringOverride = newCommandSetString; }
 
 	/// People are faking their commandsets, and, Surprise!, they are authoritative.  Challenge everything.
 	Bool canProduceUpgrade( const UpgradeTemplate *upgrade );
@@ -489,11 +490,11 @@ public:
 	Real getLargestWeaponRange() const;
 	UnsignedInt getMostPercentReadyToFireAnyWeapon() const;
 
-	Weapon* getWeaponInWeaponSlot(WeaponSlotType wslot) const { return m_weaponSet.getWeaponInWeaponSlot(wslot); }
-	UnsignedInt getWeaponInWeaponSlotCommandSourceMask( WeaponSlotType wSlot ) const { return m_weaponSet.getNthCommandSourceMask( wSlot ); }
+	Weapon* getWeaponInWeaponSlot(WeaponSlotType wslot) const { return m_gxObj->m_weaponSet.getWeaponInWeaponSlot(wslot); }
+	UnsignedInt getWeaponInWeaponSlotCommandSourceMask( WeaponSlotType wSlot ) const { return m_gxObj->m_weaponSet.getNthCommandSourceMask( wSlot ); }
 
 	// see if this current weapon set's weapons has shared reload times
-	Bool isReloadTimeShared() const { return m_weaponSet.isSharedReloadTime(); }
+	Bool isReloadTimeShared() const { return m_gxObj->m_weaponSet.isSharedReloadTime(); }
 
 	Weapon* getCurrentWeapon(WeaponSlotType* wslot = nullptr);
 	const Weapon* getCurrentWeapon(WeaponSlotType* wslot = nullptr) const;
@@ -503,7 +504,7 @@ public:
 	/// this frame (no target, not attacking, no shot, pose already none, ammo/status as last shown)
 	Bool gxWeaponStatusQuiet(Int target, UnsignedInt &ready, UnsignedInt &sig);
 	Bool gxWeaponStillQuiet() const;	///< weaponSkip: quiet at the last look and weaponReady not reached
-	ObjectWeaponStatusHelper* gxWeaponStatusHelper() const { return m_wsHelper; }
+	ObjectWeaponStatusHelper* gxWeaponStatusHelper() const { return m_gxObj->m_wsHelper; }
 	void fireCurrentWeapon(Object *target);
 	void fireCurrentWeapon(const Coord3D* pos);
 	void preFireCurrentWeapon( const Object *victim );
@@ -557,11 +558,11 @@ public:
 
 	void setWeaponSetFlag(WeaponSetType wst);
 	void clearWeaponSetFlag(WeaponSetType wst);
-	inline Bool testWeaponSetFlag(WeaponSetType wst) const { return m_curWeaponSetFlags.test(wst); }
-	inline const WeaponSetFlags& getWeaponSetFlags() const { return m_curWeaponSetFlags; }
-	Bool setWeaponLock( WeaponSlotType weaponSlot, WeaponLockType lockType ){ return m_weaponSet.setWeaponLock( weaponSlot, lockType ); }
-	void releaseWeaponLock(WeaponLockType lockType){ m_weaponSet.releaseWeaponLock(lockType); }
-	Bool isCurWeaponLocked() const { return m_weaponSet.isCurWeaponLocked(); }
+	inline Bool testWeaponSetFlag(WeaponSetType wst) const { return m_gxObj->m_curWeaponSetFlags.test(wst); }
+	inline const WeaponSetFlags& getWeaponSetFlags() const { return m_gxObj->m_curWeaponSetFlags; }
+	Bool setWeaponLock( WeaponSlotType weaponSlot, WeaponLockType lockType ){ return m_gxObj->m_weaponSet.setWeaponLock( weaponSlot, lockType ); }
+	void releaseWeaponLock(WeaponLockType lockType){ m_gxObj->m_weaponSet.releaseWeaponLock(lockType); }
+	Bool isCurWeaponLocked() const { return m_gxObj->m_weaponSet.isCurWeaponLocked(); }
 
 	void setArmorSetFlag(ArmorSetType ast);
 	void clearArmorSetFlag(ArmorSetType ast);
@@ -576,8 +577,8 @@ public:
 	void clearWeaponBonusCondition(WeaponBonusConditionType wst);
 
   // note, the !=0 at the end is important, to convert this into a boolean type! (srj)
-	Bool testWeaponBonusCondition(WeaponBonusConditionType wst) const { return (m_weaponBonusCondition & (1 << wst)) != 0; }
-	inline WeaponBonusConditionFlags getWeaponBonusCondition() const { return m_weaponBonusCondition; }
+	Bool testWeaponBonusCondition(WeaponBonusConditionType wst) const { return (m_gxObj->m_weaponBonusCondition & (1 << wst)) != 0; }
+	inline WeaponBonusConditionFlags getWeaponBonusCondition() const { return m_gxObj->m_weaponBonusCondition; }
 
 	Bool getSingleLogicalBonePosition(const char* boneName, Coord3D* position, Matrix3D* transform) const;
 	Bool getSingleLogicalBonePositionOnTurret(WhichTurretType whichTurret, const char* boneName, Coord3D* position, Matrix3D* transform) const;
@@ -594,8 +595,8 @@ public:
 
 	ObjectShroudStatus getShroudedStatus(Int playerIndex) const;
 
-	DisabledMaskType getDisabledFlags() const { return m_disabledMask; }
-	Bool isDisabled() const { return m_disabledMask.any(); }
+	DisabledMaskType getDisabledFlags() const { return m_gxObj->m_disabledMask; }
+	Bool isDisabled() const { return m_gxObj->m_disabledMask.any(); }
 	// Web port (switch disabledList, third word bit 8; GameLogic.cpp): place in the object list
 	// (higher = nearer the head) and whether the object is in GameLogic's list of disabled objects.
 	UnsignedInt m_gxListSeq = 0;
@@ -604,7 +605,7 @@ public:
 
 	void setDisabled( DisabledType type );
 	void setDisabledUntil( DisabledType type, UnsignedInt frame );
-	Bool isDisabledByType( DisabledType type ) const { return TEST_DISABLEDMASK( m_disabledMask, type ); }
+	Bool isDisabledByType( DisabledType type ) const { return TEST_DISABLEDMASK( m_gxObj->m_disabledMask, type ); }
 
 	UnsignedInt getDisabledUntil( DisabledType type = DISABLED_ANY ) const;
 
@@ -619,7 +620,7 @@ public:
 
 	Int getNumConsecutiveShotsFiredAtTarget( const Object *victim) const;
 
-	void setHealthBoxOffset( const Coord3D& offset ) { m_healthBoxOffset = offset; } ///< for special amorphous like angry mob
+	void setHealthBoxOffset( const Coord3D& offset ) { m_gxObj->m_healthBoxOffset = offset; } ///< for special amorphous like angry mob
 
 	void defect( Team *newTeam, UnsignedInt detectionTime );
 	void goInvulnerable( UnsignedInt time );
@@ -639,11 +640,11 @@ public:
 
 	Bool isHero() const;
 
-	Bool getReceivingDifficultyBonus() const { return m_isReceivingDifficultyBonus; }
+	Bool getReceivingDifficultyBonus() const { return m_gxObj->m_isReceivingDifficultyBonus; }
 	void setReceivingDifficultyBonus(Bool receive);
 
-	inline UnsignedInt getSafeOcclusionFrame() { return m_safeOcclusionFrame; }	//< this is an object specific frame at which it's safe to enable building occlusion.
-	inline void	setSafeOcclusionFrame(UnsignedInt frame) { m_safeOcclusionFrame = frame;}
+	inline UnsignedInt getSafeOcclusionFrame() { return m_gxObj->m_safeOcclusionFrame; }	//< this is an object specific frame at which it's safe to enable building occlusion.
+	inline void	setSafeOcclusionFrame(UnsignedInt frame) { m_gxObj->m_safeOcclusionFrame = frame;}
 
 	// All of our cheating for radars and power go here.
 	// This is the function that we now call in becomingTeamMember to adjust our power.
@@ -711,127 +712,135 @@ private:
 		// NOTE: Object currently only uses a Byte for this, so if you add status bits, you may need to enlarge that field.
 	};
 
-	ObjectID			m_id;												///< this object's unique ID
-	ObjectID			m_producerID;								///< object that produced us, if any
-	ObjectID			m_builderID;								///< object that is building or has built us (dozers or workers are builders)
-	Drawable*			m_drawable;									///< drawable (if any) for this object
-	AsciiString		m_name;										///< internal name
-
-	Object *			m_next;
-	Object *			m_prev;
-	ObjectStatusMaskType		m_status;									///< status bits (see ObjectStatusMaskType)
-
-	GeometryInfo	m_geometryInfo;
-
-#if RETAIL_COMPATIBLE_AIGROUP
-	AIGroup*			m_group;								///< if non-null, we are part of this group of agents
-#else
-	RefCountPtr<AIGroup> m_group; ///< if non-null, we are part of this group of agents
-#endif
-
-	// These will last for my lifetime.  I will reuse them and reset them.  The truly dynamic ones are in PartitionManager
-	SightingInfo		*m_partitionLastLook;								///< Where and for whom I last looked, so I can undo its effects when I stop
-	SightingInfo		*m_partitionRevealAllLastLook;			///< And a separate look to reveal at a different range if so marked
-	Int							m_visionSpiedBy[MAX_PLAYER_COUNT];  ///< Reference count of having units spied on by players.
-	PlayerMaskType	m_visionSpiedMask;									///< For quick lookup and edge triggered maintenance
-
-	SightingInfo	*m_partitionLastShroud;	///< Where and for whom I last shrouded, so I can undo its effects when I stop
-	SightingInfo	*m_partitionLastThreat;	///< Where and for whom I last dealt with threat, so I can undo its effects when I stop
-	SightingInfo	*m_partitionLastValue;	///< Where and for whom I last dealt with value, so I can undo its effects when I stop
-
-	Real					m_visionRange;										///< looking range
-	Real					m_shroudClearingRange;						///< looking range for shroud ONLY
-	Real					m_shroudRange;										///< like looking range, this is how far I shroud others' looks
-
-	DisabledMaskType	m_disabledMask;
-	UnsignedInt				m_disabledTillFrame[ DISABLED_COUNT ];
-
-	UnsignedInt		m_smcUntil;
-
+	// web port (round 5, units are pure data): the object's per-unit state, one row per object in
+	// GxComponentPool<ObjectRow> (the object keeps only its row, m_gxObj, and its team list links)
 	enum { NUM_SLEEP_HELPERS = 8 };
-	ObjectRepulsorHelper*					m_repulsorHelper;
-	ObjectSMCHelper*							m_smcHelper;
-	ObjectWeaponStatusHelper*			m_wsHelper;
-	ObjectDefectionHelper*				m_defectionHelper;
-	StatusDamageHelper*						m_statusDamageHelper;
-	SubdualDamageHelper*					m_subdualDamageHelper;
-	TempWeaponBonusHelper*				m_tempWeaponBonusHelper;
-	FiringTracker*								m_firingTracker;	///< Tracker is really a "helper" and is included NUM_SLEEP_HELPERS
+	enum { MAX_TRIGGER_AREA_INFOS = 5 };
+	struct ObjectRow
+	{
+		ObjectID			m_id;												///< this object's unique ID
+		ObjectID			m_producerID;								///< object that produced us, if any
+		ObjectID			m_builderID;								///< object that is building or has built us (dozers or workers are builders)
+		Drawable*			m_drawable = nullptr;									///< drawable (if any) for this object
+		AsciiString		m_name;										///< internal name
 
-	// modules
-	BehaviorModule**							m_behaviors;	// BehaviorModule, not BehaviorModuleInterface
-	CollideModuleInterface**			m_gxCollides;	///< web port (collideList): the behaviours' collide interfaces in order, null-terminated; built on first collision
+		Object *			m_next = nullptr;
+		Object *			m_prev = nullptr;
+		ObjectStatusMaskType		m_status;									///< status bits (see ObjectStatusMaskType)
 
-	// cache these, for convenience
-	ContainModuleInterface*				m_contain;
-	BodyModuleInterface*					m_body;
-  StealthUpdate*                m_stealth;
+		GeometryInfo	m_geometryInfo{ GEOMETRY_SPHERE, FALSE, 1.0f, 1.0f, 1.0f };	// set from the template in the constructor
 
-	AIUpdateInterface*						m_ai;	///< ai interface (if any), cached for handy access. (duplicate of entry in the module array!)
-	PhysicsBehavior*							m_physics;	///< physics interface (if any), cached for handy access. (duplicate of entry in the module array!)
+	#if RETAIL_COMPATIBLE_AIGROUP
+		AIGroup*			m_group;								///< if non-null, we are part of this group of agents
+	#else
+		RefCountPtr<AIGroup> m_group; ///< if non-null, we are part of this group of agents
+	#endif
 
-	PartitionData*								m_partitionData;	///< our PartitionData
-	RadarObject*									m_radarData;				///< radar data
-	ExperienceTracker*						m_experienceTracker;	///< Manages experience, gaining levels, and value when killed
+		// These will last for my lifetime.  I will reuse them and reset them.  The truly dynamic ones are in PartitionManager
+		SightingInfo		*m_partitionLastLook = nullptr;								///< Where and for whom I last looked, so I can undo its effects when I stop
+		SightingInfo		*m_partitionRevealAllLastLook = nullptr;			///< And a separate look to reveal at a different range if so marked
+		Int							m_visionSpiedBy[MAX_PLAYER_COUNT];  ///< Reference count of having units spied on by players.
+		PlayerMaskType	m_visionSpiedMask = PLAYERMASK_NONE;									///< For quick lookup and edge triggered maintenance
 
-	Object*												m_containedBy;					/**< an object can only be contained by at most one
-																	other object, this is that object (if present) */
-	ObjectID											m_xferContainedByID;	///< xfer uses IDs to store pointers and looks them up after
-	UnsignedInt										m_containedByFrame;	///< frame we were contained by m_containedBy
+		SightingInfo	*m_partitionLastShroud = nullptr;	///< Where and for whom I last shrouded, so I can undo its effects when I stop
+		SightingInfo	*m_partitionLastThreat = nullptr;	///< Where and for whom I last dealt with threat, so I can undo its effects when I stop
+		SightingInfo	*m_partitionLastValue = nullptr;	///< Where and for whom I last dealt with value, so I can undo its effects when I stop
 
-	Real													m_constructionPercent;			///< for objects being built ... this is the amount completed (0.0 to 100.0)
-	UpgradeMaskType								m_objectUpgradesCompleted;	///< Bit field of upgrades locally completed.
+		Real					m_visionRange;										///< looking range
+		Real					m_shroudClearingRange;						///< looking range for shroud ONLY
+		Real					m_shroudRange;										///< like looking range, this is how far I shroud others' looks
 
-	Team*													m_team;								///< team that is current owner of this guy
-	AsciiString										m_originalTeamName;		///< team that was the original ("birth") team of this guy
-	Color													m_indicatorColor;			///< if nonzero, use this instead of controlling player's color
+		DisabledMaskType	m_disabledMask;
+		UnsignedInt				m_disabledTillFrame[ DISABLED_COUNT ];
 
-	Coord3D												m_healthBoxOffset; ///< generally zero, except for special amorphous ones like angry mob
+		UnsignedInt		m_smcUntil = NEVER;
+
+		ObjectRepulsorHelper*					m_repulsorHelper = nullptr;
+		ObjectSMCHelper*							m_smcHelper = nullptr;
+		ObjectWeaponStatusHelper*			m_wsHelper = nullptr;
+		ObjectDefectionHelper*				m_defectionHelper = nullptr;
+		StatusDamageHelper*						m_statusDamageHelper = nullptr;
+		SubdualDamageHelper*					m_subdualDamageHelper = nullptr;
+		TempWeaponBonusHelper*				m_tempWeaponBonusHelper = nullptr;
+		FiringTracker*								m_firingTracker = nullptr;	///< Tracker is really a "helper" and is included NUM_SLEEP_HELPERS
+
+		// modules
+		BehaviorModule**							m_behaviors = nullptr;	// BehaviorModule, not BehaviorModuleInterface
+		CollideModuleInterface**			m_gxCollides = nullptr;	///< web port (collideList): the behaviours' collide interfaces in order, null-terminated; built on first collision
+
+		// cache these, for convenience
+		ContainModuleInterface*				m_contain = nullptr;
+		BodyModuleInterface*					m_body = nullptr;
+	  StealthUpdate*                m_stealth = nullptr;
+
+		AIUpdateInterface*						m_ai = nullptr;	///< ai interface (if any), cached for handy access. (duplicate of entry in the module array!)
+		PhysicsBehavior*							m_physics = nullptr;	///< physics interface (if any), cached for handy access. (duplicate of entry in the module array!)
+
+		PartitionData*								m_partitionData = nullptr;	///< our PartitionData
+		RadarObject*									m_radarData = nullptr;				///< radar data
+		ExperienceTracker*						m_experienceTracker = nullptr;	///< Manages experience, gaining levels, and value when killed
+
+		Object*												m_containedBy = nullptr;					/**< an object can only be contained by at most one
+																		other object, this is that object (if present) */
+		ObjectID											m_xferContainedByID = INVALID_ID;	///< xfer uses IDs to store pointers and looks them up after
+		UnsignedInt										m_containedByFrame = 0;	///< frame we were contained by m_containedBy
+
+		Real													m_constructionPercent;			///< for objects being built ... this is the amount completed (0.0 to 100.0)
+		UpgradeMaskType								m_objectUpgradesCompleted;	///< Bit field of upgrades locally completed.
+
+		Team*													m_team = nullptr;								///< team that is current owner of this guy
+		AsciiString										m_originalTeamName;		///< team that was the original ("birth") team of this guy
+		Color													m_indicatorColor = 0;			///< if nonzero, use this instead of controlling player's color
+
+		Coord3D												m_healthBoxOffset; ///< generally zero, except for special amorphous ones like angry mob
+
+
+		// Weapons & Damage -------------------------------------------------------------------------------------------------
+		WeaponSet											m_weaponSet;
+		WeaponSetFlags								m_curWeaponSetFlags;
+		WeaponBonusConditionFlags			m_weaponBonusCondition;
+		Byte													m_lastWeaponCondition[WEAPONSLOT_COUNT];
+
+		SpecialPowerMaskType					m_specialPowerBits; ///< bits determining what kind of special abilities this object has access to.
+
+		//////////////////////////////////////< for the non-stacking healers like ambulance and propaganda
+		ObjectID m_soleHealingBenefactorID; ///< who is the only other object that can give me this non-stacking heal benefit?
+		UnsignedInt m_soleHealingBenefactorExpirationFrame; ///< on what frame can I accept healing (thus to switch) from a new benefactor
+		///////////////////////////////////
+
+		// Entered & exited housekeeping.
+		TTriggerInfo									m_triggerInfo[MAX_TRIGGER_AREA_INFOS];
+		UnsignedInt										m_enteredOrExitedFrame = 0;
+		ICoord3D											m_iPos;
+
+		PathfindLayerEnum							m_layer;							// Layer object is pathing on.
+		PathfindLayerEnum							m_destinationLayer;		// Layer of current path goal.
+
+		// User formations.
+		FormationID										m_formationID = NO_FORMATION_ID;
+		Coord2D												m_formationOffset;
+
+		AsciiString										m_commandSetStringOverride;///< To allow specific object to switch command sets
+
+		UnsignedInt										m_safeOcclusionFrame;	///<flag used by occlusion renderer so it knows when objects have exited their production building.
+
+		// --------- BYTE-SIZED THINGS GO HERE
+		Bool													m_isSelectable;
+		Bool													m_modulesReady;
+	#if defined(RTS_DEBUG)
+		Bool													m_hasDiedAlready;
+	#endif
+		UnsignedByte									m_scriptStatus = 0;					///< status as set by scripting, corresponds to ORed ObjectScriptStatusBits
+		UnsignedByte									m_privateStatus = 0;					///< status bits that are never directly accessible to outside world
+		Byte													m_numTriggerAreasActive = 0;
+		Bool													m_singleUseCommandUsed = FALSE;
+		Bool													m_isReceivingDifficultyBonus = FALSE;
+
+	};
+	GxRow<ObjectRow> m_gxObj;
 
 	/// @todo srj -- convert to non-DLINK list, after it is once again possible to test the change
 	MAKE_DLINK(Object, TeamMemberList)			///< other Things that are members of the same team
-
-	// Weapons & Damage -------------------------------------------------------------------------------------------------
-	WeaponSet											m_weaponSet;
-	WeaponSetFlags								m_curWeaponSetFlags;
-	WeaponBonusConditionFlags			m_weaponBonusCondition;
-	Byte													m_lastWeaponCondition[WEAPONSLOT_COUNT];
-
-	SpecialPowerMaskType					m_specialPowerBits; ///< bits determining what kind of special abilities this object has access to.
-
-	//////////////////////////////////////< for the non-stacking healers like ambulance and propaganda
-	ObjectID m_soleHealingBenefactorID; ///< who is the only other object that can give me this non-stacking heal benefit?
-	UnsignedInt m_soleHealingBenefactorExpirationFrame; ///< on what frame can I accept healing (thus to switch) from a new benefactor
-	///////////////////////////////////
-
-	// Entered & exited housekeeping.
-	enum { MAX_TRIGGER_AREA_INFOS = 5 };
-	TTriggerInfo									m_triggerInfo[MAX_TRIGGER_AREA_INFOS];
-	UnsignedInt										m_enteredOrExitedFrame;
-	ICoord3D											m_iPos;
-
-	PathfindLayerEnum							m_layer;							// Layer object is pathing on.
-	PathfindLayerEnum							m_destinationLayer;		// Layer of current path goal.
-
-	// User formations.
-	FormationID										m_formationID;
-	Coord2D												m_formationOffset;
-
-	AsciiString										m_commandSetStringOverride;///< To allow specific object to switch command sets
-
-	UnsignedInt										m_safeOcclusionFrame;	///<flag used by occlusion renderer so it knows when objects have exited their production building.
-
-	// --------- BYTE-SIZED THINGS GO HERE
-	Bool													m_isSelectable;
-	Bool													m_modulesReady;
-#if defined(RTS_DEBUG)
-	Bool													m_hasDiedAlready;
-#endif
-	UnsignedByte									m_scriptStatus;					///< status as set by scripting, corresponds to ORed ObjectScriptStatusBits
-	UnsignedByte									m_privateStatus;					///< status bits that are never directly accessible to outside world
-	Byte													m_numTriggerAreasActive;
-	Bool													m_singleUseCommandUsed;
-	Bool													m_isReceivingDifficultyBonus;
 
 };
 

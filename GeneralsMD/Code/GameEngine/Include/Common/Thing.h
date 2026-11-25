@@ -54,6 +54,7 @@
 //           Includes
 //-----------------------------------------------------------------------------
 #include "Common/GxUnitStore.h"
+#include "Common/GxComponentPool.h"
 #include "Common/GameMemory.h"
 #include "Common/KindOf.h"
 #include "Common/Override.h"
@@ -122,13 +123,13 @@ public:
 	{
 		if (m_gxPosInStore)
 		{
-			m_cachedPos.x = TheGxUnitStore.x[m_gxSlot];
-			m_cachedPos.y = TheGxUnitStore.y[m_gxSlot];
-			m_cachedPos.z = TheGxUnitStore.z[m_gxSlot];
+			m_gxThing->m_cachedPos.x = TheGxUnitStore.x[m_gxSlot];
+			m_gxThing->m_cachedPos.y = TheGxUnitStore.y[m_gxSlot];
+			m_gxThing->m_cachedPos.z = TheGxUnitStore.z[m_gxSlot];
 		}
-		return &m_cachedPos;
+		return &m_gxThing->m_cachedPos;
 	}
-	Real getOrientation() const { return m_cachedAngle; }
+	Real getOrientation() const { return m_gxThing->m_cachedAngle; }
 
 	Bool isPositioned() const;
 
@@ -138,7 +139,7 @@ public:
 
 	Real getHeightAboveTerrain() const;
 	/// web port (physReuse): a caller that just computed calculateHeightAboveTerrain() for the current transform stores it
-	void gxSetHeightAboveTerrain(Real h) const { m_cachedAltitudeAboveTerrain = h; m_cacheFlags |= VALID_ALTITUDE_TERRAIN; }
+	void gxSetHeightAboveTerrain(Real h) const { m_gxThing->m_cachedAltitudeAboveTerrain = h; m_gxThing->m_cacheFlags |= VALID_ALTITUDE_TERRAIN; }
 	Real getHeightAboveTerrainOrWater() const;
 
 	Bool isAboveTerrain() const { return getHeightAboveTerrain() > 0.0f; }
@@ -158,9 +159,9 @@ public:
 		{
 			// web port (positionInStore): the translation's truth is the unit store
 			const Coord3D p = gxPos();
-			m_transform.Set_Translation(Vector3(p.x, p.y, p.z));
+			m_gxThing->m_transform.Set_Translation(Vector3(p.x, p.y, p.z));
 		}
-		return &m_transform;
+		return &m_gxThing->m_transform;
 	}
 
 	// web port (round 4): this object's slot in the unit store (-1 if none; set by GxUnitStore only)
@@ -170,7 +171,7 @@ public:
 	Bool gxPosInStore() const { return m_gxPosInStore; }
 	void gxSetPosInStore(Bool on);	///< GxUnitStore only: moves the position into / out of the store
 
-	void transformPoint( const Coord3D *in, Coord3D *out );								///< transform this point using the m_transform matrix of this thing
+	void transformPoint( const Coord3D *in, Coord3D *out );								///< transform this point using the m_gxThing->m_transform matrix of this thing
 
 protected:
 
@@ -197,19 +198,18 @@ private:
 		yes, private; it's important that some of these only be modified
 		by going thru the right methods, thus we make 'em private to enforce this.
 
-		note that "m_transform" is the true description of location; the other fields
+		note that "m_gxThing->m_transform" is the true description of location; the other fields
 		(pos, angle, etc) are all simply cached values used for efficiency and convenience.
 		you should NEVER modify them directly, because that won't change anything!
 	*/
-	mutable Matrix3D m_transform;					///< the 3D orientation and position of this Thing (translation refreshed from the store, see getTransformMatrix)
 	Int m_gxSlot;													///< web port: unit store slot, -1 if none
 	Bool m_gxPosInStore;									///< web port: the position lives in TheGxUnitStore.x/y/z[m_gxSlot]
-	/// the position's truth, as a Coord3D-shaped view (store columns or m_cachedPos)
+	/// the position's truth, as a Coord3D-shaped view (store columns or m_gxThing->m_cachedPos)
 	GxVec3Ref gxPos() const
 	{
 		if (m_gxPosInStore)
 			return GxVec3Ref(TheGxUnitStore.x[m_gxSlot], TheGxUnitStore.y[m_gxSlot], TheGxUnitStore.z[m_gxSlot]);
-		return GxVec3Ref(m_cachedPos.x, m_cachedPos.y, m_cachedPos.z);
+		return GxVec3Ref(m_gxThing->m_cachedPos.x, m_gxThing->m_cachedPos.y, m_gxThing->m_cachedPos.z);
 	}
 
 	enum
@@ -219,12 +219,20 @@ private:
 		VALID_ALTITUDE_SEALEVEL = 0x04
 	};
 
-	mutable Coord3D		m_cachedPos;												///< position of thing
-	mutable Real			m_cachedAngle;											///< orientation of thing
-	mutable Coord3D		m_cachedDirVector;									///< unit direction vector
-	mutable Real			m_cachedAltitudeAboveTerrain;
-	mutable Real			m_cachedAltitudeAboveTerrainOrWater;
-	mutable Int				m_cacheFlags;
+	// web port (round 5, units are pure data): the thing's per-unit state (the transform and the
+	// values cached from it), one row per thing in GxComponentPool<ThingRow>; the thing keeps its
+	// template, its store slot and this row
+	struct ThingRow
+	{
+		mutable Matrix3D m_transform;					///< the 3D orientation and position of this Thing (translation refreshed from the store, see getTransformMatrix)
+		mutable Coord3D		m_cachedPos;												///< position of thing
+		mutable Real			m_cachedAngle;											///< orientation of thing
+		mutable Coord3D		m_cachedDirVector;									///< unit direction vector
+		mutable Real			m_cachedAltitudeAboveTerrain;
+		mutable Real			m_cachedAltitudeAboveTerrainOrWater;
+		mutable Int				m_cacheFlags;
+	};
+	GxRow<ThingRow> m_gxThing;
 
 };
 

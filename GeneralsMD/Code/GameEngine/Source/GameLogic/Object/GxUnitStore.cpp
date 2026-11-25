@@ -7,11 +7,14 @@
 #include "GameLogic/Object.h"
 
 #include <algorithm>
+#include <cstring>
 
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches3();
+extern int GLES3_Page_Switches();
 #else
 static int GLES3_Page_Switches3() { return 0; }
+static int GLES3_Page_Switches() { return 0; }
 #endif
 
 GxUnitStore TheGxUnitStore;
@@ -44,6 +47,8 @@ void GxUnitStore::add(Object *o)
 		const size_t n = 16384;	// ponytail: past this the arrays reallocate (cost only; nobody keeps pointers into them)
 		id.reserve(n); obj.reserve(n); x.reserve(n); y.reserve(n); z.reserve(n); vx.reserve(n); vy.reserve(n); vz.reserve(n); ax.reserve(n); ay.reserve(n); az.reserve(n);
 		radius.reserve(n); player.reserve(n); playerBit.reserve(n); cell.reserve(n); mask.reserve(n);
+		status.reserve(n); disabled.reserve(n); layer.reserve(n); geomType.reserve(n); geomHeight.reserve(n);
+		geomMajor.reserve(n); geomMinor.reserve(n); angle.reserve(n); xf.reserve(n);
 		target.reserve(n); weaponReady.reserve(n); weaponSig.reserve(n);	// combat block
 	}
 	const Coord3D *p = o->getPosition();
@@ -60,6 +65,9 @@ void GxUnitStore::add(Object *o)
 	playerBit.push_back(pi >= 0 ? (1u << pi) : 0u);
 	cell.push_back(-1);
 	mask.push_back(0);
+	status.push_back(0); disabled.push_back(0); layer.push_back(0); geomType.push_back(0);
+	geomHeight.push_back(0.0f); geomMajor.push_back(0.0f); geomMinor.push_back(0.0f);
+	angle.push_back(0.0f); xf.push_back(GxXf());
 	target.push_back(0); weaponReady.push_back(0); weaponSig.push_back(~0u);	// combat block
 
 	if (oid >= (int)m_slotById.size())
@@ -68,6 +76,8 @@ void GxUnitStore::add(Object *o)
 	o->gxSetStoreSlot((int)obj.size() - 1);
 	if (GLES3_Page_Switches3() & 128)
 		o->gxSetPosInStore(true);	// switch positionInStore: from now on the store holds the position
+	setHot(o);
+	setXf(o);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -124,6 +134,31 @@ void GxUnitStore::setCell(const Object *o, int cellIndex)
 }
 
 // ---- combat block ----
+void GxUnitStore::setHot(const Object *o)
+{
+	const int s = o->gxStoreSlot();
+	if (s < 0)
+		return;
+	status[s] = o->getStatusBits().gxBits();
+	disabled[s] = (unsigned int)o->getDisabledFlags().gxBits();
+	layer[s] = (signed char)o->getLayer();
+	const GeometryInfo &g = o->getGeometryInfo();
+	geomType[s] = (unsigned char)g.getGeomType();
+	geomHeight[s] = g.getMaxHeightAbovePosition();
+	geomMajor[s] = g.getMajorRadius();
+	geomMinor[s] = g.getMinorRadius();
+}
+
+void GxUnitStore::setXf(const Object *o)
+{
+	const int s = o->gxStoreSlot();
+	if (s < 0)
+		return;
+	angle[s] = o->getOrientation();
+	static_assert(sizeof(Matrix3D) == sizeof(GxXf), "Matrix3D is 3 rows of 4 floats");
+	memcpy(xf[s].m, o->getTransformMatrix(), sizeof(GxXf));
+}
+
 void GxUnitStore::setTarget(const Object *o, int victimId)
 {
 	const int s = slotOf(o);
@@ -159,6 +194,9 @@ void GxUnitStore::compact()
 	gxPermute(ax, order); gxPermute(ay, order); gxPermute(az, order);
 	gxPermute(radius, order); gxPermute(player, order); gxPermute(playerBit, order);
 	gxPermute(cell, order); gxPermute(mask, order);
+	gxPermute(status, order); gxPermute(disabled, order); gxPermute(layer, order); gxPermute(geomType, order);
+	gxPermute(geomHeight, order); gxPermute(geomMajor, order); gxPermute(geomMinor, order);
+	gxPermute(angle, order); gxPermute(xf, order);
 	gxPermute(target, order); gxPermute(weaponReady, order); gxPermute(weaponSig, order);	// combat block
 
 	for (int s = 0; s < (int)obj.size(); ++s)
@@ -174,12 +212,39 @@ void GxUnitStore::compact()
 }
 
 //-------------------------------------------------------------------------------------------------
+// verify mode: every stored object's hot-field columns equal the object's own fields
+void GxUnitStore::gxVerifyHot(unsigned int frame)
+{
+	static int checked = 0, bad = 0;
+	int badNow = 0;
+	for (int s = 0; s < size(); ++s)
+	{
+		const Object *o = obj[s];
+		if (!o)
+			continue;
+		const GeometryInfo &g = o->getGeometryInfo();
+		const Matrix3D *m = o->getTransformMatrix();
+		if (status[s] != o->getStatusBits().gxBits() || disabled[s] != (unsigned int)o->getDisabledFlags().gxBits()
+				|| layer[s] != (signed char)o->getLayer() || geomType[s] != (unsigned char)g.getGeomType()
+				|| geomHeight[s] != g.getMaxHeightAbovePosition() || geomMajor[s] != g.getMajorRadius()
+				|| geomMinor[s] != g.getMinorRadius() || angle[s] != o->getOrientation()
+				|| memcmp(xf[s].m, m, sizeof(GxXf)) != 0)
+			++badNow;
+		++checked;
+	}
+	bad += badNow;
+	if (badNow || frame % 300 == 0)
+		printf("GXVERIFY store hot fields: checked %d, mismatches %d\n", checked, bad);
+}
+
 const std::vector<int> &GxUnitStore::pass(int bit)
 {
 	const unsigned int frame = TheGameLogic ? TheGameLogic->getFrame() : 0;
 	if (frame != m_compactFrame)
 	{
 		m_compactFrame = frame;	// slots stay put for the rest of this frame
+		if (GLES3_Page_Switches() & 2097152)
+			gxVerifyHot(frame);
 		compact();
 	}
 	std::vector<int> &list = m_pass[bit];

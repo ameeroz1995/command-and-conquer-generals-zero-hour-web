@@ -3857,7 +3857,7 @@ Stays default off.
   out of the module objects; the modules stay as facades for INI, engine calls, xfer and CRC):
   PhysicsBehavior (20 fields; acceleration in the store columns), BodyModule, ActiveBody (20),
   InactiveBody, StructureBody, TransitionDamageFX, FireWeaponCollide, SpecialPowerCompletionDie.
-  The other files of the families (Collide/ 19 incl. crates, Body/ Highlander, Immortal, Undead,
+  The other files of the families (Collide/ 19 incl. crates, Body/ Highlander, Immortal,
   HiveStructure, Damage/ BoneFXDamage, DamageModule, Destroy/, Die/ 11) hold no per-unit state: they
   are already facades over INI data, nothing to move. No family file has a per-frame update besides
   physics; the rest are event handlers (onCollide / onDie / onDamage) over their rows.
@@ -3876,6 +3876,34 @@ Stays default off.
   rectangle) -> gxPairKernel(in, begin, end, out, cap) (reads the blocks and store columns, writes
   only (seeker, slot) pairs to its own out; returns -1 when out is full, the main thread grows it and
   reruns) -> apply (main, seekers in object-ID order: collideStagger, addToContactList).
+- **Pool rows in place** (de3d971, asked by ai): GxComponentPool keeps raw slots; alloc constructs the
+  row in place, release destroys it in place (a row may hold non-copyable members such as another
+  GxRow, a freed row holds nothing); GxRow caches its row pointer (one load per field access).
+- **Shared tick timer** (merged origin/perf/logic-query 2fd63e3, Common/GxTime.h, switch tickTiming):
+  GXT physics, collideBuild (dirty cells + pair offers), collideProcess; counters physUnits,
+  collideSeekers, pairCells, pairTests, pairs (the SIMD kernel's cells/tests are counted in its
+  prepare step so the kernel stays free of globals) and allocs (game-memory blocks per logic tick:
+  every pool block plus every large dynamic block, g_gxAllocs in GameMemory.cpp, read across
+  GameLogic::UPDATE in GameEngine.cpp).
+- **More rows**: UndeadBody (m_isSecondLife). **Object**: all ~75 private fields (ids, status, geometry,
+  group, sighting, vision/shroud ranges, disabled mask and frames, helper and module links, contain
+  links, team, weapons, special powers, healing benefactor, triggers, layers, formation, byte flags)
+  in one nested Object::ObjectRow (m_gxObj); the object keeps its row and the team list links
+  (MAKE_DLINK). The constructor's init list became row defaults. Not moved: m_gxListSeq and
+  m_gxDisabledListed (public, GameLogic's disabledList). **Thing**: the transform and the cached
+  pos/angle/dir/altitudes in Thing::ThingRow (m_gxThing); the template, store slot and posInStore flag
+  stay. HeightDieUpdate: combat's (d85d85d), not touched here.
+- **Hot fields as store columns** (write-through, the rows stay the truth): status (64 bits),
+  disabled, layer, geomType/geomHeight/geomMajor/geomMinor (GxUnitStore::setHot from every Object
+  setter of them and after load), angle and xf (the 3x4 transform, setXf from reactToTransformChange
+  next to the position write-through). Verify mode checks every stored object's columns against the
+  object at each frame's first pass ("GXVERIFY store hot fields").
+- Replay soa-8 (verify): default, storePairs (collide-sp.rep), physBulk+physSimd (collide-ps.rep) and
+  positionInStore all match; hot fields 1,295,856 checks, 0 mismatches; disabled list 0 mismatches.
+  Earlier: soa-4 default / storePairs+collideSimd / physSimd record-replay match; the physSimd
+  recording replayed with scalar physics matches (SIMD integration = scalar). soa-6 (timer) matches.
+- Timing: locked tickTiming replay pairs queued (collideSimd off/on on collide-sp.rep, physSimd
+  off/on on collide-ps.rep, both orders); load stayed 25-70 (other lanes) so they had not started.
 
 ## Round 5 (query): scan-type modules and helpers hold their per-unit state in component tables
 - New GameLogic/GxComponentTable.h: rows in a deque (never move, never copied; RadiusDecal can't be),
