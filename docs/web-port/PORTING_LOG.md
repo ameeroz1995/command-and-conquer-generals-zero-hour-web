@@ -3872,3 +3872,8 @@ Stays default off.
   (paths-r5b, 90,376), with the kernel (paths-r5c, 90,823) and on the pool version (paths-r5d,
   90,643); 0 mismatches each. A recording with updatePasses + moveAfterTick on (GX=FEE6E7) plays back
   to a match with both off on paths-r5c and on paths-r5d.
+- Timing (one pair under timing.lock, default settings): paths-28 (load 7.7–8.2) vs paths-r5d
+  (load 8.2 → 4.9), strikes fps 11.1 → 14.4, 1% low 4.9 → 6.3, frames over 100 ms 247 → 30. Not an
+  isolated measurement: paths-28 predates collide's and ai's round-4/5 merges, and the r5d half ran
+  at lower load. It does show the rows are not slower. The rows have no switch (the data either
+  lives in the row or on the object); the kernel rides on updatePasses.
