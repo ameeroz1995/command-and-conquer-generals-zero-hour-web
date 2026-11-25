@@ -3898,3 +3898,16 @@ Stays default off.
 - Query hooks: search ms, searches / cells / entries / units opened / SIMD-culled; fog reveal ms, circles,
   cells touched (stamp and span paths alike), fog status calls / recomputes / kept.
 - Other lanes: add ids to the enums in GxTime.h; one logic timer for everyone (GameEngine.cpp).
+
+## Round 5 (query) continued: PartitionData row, DynamicShroudClearingRange and Stealth kernels
+- PartitionData's own per-object web-port state (cached place x/y/r for pairPlace/pairOffer, fogKeep's pure /
+  kept bits) moved into PartitionDataGxRow on GxComponentPool (keyed by the PartitionData: ghost objects have
+  no store slot). The per-COI copies stay in the COIs (one per cell entry). Referee + query-mgr5.rep match (query-31).
+- DynamicShroudClearingRange: gxDscruStep is the kernel (reads state, countdowns, range, deadlines and copied
+  module data; writes only the row's next record; same arithmetic and types: the countdown is signed, deadlines
+  unsigned); update() is the apply step: decals first (animateGridDecals reads the pre-step range and
+  countdown), then commit, then setShroudClearingRange. A row whose inputs changed since gets the step inline.
+- Stealth: gxStealthStep precomputes the pure per-frame math (pulse opacity/phase, disguise transition
+  countdown and factor, granted-frames countdown); update() uses each piece only when its inputs are unchanged.
+  The rest (AI victim, status bits, containers, sounds) stays in the apply step.
+- Both under rowKernels (fourth word bit 12). Referee + query-mgr5.rep match (query-32).

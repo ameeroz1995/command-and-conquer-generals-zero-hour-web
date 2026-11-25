@@ -74,8 +74,22 @@ enum DSCRU_STATE
 	DSCRU_SLEEPING
 };
 
+// round 5 kernel output (see gxDscruStep): the row's next state and what the apply step must do
+struct GxDscruNext
+{
+	unsigned int stamp;					///< frame + 1 when valid
+	DSCRU_STATE inState; Int inCount; UnsignedInt inInterval; Real inRange, inNative;	///< the inputs it was made from
+	DSCRU_STATE state; Int count; UnsignedInt interval; Real range;
+	unsigned char fx;						///< 0 nothing, 1 animate the grid decals, 2 kill them
+	Bool setRange;							///< set the object's shroud clearing range to `range`
+};
+
 struct DynamicShroudClearingRangeUpdateRow
 {
+	// copies of the module data the kernel reads (constant per module)
+	UnsignedInt m_gxGrowTime, m_gxShrinkTime, m_gxChangeInterval, m_gxGrowInterval;
+	Real m_gxFinalVision;
+	GxDscruNext m_gxNext;
 	DSCRU_STATE m_state;
 	Int m_stateCountDown;
 	Int m_totalFrames;

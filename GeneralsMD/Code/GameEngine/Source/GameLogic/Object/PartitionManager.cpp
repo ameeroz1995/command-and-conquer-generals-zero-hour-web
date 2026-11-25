@@ -1791,18 +1791,14 @@ PartitionData::PartitionData()
 	m_coiArray = nullptr;
 	m_coiInUseCount = 0;
 	m_doneFlag = 0;
-	m_gxX = m_gxY = 0.0f;
-	m_gxR = HUGE_DIST;	// no place yet: never turned away
 	m_dirtyStatus = NOT_DIRTY;
 	m_lastCell = nullptr;
 	memset(m_gxFillKey, 0, sizeof(m_gxFillKey));
 	m_gxDeferStamp = 0;
-	m_gxPure = m_gxKeptMask = 0;
 	for (int i = 0; i < MAX_PLAYER_COUNT; ++i)
 	{
 		m_everSeenByPlayer[i] = false;
 		m_shroudedness[i] = OBJECTSHROUD_INVALID;
-		m_gxKept[i] = OBJECTSHROUD_INVALID;
 		m_shroudednessPrevious[i] = OBJECTSHROUD_INVALID;
 	}
 }
@@ -1955,16 +1951,16 @@ ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 			// fogKeep: which branch decided it (the fogged one also reads relationship and kinds)
 			const UnsignedShort bit = (UnsignedShort)(1u << playerIndex);
 			const Bool fogBranch = m_coiInUseCount && shroudedCells != m_coiInUseCount && shroudedCells + foggedCells == m_coiInUseCount;
-			if (fogBranch) m_gxPure &= ~bit; else m_gxPure |= bit;
-			if (m_gxKeptMask & bit)
+			if (fogBranch) m_gx->pure &= ~bit; else m_gx->pure |= bit;
+			if (m_gx->keptMask & bit)
 			{
 				extern int gx_verify_mismatch, gx_verify_checked;
-				m_gxKeptMask &= ~bit;
+				m_gx->keptMask &= ~bit;
 				++gx_verify_checked;
-				if (m_gxKept[playerIndex] != m_shroudedness[playerIndex])
+				if (m_gx->kept[playerIndex] != m_shroudedness[playerIndex])
 				{
 					++gx_verify_mismatch;
-					printf("GXVERIFY fogKeep mismatch: object %u player %d kept %d now %d\n", m_object ? m_object->getID() : 0, playerIndex, m_gxKept[playerIndex], m_shroudedness[playerIndex]);
+					printf("GXVERIFY fogKeep mismatch: object %u player %d kept %d now %d\n", m_object ? m_object->getID() : 0, playerIndex, m_gx->kept[playerIndex], m_shroudedness[playerIndex]);
 				}
 				static Int s_gxKeepChecks;
 				if (++s_gxKeepChecks % 20000 == 0)
@@ -2304,7 +2300,7 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 		{
 			if (gxOffer)
 			{
-				const Real dx = coi->gxX() - m_gxX, dy = coi->gxY() - m_gxY, lim = (coi->gxR() + m_gxR) * 1.4143f + 1.0f;
+				const Real dx = coi->gxX() - m_gx->x, dy = coi->gxY() - m_gx->y, lim = (coi->gxR() + m_gx->r) * 1.4143f + 1.0f;
 				if (dx * dx + dy * dy > lim * lim)
 					continue;
 			}
@@ -2561,15 +2557,15 @@ void PartitionData::updateCellsTouched()
 		// shroud change invalidates its objects itself); the rest are invalidated as before
 		for (Int i = 0; i < MAX_PLAYER_COUNT; ++i)
 		{
-			if ((m_gxPure >> i & 1) && m_shroudedness[i] != OBJECTSHROUD_INVALID)
+			if ((m_gx->pure >> i & 1) && m_shroudedness[i] != OBJECTSHROUD_INVALID)
 			{
 				gxCount(GXC_FOG_KEPT);	// tickTiming
 				if (!gxVerify)
 					continue;
 				const ObjectShroudStatus kept = m_shroudedness[i];
 				invalidateShroudedStatusForPlayer(i);
-				m_gxKept[i] = kept;	// verify: recompute and compare (unless a real invalidation comes first)
-				m_gxKeptMask |= (UnsignedShort)(1u << i);
+				m_gx->kept[i] = kept;	// verify: recompute and compare (unless a real invalidation comes first)
+				m_gx->keptMask |= (UnsignedShort)(1u << i);
 				continue;
 			}
 			invalidateShroudedStatusForPlayer(i);
@@ -2596,7 +2592,7 @@ void PartitionData::updateCellsTouched()
 //-----------------------------------------------------------------------------
 void PartitionData::invalidateShroudedStatusForPlayer(Int playerIndex)
 {
-	m_gxKeptMask &= (UnsignedShort)~(1u << playerIndex);	// fogKeep verify: a real invalidation, nothing to compare
+	m_gx->keptMask &= (UnsignedShort)~(1u << playerIndex);	// fogKeep verify: a real invalidation, nothing to compare
 #ifndef DISABLE_INVALID_PREVENTION
 	if (m_shroudedness[playerIndex] != OBJECTSHROUD_INVALID && m_shroudedness[playerIndex] != OBJECTSHROUD_INVALID_BUT_PREVIOUS_VALID)
 #endif
@@ -4269,9 +4265,9 @@ void PartitionData::gxRefreshPlace()
 	const Coord3D *p = o->getPosition();
 	const GeometryInfo &g = o->getGeometryInfo();
 	const Real r = max(g.getBoundingCircleRadius(), g.getBoundingSphereRadius());
-	m_gxX = p->x;
-	m_gxY = p->y;
-	m_gxR = r;
+	m_gx->x = p->x;
+	m_gx->y = p->y;
+	m_gx->r = r;
 	for (Int i = 0; i < m_coiInUseCount; ++i)
 		m_coiArray[i].gxSetPlace(p->x, p->y, r);
 }

@@ -90,6 +90,11 @@ DynamicShroudClearingRangeUpdate::DynamicShroudClearingRangeUpdate( Thing *thing
 //	m_shrinkDeadline = 0;
 	R().m_changeIntervalCountdown = 0;
 	R().m_visionChangePerInterval = 0.0f;
+	R().m_gxGrowTime = md->m_growTime;
+	R().m_gxShrinkTime = md->m_shrinkTime;
+	R().m_gxChangeInterval = md->m_changeInterval;
+	R().m_gxGrowInterval = md->m_growInterval;
+	R().m_gxFinalVision = md->m_finalVision;
 
 
 	R().m_stateCountDown = md->m_shrinkDelay + md->m_shrinkTime;// total time
@@ -199,6 +204,80 @@ void DynamicShroudClearingRangeUpdate::killGridDecals()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+// Round 5 (rowKernels, fourth word bit 12): the state machine is a kernel, update() its apply step.
+// Kernel. Reads: the row's state, stateCountDown, changeIntervalCountdown, currentClearingRange,
+// nativeClearingRange, deadlines, doneForeverFrame and the copied module data. Writes: next only.
+// No allocation, events, RNG or globals (the frame is an argument). The same arithmetic, with the same
+// types, as the old update (stateCountDown is signed, the deadlines unsigned).
+static void gxDscruStep(const DynamicShroudClearingRangeUpdateRow &r, UnsignedInt currentFrame, GxDscruNext &n)
+{
+	DSCRU_STATE state = r.m_state;
+	Int count = r.m_stateCountDown;
+	UnsignedInt interval = r.m_changeIntervalCountdown;
+	Real range = r.m_currentClearingRange;
+	n.inState = r.m_state; n.inCount = r.m_stateCountDown; n.inInterval = r.m_changeIntervalCountdown;
+	n.inRange = r.m_currentClearingRange; n.inNative = r.m_nativeClearingRange;
+	n.fx = 0;
+	n.setRange = FALSE;
+
+	if( count <= 0 || currentFrame > r.m_doneForeverFrame )
+		state = DSCRU_DONE_FOREVER;
+	else if ( count <= r.m_shrinkStartDeadline  )
+		state = DSCRU_SHRINKING;
+	else if ( count <= r.m_sustainDeadline )
+		state = DSCRU_SUSTAINING;
+	else if ( count <= r.m_growStartDeadline )
+		state = DSCRU_GROWING;
+
+	switch (state)
+	{
+		case DSCRU_NOT_STARTED_YET :
+			n.fx = 1;
+			break;
+		case DSCRU_GROWING :
+			n.fx = 1;
+			range += r.m_nativeClearingRange / max(1.0f, (Real)r.m_gxGrowTime);
+			if (range >= r.m_nativeClearingRange)
+				state = DSCRU_SUSTAINING;
+			break;
+		case DSCRU_SUSTAINING :
+			range = r.m_nativeClearingRange;
+			n.fx = 2;
+			break;
+		case DSCRU_SHRINKING :
+			range -= (r.m_nativeClearingRange-r.m_gxFinalVision) / max(1.0f, (Real)r.m_gxShrinkTime);
+			break;
+		case DSCRU_DONE_FOREVER :
+			n.fx = 2;
+			range = r.m_gxFinalVision;
+			break;
+		default:
+			break;
+	}
+
+	if ( count > 0 ) count --;// it is important that this gets called every frame without sleeping
+
+	if( interval > 0 )
+		interval--;
+	else
+	{// reset per change timer
+		interval = ( state == DSCRU_GROWING ? r.m_gxGrowInterval : r.m_gxChangeInterval);
+		n.setRange = TRUE;
+		if (state == DSCRU_DONE_FOREVER) // We are done forever, and have done the final update, so sleep.
+			state = DSCRU_SLEEPING;
+	}
+	n.state = state; n.count = count; n.interval = interval; n.range = range;
+	n.stamp = currentFrame + 1;
+}
+
+/// the kernel over a row range [begin, end) of the pool (rows of sleeping modules are skipped)
+static void gxDscruKernel(GxComponentPool<DynamicShroudClearingRangeUpdateRow> &t, int begin, int end, UnsignedInt frame)
+{
+	for (int i = begin; i < end; ++i)
+		if (t.live(i) && t[i].m_state != DSCRU_SLEEPING)
+			gxDscruStep(t[i], frame, t[i].m_gxNext);
+}
+
 UpdateSleepTime DynamicShroudClearingRangeUpdate::update()
 {
 	if (R().m_state == DSCRU_SLEEPING) {
@@ -216,69 +295,32 @@ UpdateSleepTime DynamicShroudClearingRangeUpdate::update()
 	}
 	//-----------------------------------------------------
 
-
-	if( R().m_stateCountDown <= 0 || currentFrame > R().m_doneForeverFrame )
-		R().m_state = DSCRU_DONE_FOREVER;
-	else if ( R().m_stateCountDown <= R().m_shrinkStartDeadline  )
-		R().m_state = DSCRU_SHRINKING;
-	else if ( R().m_stateCountDown <= R().m_sustainDeadline )
-		R().m_state = DSCRU_SUSTAINING;
-	else if ( R().m_stateCountDown <= R().m_growStartDeadline )
-		R().m_state = DSCRU_GROWING;
-
-
-	switch (R().m_state)
+	// apply step: the kernel's output for this row, or the same step inline when it is missing or its
+	// inputs changed since
+	DynamicShroudClearingRangeUpdateRow &r = R();
+	GxDscruNext &n = r.m_gxNext;
+	if ((GLES3_Page_Switches4() & 4096) && n.stamp != currentFrame + 1)
 	{
-
-		case DSCRU_NOT_STARTED_YET :
-		{
-			animateGridDecals();
-
-			break;
-		}
-		case DSCRU_GROWING :
-		{
-			animateGridDecals();
-
-			R().m_currentClearingRange += R().m_nativeClearingRange / max(1.0f, (Real)md->m_growTime);
-			if (R().m_currentClearingRange >= R().m_nativeClearingRange)
-				R().m_state = DSCRU_SUSTAINING;
-			break;
-		}
-		case DSCRU_SUSTAINING :
-		{
-			R().m_currentClearingRange = R().m_nativeClearingRange;
-			killGridDecals();
-			break;
-		}
-		case DSCRU_SHRINKING :
-		{
-			R().m_currentClearingRange -= (R().m_nativeClearingRange-md->m_finalVision) / max(1.0f, (Real)md->m_shrinkTime);
-			break;
-		}
-		case DSCRU_DONE_FOREVER :
-		{
-			killGridDecals();
-			R().m_currentClearingRange = md->m_finalVision;
-			break;
-		}
-
+		GxComponentPool<DynamicShroudClearingRangeUpdateRow> &t = GxComponentPool<DynamicShroudClearingRangeUpdateRow>::the();
+		gxDscruKernel(t, 0, t.size(), currentFrame);
 	}
+	if (n.stamp != currentFrame + 1 || n.inState != r.m_state || n.inCount != r.m_stateCountDown || n.inInterval != r.m_changeIntervalCountdown
+		|| !(n.inRange == r.m_currentClearingRange) || !(n.inNative == r.m_nativeClearingRange))
+		gxDscruStep(r, currentFrame, n);
+	n.stamp = 0;	// used
 
-	if ( R().m_stateCountDown > 0 ) R().m_stateCountDown --;// it is important that this gets called every frame without sleeping
-	//because it handles animation and may need to respond to changing vision range from scripts & stuff
-
-
-	if( R().m_changeIntervalCountdown > 0 )
-		R().m_changeIntervalCountdown--;
-	else
-	{// reset per change timer
-		R().m_changeIntervalCountdown = ( R().m_state == DSCRU_GROWING ? md->m_growInterval : md->m_changeInterval);
-		me->setShroudClearingRange( R().m_currentClearingRange );
-		if (R().m_state == DSCRU_DONE_FOREVER) { // We are done forever, and have done the final update, so sleep.+
-			R().m_state = DSCRU_SLEEPING;
-		}
-	}
+	// the decals first: animateGridDecals reads the range and countdown from before this frame's step, as
+	// it did in the old update (called before they changed)
+	if (n.fx == 1)
+		animateGridDecals();
+	else if (n.fx == 2)
+		killGridDecals();
+	r.m_state = n.state;
+	r.m_stateCountDown = n.count;
+	r.m_changeIntervalCountdown = n.interval;
+	r.m_currentClearingRange = n.range;
+	if (n.setRange)
+		me->setShroudClearingRange( n.range );
 
 	return UPDATE_SLEEP_NONE;
 
