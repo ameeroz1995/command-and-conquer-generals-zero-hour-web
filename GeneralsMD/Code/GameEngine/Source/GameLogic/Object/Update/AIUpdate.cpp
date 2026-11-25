@@ -496,6 +496,25 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 		computeQuickPath(destination);
 		return;
 	}
+	// web port (match rule groupRoute): the group's route, shifted to us, instead of a queued search
+	if (!m_gxHintPts.empty()) {
+		std::vector<Coord3D> pts; pts.swap(m_gxHintPts);
+		extern bool gxMatchRule(unsigned int rule);
+		if (gxMatchRule(1024 /* GXRULE_GROUP_ROUTE */) && TheGameLogic->getFrame() - m_gxHintFrame <= 2 && isDoingGroundMovement()) {
+			Path *path = newInstance(Path);
+			path->appendNode(getObject()->getPosition(), LAYER_GROUND);
+			for (const Coord3D &p : pts) path->appendNode(&p, LAYER_GROUND);
+			path->appendNode(destination, LAYER_GROUND);
+			for (PathNode *node = path->getFirstNode(); node && node->getNext(); node = node->getNext())
+				node->setNextOptimized(node->getNext());
+			path->markOptimized();
+			destroyPath();	// also: no request outstanding
+			m_path = path;
+			if (m_isFinalGoal)
+				TheAI->pathfinder()->updateGoal(getObject(), m_path->getLastNode()->getPosition(), LAYER_GROUND);
+			return;
+		}
+	}
 	m_waitingForPath = TRUE;
 	if (m_pathTimestamp > TheGameLogic->getFrame()-3) {
 		/* Requesting path very quickly.  Can cause a spin. */
@@ -514,7 +533,14 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 		return;
 	}
 	TheAI->pathfinder()->queueForPath(getObject()->getID());
-	gxStartCoarse(destination);
+	{
+		extern bool gxMatchRule(unsigned int rule);
+		extern void gxDeferCoarseStart(ObjectID id);
+		if (gxMatchRule(1048576 /* GXRULE_ROUTE_QUEUE */))
+			gxDeferCoarseStart(getObject()->getID());	// started by the pathfinder, at most 32 a frame
+		else
+			gxStartCoarse(destination);
+	}
 
 }
 
@@ -527,9 +553,6 @@ void AIUpdateInterface::gxStartCoarse( const Coord3D *destination )
 	if (m_gxCoarse && m_path && m_gxCoarseTo.x == destination->x && m_gxCoarseTo.y == destination->y)
 		return;	// already on a coarse route there (blocked units ask again every frame)
 	Object *obj = getObject();
-	const Real dx = destination->x - obj->getPosition()->x, dy = destination->y - obj->getPosition()->y;
-	if (dx * dx + dy * dy < 200.0f * 200.0f)
-		return;	// short moves: the full route comes soon enough
 	Path *coarse = TheAI->pathfinder()->gxCoarsePath(obj, m_locomotorSet, destination);
 	if (!coarse)
 		return;
@@ -1022,6 +1045,35 @@ void AIUpdateInterface::friend_notifyStateMachineChanged()
  * The "main loop" of the AI subsystem
  */
 DECLARE_PERF_TIMER(AIUpdateInterface_update)
+// web port (match rule moveAfterTick): units whose AI updated this tick, in update-queue order
+static std::vector<ObjectID> s_gxMovementQueue;
+
+void AIUpdateInterface::gxMovementPassStep()
+{
+	UpdateSleepTime sleep = doLocomotor();
+#ifdef SLEEPY_AI
+	if (sleep < getWakeFrame())
+		setWakeFrame(getObject(), sleep);
+#endif
+}
+
+void gxRunMovementPass()
+{
+	if (s_gxMovementQueue.empty())
+		return;
+	for (size_t i = 0; i < s_gxMovementQueue.size(); ++i)
+	{
+		Object *obj = TheGameLogic->findObjectByID(s_gxMovementQueue[i]);
+		if (!obj || obj->isDestroyed())
+			continue;
+		AIUpdateInterface *ai = obj->getAI();
+		if (ai)
+			ai->gxMovementPassStep();
+	}
+	s_gxMovementQueue.clear();
+}
+
+//-------------------------------------------------------------------------------------------------
 UpdateSleepTime AIUpdateInterface::update()
 {
 	//DEBUG_LOG(("AIUpdateInterface frame %d: %08lx",TheGameLogic->getFrame(),getObject()));
@@ -1134,9 +1186,16 @@ UpdateSleepTime AIUpdateInterface::update()
 	}
 
 	// do this objects movement
+	// web port (match rule moveAfterTick): locomotion runs for every unit in one pass after the
+	// update queue (gxRunMovementPass), in this same order; the pass wakes us earlier if needed
+	extern bool gxMatchRule(unsigned int rule);
+	if (gxMatchRule(32768 /* GXRULE_MOVE_AFTER_TICK */)) {
+		s_gxMovementQueue.push_back(getObject()->getID());
+	} else {
 	UpdateSleepTime tmp = doLocomotor();
 	if (tmp < subMachineSleep)
 		subMachineSleep = tmp;
+	}
 
 #ifdef ALLOW_DEMORALIZE
 	RELEASE_CRASH(("If ALLOW_DEMORALIZE is ever defined, this code must be redone to do proper SLEEPY updates. (srj)"));

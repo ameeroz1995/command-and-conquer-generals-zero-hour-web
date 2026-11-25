@@ -1588,6 +1588,8 @@ void clampWaypointPosition( Coord3D &position, Int margin )
 /**
  * Move to given position(s)
  */
+static void gxShareGroupRoute( std::list<Object *> &members, const Coord3D *pos );
+
 void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, CommandSourceType cmdSource )
 {
 
@@ -1608,6 +1610,8 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
   {
     isFormation = false;
   }
+	if (!addWaypoint)
+		gxShareGroupRoute(m_memberList, pos);	// web port (match rule groupRoute)
 
 
 	if (!addWaypoint && !isFormation) {
@@ -2324,8 +2328,89 @@ void AIGroup::groupAttackPosition( const Coord3D *pos, Int maxShotsToFire, Comma
 /**
  * Attack move to a location
  */
+// Web port (match rule groupRoute): one route per kind of mover in the group (same terrain
+// surfaces and crusher flag), planned once from that kind's member nearest its centre. Every
+// member of the kind within 250 of that member gets a copy shifted by its offset, which its next
+// route request uses instead of a queued search; members farther away, or whose shifted route
+// would cross a blocked cell, plan alone as before.
+static Bool gxGroupMover( Object *obj )
+{
+	AIUpdateInterface *ai = obj->getAIUpdateInterface();
+	return ai && ai->isDoingGroundMovement() && !obj->isKindOf(KINDOF_IMMOBILE) && !obj->isDisabledByType(DISABLED_HELD);
+}
+
+static void gxShareClassRoute( const std::vector<Object *> &members, const Coord3D *pos )
+{
+	if (members.size() < 2) return;
+	Coord3D center; center.zero();
+	for (Object *obj : members) { center.x += obj->getPosition()->x; center.y += obj->getPosition()->y; }
+	center.x /= members.size(); center.y /= members.size();
+	Object *leader = nullptr; Real best = 0;
+	for (Object *obj : members) {
+		const Real dx = obj->getPosition()->x - center.x, dy = obj->getPosition()->y - center.y;
+		if (!leader || dx * dx + dy * dy < best) { leader = obj; best = dx * dx + dy * dy; }
+	}
+	const LocomotorSet &lset = leader->getAIUpdateInterface()->getLocomotorSet();
+	Path *route = TheAI->pathfinder()->gxFindPath(leader, lset, leader->getPosition(), pos);
+	if (!route) return;
+	std::vector<Coord3D> pts;
+	Bool ground = TRUE;
+	for (PathNode *node = route->getFirstNode(); node; node = node->getNextOptimized()) {
+		if (node->getLayer() != LAYER_GROUND) ground = FALSE;
+		pts.push_back(*node->getPosition());
+	}
+	deleteInstance(route);
+	if (!ground || pts.size() < 3) return;	// short or bridge routes: everyone plans as before
+	const Coord3D from = *leader->getPosition();
+	const UnsignedInt now = TheGameLogic->getFrame();
+	for (Object *obj : members) {
+		AIUpdateInterface *ai = obj->getAIUpdateInterface();
+		const Real ox = obj->getPosition()->x - from.x, oy = obj->getPosition()->y - from.y;
+		if (ox * ox + oy * oy > 250.0f * 250.0f) continue;
+		std::vector<Coord3D> mine;
+		Bool ok = TRUE;
+		const Bool crush = obj->getCrusherLevel() > 0;
+		for (size_t k = 1; k + 1 < pts.size(); ++k) {	// inner points, shifted; start and end are the member's own
+			// where the shifted point is blocked, close in on the route (half the offset, then the
+			// route itself): members funnel through gaps like a column instead of planning alone
+			Coord3D p = pts[k]; p.x += ox; p.y += oy;
+			if (!TheAI->pathfinder()->validMovementPosition(crush, LAYER_GROUND, ai->getLocomotorSet(), &p)) {
+				p = pts[k]; p.x += ox * 0.5f; p.y += oy * 0.5f;
+				if (!TheAI->pathfinder()->validMovementPosition(crush, LAYER_GROUND, ai->getLocomotorSet(), &p)) {
+					p = pts[k];
+					if (!TheAI->pathfinder()->validMovementPosition(crush, LAYER_GROUND, ai->getLocomotorSet(), &p)) { ok = FALSE; break; }
+				}
+			}
+			mine.push_back(p);
+		}
+		if (!ok) continue;
+		ai->gxSetRouteHint(mine, now);
+	}
+}
+
+static void gxShareGroupRoute( std::list<Object *> &members, const Coord3D *pos )
+{
+	extern bool gxMatchRule(unsigned int rule);
+	if (!gxMatchRule(1024 /* GXRULE_GROUP_ROUTE */))
+		return;
+	// kinds of mover in member order (deterministic)
+	std::vector<std::pair<LocomotorSurfaceTypeMask, Bool>> keys;
+	std::vector<std::vector<Object *>> kinds;
+	for (Object *obj : members) {
+		if (!gxGroupMover(obj)) continue;
+		const std::pair<LocomotorSurfaceTypeMask, Bool> key(obj->getAIUpdateInterface()->getLocomotorSet().getValidSurfaces(), obj->getCrusherLevel() > 0);
+		size_t k = 0;
+		while (k < keys.size() && keys[k] != key) ++k;
+		if (k == keys.size()) { keys.push_back(key); kinds.emplace_back(); }
+		kinds[k].push_back(obj);
+	}
+	for (const std::vector<Object *> &kind : kinds)
+		gxShareClassRoute(kind, pos);
+}
+
 void AIGroup::groupAttackMoveToPosition( const Coord3D *pos, Int maxShotsToFire, CommandSourceType cmdSource )
 {
+	gxShareGroupRoute(m_memberList, pos);
 	std::list<Object *>::iterator i;
 	for( i = m_memberList.begin(); i != m_memberList.end(); ++i )
 	{

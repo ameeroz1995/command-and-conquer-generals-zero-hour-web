@@ -1876,6 +1876,15 @@ StateReturnType AIInternalMoveToState::update()
 	if (ai->isWaitingForPath())
 		return STATE_CONTINUE;
 
+	// web port (match rule routeRefine): near the end of the detailed stretch, plan the next one
+	if (!forceRecompute && thePath && thePath->m_gxRefine) {
+		const Real dx = obj->getPosition()->x - thePath->m_gxRefineEnd.x, dy = obj->getPosition()->y - thePath->m_gxRefineEnd.y;
+		if (dx * dx + dy * dy < sqr(12 * PATHFIND_CELL_SIZE_F)) {
+			thePath->m_gxRefine = FALSE;	// ask once per stretch
+			forceRecompute = true;
+		}
+	}
+
 	// if our goal has moved, recompute our path
 	if (forceRecompute || TheGameLogic->getFrame() - m_pathTimestamp > MIN_REPATH_TIME)
 	{

@@ -3102,6 +3102,29 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   collide-vs3A battle3) look the same: no units visibly inside each other.
 - Proposed default: every-3 for single player (both switches left off until the match-rule wiring).
 
+## 2026-11-24 — Round 3, movement as a data-oriented system: measured, not built
+
+- Profile on dc2f00b (paths-9), share of the frame, inclusive: AIUpdateInterface::doLocomotor
+  3.0% (strikes) / 3.3% (armies); all Locomotor:: code 1.8% / 1.9%, of which Locomotor's own code
+  is ~0.1% self (the rest is what it calls: physics forces, terrain heights);
+  Path::computePointOnPath 2.5% / 2.4% (partly inside doLocomotor); PhysicsBehavior::update
+  3.1% / 2.2% (the collide agent's system). Load was high (fps ~5), shares still comparable.
+- Ceiling: movement is ~3% of the frame. Flat arrays plus one bulk locomotion pass would keep the
+  same per-unit math and calls (physics, terrain, path walk), so even halving it saves ~1.5%.
+  That is below what the bench can show (A/B pairs swing 10-20% at today's load). Per the round-3
+  rule (prove the slice pays first), the rewrite was not started. Match rule 1024 and second-word
+  bits 24/25 are still free.
+- If anything here is worth doing, it is Path::computePointOnPath (2.5%): it walks the path's
+  node list for every moving unit every frame; its cache returns a stale answer only up to 20
+  times. An exact cheaper lookup (resume from the last segment) is a small, separate change.
+- computePointOnPath, counted (paths-10, battle benchmark): ~400 full computations a frame (of
+  ~1,300 calls; the rest hit its cache), each walking 30-48 path segments (flow-field routes keep
+  many nodes), ~15k segment visits a frame. An exact lookup must still test every segment for the
+  closest one, so a flat segment array only makes each visit cheaper: ~0.3-0.4% of the frame at
+  best, below what the bench resolves, and it needs an owner link plus invalidation in every
+  PathNode setter (paths are edited in place from AIUpdate and several Pathfinder functions). Not
+  built. A windowed search around the last closest segment would cut more but changes results
+  (match rule 1024), for well under 1% of the frame: not worth the visual checks.
 ## 2026-11-24 — paths, ai and collide branches merged (dc2f00b); AI and collision rules are match rules
 
 - Merged perf/logic-paths (match rules, coarseStart), perf/logic-ai (sharedRoutes, routeBudget,
@@ -3117,3 +3140,99 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   GXVERIFY line mismatches 0.
 - A/B vs merge1 (live 445e8b8) and rules off/on: run at load 40-100 (five agents profiling), frame
   rates ~4 fps instead of ~13; not usable. To be rerun on a quiet machine.
+
+## 2026-11-25 — Route queue round: what fills it, group routes, route cache, flow cover (paths agent)
+
+- Correction: the earlier "90% of re-plans are goal moved" was wrong. Those requests were
+  projectiles' quick paths, which never enter the queue. A re-plan cooldown (N = 20/30/45 frames)
+  measured bit-identical to rule off: the moved-goal site fires 241 times per battle. Dropped, not
+  committed. The queue fills with new-order bursts: in the battle benchmark demand is ~6,300
+  searches in 1,050 frames at ~1,250 cells each, i.e. ~7,500 cells a frame against the 5,000 budget.
+  Search kinds (to frame 1,050): A* 6,390 (1,860 of them served by a flow field), closest-spot
+  1,467, attack approach 713. 3,986 repeat requests a battle are already merged by queueForPath.
+- cpopSegments (exact, third switch word bit 0, OFF): computePointOnPath reads each route's
+  optimized segments from one flat array kept on the Path (PathNode records its owner path; every
+  node setter marks the array stale). Referee replay matches; verify mode 0 mismatches. A/B
+  (paths-19, load 12-17), off -> on: armies 11.7 -> 11.3 and 11.1 -> 10.3 fps, strikes 8.5 -> 8.3
+  and 8.0 -> 6.9: no gain (both pairs a little lower, inside the noise), so it stays off.
+- moveAfterTick (match rule 32768, third word bit 1, off): units' locomotion runs in one pass after
+  the update queue (GameLogic::update, before the AI/pathfind and partition updates), in
+  update-queue order; the AI update no longer takes the locomotion's sleep, the pass wakes a unit
+  earlier when its locomotion needs it. Recorded with the rule on (GX=8002) and played back with
+  it off locally: matches. One pair (paths-19, load 11-20), off -> on: armies 11.6 -> 9.5, strikes
+  10.3 -> 11.5, aftermath 16.3 -> 8.6 fps: no clear gain; off.
+- coarseStart is now ON by default and applies to every move (no 200-unit minimum). Wrong-way
+  share at the switch: 4.2% (123 of 2,946).
+- routeQueue (match rule 1048576, third word bit 3, off): a request that finds the 512-slot queue
+  full waits in an overflow list instead of being dropped (the 512 slots are inside the pathfinder
+  CRC/xfer, so the slots themselves stay). Alone it holds 1,000+ requests and the average wait rose
+  (126 frames); dropped requests 1,054 -> 0.
+- groupRoute (match rule 1024, third word bit 2, off): a group move or attack-move plans one route
+  per kind of mover (same surfaces and crusher flag) from the member nearest that kind's centre;
+  members within 250 get a copy shifted by their offset (where a shifted point is blocked, half the
+  offset, then the route itself), used by their next route request instead of a queued search.
+- routeCache (match rule 2^21, third word bit 20, off): up to 64 recent routes; a unit of the same
+  kind and size starting within 4 cells of a cached start and going within 4 cells of its goal gets
+  the route shifted to it (blocked shifted points: a miss). Expires after 300 frames or when
+  buildings change.
+- flowCover (match rule 2^23, third word bit 22, off): flow fields serve moves over 8 cells (was
+  24); a field route uses almost none of the per-frame search budget.
+- Numbers (battle benchmark, to frame 1,050; load 14-22):
+  | rules | searches | cells/search | wait avg / worst (frames) | dropped | armies / strikes fps |
+  |---|---:|---:|---:|---:|---:|
+  | default | 6,286 | 1,255 | 42.1 / 217 | 1,054 | 10.5 / 9.4 |
+  | groupRoute + routeCache | 6,834 | 1,015 | 25.1 / 119 | 166 | 12.5 / 10.4 |
+  | + flowCover | 6,758 | 913 | 21.9 / 134 | 280 | 13.6 / 10.6 |
+  Whole run: 31.7 -> 18.6 -> 15.9 frames average wait. Group hints: 1,265 members followed a
+  group route; route cache: 719 hits. Still above the 6-frame target.
+- Determinism: recorded with groupRoute, routeCache, flowCover, routeQueue, moveAfterTick on
+  (GX=B08422) and played back with all of them off locally: matches. Referee replay matches.
+- Not built yet: routeRefine (rule 2^22, bit 21): zone-level plan, detailed only near the unit.
+
+## 2026-11-25 — routeRefine: a stretch at a time, and capped closest-spot searches (paths agent)
+
+- Cells per search kind (battle benchmark, to frame 1,050, default rules): route searches
+  (findPath) 4,584 x ~250 cells (flow fields and the zone-level search already keep them cheap);
+  closest-spot searches (findClosestPath: goal taken or blocked, attack approach) 1,467 x ~4,470
+  cells = 6.6M of the 7.9M cells searched (83%); attack paths 713 x ~250.
+- routeRefine (match rule 2^22, third switch word bit 21, off): (a) a move longer than 40 cells
+  searches in detail only to a point ~30 cells along the zone-level route, then follows the
+  zone-level route; when the unit is within 12 cells of the end of the detailed stretch, the move
+  state asks for the next one (such routes are not put in the route cache). (b) a closest-spot
+  search stops after 2,000 cells once it has a spot.
+- Numbers (to frame 1,050; whole run in brackets; load 14-22):
+  | rules | searches | closest-spot cells each | total cells | wait avg / worst (frames) |
+  |---|---:|---:|---:|---:|
+  | default | 6,286 | 4,471 | 7.87M | 42.1 / 217 (28.8) |
+  | routeRefine (stretches only, before the cap) | 6,182 | 4,782 | 8.35M | 47.3 / 231 (29.1) |
+  | routeRefine with the cap | 7,745 | 1,952 | 6.07M | 30.3 / 122 (22.1) |
+  | groupRoute + routeCache + flowCover | 6,758 | 2,758 | 6.17M | 21.9 / 134 (16.9) |
+  | + routeRefine (stretches only) | 7,489 | 2,943 | 6.46M | 15.2 / 87 (10.6) |
+  | + routeRefine with the cap | 8,306 | 1,660 | 4.72M | 9.4 / 42 (7.2) |
+  fps (single runs): default armies 15.3 / strikes 9.3; all four rules with the cap 12.5 / 9.4
+  (load 22); stretches-only set 16.6 / 12.0 (load 14).
+- Screenshots (armies and strikes) with all four rules on: the moving front stays spread along the
+  road, no single-point clumps, no units left behind; fights resolve.
+- Determinism (paths-22, no diagnostics): referee replay matches; recorded with groupRoute,
+  routeCache, flowCover, routeRefine, routeQueue and moveAfterTick on (GX=F08422) and played back
+  with all of them off locally: matches.
+
+## 2026-11-25 — Route-planning CPU share, and routeQueue staggering (paths agent)
+
+- Profile pairs (paths-23, armies phase, share of the frame; load 8-10 except the first "off" run,
+  which ended at 29), rules off -> groupRoute + routeCache + flowCover + routeRefine on:
+  AIUpdateInterface::computePath (all route planning) 19.3% -> 9.5% and 18.1% -> 9.5%;
+  findClosestPath 18.0% -> 6.9% and 15.5% -> 6.7%; findPath 1.3-2.5% -> 2.7-2.8%; flow fields
+  1.0-1.6% -> 1.8-1.9%. Route planning's CPU share halves; the same pair's fps were flat
+  (armies 14.2 -> 14.2, strikes 10.4 -> 10.1), the time going to the rest of the frame.
+- routeQueue (match rule 2^20, third word bit 3) now also staggers the queue: requests queued in
+  one frame become eligible 64 a frame, in request order; coarse starts (a zone-level search each)
+  run 32 a frame, in request order, instead of all at the order; and a closest-spot search does
+  not start once the frame has used half its 5,000 cells (it waits for the next frame). Budget
+  unchanged.
+- A/B, all four route rules on, routeQueue off -> on (load 8-10): strikes fps 10.5 -> 10.8 and
+  11.8 -> 12.4; strikes 1% low 4.2 -> 5.6 and 4.9 -> 6.0; strikes p90 126 -> 110 and 112 -> 96 ms;
+  frames over 100 ms in strikes 348 -> 251 and 188 -> 55, in armies 38 -> 21 and 9 -> 7. Slowest
+  battle frames (after the two loading frames) 366 -> 291 and 271 -> 252 ms.
+- Determinism: referee replay matches; recorded with the four route rules plus routeQueue on
+  (GX=F00422) and played back with them off locally: matches.
