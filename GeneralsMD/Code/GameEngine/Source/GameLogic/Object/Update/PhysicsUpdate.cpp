@@ -210,11 +210,7 @@ static void parseFrictionPerSec( INI* ini, void * /*instance*/, void *store, con
 const Real INVALID_VEL_MAG = -1.0f;
 
 //-------------------------------------------------------------------------------------------------
-// web port (match rule physBulk): every PhysicsBehavior in creation order (= object ID order),
-// with null holes left by deleted ones until the next bulk pass compacts the list
-// (allocated once and never freed, so behaviours deleted at shutdown never touch a destroyed list)
-static std::vector<PhysicsBehavior*> &s_gxPhysList = *new std::vector<PhysicsBehavior*>;
-static UnsignedInt s_gxBulkFrame = ~0u;
+static UnsignedInt s_gxBulkFrame = ~0u;	// web port (match rule physBulk): the frame whose pass ran
 
 PhysicsBehavior::PhysicsBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
@@ -247,8 +243,6 @@ PhysicsBehavior::PhysicsBehavior( Thing *thing, const ModuleData* moduleData ) :
 	m_bounceSound = nullptr;
 
 	m_gxPreFrame = ~0u;
-	m_gxIdx = (Int)s_gxPhysList.size();
-	s_gxPhysList.push_back(this);
 
 #ifdef SLEEPY_PHYSICS
 	setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
@@ -279,7 +273,6 @@ void PhysicsBehavior::onObjectCreated()
 //-------------------------------------------------------------------------------------------------
 PhysicsBehavior::~PhysicsBehavior()
 {
-	s_gxPhysList[m_gxIdx] = nullptr;	// compacted by the next bulk pass
 	deleteInstance(m_bounceSound);
 	m_bounceSound = nullptr;
 }
@@ -661,20 +654,20 @@ void PhysicsBehavior::gxIntegrate()
 }
 
 // web port (match rule physBulk): at the first physics update of a frame, integrate forces and
-// velocity for every unit whose physics runs this frame, in creation order. Each unit's own update
+// velocity for every unit whose physics runs this frame: the unit store's PHYS list, in object-ID
+// order (velocities are the store's). Each unit's own update
 // then only moves it. A force applied to a unit after this pass (by another unit's physics step)
 // counts next frame instead of this one: that is the drift.
 void PhysicsBehavior::gxBulkPass(UnsignedInt now)
 {
-	size_t w = 0;
-	for (size_t i = 0; i < s_gxPhysList.size(); ++i)
+	const std::vector<int> &list = TheGxUnitStore.pass(GXB_PHYS);
+	for (size_t i = 0; i < list.size(); ++i)
 	{
-		PhysicsBehavior *pb = s_gxPhysList[i];
+		Object *o = TheGxUnitStore.obj[list[i]];
+		PhysicsBehavior *pb = o ? o->getPhysics() : nullptr;
 		if (!pb)
 			continue;
-		pb->m_gxIdx = (Int)w;
-		s_gxPhysList[w++] = pb;
-		if (pb->friend_getNextCallFrame() != now || pb->getObject()->isDisabledByType(DISABLED_HELD))
+		if (pb->friend_getNextCallFrame() != now || o->isDisabledByType(DISABLED_HELD))
 			continue;
 		pb->m_prevAccel = pb->m_accel;
 		pb->setFlag(IS_IN_UPDATE, true);	// friction forces must not re-wake it (it is due anyway)
@@ -683,7 +676,6 @@ void PhysicsBehavior::gxBulkPass(UnsignedInt now)
 		pb->m_accel.zero();
 		pb->m_gxPreFrame = now;
 	}
-	s_gxPhysList.resize(w);
 }
 
 UpdateSleepTime PhysicsBehavior::update()

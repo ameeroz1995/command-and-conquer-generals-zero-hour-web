@@ -5,6 +5,7 @@
 #include "Common/Player.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
+#include "GameLogic/PartitionManager.h"
 
 #include <algorithm>
 
@@ -89,7 +90,18 @@ void GxUnitStore::setMask(const Object *o, GxBehaviourMask set, GxBehaviourMask 
 void GxUnitStore::setPos(const Object *o, const Coord3D &p)
 {
 	const int s = slotOf(o);
-	if (s >= 0) { x[s] = p.x; y[s] = p.y; z[s] = p.z; }
+	if (s < 0)
+		return;
+	x[s] = p.x; y[s] = p.y; z[s] = p.z;
+	cell[s] = -1;
+	if (ThePartitionManager && ThePartitionManager->getCellSize() > 0.0f)
+	{
+		Int cx, cy;
+		ThePartitionManager->worldToCell(p.x, p.y, &cx, &cy);
+		const Int nx = ThePartitionManager->getCellCountX(), ny = ThePartitionManager->getCellCountY();
+		if (cx >= 0 && cy >= 0 && cx < nx && cy < ny)
+			cell[s] = cy * nx + cx;
+	}
 }
 
 void GxUnitStore::setRadius(const Object *o, float r)

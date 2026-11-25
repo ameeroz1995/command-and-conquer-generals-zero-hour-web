@@ -286,8 +286,7 @@ private:
 	Bool												m_originalAllowBounce;		///< original state of allow bounce
 
 	// web port (match rule physBulk): forces + velocity for every unit due this frame are
-	// integrated in one pass, in creation order, at the start of the physics phase
-	Int													m_gxIdx;									///< slot in the physics list (not saved)
+	// integrated in one pass over the unit store's PHYS list (object-ID order), at the start of the physics phase
 	UnsignedInt									m_gxPreFrame;							///< frame whose integration the bulk pass already did
 	void gxIntegrate();
 	static void gxBulkPass(UnsignedInt now);

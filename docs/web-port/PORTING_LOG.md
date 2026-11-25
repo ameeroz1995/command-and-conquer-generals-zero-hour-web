@@ -3587,3 +3587,11 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
   returns the store's Coord3D, arrays reserved for 16k units so the pointer stays put within a frame).
   Position stays in the Object's matrix with write-through (x/y/z), likewise radius and player.
 - Same game: referee replay matches (9,000 frames, build store-1).
+- Physics on the store (build store-2): physBulk's pass now walks the store's PHYS list (object-ID
+  order) and reads/writes the store's velocities; its own behaviour list is gone. The store's cell is
+  now write-through with x/y (partition cell under the centre, cy * cellCountX + cx).
+  Referee replay matches; a skirmish recorded with physBulk on (header rules 0x822) replays to a match.
+- Collision broad phase over store cells: not built. The pair test already reads kept places
+  (pairPlace, query agent), and the pair-list build measured ~0.6 ms per frame at the peak (round 2
+  timers) against ~2/3 of collision time in the reactions (onCollide + AI processCollision), so a
+  drifting store-cell broad phase can win at most that 0.6 ms.
