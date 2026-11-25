@@ -23,8 +23,8 @@
 //   Coord3D per slot rather than three arrays, because getVelocity() hands out a Coord3D pointer).
 // - radius: write-through from Object::setGeometryInfo (bounding circle radius).
 // - player, playerBit: write-through from Object::setOrRestoreTeam (controlling player index).
-// - cell: the partition cell (cy * cellCountX + cx) under the unit's centre, write-through with
-//   x/y (-1 off the map or before the partition exists).
+// - cell: the partition cell (cy * cellCountX + cx) under the unit's centre, written by
+//   PartitionData::updateCellsTouched when it changes (-1 off the map or before that).
 // - mask: set when a unit's behaviour set changes (setMask); never re-tested per tick.
 #pragma once
 
