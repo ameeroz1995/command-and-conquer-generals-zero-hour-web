@@ -3372,7 +3372,7 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 		if (!pd || pd->friend_getCoiInUseCount() == 0)
 			continue;	// not in the partition's cells (e.g. inside a transport)
 		const Real r = st.radius[s];
-		const Coord3D &p = st.pos[s];
+		const Coord3D p = st.posOf(s);
 		Int x0, y0, x1, y1;
 		if (r <= bigR)
 		{
@@ -3405,7 +3405,7 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 		if (s < 0)
 			continue;
 		const Real r = st.radius[s];
-		const Coord3D &p = st.pos[s];
+		const Coord3D p = st.posOf(s);
 		const Real e = (r + smallMax) * 1.4143f + 1.0f;
 		Int x0, y0, x1, y1;
 		pm->worldToCell(p.x - e, p.y - e, &x0, &y0);
@@ -3418,7 +3418,7 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 					const int t = item[k];
 					if (t == s)
 						continue;
-					const Real dx = st.pos[t].x - p.x, dy = st.pos[t].y - p.y, lim = (st.radius[t] + r) * 1.4143f + 1.0f;
+					const Real dx = st.x[t] - p.x, dy = st.y[t] - p.y, lim = (st.radius[t] + r) * 1.4143f + 1.0f;
 					if (dx * dx + dy * dy > lim * lim)
 						continue;
 					PartitionData *that = st.obj[t]->friend_getPartitionData();
@@ -4071,8 +4071,8 @@ static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
 			continue;
 		const Real r = S.radius[s];
 		Int x0, y0, x1, y1;
-		ThePartitionManager->worldToCell(S.pos[s].x - r, S.pos[s].y - r, &x0, &y0);
-		ThePartitionManager->worldToCell(S.pos[s].x + r, S.pos[s].y + r, &x1, &y1);
+		ThePartitionManager->worldToCell(S.x[s] - r, S.y[s] - r, &x0, &y0);
+		ThePartitionManager->worldToCell(S.x[s] + r, S.y[s] + r, &x1, &y1);
 		x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, cellCountX - 1); y1 = min(y1, cellCountY - 1);
 		if (x0 > x1 || y0 > y1)
 			continue;
@@ -4473,7 +4473,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 					if (gxCache)
 					{
 						// the store keeps the bounding circle; twice it stands in for the sphere
-						const Real dx = S.pos[s].x - px, dy = S.pos[s].y - py, lim = gxLimit + 2.0f * S.radius[s];
+						const Real dx = S.x[s] - px, dy = S.y[s] - py, lim = gxLimit + 2.0f * S.radius[s];
 						if (dx * dx + dy * dy > lim * lim)
 							continue;
 					}

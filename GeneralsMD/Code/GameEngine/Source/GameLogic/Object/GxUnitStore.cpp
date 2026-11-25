@@ -41,8 +41,8 @@ void GxUnitStore::add(Object *o)
 
 	if (obj.capacity() == 0)
 	{
-		const size_t n = 16384;	// ponytail: past this the arrays reallocate, which moves getPosition()/getVelocity() pointers
-		id.reserve(n); obj.reserve(n); pos.reserve(n); vel.reserve(n);
+		const size_t n = 16384;	// ponytail: past this the arrays reallocate (cost only; nobody keeps pointers into them)
+		id.reserve(n); obj.reserve(n); x.reserve(n); y.reserve(n); z.reserve(n); vx.reserve(n); vy.reserve(n); vz.reserve(n);
 		radius.reserve(n); player.reserve(n); playerBit.reserve(n); cell.reserve(n); mask.reserve(n);
 		target.reserve(n); weaponReady.reserve(n); weaponSig.reserve(n);	// combat block
 	}
@@ -52,9 +52,8 @@ void GxUnitStore::add(Object *o)
 
 	id.push_back(oid);
 	obj.push_back(o);
-	pos.push_back(*p);
-	Coord3D zero; zero.zero();
-	vel.push_back(zero);
+	x.push_back(p->x); y.push_back(p->y); z.push_back(p->z);
+	vx.push_back(0.0f); vy.push_back(0.0f); vz.push_back(0.0f);
 	radius.push_back(o->getGeometryInfo().getBoundingCircleRadius());	// not yet in the store: from the geometry
 	player.push_back((signed char)pi);
 	playerBit.push_back(pi >= 0 ? (1u << pi) : 0u);
@@ -102,7 +101,7 @@ void GxUnitStore::setPos(const Object *o, const Coord3D &p)
 	const int s = slotOf(o);
 	if (s < 0)
 		return;
-	pos[s] = p;
+	x[s] = p.x; y[s] = p.y; z[s] = p.z;
 }
 
 void GxUnitStore::setRadius(const Object *o, float r)
@@ -154,8 +153,8 @@ void GxUnitStore::compact()
 		std::sort(order.begin(), order.end(), [this](int a, int b) { return id[a] < id[b]; });
 
 	gxPermute(id, order); gxPermute(obj, order);
-	gxPermute(pos, order);
-	gxPermute(vel, order);
+	gxPermute(x, order); gxPermute(y, order); gxPermute(z, order);
+	gxPermute(vx, order); gxPermute(vy, order); gxPermute(vz, order);
 	gxPermute(radius, order); gxPermute(player, order); gxPermute(playerBit, order);
 	gxPermute(cell, order); gxPermute(mask, order);
 	gxPermute(target, order); gxPermute(weaponReady, order); gxPermute(weaponSig, order);	// combat block

@@ -137,7 +137,7 @@ public:
 	Real getCenterOfMassOffset() const { return getPhysicsBehaviorModuleData()->m_centerOfMassOffset; }
 
 	const Coord3D *getAcceleration() const { return &m_prevAccel; }		///< get last frame's acceleration
-	const Coord3D *getVelocity() const { return &gxVel(); }			///< get current velocity
+	const Coord3D *getVelocity() const;			///< get current velocity (a copy, valid until the next call)
 	Real getVelocityMagnitude() const;																		///< return velocity magnitude (speed)
 	Real getForwardSpeed2D() const;															///< compute speed along object's 2d direction vector
 	Real getForwardSpeed3D() const;															///< compute speed along object's 3d direction vector
@@ -292,7 +292,8 @@ private:
 	static void gxBulkPass(UnsignedInt now);
 
 	/// the current velocity, in the unit store (web port, round 4)
-	Coord3D &gxVel() const;
+	GxVec3Ref gxVel() const;
+	mutable Coord3D m_gxVelOut;	///< web port (round 5): getVelocity()'s copy
 
 	void setFlag(PhysicsFlagsType f, Bool set) { if (set) m_flags |= f; else m_flags &= ~f; }
 	Bool getFlag(PhysicsFlagsType f) const { return (m_flags & f) != 0; }
