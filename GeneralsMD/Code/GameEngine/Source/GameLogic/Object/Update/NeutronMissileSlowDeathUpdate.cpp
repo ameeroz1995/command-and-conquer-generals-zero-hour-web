@@ -45,6 +45,7 @@
 #include "GameLogic/Module/ToppleUpdate.h"
 #include "GameLogic/TerrainLogic.h"
 
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -188,18 +189,18 @@ NeutronMissileSlowDeathBehaviorModuleData::NeutronMissileSlowDeathBehaviorModule
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-NeutronMissileSlowDeathBehavior::NeutronMissileSlowDeathBehavior( Thing *thing, const ModuleData *moduleData )
-															: SlowDeathBehavior( thing, moduleData )
+NeutronMissileSlowDeathBehavior::NeutronMissileSlowDeathBehavior( Thing *thing, const ModuleData *moduleData ) : SlowDeathBehavior( thing, moduleData )
 {
+
 	Int i;
 
-	m_scorchPlaced = FALSE;
-	m_activationFrame = 0;
+	D().m_scorchPlaced = FALSE;
+	D().m_activationFrame = 0;
 	for( i = 0; i < MAX_NEUTRON_BLASTS; i++ )
 	{
 
-		m_completedBlasts[ i ] = FALSE;
-		m_completedScorchBlasts[ i ] = FALSE;
+		D().m_completedBlasts[ i ] = FALSE;
+		D().m_completedScorchBlasts[ i ] = FALSE;
 
 	}
 
@@ -231,7 +232,7 @@ UpdateSleepTime NeutronMissileSlowDeathBehavior::update()
 	UnsignedInt currFrame = TheGameLogic->getFrame();
 
 	// when we become activated we want to do a few things
-	if( m_activationFrame == 0 )
+	if( D().m_activationFrame == 0 )
 	{
 		Coord3D pos;
 		const Coord3D *missilePos = getObject()->getPosition();
@@ -242,7 +243,7 @@ UpdateSleepTime NeutronMissileSlowDeathBehavior::update()
 		pos.z = TheTerrainLogic->getGroundHeight( pos.x, pos.y );
 
 		// record the frame
-		m_activationFrame = currFrame;
+		D().m_activationFrame = currFrame;
 
 		FXList::doFXPos( modData->m_fxList, &pos );
 	}
@@ -256,28 +257,28 @@ UpdateSleepTime NeutronMissileSlowDeathBehavior::update()
 			continue;
 
 		// has the time of this blast come
-		if( m_completedBlasts[ i ] == FALSE &&
-				(currFrame - m_activationFrame > modData->m_blastInfo[ i ].delay) )
+		if( D().m_completedBlasts[ i ] == FALSE &&
+				(currFrame - D().m_activationFrame > modData->m_blastInfo[ i ].delay) )
 		{
 
 			// do the blast
 			doBlast( &modData->m_blastInfo[ i ] );
 
 			// mark this blast as complete now
-			m_completedBlasts[ i ] = TRUE;
+			D().m_completedBlasts[ i ] = TRUE;
 
 		}
 
 		// has the time for a scorch blast come
-		if( m_completedScorchBlasts[ i ] == FALSE &&
-		    (currFrame - m_activationFrame > modData->m_blastInfo[ i ].scorchDelay) )
+		if( D().m_completedScorchBlasts[ i ] == FALSE &&
+		    (currFrame - D().m_activationFrame > modData->m_blastInfo[ i ].scorchDelay) )
 		{
 
 			// do the scorch blast
 			doScorchBlast( &modData->m_blastInfo[ i ] );
 
 			// mark this scorch blast as complete now
-			m_completedScorchBlasts[ i ] = TRUE;
+			D().m_completedScorchBlasts[ i ] = TRUE;
 
 		}
 
@@ -366,11 +367,11 @@ void NeutronMissileSlowDeathBehavior::doBlast( const BlastInfo *blastInfo )
 				other->attemptDamage( &damageInfo );
 
 				// place a scorch mark if we haven't already
-				if( m_scorchPlaced == FALSE )
+				if( D().m_scorchPlaced == FALSE )
 				{
 
 					TheGameClient->addScorch( missilePos, modData->m_scorchSize, SCORCH_1 );
-					m_scorchPlaced = TRUE;
+					D().m_scorchPlaced = TRUE;
 
 				}
 
@@ -489,7 +490,7 @@ void NeutronMissileSlowDeathBehavior::xfer( Xfer *xfer )
 	SlowDeathBehavior::xfer( xfer );
 
 	// activation frame
-	xfer->xferUnsignedInt( &m_activationFrame );
+	xfer->xferUnsignedInt( &D().m_activationFrame );
 
 	// size of MAX_NEUTRON_BLASTS since we use it for two arrays here
 	UnsignedByte maxNeutronBlasts = MAX_NEUTRON_BLASTS;
@@ -505,14 +506,14 @@ void NeutronMissileSlowDeathBehavior::xfer( Xfer *xfer )
 	// completed blasts
 	UnsignedByte i;
 	for( i = 0; i < maxNeutronBlasts; ++i )
-		xfer->xferBool( &m_completedBlasts[ i ] );
+		xfer->xferBool( &D().m_completedBlasts[ i ] );
 
 	// completed scorch blasts
 	for( i = 0; i < maxNeutronBlasts; ++i )
-		xfer->xferBool( &m_completedScorchBlasts[ i ] );
+		xfer->xferBool( &D().m_completedScorchBlasts[ i ] );
 
 	// scorch placed
-	xfer->xferBool( &m_scorchPlaced );
+	xfer->xferBool( &D().m_scorchPlaced );
 
 }
 

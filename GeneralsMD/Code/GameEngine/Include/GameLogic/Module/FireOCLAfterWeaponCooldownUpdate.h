@@ -34,6 +34,7 @@ class UpgradeMuxData;
 
 #include "GameLogic/Module/UpdateModule.h"
 #include "GameLogic/Module/UpgradeModule.h"
+#include "Common/GxComponentPool.h"
 
 //-------------------------------------------------------------------------------------------------
 class FireOCLAfterWeaponCooldownUpdateModuleData : public UpdateModuleData
@@ -99,8 +100,16 @@ protected:
 
 private:
 
-	Bool				m_valid;
-	UnsignedInt m_consecutiveShots;
-	UnsignedInt m_startFrame;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		Bool				m_valid;
+		UnsignedInt m_consecutiveShots;
+		UnsignedInt m_startFrame;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+private:
 
 };

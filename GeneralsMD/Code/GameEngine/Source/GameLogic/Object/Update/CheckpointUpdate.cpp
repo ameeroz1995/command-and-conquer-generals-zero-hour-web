@@ -39,20 +39,22 @@
 #include "GameLogic/AI.h"
 #include "GameLogic/Module/AIUpdate.h"
 
+
 //-------------------------------------------------------------------------------------------------
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-CheckpointUpdate::CheckpointUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData ),
-m_allyNear(false),
-m_enemyNear(false),
-m_enemyScanDelay(0),
-m_maxMinorRadius(0)
+CheckpointUpdate::CheckpointUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_maxMinorRadius = getObject()->getGeometryInfo().getMinorRadius();
+	D().m_allyNear = false;
+	D().m_enemyNear = false;
+	D().m_enemyScanDelay = 0;
+	D().m_maxMinorRadius = 0;
+
+	D().m_maxMinorRadius = getObject()->getGeometryInfo().getMinorRadius();
 
 	// bias a random amount so everyone doesn't spike at once
-	m_enemyScanDelay += GameLogicRandomValue(0, getCheckpointUpdateModuleData()->m_enemyScanDelayTime);
+	D().m_enemyScanDelay += GameLogicRandomValue(0, getCheckpointUpdateModuleData()->m_enemyScanDelayTime);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -68,9 +70,9 @@ CheckpointUpdate::~CheckpointUpdate()
 void CheckpointUpdate::checkForAlliesAndEnemies()
 {
 	// periodic enemy checks
-	if (m_enemyScanDelay == 0 || TRUE)
+	if (D().m_enemyScanDelay == 0 || TRUE)
 	{
-		m_enemyScanDelay = getCheckpointUpdateModuleData()->m_enemyScanDelayTime;
+		D().m_enemyScanDelay = getCheckpointUpdateModuleData()->m_enemyScanDelayTime;
 
 		// Kind of weird, but we have to set the geometry extents to the max extent
 		//before checking for nearest enemies and allies, or else the stretch reaction
@@ -78,17 +80,17 @@ void CheckpointUpdate::checkForAlliesAndEnemies()
 		Object *obj = getObject();
 		GeometryInfo geom = obj->getGeometryInfo();
 		Real restoreSpecialRadius = geom.getMinorRadius();
-		geom.setMinorRadius( m_maxMinorRadius );
+		geom.setMinorRadius( D().m_maxMinorRadius );
 		obj->setGeometryInfo( geom );
 
 		Object *enemy, *ally = nullptr;
 		Real visionRange = obj->getVisionRange();
 
 		enemy = TheAI->findClosestEnemy( obj, visionRange, 0 );
-		m_enemyNear = (enemy != nullptr);
+		D().m_enemyNear = (enemy != nullptr);
 
 		ally = TheAI->findClosestAlly( obj, visionRange, 0 );
-		m_allyNear = (ally != nullptr);
+		D().m_allyNear = (ally != nullptr);
 
 		// here we restore the radius so that other units can path past the open gate
 		geom.setMinorRadius( restoreSpecialRadius );
@@ -97,7 +99,7 @@ void CheckpointUpdate::checkForAlliesAndEnemies()
 	}
 	else
 	{
-		--m_enemyScanDelay;
+		--D().m_enemyScanDelay;
 	}
 }
 
@@ -108,13 +110,13 @@ UpdateSleepTime CheckpointUpdate::update()
 {
 /// @todo srj use SLEEPY_UPDATE here
 
-	Bool wasAnAlly  = m_allyNear;
-	Bool wasAnEnemy = m_enemyNear;
+	Bool wasAnAlly  = D().m_allyNear;
+	Bool wasAnEnemy = D().m_enemyNear;
 
 	checkForAlliesAndEnemies();
 
-	Bool change = ( (wasAnAlly != m_allyNear) || (wasAnEnemy != m_enemyNear) );
-	Bool open = ( ( ! m_enemyNear) && m_allyNear );
+	Bool change = ( (wasAnAlly != D().m_allyNear) || (wasAnEnemy != D().m_enemyNear) );
+	Bool open = ( ( ! D().m_enemyNear) && D().m_allyNear );
 	Object *obj = getObject();
 	Drawable *draw = obj->getDrawable();
 
@@ -147,7 +149,7 @@ UpdateSleepTime CheckpointUpdate::update()
 
 		/// @todo ask steven about the distance covered always being zero
 	//	Real animScrubScalar = draw->getAnimationScrubScalar();
-	//	geom.setMinorRadius( m_maxMinorRadius * animScrubScalar );
+	//	geom.setMinorRadius( D().m_maxMinorRadius * animScrubScalar );
 
 		// THis method is more accidental than above, but it works for an unimportant thing like checkpoint
 		Real radius = geom.getMinorRadius();
@@ -158,7 +160,7 @@ UpdateSleepTime CheckpointUpdate::update()
 		}
 		else //closed
 		{
-			if ( radius < m_maxMinorRadius ) geom.setMinorRadius( radius + 0.333f );
+			if ( radius < D().m_maxMinorRadius ) geom.setMinorRadius( radius + 0.333f );
 		}
 
 
@@ -198,16 +200,16 @@ void CheckpointUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// enemy near
-	xfer->xferBool( &m_enemyNear );
+	xfer->xferBool( &D().m_enemyNear );
 
 	// ally near
-	xfer->xferBool( &m_allyNear );
+	xfer->xferBool( &D().m_allyNear );
 
 	// max minor radius
-	xfer->xferReal( &m_maxMinorRadius );
+	xfer->xferReal( &D().m_maxMinorRadius );
 
 	// enemy scan delay
-	xfer->xferUnsignedInt( &m_enemyScanDelay );
+	xfer->xferUnsignedInt( &D().m_enemyScanDelay );
 
 }
 

@@ -64,6 +64,7 @@
 
 
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 SpectreGunshipDeploymentUpdateModuleData::SpectreGunshipDeploymentUpdateModuleData()
@@ -109,8 +110,9 @@ static Real zero = 0.0f;
 //-------------------------------------------------------------------------------------------------
 SpectreGunshipDeploymentUpdate::SpectreGunshipDeploymentUpdate( Thing *thing, const ModuleData* moduleData ) : SpecialPowerUpdateModule( thing, moduleData )
 {
-	m_specialPowerModule = nullptr;
-  m_gunshipID  = INVALID_ID;
+
+	D().m_specialPowerModule = nullptr;
+  D().m_gunshipID  = INVALID_ID;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -132,7 +134,7 @@ void SpectreGunshipDeploymentUpdate::onObjectCreated()
 		return;
 	}
 
-	m_specialPowerModule = obj->getSpecialPowerModule( data->m_specialPowerTemplate );
+	D().m_specialPowerModule = obj->getSpecialPowerModule( data->m_specialPowerTemplate );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -140,7 +142,7 @@ Bool SpectreGunshipDeploymentUpdate::initiateIntentToDoSpecialPower(const Specia
 {
 	const SpectreGunshipDeploymentUpdateModuleData *data = getSpectreGunshipDeploymentUpdateModuleData();
 
-	if( m_specialPowerModule->getSpecialPowerTemplate() != specialPowerTemplate )
+	if( D().m_specialPowerModule->getSpecialPowerTemplate() != specialPowerTemplate )
 	{
 		//Check to make sure our modules are connected.
 		return FALSE;
@@ -150,22 +152,22 @@ Bool SpectreGunshipDeploymentUpdate::initiateIntentToDoSpecialPower(const Specia
 
 	if( !BitIsSet( commandOptions, COMMAND_FIRED_BY_SCRIPT ) )
 	{
-/******CHANGE*******/		m_initialTargetPosition.set( targetPos );
+/******CHANGE*******/		D().m_initialTargetPosition.set( targetPos );
 	}
 	else
 	{
 		UnsignedInt now = TheGameLogic->getFrame();
-		m_specialPowerModule->setReadyFrame( now );
-/******CHANGE*******/   	m_initialTargetPosition.set( targetPos );
+		D().m_specialPowerModule->setReadyFrame( now );
+/******CHANGE*******/   	D().m_initialTargetPosition.set( targetPos );
 //		setLogicalStatus( GUNSHIPDEPLOY_STATUS_INSERTING );
 	}
 
-   Object *newGunship = TheGameLogic->findObjectByID( m_gunshipID );
+   Object *newGunship = TheGameLogic->findObjectByID( D().m_gunshipID );
 	const ThingTemplate *gunshipTemplate = TheThingFactory->findTemplate( data->m_gunshipTemplateName );
 	if( newGunship != nullptr )
   {
 //    disengageAndDepartAO( newGunship );
-    m_gunshipID = INVALID_ID;
+    D().m_gunshipID = INVALID_ID;
     newGunship = nullptr;
   }
 
@@ -204,33 +206,33 @@ Bool SpectreGunshipDeploymentUpdate::initiateIntentToDoSpecialPower(const Specia
 
 
       // HERE WE NEED TO CREATE THE POINT FURTHER OFF THE MAP SO WE CANT SEE THE LAME HOVER AND ACCELERATE BEHAVIOR
-    Coord3D deltaToCreationPoint = m_initialTargetPosition;
+    Coord3D deltaToCreationPoint = D().m_initialTargetPosition;
     deltaToCreationPoint.sub( &creationCoord );
     Real distanceFromTarget = deltaToCreationPoint.length();
     deltaToCreationPoint.normalize();
     deltaToCreationPoint.x *= ( distanceFromTarget + data->m_gunshipOrbitRadius );
     deltaToCreationPoint.y *= ( distanceFromTarget + data->m_gunshipOrbitRadius );
-    creationCoord.x = m_initialTargetPosition.x - deltaToCreationPoint.x;
-    creationCoord.y = m_initialTargetPosition.y - deltaToCreationPoint.y;
+    creationCoord.x = D().m_initialTargetPosition.x - deltaToCreationPoint.x;
+    creationCoord.y = D().m_initialTargetPosition.y - deltaToCreationPoint.y;
 
     Real preferredElevation = newGunship->getAI()->getCurLocomotor()->getPreferredHeight();
     creationCoord.z = preferredElevation;
     newGunship->setPosition( &creationCoord );
 
     //ORIENTATION
-		Real orient = atan2( m_initialTargetPosition.y - creationCoord.y, m_initialTargetPosition.x - creationCoord.x);
+		Real orient = atan2( D().m_initialTargetPosition.y - creationCoord.y, D().m_initialTargetPosition.x - creationCoord.x);
     newGunship->setOrientation( orient );
 
     // ID
-    m_gunshipID = newGunship->getID();
+    D().m_gunshipID = newGunship->getID();
 
     // FIRE THE SPECIAL POWER OF THE GUNSHIP
 	  SpecialPowerModuleInterface *shipSPMInterface = newGunship->getSpecialPowerModule( specialPowerTemplate );
 	  if( shipSPMInterface )
 	  {
 		  SpecialPowerModule *spModule = (SpecialPowerModule*)shipSPMInterface;
-		  spModule->markSpecialPowerTriggered( &m_initialTargetPosition );
-      spModule->doSpecialPowerAtLocation( &m_initialTargetPosition, INVALID_ANGLE, commandOptions );
+		  spModule->markSpecialPowerTriggered( &D().m_initialTargetPosition );
+      spModule->doSpecialPowerAtLocation( &D().m_initialTargetPosition, INVALID_ANGLE, commandOptions );
 
 	  }
 
@@ -246,7 +248,7 @@ Bool SpectreGunshipDeploymentUpdate::initiateIntentToDoSpecialPower(const Specia
 	if( spmInterface )
 	{
 		SpecialPowerModule *spModule = (SpecialPowerModule*)spmInterface;
-		spModule->markSpecialPowerTriggered( &m_initialTargetPosition );
+		spModule->markSpecialPowerTriggered( &D().m_initialTargetPosition );
 	}
 
   return TRUE;
@@ -313,7 +315,7 @@ void SpectreGunshipDeploymentUpdate::xfer( Xfer *xfer )
 
 	// extend base class
 	UpdateModule::xfer( xfer );
-  xfer->xferObjectID( &m_gunshipID );
+  xfer->xferObjectID( &D().m_gunshipID );
 
 }
 

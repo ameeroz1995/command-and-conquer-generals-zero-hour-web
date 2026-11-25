@@ -38,6 +38,7 @@
 
 
 
+
 //-------------------------------------------------------------------------------------------------
 FireWeaponUpdateModuleData::FireWeaponUpdateModuleData()
 {
@@ -63,19 +64,19 @@ FireWeaponUpdateModuleData::FireWeaponUpdateModuleData()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-FireWeaponUpdate::FireWeaponUpdate( Thing *thing, const ModuleData* moduleData ) :
-	UpdateModule( thing, moduleData ),
-	m_weapon(nullptr)
+FireWeaponUpdate::FireWeaponUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	D().m_weapon = nullptr;
+
 	const WeaponTemplate *tmpl = getFireWeaponUpdateModuleData()->m_weaponTemplate;
 	if (tmpl)
 	{
-		m_weapon = TheWeaponStore->allocateNewWeapon(tmpl, PRIMARY_WEAPON);
-		m_weapon->loadAmmoNow( getObject() );
+		D().m_weapon = TheWeaponStore->allocateNewWeapon(tmpl, PRIMARY_WEAPON);
+		D().m_weapon->loadAmmoNow( getObject() );
 	}
 
 
-  m_initialDelayFrame = TheGameLogic->getFrame() + getFireWeaponUpdateModuleData()->m_initialDelayFrames;
+  D().m_initialDelayFrame = TheGameLogic->getFrame() + getFireWeaponUpdateModuleData()->m_initialDelayFrames;
 
 }
 
@@ -83,7 +84,7 @@ FireWeaponUpdate::FireWeaponUpdate( Thing *thing, const ModuleData* moduleData )
 //-------------------------------------------------------------------------------------------------
 FireWeaponUpdate::~FireWeaponUpdate()
 {
-	deleteInstance(m_weapon);
+	deleteInstance(D().m_weapon);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -91,14 +92,14 @@ FireWeaponUpdate::~FireWeaponUpdate()
 UpdateSleepTime FireWeaponUpdate::update()
 {
 
-  if ( TheGameLogic->getFrame() < m_initialDelayFrame )
+  if ( TheGameLogic->getFrame() < D().m_initialDelayFrame )
     return UPDATE_SLEEP_NONE;
 
 
 	// If my weapon is ready, shoot it.
 	if( isOkayToFire() )
 	{
-		m_weapon->forceFireWeapon( getObject(), getObject()->getPosition() );
+		D().m_weapon->forceFireWeapon( getObject(), getObject()->getPosition() );
 	}
 	return UPDATE_SLEEP_NONE;
 }
@@ -110,11 +111,11 @@ Bool FireWeaponUpdate::isOkayToFire()
 	const Object *me = getObject();
 	const FireWeaponUpdateModuleData *data = getFireWeaponUpdateModuleData();
 
-	if( m_weapon == nullptr )
+	if( D().m_weapon == nullptr )
 		return FALSE;
 
 	// Weapon is reloading
-	if( m_weapon->getStatus() != READY_TO_FIRE )
+	if( D().m_weapon->getStatus() != READY_TO_FIRE )
 		return FALSE;
 
 	if( me->testStatus(OBJECT_STATUS_UNDER_CONSTRUCTION) )
@@ -154,10 +155,10 @@ void FireWeaponUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// weapon
-	xfer->xferSnapshot( m_weapon );
+	xfer->xferSnapshot( D().m_weapon );
 
   if ( version >= 2 )
-    xfer->xferUnsignedInt( &m_initialDelayFrame );
+    xfer->xferUnsignedInt( &D().m_initialDelayFrame );
 
 }
 

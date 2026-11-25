@@ -34,6 +34,7 @@
 #include "Common/Module.h"
 #include "Common/Science.h"
 #include "GameLogic/Module/BehaviorModule.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class Object;
@@ -127,7 +128,7 @@ public:
 	//
 
 	void setReadyFrame( UnsignedInt frame );
-	UnsignedInt getReadyFrame() { return m_availableOnFrame; }// USED BY PLAYER TO KEEP RECHARGE TIMERS IN SYNC
+	UnsignedInt getReadyFrame() { return PD().m_availableOnFrame; }// USED BY PLAYER TO KEEP RECHARGE TIMERS IN SYNC
 	void pauseCountdown( Bool pause );
 
 	//
@@ -170,9 +171,17 @@ protected:
 	void resolveSpecialPower();
 	void aboutToDoSpecialPower( const Coord3D *location );
 
-	UnsignedInt m_availableOnFrame;			///< on this frame, this special power is available
-	Int m_pausedCount;									///< Reference count of sources pausing me
-	UnsignedInt m_pausedOnFrame;
-	Real m_pausedPercent;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		UnsignedInt m_availableOnFrame;			///< on this frame, this special power is available
+		Int m_pausedCount;									///< Reference count of sources pausing me
+		UnsignedInt m_pausedOnFrame;
+		Real m_pausedPercent;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &PD() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 };

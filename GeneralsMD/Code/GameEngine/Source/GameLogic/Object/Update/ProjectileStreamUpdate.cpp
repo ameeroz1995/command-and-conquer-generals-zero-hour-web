@@ -37,17 +37,19 @@
 #include "WWMath/vector3.h"
 
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 ProjectileStreamUpdate::ProjectileStreamUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	std::fill(m_projectileIDs, m_projectileIDs + ARRAY_SIZE(m_projectileIDs), INVALID_ID);
-	m_nextFreeIndex = 0;
-	m_firstValidIndex = 0;
-	m_owningObject = INVALID_ID;
 
-	m_targetObject = INVALID_ID;
-	m_targetPosition.zero();
+	std::fill(D().m_projectileIDs, D().m_projectileIDs + ARRAY_SIZE(D().m_projectileIDs), INVALID_ID);
+	D().m_nextFreeIndex = 0;
+	D().m_firstValidIndex = 0;
+	D().m_owningObject = INVALID_ID;
+
+	D().m_targetObject = INVALID_ID;
+	D().m_targetPosition.zero();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -74,41 +76,41 @@ UpdateSleepTime ProjectileStreamUpdate::update()
 
 void ProjectileStreamUpdate::addProjectile( ObjectID sourceID, ObjectID newID, ObjectID victimID, const Coord3D *victimPos )
 {
-	DEBUG_ASSERTCRASH( m_owningObject == INVALID_ID  ||  m_owningObject == sourceID, ("Two objects are trying to use the same Projectile stream.") );//Don't cross the streams!
-	if( m_owningObject == INVALID_ID )
-		m_owningObject = sourceID;
+	DEBUG_ASSERTCRASH( D().m_owningObject == INVALID_ID  ||  D().m_owningObject == sourceID, ("Two objects are trying to use the same Projectile stream.") );//Don't cross the streams!
+	if( D().m_owningObject == INVALID_ID )
+		D().m_owningObject = sourceID;
 
 	// Keep track of target, and insert a hole if the target has changed
 	if( victimID != INVALID_ID )
 	{
 		// Object shot
-		if( victimID != m_targetObject )
+		if( victimID != D().m_targetObject )
 		{
 			// Changed targets, insert a hole to break the stream
-			m_projectileIDs[ m_nextFreeIndex ] = INVALID_ID;
-			m_nextFreeIndex = (m_nextFreeIndex + 1) % MAX_PROJECTILE_STREAM;
+			D().m_projectileIDs[ D().m_nextFreeIndex ] = INVALID_ID;
+			D().m_nextFreeIndex = (D().m_nextFreeIndex + 1) % MAX_PROJECTILE_STREAM;
 
 			// And mark this as our new target
-			m_targetObject = victimID;
+			D().m_targetObject = victimID;
 		}
 
 		// Clear position so we know we are an object shot
-		m_targetPosition.zero();
+		D().m_targetPosition.zero();
 	}
 	else if( victimPos != nullptr )
 	{
-		if( ! (m_targetPosition == (*victimPos)) )
+		if( ! (D().m_targetPosition == (*victimPos)) )
 		{
 			// New position, so insert hole
-			m_projectileIDs[ m_nextFreeIndex ] = INVALID_ID;
-			m_nextFreeIndex = (m_nextFreeIndex + 1) % MAX_PROJECTILE_STREAM;
+			D().m_projectileIDs[ D().m_nextFreeIndex ] = INVALID_ID;
+			D().m_nextFreeIndex = (D().m_nextFreeIndex + 1) % MAX_PROJECTILE_STREAM;
 
 			// And mark this as our new target
-			m_targetPosition = (*victimPos);
+			D().m_targetPosition = (*victimPos);
 		}
 
 		// Clear object so we know we are a position shot
-		m_targetObject = INVALID_ID;
+		D().m_targetObject = INVALID_ID;
 	}
 	else
 	{
@@ -116,26 +118,26 @@ void ProjectileStreamUpdate::addProjectile( ObjectID sourceID, ObjectID newID, O
 	}
 
 	// Keep track of the id in a circular array
-	m_projectileIDs[ m_nextFreeIndex ] = newID;
-	m_nextFreeIndex = (m_nextFreeIndex + 1) % MAX_PROJECTILE_STREAM;
-	DEBUG_ASSERTCRASH( m_nextFreeIndex != m_firstValidIndex, ("Need to increase the allowed number of simultaneous particles in ProjectileStreamUpdate.") );
+	D().m_projectileIDs[ D().m_nextFreeIndex ] = newID;
+	D().m_nextFreeIndex = (D().m_nextFreeIndex + 1) % MAX_PROJECTILE_STREAM;
+	DEBUG_ASSERTCRASH( D().m_nextFreeIndex != D().m_firstValidIndex, ("Need to increase the allowed number of simultaneous particles in ProjectileStreamUpdate.") );
 }
 
 void ProjectileStreamUpdate::cullFrontOfList()
 {
-	while( (m_firstValidIndex != m_nextFreeIndex)  &&  (TheGameLogic->findObjectByID( m_projectileIDs[m_firstValidIndex] ) == nullptr) )
+	while( (D().m_firstValidIndex != D().m_nextFreeIndex)  &&  (TheGameLogic->findObjectByID( D().m_projectileIDs[D().m_firstValidIndex] ) == nullptr) )
 	{
 		// Chew off the front if they are gone.  Don't chew on the middle, as bad ones there are just a break in the chain
-		m_firstValidIndex = (m_firstValidIndex + 1) % MAX_PROJECTILE_STREAM;
+		D().m_firstValidIndex = (D().m_firstValidIndex + 1) % MAX_PROJECTILE_STREAM;
 	}
 }
 
 Bool ProjectileStreamUpdate::considerDying()
 {
-	if( m_firstValidIndex == m_nextFreeIndex  &&  m_owningObject != INVALID_ID )
+	if( D().m_firstValidIndex == D().m_nextFreeIndex  &&  D().m_owningObject != INVALID_ID )
 	{
 		//If I have no projectiles to watch, and my master is dead, then yes, I want to die
-		if( TheGameLogic->findObjectByID(m_owningObject) == nullptr )
+		if( TheGameLogic->findObjectByID(D().m_owningObject) == nullptr )
 			return TRUE;
 	}
 
@@ -145,18 +147,18 @@ Bool ProjectileStreamUpdate::considerDying()
 void ProjectileStreamUpdate::getAllPoints( Vector3 *points, Int *count )
 {
 	Int pointCount = 0;
-	Int pointIndex = m_firstValidIndex;
+	Int pointIndex = D().m_firstValidIndex;
 
 
-	Object *obj = TheGameLogic->findObjectByID(m_owningObject);
+	Object *obj = TheGameLogic->findObjectByID(D().m_owningObject);
 
 
-	while( pointIndex != m_nextFreeIndex )
+	while( pointIndex != D().m_nextFreeIndex )
 	{
 		// Go through the array I think of as good.  Holes in the middle get 0,0,0.  I write
 		// to pointCount because I am unrolling a circular array into the same sized flat one
 		// since I am writing anyway.
-		Object *projectile = TheGameLogic->findObjectByID( m_projectileIDs[pointIndex] );
+		Object *projectile = TheGameLogic->findObjectByID( D().m_projectileIDs[pointIndex] );
 
 		if( projectile )
 		{
@@ -232,21 +234,21 @@ void ProjectileStreamUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// projectile ids
-	xfer->xferUser( m_projectileIDs, sizeof( ObjectID ) * MAX_PROJECTILE_STREAM );
+	xfer->xferUser( D().m_projectileIDs, sizeof( ObjectID ) * MAX_PROJECTILE_STREAM );
 
 	// next free index
-	xfer->xferInt( &m_nextFreeIndex );
+	xfer->xferInt( &D().m_nextFreeIndex );
 
 	// first valid index
-	xfer->xferInt( &m_firstValidIndex );
+	xfer->xferInt( &D().m_firstValidIndex );
 
 	// owning object
-	xfer->xferObjectID( &m_owningObject );
+	xfer->xferObjectID( &D().m_owningObject );
 
 	if( version >= 2 )
 	{
-		xfer->xferObjectID( &m_targetObject );
-		xfer->xferCoord3D( &m_targetPosition );
+		xfer->xferObjectID( &D().m_targetObject );
+		xfer->xferCoord3D( &D().m_targetPosition );
 	}
 
 }

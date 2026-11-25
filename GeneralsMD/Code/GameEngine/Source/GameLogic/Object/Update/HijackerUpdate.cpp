@@ -48,15 +48,17 @@
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/ExperienceTracker.h"
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 HijackerUpdate::HijackerUpdate( Thing *thing, const ModuleData *moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_targetID = INVALID_ID;
+
+	D().m_targetID = INVALID_ID;
 	setUpdate( FALSE );
 	setIsInVehicle( FALSE );
-	m_wasTargetAirborne = false;
-	m_ejectPos.zero();
+	D().m_wasTargetAirborne = false;
+	D().m_ejectPos.zero();
 //	m_ejectPilotDMI = nullptr;
 }
 
@@ -72,12 +74,12 @@ UpdateSleepTime HijackerUpdate::update()
 {
 /// @todo srj use SLEEPY_UPDATE here
 
-	if ( ! m_update) // have not flagged for updating
+	if ( ! D().m_update) // have not flagged for updating
 	{
 		return UPDATE_SLEEP_NONE;
 	}
 
-	if (m_isInVehicle)
+	if (D().m_isInVehicle)
 	{
 		Object *obj = getObject();
 
@@ -88,8 +90,8 @@ UpdateSleepTime HijackerUpdate::update()
 		{
 			// @todo I think we should test for ! IsEffectivelyDead() as well, here
 			obj->setPosition( target->getPosition() );
-			m_wasTargetAirborne = target->isSignificantlyAboveTerrain();
-			m_ejectPos = *target->getPosition();
+			D().m_wasTargetAirborne = target->isSignificantlyAboveTerrain();
+			D().m_ejectPos = *target->getPosition();
 
 			// So, if while I am driving this American war vehicle, I gain skill points, I get to keep them when I wreck the vehicle
 			ExperienceTracker *targetExp = target->getExperienceTracker();
@@ -125,14 +127,14 @@ UpdateSleepTime HijackerUpdate::update()
 					ai->aiIdle( CMD_FROM_AI );
 				}
 
-				if (m_wasTargetAirborne)
+				if (D().m_wasTargetAirborne)
 				{
 					const ThingTemplate* putInContainerTmpl = TheThingFactory->findTemplate(getHijackerUpdateModuleData()->m_parachuteName);
 					DEBUG_ASSERTCRASH(putInContainerTmpl,("DeliverPayload: PutInContainer %s not found!",getHijackerUpdateModuleData()->m_parachuteName.str()));
 					if (putInContainerTmpl)
 					{
 						Object* container = TheThingFactory->newObject( putInContainerTmpl, obj->getTeam() );
-						container->setPosition(&m_ejectPos);
+						container->setPosition(&D().m_ejectPos);
 						if (container->getContain()->isValidContainerFor(obj, true))
 						{
 							container->getContain()->addToContain(obj);
@@ -151,14 +153,14 @@ UpdateSleepTime HijackerUpdate::update()
 			setTargetObject( nullptr );
 			setIsInVehicle( FALSE );
 			setUpdate( FALSE );
-			m_wasTargetAirborne = false;
+			D().m_wasTargetAirborne = false;
 
 		}
 
 	}
 	else	// not in vehicle
 	{
-		m_wasTargetAirborne = false;
+		D().m_wasTargetAirborne = false;
 	}
 
 	return UPDATE_SLEEP_NONE;
@@ -170,7 +172,7 @@ void HijackerUpdate::setTargetObject( const Object *object )
 {
   if( object )
   {
-    m_targetID = object->getID();
+    D().m_targetID = object->getID();
 
 		// here we also test the target to see whether it ejects pilots
 		// when it dies... if so, stores a pointer to that diemoduleinterface
@@ -186,7 +188,7 @@ void HijackerUpdate::setTargetObject( const Object *object )
   }
 	else
 	{
-		m_targetID = INVALID_ID;
+		D().m_targetID = INVALID_ID;
 //		m_ejectPilotDMI = nullptr;
 	}
 
@@ -194,9 +196,9 @@ void HijackerUpdate::setTargetObject( const Object *object )
 
 Object* HijackerUpdate::getTargetObject() const
 {
-  if( m_targetID != INVALID_ID )
+  if( D().m_targetID != INVALID_ID )
   {
-    return TheGameLogic->findObjectByID( m_targetID );
+    return TheGameLogic->findObjectByID( D().m_targetID );
   }
   return nullptr;
 }
@@ -229,19 +231,19 @@ void HijackerUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// target ID
-	xfer->xferObjectID( &m_targetID );
+	xfer->xferObjectID( &D().m_targetID );
 
 	// eject pos
-	xfer->xferCoord3D( &m_ejectPos );
+	xfer->xferCoord3D( &D().m_ejectPos );
 
 	// update
-	xfer->xferBool( &m_update );
+	xfer->xferBool( &D().m_update );
 
 	// is in vehicle
-	xfer->xferBool( &m_isInVehicle );
+	xfer->xferBool( &D().m_isInVehicle );
 
 	// was target airborne
-	xfer->xferBool( &m_wasTargetAirborne );
+	xfer->xferBool( &D().m_wasTargetAirborne );
 
 }
 
@@ -255,7 +257,7 @@ void HijackerUpdate::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 	// set the target object, this will also tie up the m_ejectPilotDMI pointer
-	Object *obj = TheGameLogic->findObjectByID( m_targetID );
+	Object *obj = TheGameLogic->findObjectByID( D().m_targetID );
 	setTargetObject( obj );
 
 }

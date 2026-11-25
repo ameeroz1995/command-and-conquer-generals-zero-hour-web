@@ -3842,3 +3842,26 @@ Stays default off.
   - moveAfterTick off vs on (paths-28): 14.9 → 14.5 / 7.0 → 6.5 / 34 → 35 and 14.7 → 12.3 /
     6.0 → 5.9 / 21 → 115 (that half ran at load 8.6–9.8). Not faster: kept behind its rule,
     default off, as the round-4 bar asks.
+
+## 2026-11-25 — Round 5, combat: weapons, special powers and combat update modules as data
+
+- Weapon and WeaponSet: every field moved into column tables (TheGxWeapons, TheGxWeaponSets in
+  Weapon.h / WeaponSet.h; one row per weapon / set, rows reused through a free list). The classes keep
+  only their row; xfer and CRC read and write the columns. Same game.
+- SpecialPowerModule (the only special-power class with state; the 10 powers built on it hold none)
+  and 39 combat update modules (Lifetime, Deletion, OCL, FireWeapon, Laser, ProjectileStream, Flammable,
+  BoneFX, Topple, StructureTopple/Collapse, HeightDie, NeutronMissile and its slow death, Helicopter
+  slow death, ParticleUplinkCannon, Spectre*, SpecialAbility, Production, PowerPlant, ...): the
+  module's state is one row in GxComponentPool<Module::Row> (collide's Common/GxComponentPool.h);
+  the module holds a GxRow and reaches its row through D(). Done by script
+  (~/generals-bench/gxrows.py: members move into a nested Row, uses in the class's own methods are
+  rewritten, ModuleData code with the same member names is left alone). FireSpread and WeaponBonus
+  have no state.
+- weaponReload (fourth word bit 24, off; rides on match rule updatePasses because a weapon's saved
+  status is in the CRC): a kernel over weapon rows [b, e) gives every weapon whose reload is over the
+  status getStatus() would give it, writing only its own rows and listing the owners; the apply step
+  (main thread) puts those units back into the weapon-status pass.
+- Checks (build combat-r5c): referee replay matches (verify 91200 checks, 0 mismatches); a recording
+  with weaponReload on replays to a match (verify 18225, 0); mt referee matches.
+- Not yet: kernel + apply splits for the update modules (waiting on a per-kind system hook in the
+  updatePasses dispatch, ai's file); timing pairs (load 60+ while every lane builds).

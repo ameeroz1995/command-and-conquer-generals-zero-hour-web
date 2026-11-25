@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/Geometry.h"
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class DynamicGeometryInfoUpdateModuleData : public ModuleData
@@ -80,22 +81,30 @@ public:
 
 protected:
 
-	UnsignedInt m_startingDelayCountdown;
-	UnsignedInt m_timeActive;
-
-	Bool m_started;
-	Bool m_finished;
-
-	Bool m_reverseAtTransitionTime;						///< do a reverse at transition time
 	enum DynamicGeometryDirection { FORWARD = 1, BACKWARD = -1 };
-	DynamicGeometryDirection m_direction;			///< direction we're growing/shrinking
-	Bool m_switchedDirections;								///< TRUE once we've switched directions
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		UnsignedInt m_startingDelayCountdown;
+		UnsignedInt m_timeActive;
+		Bool m_started;
+		Bool m_finished;
+		Bool m_reverseAtTransitionTime;						///< do a reverse at transition time
+		DynamicGeometryDirection m_direction;			///< direction we're growing/shrinking
+		Bool m_switchedDirections;								///< TRUE once we've switched directions
+		Real m_initialHeight;
+		Real m_initialMajorRadius;
+		Real m_initialMinorRadius;
+		Real m_finalHeight;
+		Real m_finalMajorRadius;
+		Real m_finalMinorRadius;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &GD() const { return const_cast<Row &>(*m_gx); }
+protected:
 
-	Real m_initialHeight;
-	Real m_initialMajorRadius;
-	Real m_initialMinorRadius;
-	Real m_finalHeight;
-	Real m_finalMajorRadius;
-	Real m_finalMinorRadius;
+
+
 
 };

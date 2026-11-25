@@ -473,7 +473,8 @@ void GLES3_Begin_Scene() {
         });
         g_PageSwitches4 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
-            return 0;   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+            return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+                 | (o.weaponReload === true ? 16777216 : 0);   // bit 24: weaponReload, with match rule updatePasses: weapon reloads as a system at the start of the tick (Weapon.cpp)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

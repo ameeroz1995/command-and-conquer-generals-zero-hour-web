@@ -36,6 +36,7 @@
 #include "Lib/BaseType.h"
 #include "Common/RandomValue.h"
 #include "GameClient/ParticleSys.h"
+#include "Common/GxComponentPool.h"
 
 class FXList;
 class ObjectCreationList;
@@ -181,15 +182,23 @@ protected:
 		TOPPLESTATE_DONE
 	};
 
-	UnsignedInt m_toppleFrame;
-	Coord2D m_toppleDirection;
-	StructureToppleStateType m_toppleState;
-	Real m_toppleVelocity;
-	Real m_accumulatedAngle;
-	Real m_structuralIntegrity;
-	Real m_lastCrushedLocation;
-	Int m_nextBurstFrame;
-	Coord3D m_delayBurstLocation;
-	Real m_buildingHeight;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		UnsignedInt m_toppleFrame;
+		Coord2D m_toppleDirection;
+		StructureToppleStateType m_toppleState;
+		Real m_toppleVelocity;
+		Real m_accumulatedAngle;
+		Real m_structuralIntegrity;
+		Real m_lastCrushedLocation;
+		Int m_nextBurstFrame;
+		Coord3D m_delayBurstLocation;
+		Real m_buildingHeight;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 };

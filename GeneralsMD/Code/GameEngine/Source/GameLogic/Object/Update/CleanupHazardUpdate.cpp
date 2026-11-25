@@ -47,6 +47,7 @@
 #include "GameLogic/Module/AIUpdate.h"
 
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 CleanupHazardUpdateModuleData::CleanupHazardUpdateModuleData()
@@ -74,13 +75,14 @@ CleanupHazardUpdateModuleData::CleanupHazardUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 CleanupHazardUpdate::CleanupHazardUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_bestTargetID							= INVALID_ID;
-	m_nextScanFrames						= 0;
-	m_nextShotAvailableInFrames = 0;
-	m_inRange  									= false;
-	m_weaponTemplate						= nullptr;
-	m_moveRange									= 0.0f;
-	m_pos.zero();
+
+	D().m_bestTargetID							= INVALID_ID;
+	D().m_nextScanFrames						= 0;
+	D().m_nextShotAvailableInFrames = 0;
+	D().m_inRange  									= false;
+	D().m_weaponTemplate						= nullptr;
+	D().m_moveRange									= 0.0f;
+	D().m_pos.zero();
 
 }
 
@@ -107,12 +109,12 @@ void CleanupHazardUpdate::onObjectCreated()
 			getObject()->getTemplate()->getName().str() ) );
 		return;
 	}
-	m_weaponTemplate = weapon->getTemplate();
+	D().m_weaponTemplate = weapon->getTemplate();
 
 	//Make sure our firing range is smaller than the scan range.
 	WeaponBonus bonus;
 	bonus.clear();
-	Real attackRange = m_weaponTemplate->getAttackRange( bonus );
+	Real attackRange = D().m_weaponTemplate->getAttackRange( bonus );
 	if( data->m_scanRange <= attackRange )
 	{
 		DEBUG_CRASH( ("CleanupHazardUpdate for %s requires the scan range (%.1f) being larger than the firing range (%.1f)",
@@ -130,7 +132,7 @@ UpdateSleepTime CleanupHazardUpdate::update()
 	Object *obj = getObject();
 
 	//Make sure we are "busy" for scripting purposes if the unit is cleaning up an area.
-	if( m_moveRange > 0.0f )
+	if( D().m_moveRange > 0.0f )
 	{
 		//Means we are cleaning up an AREA, not just things immediately in range.
 		AIUpdateInterface *ai = obj->getAI();
@@ -144,20 +146,20 @@ UpdateSleepTime CleanupHazardUpdate::update()
 			else if( ai->getLastCommandSource() != CMD_FROM_AI )
 			{
 				//Either the player or a script gave a NEW order so abandon the cleanup area cause.
-				m_moveRange = 0.0f;
+				D().m_moveRange = 0.0f;
 				return UPDATE_SLEEP_NONE;
 			}
 		}
 	}
 
 	//Optimized firing at acquired target
-	if( m_nextScanFrames > 0 )
+	if( D().m_nextScanFrames > 0 )
 	{
-		m_nextScanFrames--;
+		D().m_nextScanFrames--;
 		fireWhenReady(); //Only happens if something is tracked.
 		return UPDATE_SLEEP_NONE;
 	}
-	m_nextScanFrames = data->m_scanFrames;
+	D().m_nextScanFrames = data->m_scanFrames;
 
 	//Periodic scanning (expensive)
 	if( scanClosestTarget() )
@@ -165,23 +167,23 @@ UpdateSleepTime CleanupHazardUpdate::update()
 		//1 frame can make a big difference so fire ASAP!
 		fireWhenReady();
 	}
-	else if( m_moveRange )
+	else if( D().m_moveRange )
 	{
 		//There's nothing nearby, so if we are cleaning up an area versus hazards
 		//immediately in range, set the AI to idle so it can advance to the next script!
 		AIUpdateInterface *ai = obj->getAI();
 		if( ai && (ai->isIdle() || ai->isBusy()) )
 		{
-			Real fDist = sqrt( ThePartitionManager->getDistanceSquared( obj, &m_pos, FROM_CENTER_2D ) );
+			Real fDist = sqrt( ThePartitionManager->getDistanceSquared( obj, &D().m_pos, FROM_CENTER_2D ) );
 			if( fDist < 25.0f )
 			{
 				//Abort clean area because there's nothing left to clean!
-				m_moveRange = 0.0f;
+				D().m_moveRange = 0.0f;
 			}
 			else
 			{
 				//Abort clean area AFTER we move back to our initial position!
-				ai->aiMoveToPosition( &m_pos, CMD_FROM_AI );
+				ai->aiMoveToPosition( &D().m_pos, CMD_FROM_AI );
 			}
 		}
 	}
@@ -197,46 +199,46 @@ void CleanupHazardUpdate::fireWhenReady()
 	//Track our target (this code prevents the object from moving beyond range)
 	//If we are ordered to clean an area, then range doesn't matter because
 	//we allow the unit to move to the area.
-	Object *target = TheGameLogic->findObjectByID( m_bestTargetID );
-	if( target && m_moveRange == 0.0f )
+	Object *target = TheGameLogic->findObjectByID( D().m_bestTargetID );
+	if( target && D().m_moveRange == 0.0f )
 	{
 		WeaponBonus bonus;
 		bonus.clear();
-		Real fireRange = m_weaponTemplate->getAttackRange( bonus );
+		Real fireRange = D().m_weaponTemplate->getAttackRange( bonus );
 		Object *me = getObject();
 		Real fDist = sqrt( ThePartitionManager->getDistanceSquared( me, target, FROM_CENTER_2D ) );
 		if( fDist < fireRange )
 		{
 			//We are currently in range!
-			m_inRange = true;
+			D().m_inRange = true;
 		}
 		else
 		{
-			if( m_inRange )
+			if( D().m_inRange )
 			{
 				//We were in range last frame, but the target has moved out of firing range, so
 				//re-evaluate by forcing a new scan.
-				m_nextScanFrames = GameLogicRandomValue( 0, 3 );
-				m_bestTargetID = INVALID_ID;
-				if( !m_nextScanFrames )
+				D().m_nextScanFrames = GameLogicRandomValue( 0, 3 );
+				D().m_bestTargetID = INVALID_ID;
+				if( !D().m_nextScanFrames )
 				{
 					scanClosestTarget();
-					m_nextScanFrames = data->m_scanFrames;
+					D().m_nextScanFrames = data->m_scanFrames;
 					target = nullptr; //Set target to nullptr so we don't shoot at it (might be out of range)
 				}
 			}
 			else
 			{
 				//Not in range
-				m_inRange = false;
+				D().m_inRange = false;
 			}
 		}
 	}
 
-	if( m_nextShotAvailableInFrames > 0 )
+	if( D().m_nextShotAvailableInFrames > 0 )
 	{
 		//We can't fire this frame.
-		m_nextShotAvailableInFrames--;
+		D().m_nextShotAvailableInFrames--;
 		return;
 	}
 
@@ -262,17 +264,17 @@ Object* CleanupHazardUpdate::scanClosestTarget()
 	const CleanupHazardUpdateModuleData *data = getCleanupHazardUpdateModuleData();
 	Object *me = getObject();
 	Object *bestTargetInRange = nullptr;
-	m_bestTargetID = INVALID_ID;
+	D().m_bestTargetID = INVALID_ID;
 
 	PartitionFilterAcceptByKindOf kindFilter(MAKE_KINDOF_MASK(KINDOF_CLEANUP_HAZARD), KINDOFMASK_NONE);
 	PartitionFilterSameMapStatus filterMapStatus(getObject());
 	PartitionFilter* filters[] = { &kindFilter, &filterMapStatus, nullptr };
 
-	if( m_moveRange > 0.0f )
+	if( D().m_moveRange > 0.0f )
 	{
 		//Look for targets around the target position only (but add scan range and move range).
 		//This case only happens when we are performing a cleanup area command.
-		bestTargetInRange = ThePartitionManager->getClosestObject( &m_pos, data->m_scanRange + m_moveRange, FROM_CENTER_2D, filters );
+		bestTargetInRange = ThePartitionManager->getClosestObject( &D().m_pos, data->m_scanRange + D().m_moveRange, FROM_CENTER_2D, filters );
 	}
 	else
 	{
@@ -282,7 +284,7 @@ Object* CleanupHazardUpdate::scanClosestTarget()
 
 	if( bestTargetInRange )
 	{
-		m_bestTargetID = bestTargetInRange->getID();
+		D().m_bestTargetID = bestTargetInRange->getID();
 	}
 	return bestTargetInRange;
 }
@@ -297,8 +299,8 @@ void CleanupHazardUpdate::setCleanupAreaParameters( const Coord3D *pos, Real ran
 
 	//Setting the move range triggers that passive conditions for it to be allowed to move
 	//from the specified position.
-	m_moveRange = range;
-	m_pos = *pos;
+	D().m_moveRange = range;
+	D().m_pos = *pos;
 
 	if( ai )
 	{
@@ -337,25 +339,25 @@ void CleanupHazardUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// best target id
-	xfer->xferObjectID( &m_bestTargetID );
+	xfer->xferObjectID( &D().m_bestTargetID );
 
 	// in range
-	xfer->xferBool( &m_inRange );
+	xfer->xferBool( &D().m_inRange );
 
 	// next scan frames
-	xfer->xferInt( &m_nextScanFrames );
+	xfer->xferInt( &D().m_nextScanFrames );
 
 	// next shot available in frames
-	xfer->xferInt( &m_nextShotAvailableInFrames );
+	xfer->xferInt( &D().m_nextShotAvailableInFrames );
 
 	// don't need to save weapon template, it's retrieved onObjectCreated
-	// const WeaponTemplate *m_weaponTemplate;
+	// const WeaponTemplate *D().m_weaponTemplate;
 
 	// pos
-	xfer->xferCoord3D( &m_pos );
+	xfer->xferCoord3D( &D().m_pos );
 
 	// move range
-	xfer->xferReal( &m_moveRange );
+	xfer->xferReal( &D().m_moveRange );
 
 }
 

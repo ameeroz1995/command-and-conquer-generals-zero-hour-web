@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
 #include "GameLogic/Weapon.h"
+#include "Common/GxComponentPool.h"
 
 //-------------------------------------------------------------------------------------------------
 class FireWeaponUpdateModuleData : public UpdateModuleData
@@ -68,7 +69,15 @@ protected:
 
 	Bool isOkayToFire();
 
-	Weapon* m_weapon;
-  UnsignedInt m_initialDelayFrame;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		Weapon* m_weapon;
+	  UnsignedInt m_initialDelayFrame;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 };

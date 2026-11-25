@@ -46,6 +46,7 @@
 #include "GameClient/Drawable.h"
 #include "GameClient/InGameUI.h"
 
+
 const Int MAX_IDX = 32;
 
 //-------------------------------------------------------------------------------------------------
@@ -65,11 +66,12 @@ static_assert(ARRAY_SIZE(TheStructureCollapsePhaseNames) == SC_PHASE_COUNT + 1, 
 //-------------------------------------------------------------------------------------------------
 StructureCollapseUpdate::StructureCollapseUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_collapseFrame = 0;
-	m_collapseState = COLLAPSESTATE_STANDING;
-	m_collapseVelocity = 0.0f;
-	m_burstFrame = 0;
-	m_currentHeight = 0.0f;
+
+	D().m_collapseFrame = 0;
+	D().m_collapseState = COLLAPSESTATE_STANDING;
+	D().m_collapseVelocity = 0.0f;
+	D().m_burstFrame = 0;
+	D().m_currentHeight = 0.0f;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
 
@@ -135,12 +137,12 @@ void StructureCollapseUpdate::beginStructureCollapse(const DamageInfo *damageInf
 	Object *building = getObject();
 	UnsignedInt now = TheGameLogic->getFrame();
 	// This has to use a game logic random value since the bursts can spawn debris, and debris is sync'd.
-	m_collapseFrame = now + GameLogicRandomValue(d->m_minCollapseDelay, d->m_maxCollapseDelay);
+	D().m_collapseFrame = now + GameLogicRandomValue(d->m_minCollapseDelay, d->m_maxCollapseDelay);
 
 	doPhaseStuff(SCPHASE_INITIAL, building->getPosition());
 
-	m_collapseState = COLLAPSESTATE_WAITINGFORCOLLAPSESTART;
-	m_currentHeight = 0.0f;
+	D().m_collapseState = COLLAPSESTATE_WAITINGFORCOLLAPSESTART;
+	D().m_currentHeight = 0.0f;
 
 	setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
 }
@@ -170,7 +172,7 @@ UpdateSleepTime StructureCollapseUpdate::update()
 	static const Real COLLAPSE_ACCELERATION_FACTOR = 0.02f;
 	const StructureCollapseUpdateModuleData *d = getStructureCollapseUpdateModuleData();
 
-	if (m_collapseState == COLLAPSESTATE_STANDING)
+	if (D().m_collapseState == COLLAPSESTATE_STANDING)
 	{
 		DEBUG_CRASH(("hmm, what?"));
 		return UPDATE_SLEEP_FOREVER;
@@ -178,7 +180,7 @@ UpdateSleepTime StructureCollapseUpdate::update()
 
 	// We are in the dramatic pause between when the building has lost all its hit points and
 	// when it starts toppling over.
-	if (m_collapseState == COLLAPSESTATE_WAITINGFORCOLLAPSESTART)
+	if (D().m_collapseState == COLLAPSESTATE_WAITINGFORCOLLAPSESTART)
 	{
 		UnsignedInt now = TheGameLogic->getFrame();
 		Object *building = getObject();
@@ -194,26 +196,26 @@ UpdateSleepTime StructureCollapseUpdate::update()
 
 		building->getDrawable()->setInstanceMatrix(&newInstMatrix);
 
-		if (now >= m_collapseFrame)
+		if (now >= D().m_collapseFrame)
 		{
-			m_collapseState = COLLAPSESTATE_COLLAPSING;
+			D().m_collapseState = COLLAPSESTATE_COLLAPSING;
 			doPhaseStuff(SCPHASE_BURST, currentPosition);
 			// This has to use a game logic random value since the bursts can spawn debris, and debris is sync'd.
-			m_burstFrame = now + GameLogicRandomValue(d->m_minBurstDelay, d->m_maxBurstDelay);
+			D().m_burstFrame = now + GameLogicRandomValue(d->m_minBurstDelay, d->m_maxBurstDelay);
 		}
 	}
 
 	// The building is in the process of falling over.
-	if (m_collapseState == COLLAPSESTATE_COLLAPSING)
+	if (D().m_collapseState == COLLAPSESTATE_COLLAPSING)
 	{
 		Object *building = getObject();
 		UnsignedInt now = TheGameLogic->getFrame();
-		m_currentHeight -= m_collapseVelocity;
-		m_collapseVelocity -= TheGlobalData->m_gravity * (1.0 - d->m_collapseDamping);
+		D().m_currentHeight -= D().m_collapseVelocity;
+		D().m_collapseVelocity -= TheGlobalData->m_gravity * (1.0 - d->m_collapseDamping);
 
 		const Coord3D *currentPosition = building->getPosition();
 		Vector3 shudder;
-		shudder.Set(GameClientRandomValueReal(-(d->m_maxShudder), d->m_maxShudder), GameClientRandomValueReal(-(d->m_maxShudder), d->m_maxShudder), m_currentHeight);
+		shudder.Set(GameClientRandomValueReal(-(d->m_maxShudder), d->m_maxShudder), GameClientRandomValueReal(-(d->m_maxShudder), d->m_maxShudder), D().m_currentHeight);
 		const Matrix3D *instMatrix = building->getDrawable()->getInstanceMatrix();
 		Matrix3D newInstMatrix;
 		newInstMatrix = *instMatrix;
@@ -221,7 +223,7 @@ UpdateSleepTime StructureCollapseUpdate::update()
 
 		building->getDrawable()->setInstanceMatrix(&newInstMatrix);
 
-		if (now >= m_burstFrame)
+		if (now >= D().m_burstFrame)
 		{
 			if (GameLogicRandomValue(1, d->m_bigBurstFrequency) == 1)
 			{
@@ -232,13 +234,13 @@ UpdateSleepTime StructureCollapseUpdate::update()
 				doPhaseStuff(SCPHASE_DELAY, currentPosition);
 			}
 			// This has to use a game logic random value since the bursts can spawn debris, and debris is sync'd.
-			m_burstFrame += GameLogicRandomValue(d->m_minBurstDelay, d->m_maxBurstDelay);
+			D().m_burstFrame += GameLogicRandomValue(d->m_minBurstDelay, d->m_maxBurstDelay);
 		}
 
-//		if ((m_currentHeight + building->getGeometryInfo().getMaxHeightAbovePosition()) <= 0)
-		if ((m_currentHeight + building->getTemplate()->getTemplateGeometryInfo().getMaxHeightAbovePosition()) <= 0)
+//		if ((D().m_currentHeight + building->getGeometryInfo().getMaxHeightAbovePosition()) <= 0)
+		if ((D().m_currentHeight + building->getTemplate()->getTemplateGeometryInfo().getMaxHeightAbovePosition()) <= 0)
 		{
-			m_collapseState = COLLAPSESTATE_DONE;
+			D().m_collapseState = COLLAPSESTATE_DONE;
 			doPhaseStuff(SCPHASE_FINAL, building->getPosition());
 			Drawable *drawable = building->getDrawable();
 
@@ -378,19 +380,19 @@ void StructureCollapseUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// collapse frame
-	xfer->xferUnsignedInt( &m_collapseFrame );
+	xfer->xferUnsignedInt( &D().m_collapseFrame );
 
 	// burst frame
-	xfer->xferUnsignedInt( &m_burstFrame );
+	xfer->xferUnsignedInt( &D().m_burstFrame );
 
 	// collapse state
-	xfer->xferUser( &m_collapseState, sizeof( StructureCollapseStateType ) );
+	xfer->xferUser( &D().m_collapseState, sizeof( StructureCollapseStateType ) );
 
 	// collapse velocity
-	xfer->xferReal( &m_collapseVelocity );
+	xfer->xferReal( &D().m_collapseVelocity );
 
 	// current height
-	xfer->xferReal( &m_currentHeight );
+	xfer->xferReal( &D().m_currentHeight );
 
 }
 

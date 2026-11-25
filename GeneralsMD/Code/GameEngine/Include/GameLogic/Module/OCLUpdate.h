@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 class ObjectCreationList;
 
@@ -84,10 +85,18 @@ public:
 
 protected:
 
-	UnsignedInt			m_nextCreationFrame;
-	UnsignedInt			m_timerStartedFrame;
-	Bool						m_isFactionNeutral;
-	Color						m_currentPlayerColor;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		UnsignedInt			m_nextCreationFrame;
+		UnsignedInt			m_timerStartedFrame;
+		Bool						m_isFactionNeutral;
+		Color						m_currentPlayerColor;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 	Bool shouldCreate();
 	void setNextCreationFrame();

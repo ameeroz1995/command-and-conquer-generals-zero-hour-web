@@ -39,6 +39,7 @@
 #include "GameLogic/Module/PowerPlantUpdate.h"
 
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 PowerPlantUpdateModuleData::PowerPlantUpdateModuleData()
@@ -54,11 +55,11 @@ PowerPlantUpdateModuleData::PowerPlantUpdateModuleData()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-PowerPlantUpdate::PowerPlantUpdate( Thing *thing, const ModuleData *moduleData )
-												: UpdateModule( thing, moduleData )
+PowerPlantUpdate::PowerPlantUpdate( Thing *thing, const ModuleData *moduleData ) : UpdateModule( thing, moduleData )
 {
 
-	m_extended = FALSE;
+
+	D().m_extended = FALSE;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 
 }
@@ -76,7 +77,7 @@ void PowerPlantUpdate::extendRods( Bool extend )
 {
 	if (extend)
 	{
-		if (!m_extended)
+		if (!D().m_extended)
 		{
 			const PowerPlantUpdateModuleData *modData = getPowerPlantUpdateModuleData();
 
@@ -85,7 +86,7 @@ void PowerPlantUpdate::extendRods( Bool extend )
 			if( draw )
 				draw->setModelConditionState( MODELCONDITION_POWER_PLANT_UPGRADING );
 
-			m_extended = TRUE;
+			D().m_extended = TRUE;
 			setWakeFrame(getObject(), UPDATE_SLEEP(modData->m_rodsExtendTime));
 		}
 	}
@@ -97,7 +98,7 @@ void PowerPlantUpdate::extendRods( Bool extend )
 			draw->clearModelConditionFlags( MAKE_MODELCONDITION_MASK2( MODELCONDITION_POWER_PLANT_UPGRADING,
 																														MODELCONDITION_POWER_PLANT_UPGRADED) );
 
-		m_extended = FALSE;
+		D().m_extended = FALSE;
 		setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 	}
 
@@ -113,7 +114,7 @@ UpdateSleepTime PowerPlantUpdate::update()
 		draw->clearAndSetModelConditionState( MODELCONDITION_POWER_PLANT_UPGRADING,
 																					MODELCONDITION_POWER_PLANT_UPGRADED );
 
-	m_extended = TRUE;
+	D().m_extended = TRUE;
 	return UPDATE_SLEEP_FOREVER;
 }
 
@@ -145,7 +146,7 @@ void PowerPlantUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// extend complete
-	xfer->xferBool( &m_extended );
+	xfer->xferBool( &D().m_extended );
 
 }
 

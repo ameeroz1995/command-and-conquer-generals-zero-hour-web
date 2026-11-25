@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class Thing;
@@ -73,5 +74,13 @@ protected:
 	void startProneEffects();
 	void stopProneEffects();
 
-	Int m_proneFrames;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		Int m_proneFrames;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 };

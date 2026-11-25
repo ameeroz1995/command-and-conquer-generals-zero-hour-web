@@ -50,6 +50,7 @@
 #include "GameLogic/Module/HelicopterSlowDeathUpdate.h"
 #include "GameLogic/Module/PhysicsUpdate.h"
 
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Helicopter slow death update module data ///////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -149,18 +150,18 @@ HelicopterSlowDeathBehaviorModuleData::HelicopterSlowDeathBehaviorModuleData()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-HelicopterSlowDeathBehavior::HelicopterSlowDeathBehavior( Thing *thing, const ModuleData *moduleData )
-													: SlowDeathBehavior( thing, moduleData )
+HelicopterSlowDeathBehavior::HelicopterSlowDeathBehavior( Thing *thing, const ModuleData *moduleData ) : SlowDeathBehavior( thing, moduleData )
 {
 
-	m_orbitDirection = ORBIT_DIRECTION_LEFT;
-	m_forwardAngle = 0.0f;
-	m_forwardSpeed = 0.0f;
-	m_selfSpin = 0.0f;
-	m_selfSpinTowardsMax = FALSE;
-	m_lastSelfSpinUpdateFrame = 0;
-	m_bladeFlyOffFrame = 0;
-	m_hitGroundFrame = 0;
+
+	D().m_orbitDirection = ORBIT_DIRECTION_LEFT;
+	D().m_forwardAngle = 0.0f;
+	D().m_forwardSpeed = 0.0f;
+	D().m_selfSpin = 0.0f;
+	D().m_selfSpinTowardsMax = FALSE;
+	D().m_lastSelfSpinUpdateFrame = 0;
+	D().m_bladeFlyOffFrame = 0;
+	D().m_hitGroundFrame = 0;
 
 }
 
@@ -188,36 +189,36 @@ void HelicopterSlowDeathBehavior::beginSlowDeath( const DamageInfo *damageInfo )
 	// get the module data
 	const HelicopterSlowDeathBehaviorModuleData *modData = getHelicopterSlowDeathBehaviorModuleData();
 
-	m_deathSound = modData->m_deathSound;
+	D().m_deathSound = modData->m_deathSound;
 
-	if (m_deathSound.getEventName().isEmpty() == false)
+	if (D().m_deathSound.getEventName().isEmpty() == false)
 	{
-		m_deathSound.setObjectID(getObject()->getID());
-		m_deathSound.setPlayingHandle(TheAudio->addAudioEvent(&m_deathSound));
+		D().m_deathSound.setObjectID(getObject()->getID());
+		D().m_deathSound.setPlayingHandle(TheAudio->addAudioEvent(&D().m_deathSound));
 	}
 
 
 	// pick a frame we will fly the blade off at
-	m_bladeFlyOffFrame = GameLogicRandomValueReal( modData->m_minBladeFlyOffDelay,
+	D().m_bladeFlyOffFrame = GameLogicRandomValueReal( modData->m_minBladeFlyOffDelay,
 																								 modData->m_maxBladeFlyOffDelay );
 
 	// for now, make it always fall to the left
-	m_orbitDirection = ORBIT_DIRECTION_LEFT;
+	D().m_orbitDirection = ORBIT_DIRECTION_LEFT;
 
 	//
 	// record the current forward angle of the object to be the start angle of our downward
 	// spin circle angle
 	//
-	m_forwardAngle = getObject()->getOrientation();
+	D().m_forwardAngle = getObject()->getOrientation();
 
 	// set or forward speed in the spiral orbit speed to that specified
-	m_forwardSpeed = modData->m_spiralOrbitForwardSpeed;
+	D().m_forwardSpeed = modData->m_spiralOrbitForwardSpeed;
 
 	// start our self spinning at the min self spin rate
-	m_selfSpin = modData->m_minSelfSpin;
+	D().m_selfSpin = modData->m_minSelfSpin;
 
 	// we will start off changing the self spin towards the MaxSelfSpin
-	m_selfSpinTowardsMax = TRUE;
+	D().m_selfSpinTowardsMax = TRUE;
 
 	// the fall of the helicopter
 	if( !getObject()->getAIUpdateInterface() )
@@ -291,7 +292,7 @@ UpdateSleepTime HelicopterSlowDeathBehavior::update()
 	Object *copter = getObject();
 
 	// update self spin and orbit if we haven't hit the ground yet
-	if( m_hitGroundFrame == 0 )
+	if( D().m_hitGroundFrame == 0 )
 	{
 
 		//
@@ -299,10 +300,10 @@ UpdateSleepTime HelicopterSlowDeathBehavior::update()
 		// large downward spin circle
 		//
 
-		//copter->setOrientation( copter->getOrientation() + m_selfSpin * m_orbitDirection );
+		//copter->setOrientation( copter->getOrientation() + D().m_selfSpin * D().m_orbitDirection );
 
 		Matrix3D xfrm = *copter->getTransformMatrix();
-		xfrm.In_Place_Pre_Rotate_Z(m_selfSpin * m_orbitDirection);
+		xfrm.In_Place_Pre_Rotate_Z(D().m_selfSpin * D().m_orbitDirection);
 		copter->setTransformMatrix( &xfrm );
 
 		//
@@ -310,20 +311,20 @@ UpdateSleepTime HelicopterSlowDeathBehavior::update()
 		// will ping pong back and forth between the MinSelfSpin and MaxSelfSpin defined in INI
 		//
 		if( modData->m_selfSpinUpdateDelay &&
-				TheGameLogic->getFrame() - m_lastSelfSpinUpdateFrame > modData->m_selfSpinUpdateDelay )
+				TheGameLogic->getFrame() - D().m_lastSelfSpinUpdateFrame > modData->m_selfSpinUpdateDelay )
 		{
 
 			// update the self spin
-			if( m_selfSpinTowardsMax == TRUE )
+			if( D().m_selfSpinTowardsMax == TRUE )
 			{
 
 				// we're going towards the max self spin, increase it
-				m_selfSpin += modData->m_selfSpinUpdateAmount / LOGICFRAMES_PER_SECOND;
-				if( m_selfSpin > modData->m_maxSelfSpin )
+				D().m_selfSpin += modData->m_selfSpinUpdateAmount / LOGICFRAMES_PER_SECOND;
+				if( D().m_selfSpin > modData->m_maxSelfSpin )
 				{
 
-					m_selfSpin = modData->m_maxSelfSpin;  // cap at max
-					m_selfSpinTowardsMax = FALSE;					// now start changing spin towards min again
+					D().m_selfSpin = modData->m_maxSelfSpin;  // cap at max
+					D().m_selfSpinTowardsMax = FALSE;					// now start changing spin towards min again
 
 				}
 
@@ -332,19 +333,19 @@ UpdateSleepTime HelicopterSlowDeathBehavior::update()
 			{
 
 				// we're going towards the min self spin, decrease it
-				m_selfSpin -= modData->m_selfSpinUpdateAmount / LOGICFRAMES_PER_SECOND;
-				if( m_selfSpin < modData->m_minSelfSpin )
+				D().m_selfSpin -= modData->m_selfSpinUpdateAmount / LOGICFRAMES_PER_SECOND;
+				if( D().m_selfSpin < modData->m_minSelfSpin )
 				{
 
-					m_selfSpin = modData->m_minSelfSpin;  // cap at min
-					m_selfSpinTowardsMax = TRUE;					// now start chaning spin towards max again
+					D().m_selfSpin = modData->m_minSelfSpin;  // cap at min
+					D().m_selfSpinTowardsMax = TRUE;					// now start chaning spin towards max again
 
 				}
 
 			}
 
 			// we have made a change to the self spinning
-			m_lastSelfSpinUpdateFrame = TheGameLogic->getFrame();
+			D().m_lastSelfSpinUpdateFrame = TheGameLogic->getFrame();
 
 		}
 
@@ -359,23 +360,23 @@ UpdateSleepTime HelicopterSlowDeathBehavior::update()
 		// is *NOT* the angle the object is facing
 		//
 		Coord3D force;
-		force.x = DOUBLE_TO_REAL( Cos( m_forwardAngle ) ) * m_forwardSpeed;
-		force.y = DOUBLE_TO_REAL( Sin( m_forwardAngle ) ) * m_forwardSpeed;
+		force.x = DOUBLE_TO_REAL( Cos( D().m_forwardAngle ) ) * D().m_forwardSpeed;
+		force.y = DOUBLE_TO_REAL( Sin( D().m_forwardAngle ) ) * D().m_forwardSpeed;
 		force.z = 0.0f;
 		physics->applyMotiveForce( &force );
 
 		// update our forward angle for travelling along the large spiral downward circle
-		m_forwardAngle += (modData->m_spiralOrbitTurnRate * m_orbitDirection);
+		D().m_forwardAngle += (modData->m_spiralOrbitTurnRate * D().m_orbitDirection);
 
 		// adjust our forward spiral orbit by the damping factor specified
-		m_forwardSpeed *= modData->m_spiralOrbitForwardSpeedDamping;
+		D().m_forwardSpeed *= modData->m_spiralOrbitForwardSpeedDamping;
 
 		// is it time to have the blade fly off
-		if( m_bladeFlyOffFrame > 0 )
+		if( D().m_bladeFlyOffFrame > 0 )
 		{
 			// decrement count
-			m_bladeFlyOffFrame--;
-			if( m_bladeFlyOffFrame <= 0 )
+			D().m_bladeFlyOffFrame--;
+			if( D().m_bladeFlyOffFrame <= 0 )
 			{
 				Coord3D bladePos = *copter->getPosition();
 
@@ -416,7 +417,7 @@ UpdateSleepTime HelicopterSlowDeathBehavior::update()
 	Bool hitATree = FALSE;
 	// Here we want to make sure we crash if we collide with a tree on the way down
 	PhysicsBehavior *phys = copter->getPhysics();
-	if ( m_hitGroundFrame == 0 && phys )
+	if ( D().m_hitGroundFrame == 0 && phys )
 	{
 		ObjectID treeID = phys->getLastCollidee();
 		Object *tree = TheGameLogic->findObjectByID( treeID );
@@ -431,7 +432,7 @@ UpdateSleepTime HelicopterSlowDeathBehavior::update()
 
 	// when we hit the ground
 	const Coord3D *pos = copter->getPosition();
-	if (m_hitGroundFrame == 0)
+	if (D().m_hitGroundFrame == 0)
 	{
 		// srj sez: if we haven't yet hit the ground, adjust our layer properly so we crash on bridges
 		Coord3D tmpPt = *pos;
@@ -445,7 +446,7 @@ UpdateSleepTime HelicopterSlowDeathBehavior::update()
 		{
 
 			// mark the frame we hit the ground on
-			m_hitGroundFrame = TheGameLogic->getFrame();
+			D().m_hitGroundFrame = TheGameLogic->getFrame();
 
 			// make hit ground effect
 			FXList::doFXObj( modData->m_fxHitGround, copter );
@@ -460,14 +461,14 @@ UpdateSleepTime HelicopterSlowDeathBehavior::update()
 				draw->setModelConditionState( MODELCONDITION_SPECIAL_DAMAGED );
 
 			// Stop the sound from playing.
-			TheAudio->removeAudioEvent(m_deathSound.getPlayingHandle());
+			TheAudio->removeAudioEvent(D().m_deathSound.getPlayingHandle());
 
 		}
 	}
 
 	// if we're on the ground, see if it's time for our final boom
-	if( m_hitGroundFrame &&
-			TheGameLogic->getFrame() - m_hitGroundFrame > modData->m_delayFromGroundToFinalDeath )
+	if( D().m_hitGroundFrame &&
+			TheGameLogic->getFrame() - D().m_hitGroundFrame > modData->m_delayFromGroundToFinalDeath )
 	{
 
 		// make effect
@@ -521,28 +522,28 @@ void HelicopterSlowDeathBehavior::xfer( Xfer *xfer )
 	SlowDeathBehavior::xfer( xfer );
 
 	// orbit direction
-	xfer->xferInt( &m_orbitDirection );
+	xfer->xferInt( &D().m_orbitDirection );
 
 	// forward angle
-	xfer->xferReal( &m_forwardAngle );
+	xfer->xferReal( &D().m_forwardAngle );
 
 	// forward speed
-	xfer->xferReal( &m_forwardSpeed );
+	xfer->xferReal( &D().m_forwardSpeed );
 
 	// self spin
-	xfer->xferReal( &m_selfSpin );
+	xfer->xferReal( &D().m_selfSpin );
 
 	// self sping towards max
-	xfer->xferBool( &m_selfSpinTowardsMax );
+	xfer->xferBool( &D().m_selfSpinTowardsMax );
 
 	// last self spin update frame
-	xfer->xferUnsignedInt( &m_lastSelfSpinUpdateFrame );
+	xfer->xferUnsignedInt( &D().m_lastSelfSpinUpdateFrame );
 
 	// blade fly off frame
-	xfer->xferUnsignedInt( &m_bladeFlyOffFrame );
+	xfer->xferUnsignedInt( &D().m_bladeFlyOffFrame );
 
 	// hit ground frame
-	xfer->xferUnsignedInt( &m_hitGroundFrame );
+	xfer->xferUnsignedInt( &D().m_hitGroundFrame );
 
 }
 

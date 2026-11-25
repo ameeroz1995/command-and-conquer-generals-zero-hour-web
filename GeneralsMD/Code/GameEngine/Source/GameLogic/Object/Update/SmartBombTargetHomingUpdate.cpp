@@ -35,12 +35,14 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/Module/SmartBombTargetHomingUpdate.h"
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 SmartBombTargetHomingUpdate::SmartBombTargetHomingUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-  m_targetReceived = FALSE;
-  m_target.zero();
+
+  D().m_targetReceived = FALSE;
+  D().m_target.zero();
 	setWakeFrame( getObject(), UPDATE_SLEEP_NONE );
 }
 
@@ -62,11 +64,11 @@ void SmartBombTargetHomingUpdate::SetTargetPosition( const Coord3D& target )
   if ( ! (target.length() > 0.0f) )
     return;
 
-  m_target.x = target.x;
-  m_target.y = target.y;
-  m_target.z = target.z;
+  D().m_target.x = target.x;
+  D().m_target.y = target.y;
+  D().m_target.z = target.z;
 
-  m_targetReceived = TRUE;
+  D().m_targetReceived = TRUE;
 
 }
 
@@ -76,7 +78,7 @@ void SmartBombTargetHomingUpdate::SetTargetPosition( const Coord3D& target )
 UpdateSleepTime SmartBombTargetHomingUpdate::update()
 {
 
-  if ( ! m_targetReceived )
+  if ( ! D().m_targetReceived )
     return UPDATE_SLEEP_NONE;
 
 	const SmartBombTargetHomingUpdateModuleData* d = getSmartBombTargetHomingUpdateModuleData();
@@ -100,8 +102,8 @@ UpdateSleepTime SmartBombTargetHomingUpdate::update()
   Real targetCoeff = 1.0f - statusCoeff;
 
 
-  pos.x = m_target.x * targetCoeff + currentPos->x * statusCoeff;
-  pos.y = m_target.y * targetCoeff + currentPos->y * statusCoeff;
+  pos.x = D().m_target.x * targetCoeff + currentPos->x * statusCoeff;
+  pos.y = D().m_target.y * targetCoeff + currentPos->y * statusCoeff;
   pos.z = currentPos->z;
 
   self->setPosition( &pos );

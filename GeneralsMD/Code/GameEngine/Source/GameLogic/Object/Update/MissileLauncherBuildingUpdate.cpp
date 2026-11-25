@@ -43,29 +43,31 @@
 #include "GameClient/FXList.h"
 
 
+
 //-------------------------------------------------------------------------------------------------
 MissileLauncherBuildingUpdate::MissileLauncherBuildingUpdate( Thing *thing, const ModuleData* moduleData ) : SpecialPowerUpdateModule( thing, moduleData )
 {
-	m_doorState = DOOR_CLOSED;
-	m_timeoutState = DOOR_CLOSED;
-	m_timeoutFrame = 0;
-	m_openIdleAudio = getMissileLauncherBuildingUpdateModuleData()->m_openIdleAudio;
-	m_openIdleAudio.setObjectID(getObject()->getID());
+
+	D().m_doorState = DOOR_CLOSED;
+	D().m_timeoutState = DOOR_CLOSED;
+	D().m_timeoutFrame = 0;
+	D().m_openIdleAudio = getMissileLauncherBuildingUpdateModuleData()->m_openIdleAudio;
+	D().m_openIdleAudio.setObjectID(getObject()->getID());
 }
 
 //-------------------------------------------------------------------------------------------------
 MissileLauncherBuildingUpdate::~MissileLauncherBuildingUpdate()
 {
-	if (m_openIdleAudio.isCurrentlyPlaying())
+	if (D().m_openIdleAudio.isCurrentlyPlaying())
 	{
-		TheAudio->removeAudioEvent(m_openIdleAudio.getPlayingHandle());
+		TheAudio->removeAudioEvent(D().m_openIdleAudio.getPlayingHandle());
 	}
 }
 
 //-------------------------------------------------------------------------------------------------
 void MissileLauncherBuildingUpdate::switchToState(DoorStateType dst)
 {
-	if (m_doorState == dst)
+	if (D().m_doorState == dst)
 		return;
 
 	const MissileLauncherBuildingUpdateModuleData* d = getMissileLauncherBuildingUpdateModuleData();
@@ -80,16 +82,16 @@ void MissileLauncherBuildingUpdate::switchToState(DoorStateType dst)
 			clr.set(MODELCONDITION_DOOR_1_CLOSING);
 			clr.set(MODELCONDITION_DOOR_1_OPENING);
 			clr.set(MODELCONDITION_DOOR_1_WAITING_OPEN);
-			m_timeoutFrame = 0;
-			m_timeoutState = DOOR_CLOSED;
+			D().m_timeoutFrame = 0;
+			D().m_timeoutState = DOOR_CLOSED;
 			if (d->m_closedFX)
 			{
 				const Coord3D *pos = getObject()->getPosition();
 				FXList::doFXPos(d->m_closedFX, pos);
 			}
-			if (m_openIdleAudio.isCurrentlyPlaying())
+			if (D().m_openIdleAudio.isCurrentlyPlaying())
 			{
-				TheAudio->removeAudioEvent(m_openIdleAudio.getPlayingHandle());
+				TheAudio->removeAudioEvent(D().m_openIdleAudio.getPlayingHandle());
 			}
 			break;
 
@@ -102,16 +104,16 @@ void MissileLauncherBuildingUpdate::switchToState(DoorStateType dst)
 			set.set(MODELCONDITION_DOOR_1_OPENING);
 			// we want this to be done BEFORE the power is ready, so
 			// end it one frame ahead.
-			m_timeoutFrame = m_specialPowerModule->getReadyFrame() - 1;
-			m_timeoutState = DOOR_OPEN;
+			D().m_timeoutFrame = D().m_specialPowerModule->getReadyFrame() - 1;
+			D().m_timeoutState = DOOR_OPEN;
 			if (d->m_openingFX)
 			{
 				const Coord3D *pos = getObject()->getPosition();
 				FXList::doFXPos(d->m_openingFX, pos);
 			}
-			if (m_openIdleAudio.isCurrentlyPlaying())
+			if (D().m_openIdleAudio.isCurrentlyPlaying())
 			{
-				TheAudio->removeAudioEvent(m_openIdleAudio.getPlayingHandle());
+				TheAudio->removeAudioEvent(D().m_openIdleAudio.getPlayingHandle());
 			}
 			break;
 
@@ -122,16 +124,16 @@ void MissileLauncherBuildingUpdate::switchToState(DoorStateType dst)
 			clr.set(MODELCONDITION_DOOR_1_CLOSING);
 			clr.set(MODELCONDITION_DOOR_1_OPENING);
 			set.set(MODELCONDITION_DOOR_1_WAITING_OPEN);
-			m_timeoutFrame = 0;
-			m_timeoutState = DOOR_OPEN;
+			D().m_timeoutFrame = 0;
+			D().m_timeoutState = DOOR_OPEN;
 			if (d->m_openFX)
 			{
 				const Coord3D *pos = getObject()->getPosition();
 				FXList::doFXPos(d->m_openFX, pos);
 			}
-			if (!m_openIdleAudio.isCurrentlyPlaying())
+			if (!D().m_openIdleAudio.isCurrentlyPlaying())
 			{
-				m_openIdleAudio.setPlayingHandle(TheAudio->addAudioEvent(&m_openIdleAudio));
+				D().m_openIdleAudio.setPlayingHandle(TheAudio->addAudioEvent(&D().m_openIdleAudio));
 			}
 			break;
 
@@ -142,16 +144,16 @@ void MissileLauncherBuildingUpdate::switchToState(DoorStateType dst)
 			clr.set(MODELCONDITION_DOOR_1_OPENING);
 			clr.set(MODELCONDITION_DOOR_1_WAITING_OPEN);
 			set.set(MODELCONDITION_DOOR_1_WAITING_TO_CLOSE);
-			m_timeoutFrame = now + d->m_doorWaitOpenTime;
-			m_timeoutState = DOOR_CLOSING;
+			D().m_timeoutFrame = now + d->m_doorWaitOpenTime;
+			D().m_timeoutState = DOOR_CLOSING;
 			if (d->m_waitingToCloseFX)
 			{
 				const Coord3D *pos = getObject()->getPosition();
 				FXList::doFXPos(d->m_waitingToCloseFX, pos);
 			}
-			if (m_openIdleAudio.isCurrentlyPlaying())
+			if (D().m_openIdleAudio.isCurrentlyPlaying())
 			{
-				TheAudio->removeAudioEvent(m_openIdleAudio.getPlayingHandle());
+				TheAudio->removeAudioEvent(D().m_openIdleAudio.getPlayingHandle());
 			}
 			break;
 
@@ -162,23 +164,23 @@ void MissileLauncherBuildingUpdate::switchToState(DoorStateType dst)
 			clr.set(MODELCONDITION_DOOR_1_WAITING_OPEN);
 			clr.set(MODELCONDITION_DOOR_1_OPENING);
 			set.set(MODELCONDITION_DOOR_1_CLOSING);
-			m_timeoutFrame = now + d->m_doorClosingTime;
+			D().m_timeoutFrame = now + d->m_doorClosingTime;
 
 			{
-				Int delta = m_specialPowerModule->getReadyFrame() - now;
-				if (m_timeoutFrame > now + delta/2)
-					m_timeoutFrame = now + delta/2;
+				Int delta = D().m_specialPowerModule->getReadyFrame() - now;
+				if (D().m_timeoutFrame > now + delta/2)
+					D().m_timeoutFrame = now + delta/2;
 			}
 
-			m_timeoutState = DOOR_CLOSED;
+			D().m_timeoutState = DOOR_CLOSED;
 			if (d->m_closingFX)
 			{
 				const Coord3D *pos = getObject()->getPosition();
 				FXList::doFXPos(d->m_closingFX, pos);
 			}
-			if (m_openIdleAudio.isCurrentlyPlaying())
+			if (D().m_openIdleAudio.isCurrentlyPlaying())
 			{
-				TheAudio->removeAudioEvent(m_openIdleAudio.getPlayingHandle());
+				TheAudio->removeAudioEvent(D().m_openIdleAudio.getPlayingHandle());
 			}
 			break;
 #ifdef RTS_DEBUG
@@ -187,14 +189,14 @@ void MissileLauncherBuildingUpdate::switchToState(DoorStateType dst)
 			break;
 #endif
 	}
-	m_doorState = dst;
+	D().m_doorState = dst;
 	getObject()->clearAndSetModelConditionFlags(clr, set);
 
-	if (m_timeoutFrame > 0)
+	if (D().m_timeoutFrame > 0)
 	{
 		Drawable* draw = getObject()->getDrawable();
 		if (draw)
-			draw->setAnimationLoopDuration(m_timeoutFrame - now);
+			draw->setAnimationLoopDuration(D().m_timeoutFrame - now);
 	}
 }
 
@@ -203,20 +205,20 @@ Bool MissileLauncherBuildingUpdate::initiateIntentToDoSpecialPower( const Specia
 {
 #if RETAIL_COMPATIBLE_CRC
 	// TheSuperHackers @bugfix Mauller 29/06/2025 prevent a game crash when told to launch before ready to do so
-	if (!m_specialPowerModule) {
+	if (!D().m_specialPowerModule) {
 		Object* us = getObject();
 		us->getSpecialPowerModule(specialPowerTemplate)->setReadyFrame(0xFFFFFFFF);
 		return FALSE;
 	}
 #endif
 
-	if( m_specialPowerModule->getSpecialPowerTemplate() != specialPowerTemplate )
+	if( D().m_specialPowerModule->getSpecialPowerTemplate() != specialPowerTemplate )
 	{
 		return FALSE;
 	}
 
 #if defined(RTS_DEBUG) || defined(_ALLOW_DEBUG_CHEATS_IN_RELEASE)
-	DEBUG_ASSERTCRASH(!TheGlobalData->m_specialPowerUsesDelay || m_doorState == DOOR_OPEN, ("door is not fully open when specialpower is fired!"));
+	DEBUG_ASSERTCRASH(!TheGlobalData->m_specialPowerUsesDelay || D().m_doorState == DOOR_OPEN, ("door is not fully open when specialpower is fired!"));
 #endif
 
 	switchToState(DOOR_WAITING_TO_CLOSE);
@@ -246,32 +248,32 @@ UpdateSleepTime MissileLauncherBuildingUpdate::update()
 	if( getObject()->testStatus(OBJECT_STATUS_UNDER_CONSTRUCTION) )
 		return UPDATE_SLEEP_NONE;
 
-	if (!m_specialPowerModule)
+	if (!D().m_specialPowerModule)
 	{
-		m_specialPowerModule = getObject()->getSpecialPowerModule(d->m_specialPowerTemplate);
-		DEBUG_ASSERTCRASH(m_specialPowerModule, ("Missing special power"));
+		D().m_specialPowerModule = getObject()->getSpecialPowerModule(d->m_specialPowerTemplate);
+		DEBUG_ASSERTCRASH(D().m_specialPowerModule, ("Missing special power"));
 	}
 
-	if (m_specialPowerModule)
+	if (D().m_specialPowerModule)
 	{
-		UnsignedInt readyFrame = m_specialPowerModule->getReadyFrame();
+		UnsignedInt readyFrame = D().m_specialPowerModule->getReadyFrame();
 		UnsignedInt whenToStartOpening = (readyFrame >= d->m_doorOpenTime) ? (readyFrame - d->m_doorOpenTime) : 0;
 
-		if (m_timeoutFrame != 0 && now > m_timeoutFrame)
+		if (D().m_timeoutFrame != 0 && now > D().m_timeoutFrame)
 		{
-			switchToState(m_timeoutState);
+			switchToState(D().m_timeoutState);
 		}
 
 #if defined(RTS_DEBUG) || defined(_ALLOW_DEBUG_CHEATS_IN_RELEASE)
-		DEBUG_ASSERTCRASH(!TheGlobalData->m_specialPowerUsesDelay || !(m_specialPowerModule->isReady() && m_doorState != DOOR_OPEN), ("door is not fully open when specialpower is ready!"));
+		DEBUG_ASSERTCRASH(!TheGlobalData->m_specialPowerUsesDelay || !(D().m_specialPowerModule->isReady() && D().m_doorState != DOOR_OPEN), ("door is not fully open when specialpower is ready!"));
 #endif
 
-		if (m_doorState != DOOR_OPEN && m_specialPowerModule->isReady())
+		if (D().m_doorState != DOOR_OPEN && D().m_specialPowerModule->isReady())
 		{
 			DEBUG_LOG(("*** had to POP the door open!"));
 			switchToState(DOOR_OPEN);
 		}
-		else if (m_doorState == DOOR_CLOSED && now >= whenToStartOpening)
+		else if (D().m_doorState == DOOR_CLOSED && now >= whenToStartOpening)
 		{
 			switchToState(DOOR_OPENING);
 		}
@@ -313,17 +315,17 @@ void MissileLauncherBuildingUpdate::xfer( Xfer *xfer )
 	// extend base class
 	UpdateModule::xfer( xfer );
 
-	// do not need to tie the m_specialPowerModule pointer cause it gets tied
-	// SpecialPowerModuleInterface *m_specialPowerModule;
+	// do not need to tie the D().m_specialPowerModule pointer cause it gets tied
+	// SpecialPowerModuleInterface *D().m_specialPowerModule;
 
 	// door state
-	xfer->xferUser( &m_doorState, sizeof( DoorStateType ) );
+	xfer->xferUser( &D().m_doorState, sizeof( DoorStateType ) );
 
 	// timeout state
-	xfer->xferUser( &m_timeoutState, sizeof( DoorStateType ) );
+	xfer->xferUser( &D().m_timeoutState, sizeof( DoorStateType ) );
 
 	// timeout frame
-	xfer->xferUnsignedInt( &m_timeoutFrame );
+	xfer->xferUnsignedInt( &D().m_timeoutFrame );
 
 }
 

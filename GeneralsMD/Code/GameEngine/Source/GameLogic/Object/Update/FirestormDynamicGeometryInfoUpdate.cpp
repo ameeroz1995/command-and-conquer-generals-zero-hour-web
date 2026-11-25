@@ -45,6 +45,7 @@
 #include "GameLogic/TerrainLogic.h"
 #include "GameLogic/Module/FirestormDynamicGeometryInfoUpdate.h"
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 FirestormDynamicGeometryInfoUpdateModuleData::FirestormDynamicGeometryInfoUpdateModuleData() : DynamicGeometryInfoUpdateModuleData()
@@ -99,11 +100,12 @@ FirestormDynamicGeometryInfoUpdateModuleData::FirestormDynamicGeometryInfoUpdate
 FirestormDynamicGeometryInfoUpdate::FirestormDynamicGeometryInfoUpdate( Thing *thing, const ModuleData* moduleData ) : DynamicGeometryInfoUpdate( thing, moduleData )
 {
 
+
 	for( Int i = 0; i < MAX_FIRESTORM_SYSTEMS; i++ )
-		m_myParticleSystemID[ i ] = INVALID_PARTICLE_SYSTEM_ID;
-	m_effectsFired = FALSE;
-	m_scorchPlaced = FALSE;
-	m_lastDamageFrame = 0;
+		D().m_myParticleSystemID[ i ] = INVALID_PARTICLE_SYSTEM_ID;
+	D().m_effectsFired = FALSE;
+	D().m_scorchPlaced = FALSE;
+	D().m_lastDamageFrame = 0;
 
 }
 
@@ -123,14 +125,14 @@ UpdateSleepTime FirestormDynamicGeometryInfoUpdate::update()
 	DynamicGeometryInfoUpdate::update();
 
 	// get out of here if we haven't fired yet
-	if( m_startingDelayCountdown > 0 )
+	if( GD().m_startingDelayCountdown > 0 )
 		return UPDATE_SLEEP_NONE;
 
 	// get the module data
 	const FirestormDynamicGeometryInfoUpdateModuleData *modData = getFirestormDynamicGeometryInfoUpdateModuleData();
 
 	// start effects for the first time
-	if( m_effectsFired == FALSE )
+	if( D().m_effectsFired == FALSE )
 	{
 		ParticleSystem *sys;
 
@@ -153,7 +155,7 @@ UpdateSleepTime FirestormDynamicGeometryInfoUpdate::update()
 			{
 
 				sys->setPosition( &pos );
-				m_myParticleSystemID[ i ] = sys->getSystemID();
+				D().m_myParticleSystemID[ i ] = sys->getSystemID();
 
 			}
 
@@ -163,7 +165,7 @@ UpdateSleepTime FirestormDynamicGeometryInfoUpdate::update()
 		FXList::doFXObj( modData->m_fxList, getObject() );
 
 		// effects have been fired
-		m_effectsFired = TRUE;
+		D().m_effectsFired = TRUE;
 
 		getObject()->getControllingPlayer()->getAcademyStats()->recordFirestormCreated();
 
@@ -176,9 +178,9 @@ UpdateSleepTime FirestormDynamicGeometryInfoUpdate::update()
 	for( Int i = 0; i < MAX_FIRESTORM_SYSTEMS; i++ )
 	{
 
-		if( m_myParticleSystemID[ i ] )
+		if( D().m_myParticleSystemID[ i ] )
 		{
-			ParticleSystem *sys = TheParticleSystemManager->findParticleSystem( m_myParticleSystemID[ i ] );
+			ParticleSystem *sys = TheParticleSystemManager->findParticleSystem( D().m_myParticleSystemID[ i ] );
 
 			if( sys )
 			{
@@ -194,7 +196,7 @@ UpdateSleepTime FirestormDynamicGeometryInfoUpdate::update()
 			{
 
 				// this system not found (it probably died)... stop trying to find it in the future
-				m_myParticleSystemID[ i ] = INVALID_PARTICLE_SYSTEM_ID;
+				D().m_myParticleSystemID[ i ] = INVALID_PARTICLE_SYSTEM_ID;
 
 			}
 
@@ -203,20 +205,20 @@ UpdateSleepTime FirestormDynamicGeometryInfoUpdate::update()
 	}
 
 	// when we first start running backward ... make a scorch mark
-	if( m_switchedDirections == TRUE && m_scorchPlaced == FALSE )
+	if( GD().m_switchedDirections == TRUE && D().m_scorchPlaced == FALSE )
 	{
 
 		TheGameClient->addScorch( getObject()->getPosition(), modData->m_scorchSize, SCORCH_1 );
-		m_scorchPlaced = TRUE;
+		D().m_scorchPlaced = TRUE;
 
 	}
 
 	// scan and do some damage every once in a while
-	if( TheGameLogic->getFrame() - m_lastDamageFrame >= modData->m_delayBetweenDamageFrames )
+	if( TheGameLogic->getFrame() - D().m_lastDamageFrame >= modData->m_delayBetweenDamageFrames )
 	{
 
 		doDamageScan();
-		m_lastDamageFrame = TheGameLogic->getFrame();
+		D().m_lastDamageFrame = TheGameLogic->getFrame();
 
 	}
 
@@ -297,16 +299,16 @@ void FirestormDynamicGeometryInfoUpdate::xfer( Xfer *xfer )
 	DynamicGeometryInfoUpdate::xfer( xfer );
 
 	// particle system ids
-	xfer->xferUser( m_myParticleSystemID, sizeof( ParticleSystemID ) * MAX_FIRESTORM_SYSTEMS );
+	xfer->xferUser( D().m_myParticleSystemID, sizeof( ParticleSystemID ) * MAX_FIRESTORM_SYSTEMS );
 
 	// effects fired
-	xfer->xferBool( &m_effectsFired );
+	xfer->xferBool( &D().m_effectsFired );
 
 	// scorch placed
-	xfer->xferBool( &m_scorchPlaced );
+	xfer->xferBool( &D().m_scorchPlaced );
 
 	// last damage frame
-	xfer->xferUnsignedInt( &m_lastDamageFrame );
+	xfer->xferUnsignedInt( &D().m_lastDamageFrame );
 
 }
 

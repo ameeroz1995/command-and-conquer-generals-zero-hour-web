@@ -47,6 +47,7 @@
 #include "GameLogic/Module/BodyModule.h"
 #include "GameLogic/GameLogic.h"
 
+
 // PRIVATE ////////////////////////////////////////////////////////////////////////////////////////
 
 // PUBLIC /////////////////////////////////////////////////////////////////////////////////////////
@@ -54,9 +55,10 @@
 //-------------------------------------------------------------------------------------------------
 StickyBombUpdate::StickyBombUpdate( Thing *thing, const ModuleData *moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_targetID		= INVALID_ID;
-	m_dieFrame		= 0;
-	m_nextPingFrame = 0;
+
+	D().m_targetID		= INVALID_ID;
+	D().m_dieFrame		= 0;
+	D().m_nextPingFrame = 0;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
 
@@ -94,7 +96,7 @@ void StickyBombUpdate::onObjectCreated()
 void StickyBombUpdate::initStickyBomb( Object *target, const Object *bomber, const Coord3D *specificPos )
 {
 	//Store the target.
-	m_targetID = target ? target->getID() : INVALID_ID;
+	D().m_targetID = target ? target->getID() : INVALID_ID;
 
 	//Set the target as the producer ID -- so we can access it from other areas.
 	getObject()->setProducer( target );
@@ -106,20 +108,20 @@ void StickyBombUpdate::initStickyBomb( Object *target, const Object *bomber, con
 	if( update )
 	{
 		//we are a timer bomb
-		m_dieFrame = update->getDieFrame();
+		D().m_dieFrame = update->getDieFrame();
 
 		//Calculate the number of seconds (rounded down)
-		UnsignedInt pings = (m_dieFrame - now) / LOGICFRAMES_PER_SECOND;
+		UnsignedInt pings = (D().m_dieFrame - now) / LOGICFRAMES_PER_SECOND;
 		//Now determine the next frame we will make a "ping" sound.
-		m_nextPingFrame = m_dieFrame - (pings * LOGICFRAMES_PER_SECOND);
+		D().m_nextPingFrame = D().m_dieFrame - (pings * LOGICFRAMES_PER_SECOND);
 	}
 	else
 	{
 		//we are a remotely triggered bomb.
-		m_dieFrame = 0;
+		D().m_dieFrame = 0;
 
 		//Because we don't die -- make our ping in a second.
-		m_nextPingFrame = now + LOGICFRAMES_PER_SECOND;
+		D().m_nextPingFrame = now + LOGICFRAMES_PER_SECOND;
 	}
 	setWakeFrame( getObject(), UPDATE_SLEEP_NONE );
 
@@ -199,9 +201,9 @@ UpdateSleepTime StickyBombUpdate::update()
 	}
 
 	UnsignedInt now = TheGameLogic->getFrame();
-	if( now >= m_nextPingFrame )
+	if( now >= D().m_nextPingFrame )
 	{
-		m_nextPingFrame += LOGICFRAMES_PER_SECOND;
+		D().m_nextPingFrame += LOGICFRAMES_PER_SECOND;
 
 		//Play the "ping" sound.
 		AudioEventRTS sound = *self->getTemplate()->getPerUnitSound( "UnitBombPing" );
@@ -215,13 +217,13 @@ UpdateSleepTime StickyBombUpdate::update()
 //-------------------------------------------------------------------------------------------------
 Object* StickyBombUpdate::getTargetObject() const
 {
-	return TheGameLogic->findObjectByID( m_targetID );
+	return TheGameLogic->findObjectByID( D().m_targetID );
 }
 
 //-------------------------------------------------------------------------------------------------
 void StickyBombUpdate::setTargetObject( Object *obj )
 {
-	m_targetID = obj ? obj->getID() : INVALID_ID;
+	D().m_targetID = obj ? obj->getID() : INVALID_ID;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -310,13 +312,13 @@ void StickyBombUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// target id
-	xfer->xferObjectID( &m_targetID );
+	xfer->xferObjectID( &D().m_targetID );
 
 	// die frame
-	xfer->xferUnsignedInt( &m_dieFrame );
+	xfer->xferUnsignedInt( &D().m_dieFrame );
 
 	//Next frame that a ping sound will play.
-	xfer->xferUnsignedInt( &m_nextPingFrame );
+	xfer->xferUnsignedInt( &D().m_nextPingFrame );
 
 }
 

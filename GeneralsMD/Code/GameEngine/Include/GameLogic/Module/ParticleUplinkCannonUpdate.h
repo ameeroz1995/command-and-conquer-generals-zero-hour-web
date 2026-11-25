@@ -34,6 +34,7 @@
 #include "Common/Science.h"
 #include "GameLogic/Module/LaserUpdate.h"
 #include "GameLogic/Module/SpecialPowerUpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class SpecialPowerModule;
@@ -158,7 +159,7 @@ public:
 	virtual Bool initiateIntentToDoSpecialPower(const SpecialPowerTemplate *specialPowerTemplate, const Object *targetObj, const Coord3D *targetPos, const Waypoint *way, UnsignedInt commandOptions );
 	virtual Bool isSpecialAbility() const { return false; }
 	virtual Bool isSpecialPower() const { return true; }
-	virtual Bool isActive() const {return m_status != STATUS_IDLE;}
+	virtual Bool isActive() const {return D().m_status != STATUS_IDLE;}
 	virtual SpecialPowerUpdateInterface* getSpecialPowerUpdateInterface() { return this; }
 	virtual CommandOption getCommandOption() const { return (CommandOption)0; }
 	virtual Bool isPowerCurrentlyInUse( const CommandButton *command = nullptr ) const;
@@ -193,50 +194,58 @@ protected:
 	void setClientStatus( PUCStatus status, Bool revealThisFrame );
 	void killEverything();
 
-	SpecialPowerModuleInterface* m_specialPowerModule;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		SpecialPowerModuleInterface* m_specialPowerModule;
+		AudioEventRTS		m_powerupSound;
+		AudioEventRTS		m_unpackToReadySound;
+		AudioEventRTS		m_firingToIdleSound;
+		AudioEventRTS		m_annihilationSound;
+		Matrix3D				m_outerNodeOrientations[ MAX_OUTER_NODES ];
+		Coord3D					m_outerNodePositions[ MAX_OUTER_NODES ];
+		Coord3D					m_connectorNodePosition;
+		Coord3D					m_laserOriginPosition;
+		Coord3D					m_initialTargetPosition;
+		Coord3D					m_currentTargetPosition;
+		Coord3D					m_overrideTargetDestination;
+		PUCStatus					m_status;
+		LaserStatus				m_laserStatus;
+		UnsignedInt				m_frames;
+		ParticleSystemID	m_outerSystemIDs[ MAX_OUTER_NODES ];
+		DrawableID				m_laserBeamIDs[ MAX_OUTER_NODES ];
+		DrawableID				m_groundToOrbitBeamID;
+		DrawableID				m_orbitToTargetBeamID;
+		LaserRadiusUpdate	m_orbitToTargetLaserRadius;
+		ParticleSystemID	m_connectorSystemID;
+		ParticleSystemID	m_laserBaseSystemID;
+		UnsignedInt			m_scorchMarksMade;
+		UnsignedInt			m_nextScorchMarkFrame;
+		UnsignedInt			m_nextLaunchFXFrame;
+		UnsignedInt			m_damagePulsesMade;
+		UnsignedInt			m_nextDamagePulseFrame;
+		UnsignedInt			m_startAttackFrame;
+		UnsignedInt			m_startDecayFrame;
+		UnsignedInt			m_lastDrivingClickFrame;
+		UnsignedInt			m_2ndLastDrivingClickFrame;
+		UnsignedInt			m_nextDestWaypointID;
+		XferVersion			m_xferVersion;
+		Bool						m_upBonesCached;
+		Bool						m_defaultInfoCached;
+		Bool						m_invalidSettings;
+		Bool						m_manualTargetMode;
+		Bool						m_scriptedWaypointMode;
+		Bool						m_clientShroudedLastFrame;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
-	AudioEventRTS		m_powerupSound;
-	AudioEventRTS		m_unpackToReadySound;
-	AudioEventRTS		m_firingToIdleSound;
-	AudioEventRTS		m_annihilationSound;
 
-	Matrix3D				m_outerNodeOrientations[ MAX_OUTER_NODES ];
 
-	Coord3D					m_outerNodePositions[ MAX_OUTER_NODES ];
-	Coord3D					m_connectorNodePosition;
-	Coord3D					m_laserOriginPosition;
-	Coord3D					m_initialTargetPosition;
-	Coord3D					m_currentTargetPosition;
-	Coord3D					m_overrideTargetDestination;
 
-	PUCStatus					m_status;
-	LaserStatus				m_laserStatus;
-	UnsignedInt				m_frames;
-	ParticleSystemID	m_outerSystemIDs[ MAX_OUTER_NODES ];
-	DrawableID				m_laserBeamIDs[ MAX_OUTER_NODES ];
-	DrawableID				m_groundToOrbitBeamID;
-	DrawableID				m_orbitToTargetBeamID;
-	LaserRadiusUpdate	m_orbitToTargetLaserRadius;
-	ParticleSystemID	m_connectorSystemID;
-	ParticleSystemID	m_laserBaseSystemID;
 
-	UnsignedInt			m_scorchMarksMade;
-	UnsignedInt			m_nextScorchMarkFrame;
-	UnsignedInt			m_nextLaunchFXFrame;
-	UnsignedInt			m_damagePulsesMade;
-	UnsignedInt			m_nextDamagePulseFrame;
-	UnsignedInt			m_startAttackFrame;
-	UnsignedInt			m_startDecayFrame;
-	UnsignedInt			m_lastDrivingClickFrame;
-	UnsignedInt			m_2ndLastDrivingClickFrame;
-	UnsignedInt			m_nextDestWaypointID;
 
-	XferVersion			m_xferVersion;
 
-	Bool						m_upBonesCached;
-	Bool						m_defaultInfoCached;
-	Bool						m_invalidSettings;
-	Bool						m_manualTargetMode;
-	Bool						m_scriptedWaypointMode;
-	Bool						m_clientShroudedLastFrame;
 };

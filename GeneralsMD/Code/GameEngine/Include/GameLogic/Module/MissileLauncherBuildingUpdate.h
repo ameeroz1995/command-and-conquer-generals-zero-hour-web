@@ -33,6 +33,7 @@
 #include "Common/AudioEventRTS.h"
 #include "Common/INI.h"
 #include "GameLogic/Module/SpecialPowerUpdateModule.h"
+#include "Common/GxComponentPool.h"
 class DamageInfo;
 class SpecialPowerTemplate;
 class SpecialPowerModule;
@@ -102,7 +103,7 @@ public:
 	virtual Bool initiateIntentToDoSpecialPower(const SpecialPowerTemplate *specialPowerTemplate, const Object *targetObj, const Coord3D *targetPos, const Waypoint *way, UnsignedInt commandOptions );
 	virtual Bool isSpecialAbility() const { return false; }
 	virtual Bool isSpecialPower() const { return true; }
-	virtual Bool isActive() const { return m_doorState != m_timeoutState; }
+	virtual Bool isActive() const { return D().m_doorState != D().m_timeoutState; }
 	SpecialPowerTemplate* getTemplate() const;
 	virtual Bool doesSpecialPowerHaveOverridableDestinationActive() const { return false; } //Is it active now?
 	virtual Bool doesSpecialPowerHaveOverridableDestination() const { return false; }	//Does it have it, even if it's not active?
@@ -126,9 +127,17 @@ private:
 
 	void switchToState(DoorStateType dst);
 
-	const SpecialPowerModuleInterface*	m_specialPowerModule;
-	DoorStateType												m_doorState;
-	DoorStateType												m_timeoutState;
-	UnsignedInt													m_timeoutFrame;
-	AudioEventRTS												m_openIdleAudio;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		const SpecialPowerModuleInterface*	m_specialPowerModule;
+		DoorStateType												m_doorState;
+		DoorStateType												m_timeoutState;
+		UnsignedInt													m_timeoutFrame;
+		AudioEventRTS												m_openIdleAudio;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+private:
 };

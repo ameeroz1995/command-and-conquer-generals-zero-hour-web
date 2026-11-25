@@ -68,6 +68,7 @@
 #include "GameClient/Color.h"
 #include "GameClient/GameText.h"
 
+
 //-------------------------------------------------------------------------------------------------
 void parseUpgradePair( INI *ini, void *instance, void *store, const void *userData )
 {
@@ -104,9 +105,10 @@ void parseUpgradePair( INI *ini, void *instance, void *store, const void *userDa
 //-----------------------------------------------------------------------------
 AutoDepositUpdate::AutoDepositUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_depositOnFrame = TheGameLogic->getFrame() + getAutoDepositUpdateModuleData()->m_depositFrame;
-	m_awardInitialCaptureBonus = FALSE;
-	m_initialized = FALSE;
+
+	D().m_depositOnFrame = TheGameLogic->getFrame() + getAutoDepositUpdateModuleData()->m_depositFrame;
+	D().m_awardInitialCaptureBonus = FALSE;
+	D().m_initialized = FALSE;
 }
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -119,8 +121,8 @@ AutoDepositUpdate::~AutoDepositUpdate()
 //-------------------------------------------------------------------------------------------------
 void AutoDepositUpdate::awardInitialCaptureBonus( Player *player )
 {
-	m_depositOnFrame = TheGameLogic->getFrame() + getAutoDepositUpdateModuleData()->m_depositFrame;
-	if(!player || !m_awardInitialCaptureBonus || getAutoDepositUpdateModuleData()->m_initialCaptureBonus <= 0)
+	D().m_depositOnFrame = TheGameLogic->getFrame() + getAutoDepositUpdateModuleData()->m_depositFrame;
+	if(!player || !D().m_awardInitialCaptureBonus || getAutoDepositUpdateModuleData()->m_initialCaptureBonus <= 0)
 		return;
 
 	player->getMoney()->deposit( getAutoDepositUpdateModuleData()->m_initialCaptureBonus );
@@ -138,7 +140,7 @@ void AutoDepositUpdate::awardInitialCaptureBonus( Player *player )
 		TheInGameUI->addFloatingText( moneyString, &pos, color );
 	}
 
-	m_awardInitialCaptureBonus = FALSE;
+	D().m_awardInitialCaptureBonus = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -147,15 +149,15 @@ UpdateSleepTime AutoDepositUpdate::update()
 {
 	const AutoDepositUpdateModuleData *modData = getAutoDepositUpdateModuleData();
 /// @todo srj use SLEEPY_UPDATE here
-	if( TheGameLogic->getFrame() >= m_depositOnFrame)
+	if( TheGameLogic->getFrame() >= D().m_depositOnFrame)
 	{
-		if (!m_initialized) {
+		if (!D().m_initialized) {
 			// Note - we have to set these in update, because during load the team is set,
 			// and we don't want to award initial bonus on load.  jba :)
-			m_awardInitialCaptureBonus = TRUE;
-			m_initialized = TRUE;
+			D().m_awardInitialCaptureBonus = TRUE;
+			D().m_initialized = TRUE;
 		}
-		m_depositOnFrame = TheGameLogic->getFrame() + modData->m_depositFrame;
+		D().m_depositOnFrame = TheGameLogic->getFrame() + modData->m_depositFrame;
 
 		if(getObject()->isNeutralControlled() || modData->m_depositAmount <= 0 )
 			return UPDATE_SLEEP_NONE;
@@ -258,12 +260,12 @@ void AutoDepositUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// deposit on frame
-	xfer->xferUnsignedInt( &m_depositOnFrame );
+	xfer->xferUnsignedInt( &D().m_depositOnFrame );
 
 	// award initial capture bonus
-	xfer->xferBool( &m_awardInitialCaptureBonus );
+	xfer->xferBool( &D().m_awardInitialCaptureBonus );
 	if (version>1) {
-		xfer->xferBool(&m_initialized);
+		xfer->xferBool(&D().m_initialized);
 	}
 
 }
