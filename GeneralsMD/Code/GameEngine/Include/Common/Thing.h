@@ -117,7 +117,17 @@ public:
 	// don't want this behavior? then call setTransformMatrix instead.
 	void setOrientation( Real angle );
 
-	const Coord3D *getPosition() const { return &gxPos(); }
+	/// web port (round 5): with positionInStore the store's x/y/z columns are the truth; read through them
+	const Coord3D *getPosition() const
+	{
+		if (m_gxPosInStore)
+		{
+			m_cachedPos.x = TheGxUnitStore.x[m_gxSlot];
+			m_cachedPos.y = TheGxUnitStore.y[m_gxSlot];
+			m_cachedPos.z = TheGxUnitStore.z[m_gxSlot];
+		}
+		return &m_cachedPos;
+	}
 	Real getOrientation() const { return m_cachedAngle; }
 
 	Bool isPositioned() const;
@@ -147,7 +157,7 @@ public:
 		if (m_gxPosInStore)
 		{
 			// web port (positionInStore): the translation's truth is the unit store
-			const Coord3D &p = gxPos();
+			const Coord3D p = gxPos();
 			m_transform.Set_Translation(Vector3(p.x, p.y, p.z));
 		}
 		return &m_transform;
@@ -193,8 +203,14 @@ private:
 	*/
 	mutable Matrix3D m_transform;					///< the 3D orientation and position of this Thing (translation refreshed from the store, see getTransformMatrix)
 	Int m_gxSlot;													///< web port: unit store slot, -1 if none
-	Bool m_gxPosInStore;									///< web port: the position lives in TheGxUnitStore.pos[m_gxSlot]
-	Coord3D &gxPos() const { return m_gxPosInStore ? TheGxUnitStore.pos[m_gxSlot] : m_cachedPos; }
+	Bool m_gxPosInStore;									///< web port: the position lives in TheGxUnitStore.x/y/z[m_gxSlot]
+	/// the position's truth, as a Coord3D-shaped view (store columns or m_cachedPos)
+	GxVec3Ref gxPos() const
+	{
+		if (m_gxPosInStore)
+			return GxVec3Ref(TheGxUnitStore.x[m_gxSlot], TheGxUnitStore.y[m_gxSlot], TheGxUnitStore.z[m_gxSlot]);
+		return GxVec3Ref(m_cachedPos.x, m_cachedPos.y, m_cachedPos.z);
+	}
 
 	enum
 	{

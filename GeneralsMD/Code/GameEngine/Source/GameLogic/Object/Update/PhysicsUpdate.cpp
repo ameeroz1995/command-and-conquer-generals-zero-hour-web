@@ -211,16 +211,22 @@ const Real INVALID_VEL_MAG = -1.0f;
 
 //-------------------------------------------------------------------------------------------------
 // web port (round 4): the current velocity lives in the unit store
-Coord3D &PhysicsBehavior::gxVel() const
+GxVec3Ref PhysicsBehavior::gxVel() const
 {
 	const Int slot = getObject()->gxStoreSlot();
 	if (slot < 0)
 	{
-		static Coord3D s_none;	// object not in the store (never for a live object)
-		s_none.zero();
-		return s_none;
+		static Real s_none[3];	// object not in the store (never for a live object)
+		s_none[0] = s_none[1] = s_none[2] = 0.0f;
+		return GxVec3Ref(s_none[0], s_none[1], s_none[2]);
 	}
-	return TheGxUnitStore.vel[slot];
+	return TheGxUnitStore.velRef(slot);
+}
+
+const Coord3D *PhysicsBehavior::getVelocity() const
+{
+	m_gxVelOut = gxVel();	// web port (round 5): copied out of the store's vx/vy/vz columns
+	return &m_gxVelOut;
 }
 
 static UnsignedInt s_gxBulkFrame = ~0u;	// web port (match rule physBulk): the frame whose pass ran
@@ -1153,7 +1159,7 @@ void PhysicsBehavior::transferVelocityTo(PhysicsBehavior* that) const
 {
 	if (that != nullptr)
 	{
-		that->gxVel().add(&gxVel());
+		{ const Coord3D v = gxVel(); that->gxVel().add(&v); }
 		that->m_velMag = INVALID_VEL_MAG;
 	}
 }
@@ -1950,7 +1956,7 @@ void PhysicsBehavior::xfer( Xfer *xfer )
 	xfer->xferCoord3D( &m_prevAccel );
 
 	// velocity
-	xfer->xferCoord3D( &gxVel() );
+	{ Coord3D v = gxVel(); xfer->xferCoord3D( &v ); gxVel() = v; }
 
 	// prevPos (now defunct)
 	if (version < 2)

@@ -17,12 +17,14 @@
 //   keep a pointer into them across code that can create objects.
 //
 // Who writes what (source of truth vs write-through):
-// - pos: one Coord3D per slot (Thing::getPosition() returns a pointer to it). With the switch
-//   positionInStore (fixed per object when it enters the store) it is the truth: Thing's getters
-//   read it and its setters write it, and getTransformMatrix() refreshes the matrix translation from
-//   it. Without the switch it is a write-through copy (Object::reactToTransformChange).
-// - vel: the truth for every unit with physics (PhysicsBehavior reads and writes it here; one
-//   Coord3D per slot rather than three arrays, because getVelocity() hands out a Coord3D pointer).
+// - x, y, z (round 5: structure of arrays, one float column each, so loops do 4 units per SIMD
+//   instruction): the position. With the switch positionInStore (fixed per object when it enters the
+//   store) it is the truth: Thing::getPosition() reads through (copies the three columns into the
+//   Thing's cached Coord3D and returns that), Thing's setters write it, and getTransformMatrix()
+//   refreshes the matrix translation from it. Without the switch it is a write-through copy
+//   (Object::reactToTransformChange). posOf(s) gives it as a Coord3D.
+// - vx, vy, vz: the velocity, the truth for every unit with physics (PhysicsBehavior reads and
+//   writes it through velRef(s); getVelocity() copies it out). velOf(s) gives it as a Coord3D.
 // - radius: the truth for the object's bounding circle radius (Object::getBoundingCircleRadius()
 //   reads it); set by Object::setGeometryInfo. The GeometryInfo keeps its own value for shape tests.
 // - player, playerBit: the truth for the controlling-player index (Object::gxPlayerIndex() reads it);
@@ -36,6 +38,19 @@
 #include "Lib/BaseType.h"	// Coord3D
 
 class Object;
+
+/// A Coord3D-shaped view of one row of three float columns: `velRef(s).x += a` writes the column.
+/// Use it right away (the columns can reallocate when objects are created).
+struct GxVec3Ref
+{
+	float &x, &y, &z;
+	GxVec3Ref(float &a, float &b, float &c) : x(a), y(b), z(c) {}
+	operator Coord3D() const { Coord3D c; c.x = x; c.y = y; c.z = z; return c; }
+	GxVec3Ref &operator=(const Coord3D &c) { x = c.x; y = c.y; z = c.z; return *this; }
+	GxVec3Ref &operator=(const GxVec3Ref &r) { x = r.x; y = r.y; z = r.z; return *this; }
+	void zero() { x = y = z = 0.0f; }
+	void add(const Coord3D *c) { x += c->x; y += c->y; z += c->z; }
+};
 
 typedef unsigned long long GxBehaviourMask;
 
@@ -63,8 +78,8 @@ public:
 	// ---- the data: index by slot, 0 .. size()-1 ----
 	std::vector<int>							id;				///< ObjectID (0 in a hole)
 	std::vector<Object*>					obj;			///< nullptr in a hole
-	std::vector<Coord3D>					pos;			///< position (truth with positionInStore, else write-through)
-	std::vector<Coord3D>					vel;			///< velocity (truth for physics units)
+	std::vector<float>						x, y, z;		///< position (truth with positionInStore, else write-through)
+	std::vector<float>						vx, vy, vz;		///< velocity (truth for physics units)
 	std::vector<float>						radius;			///< bounding circle radius
 	std::vector<signed char>			player;			///< controlling player index, -1 for none
 	std::vector<unsigned int>			playerBit;		///< 1 << player (0 for none)
@@ -79,6 +94,10 @@ public:
 	/// a weapon of this unit changed (fired, reloaded, ammo, pre-attack, slot): the pass looks at it now
 	void weaponTouch(int objectId) { const int s = slotOfId(objectId); if (s >= 0) weaponReady[s] = 0; }
 	// ---- end combat block ----
+
+	Coord3D posOf(int s) const { Coord3D c; c.x = x[s]; c.y = y[s]; c.z = z[s]; return c; }
+	Coord3D velOf(int s) const { Coord3D c; c.x = vx[s]; c.y = vy[s]; c.z = vz[s]; return c; }
+	GxVec3Ref velRef(int s) { return GxVec3Ref(vx[s], vy[s], vz[s]); }
 
 	int size() const { return (int)obj.size(); }
 	/// changes whenever any slot may have moved or been freed (compact, remove): cache slots against it
