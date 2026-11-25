@@ -268,8 +268,6 @@ private:
 	Coord3D											m_accel;									///< current acceleration
 	Coord3D											m_prevAccel;							///< last frame's acceleration
 	// web port (round 4): the velocity lives in the unit store (TheGxUnitStore.vel), found by slot
-	mutable Int									m_gxSlot;
-	mutable UnsignedInt					m_gxEpoch;
 	PhysicsTurningType					m_turning;								///< 0 = not turning, -1 = turn negative, 1 = turn positive.
 	ObjectID										m_ignoreCollisionsWith;
 	Int													m_flags;
@@ -285,28 +283,16 @@ private:
 
 	Bool												m_originalAllowBounce;		///< original state of allow bounce
 
-	// web port (match rule physBulk): forces + velocity for every unit due this frame are
-	// integrated in one pass over the unit store's PHYS list (object-ID order), at the start of the physics phase
-	UnsignedInt									m_gxPreFrame;							///< frame whose integration the bulk pass already did
+	// web port (match rule physBulk): the whole physics step of every due unit runs in one pass over
+	// the unit store's PHYS list (object-ID order) at the start of the physics phase
+	UnsignedInt									m_gxPreFrame;							///< frame whose step the physics pass already ran
+	UpdateSleepTime							m_gxSleep;								///< what that step returned
+	UpdateSleepTime gxStep();
 	void gxIntegrate();
 	static void gxBulkPass(UnsignedInt now);
 
 	/// the current velocity, in the unit store (web port, round 4)
-	Coord3D &gxVel() const
-	{
-		if (m_gxEpoch != TheGxUnitStore.epoch())
-		{
-			m_gxSlot = TheGxUnitStore.slotOf(getObject());
-			m_gxEpoch = TheGxUnitStore.epoch();
-		}
-		if (m_gxSlot < 0)
-		{
-			static Coord3D s_none;	// object not in the store (never for a live object)
-			s_none.zero();
-			return s_none;
-		}
-		return TheGxUnitStore.vel[m_gxSlot];
-	}
+	Coord3D &gxVel() const;
 
 	void setFlag(PhysicsFlagsType f, Bool set) { if (set) m_flags |= f; else m_flags &= ~f; }
 	Bool getFlag(PhysicsFlagsType f) const { return (m_flags & f) != 0; }

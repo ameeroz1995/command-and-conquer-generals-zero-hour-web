@@ -210,14 +210,25 @@ static void parseFrictionPerSec( INI* ini, void * /*instance*/, void *store, con
 const Real INVALID_VEL_MAG = -1.0f;
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 4): the current velocity lives in the unit store
+Coord3D &PhysicsBehavior::gxVel() const
+{
+	const Int slot = getObject()->gxStoreSlot();
+	if (slot < 0)
+	{
+		static Coord3D s_none;	// object not in the store (never for a live object)
+		s_none.zero();
+		return s_none;
+	}
+	return TheGxUnitStore.vel[slot];
+}
+
 static UnsignedInt s_gxBulkFrame = ~0u;	// web port (match rule physBulk): the frame whose pass ran
 
 PhysicsBehavior::PhysicsBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
 	m_accel.zero();
 	m_prevAccel = m_accel;
-	m_gxSlot = -1;
-	m_gxEpoch = 0;
 	gxVel().zero();
 	m_velMag = 0.0f;
 	m_yawRate = 0.0f;
@@ -243,6 +254,7 @@ PhysicsBehavior::PhysicsBehavior( Thing *thing, const ModuleData* moduleData ) :
 	m_bounceSound = nullptr;
 
 	m_gxPreFrame = ~0u;
+	m_gxSleep = UPDATE_SLEEP_NONE;
 
 #ifdef SLEEPY_PHYSICS
 	setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
@@ -653,34 +665,29 @@ void PhysicsBehavior::gxIntegrate()
 	m_velMag = INVALID_VEL_MAG;
 }
 
-// web port (match rule physBulk): at the first physics update of a frame, integrate forces and
-// velocity for every unit whose physics runs this frame: the unit store's PHYS list, in object-ID
-// order (velocities are the store's). Each unit's own update
-// then only moves it. A force applied to a unit after this pass (by another unit's physics step)
-// counts next frame instead of this one: that is the drift.
+// web port (match rule physBulk = physics pass): at the first physics update of a frame, run the
+// whole physics step of every unit whose physics is due this frame, over the unit store's PHYS list
+// in object-ID order (positions and velocities in the store). Each unit's own call from the update
+// heap then only hands back the sleep time its step returned. Units woken during the phase (not due
+// when the pass ran) step on their own call as before. The drift: units step in ID order instead of
+// the update heap's order.
 void PhysicsBehavior::gxBulkPass(UnsignedInt now)
 {
-	const std::vector<int> &list = TheGxUnitStore.pass(GXB_PHYS);
-	for (size_t i = 0; i < list.size(); ++i)
+	static std::vector<int> s_list;	// a copy: the step can create objects, which may rebuild pass lists
+	s_list = TheGxUnitStore.pass(GXB_PHYS);
+	for (size_t i = 0; i < s_list.size(); ++i)
 	{
-		Object *o = TheGxUnitStore.obj[list[i]];
+		Object *o = TheGxUnitStore.obj[s_list[i]];
 		PhysicsBehavior *pb = o ? o->getPhysics() : nullptr;
-		if (!pb)
+		if (!pb || pb->friend_getNextCallFrame() != now || pb->m_gxPreFrame == now)
 			continue;
-		if (pb->friend_getNextCallFrame() != now || o->isDisabledByType(DISABLED_HELD))
-			continue;
-		pb->m_prevAccel = pb->m_accel;
-		pb->setFlag(IS_IN_UPDATE, true);	// friction forces must not re-wake it (it is due anyway)
-		pb->gxIntegrate();
-		pb->setFlag(IS_IN_UPDATE, false);
-		pb->m_accel.zero();
 		pb->m_gxPreFrame = now;
+		pb->m_gxSleep = pb->gxStep();
 	}
 }
 
 UpdateSleepTime PhysicsBehavior::update()
 {
-	USE_PERF_TIMER(PhysicsBehavior)
 	if (gxMatchRule(GXRULE_PHYS_BULK))
 	{
 		const UnsignedInt now = TheGameLogic->getFrame();
@@ -689,7 +696,15 @@ UpdateSleepTime PhysicsBehavior::update()
 			s_gxBulkFrame = now;
 			gxBulkPass(now);
 		}
+		if (m_gxPreFrame == now)
+			return m_gxSleep;
 	}
+	return gxStep();
+}
+
+UpdateSleepTime PhysicsBehavior::gxStep()
+{
+	USE_PERF_TIMER(PhysicsBehavior)
 
 	Object*														obj = getObject();
 	const PhysicsBehaviorModuleData*	d = getPhysicsBehaviorModuleData();
@@ -708,9 +723,7 @@ UpdateSleepTime PhysicsBehavior::update()
 	}
 
 	Coord3D prevPos = *obj->getPosition();
-	const Bool preDone = m_gxPreFrame == TheGameLogic->getFrame();	// physBulk already integrated this frame
-	if (!preDone)
-		m_prevAccel = m_accel;
+	m_prevAccel = m_accel;
 
 	// web port (switch physReuse, second word bit 26; same game): reuse this step's ground height
 	const Bool gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
@@ -720,8 +733,7 @@ UpdateSleepTime PhysicsBehavior::update()
 	{
 		Matrix3D mtx = *obj->getTransformMatrix();
 
-		if (!preDone)
-			gxIntegrate();
+		gxIntegrate();
 
 		Real oldPosZ = mtx.Get_Z_Translation();
 
@@ -899,9 +911,7 @@ UpdateSleepTime PhysicsBehavior::update()
 	}
 
 	// reset the acceleration for accumulation next frame
-	// (physBulk zeroed it in its pass; forces applied since then count next frame)
-	if (!preDone)
-		m_accel.zero();
+	m_accel.zero();
 
 	// clear overlap object, which will be set by PhysicsCollide later
 	m_previousOverlap = m_currentOverlap;
