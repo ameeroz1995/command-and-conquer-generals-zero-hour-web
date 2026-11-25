@@ -3697,3 +3697,16 @@ Merged GxUnitStore (logic-collide e1001f1). Still under match rule 131072 (third
   is now written right after m_team changes, before anything in setOrRestoreTeam can read it.
   Referee replay matches with verify (contact array 90,600 checks, 0 mismatches); the verify battle
   printed 3,076 GXVERIFY lines, none with a mismatch.
+
+## 2026-11-25 — updatePasses (dispatch table + AI by state), quiet pair under timing.lock (logic-ai)
+
+Build ai-16 (perf/logic-ai 50ae273), rule 131072 off/on, inside `flock ~/generals-bench/timing.lock`,
+started at load < 8. Work ms (fps):
+- pair 1 (load 7.9-9.6): armies 74.9 (10.5) / 48.5 (18.3); strikes 79.2 (12.4) / 82.5 (11.9);
+  aftermath 38.2 (25.7) / 34.5 (28.5)
+- pair 2 (load 7.6-8.6): armies 53.9 (16.5) / 47.9 (18.3); strikes 72.3 (13.4) / 79.6 (12.4);
+  aftermath 37.6 (26.2) / 38.2 (25.7)
+Armies phase faster (11-35% less work), strike phase 4-10% slower, aftermath even. The strike phase
+has the most churn (units starting and stopping every-frame updates, AI states changing), where the
+per-frame AI state sort and the store's pass-list rebuilds cost more than the heap they replace.
+Stays default off.
