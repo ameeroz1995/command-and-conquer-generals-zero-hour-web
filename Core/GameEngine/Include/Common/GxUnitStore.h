@@ -48,6 +48,9 @@ enum GxBehaviour
 	GXB_AI      = 5,	///< has an AIUpdateInterface (ai)
 	GXB_ANIM    = 6,	///< animation / pose (combat)
 	GXB_DAMAGE  = 7,	///< has a body that takes damage (combat)
+	// 8-31: free for other passes. 32-63: reserved for ai, one bit per every-frame update-module kind
+	// (the update loop's dispatch table, GameLogic.cpp, match rule 131072).
+	GXB_AI_FIRST = 32,
 	GXB_COUNT   = 64
 };
 #define GXB_BIT(b) (1ull << (b))
