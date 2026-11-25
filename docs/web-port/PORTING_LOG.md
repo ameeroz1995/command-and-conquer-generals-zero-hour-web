@@ -3842,3 +3842,33 @@ Stays default off.
   - moveAfterTick off vs on (paths-28): 14.9 → 14.5 / 7.0 → 6.5 / 34 → 35 and 14.7 → 12.3 /
     6.0 → 5.9 / 21 → 115 (that half ran at load 8.6–9.8). Not faster: kept behind its rule,
     default off, as the round-4 bar asks.
+
+## 2026-11-25 — Round 5 (units are pure data), paths families: state in component rows; movement kernel
+- Per-unit state moved out of the module objects into rows of collide's GxComponentPool (one pool per
+  module type, deque rows that never move, freed rows reused). Each module keeps only its row index
+  (`m_gxRow`, `R()`) and stays the facade for INI, the engine's calls, xfer and crc. Same game.
+  - Locomotor: 15 fields (maintainPos, braking/lift/speed/accel/turn limits, close-enough distance,
+    flags, preferred height and damping, wander angle and increment, donut timer) in GxLocoState.
+    The template pointer stays on the object (it is INI data, not unit state).
+  - AI subclasses (14 with state): AssaultTransport, Chinook, DeliverPayload, DeployStyle, Dozer,
+    HackInternet, Jet, Missile, RailedTransport, RailroadBehavior (RailroadGuideAIUpdate.cpp),
+    SupplyTruck, Worker. Wander and Transport have no state of their own; POWTruck is compiled out
+    (ALLOW_SURRENDER) and was left as is.
+  - AnimationSteering, Float, Slaved, MobMemberSlaved, TensileFormation, Horde.
+  - DockUpdate and RepairDock, SupplyWarehouseDock, RailedTransportDock (PrisonDock and SupplyCenterDock
+    have no state of their own); Default/Queue/SpawnPoint/SupplyCenter production exits.
+  - Derived classes reach their base's row as `Base::R()`. The conversion was mechanical (members
+    removed, so any missed use fails to compile).
+- Movement system as kernel + apply (round-5 addendum), under match rule updatePasses with
+  moveAfterTick: the kernel computes every MOVE unit's point on its route (computePointOnPath) for
+  the whole list before any unit moves, writing only that unit's row (reads: its route, locomotor set,
+  position, the pathfinder grid, which nobody changes in this phase; no allocation, events, RNG or
+  object changes, except that cpopSegments, off, builds its segment list on first use). The apply
+  loop then moves units in object-ID order and takes the kernel's point if the unit's route and
+  position are still the ones the kernel saw.
+- Not done yet: the other modules' updates are still called one module at a time by the ai dispatch
+  table, with their state in rows; splitting each into a range kernel + apply is the next step.
+- Checks: referee replay matches with verify on Locomotor rows (paths-r5a, 90,603 checks), on all rows
+  (paths-r5b, 90,376), with the kernel (paths-r5c, 90,823) and on the pool version (paths-r5d,
+  90,643); 0 mismatches each. A recording with updatePasses + moveAfterTick on (GX=FEE6E7) plays back
+  to a match with both off on paths-r5c and on paths-r5d.
