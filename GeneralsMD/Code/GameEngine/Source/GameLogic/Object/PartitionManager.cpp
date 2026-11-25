@@ -57,6 +57,7 @@
 #include "Common/ActionManager.h"
 #include "Common/DiscreteCircle.h"
 #include "Common/GxTime.h"
+#include <optional>
 #include "Common/GameEngine.h"
 #include "Common/GameState.h"
 #include "Common/GameUtility.h"
@@ -3636,7 +3637,15 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 			Int *q = &in.rect[in.n * 4];
 			q[0] = max(x0, 0); q[1] = max(y0, 0); q[2] = min(x1, nx - 1); q[3] = min(y1, ny - 1);
 			in.slot[in.n] = s; in.seeker[in.n] = d; ++in.n;
+			if (gxTimingOn())	// tickTiming: the kernel's cells and tests, counted here so it stays free of globals
+				for (Int cy = q[1]; cy <= q[3]; ++cy)
+					for (Int cx = q[0]; cx <= q[2]; ++cx)
+					{
+						gxCount(GXC_PAIR_CELLS);
+						gxCount(GXC_PAIR_TESTS, start[cy * nx + cx + 1] - start[cy * nx + cx]);
+					}
 		}
+		gxCount(GXC_COLLIDE_SEEKERS, in.n);
 		in.nx = nx; in.start = start.data(); in.cslot = cslot.data(); in.cx = cx_.data(); in.cy = cy_.data(); in.cr = cr_.data();
 		in.x = st.x.data(); in.y = st.y.data(); in.radius = st.radius.data();
 		// kernel over all seekers (a job system can split [0, n) into ranges with one output each)
@@ -3645,6 +3654,7 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 		Int got;
 		while ((got = gxPairKernel(in, 0, in.n, out.data(), (Int)out.size())) < 0)
 			out.resize(out.size() * 2);	// full: grow on the main thread and run again
+		gxCount(GXC_PAIRS, got / 2);
 		// apply (main thread, seekers in object-ID order): collideStagger and the contact list
 		for (Int k = 0; k < got; k += 2)
 		{
@@ -3667,24 +3677,30 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 		const Coord3D p = st.posOf(s);
 		const Real e = (r + smallMax) * 1.4143f + 1.0f;
 		Int x0, y0, x1, y1;
+		gxCount(GXC_COLLIDE_SEEKERS);	// tickTiming
 		pm->worldToCell(p.x - e, p.y - e, &x0, &y0);
 		pm->worldToCell(p.x + e, p.y + e, &x1, &y1);
 		x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, nx - 1); y1 = min(y1, ny - 1);
 		for (Int cy = y0; cy <= y1; ++cy)
 			for (Int cx = x0; cx <= x1; ++cx)
+			{
+				gxCount(GXC_PAIR_CELLS);	// tickTiming
 				for (int k = head[cy * nx + cx]; k >= 0; k = next[k])
 				{
 					const int t = item[k];
+					gxCount(GXC_PAIR_TESTS);
 					if (t == s)
 						continue;
 					const Real dx = st.x[t] - p.x, dy = st.y[t] - p.y, lim = (st.radius[t] + r) * 1.4143f + 1.0f;
 					if (dx * dx + dy * dy > lim * lim)
 						continue;
+					gxCount(GXC_PAIRS);
 					PartitionData *that = st.obj[t]->friend_getPartitionData();
 					if (g_gxDeferStamp && that->gxDeferStamp() == g_gxDeferStamp && gxBefore(that, d))
 						continue;	// collideStagger, as in addPossibleCollisions
 					ct->addToContactList(d, that);
 				}
+			}
 	}
 }
 
@@ -3735,6 +3751,7 @@ void PartitionManager::update()
 		s_gxLater.clear();
 		static std::vector<PartitionData*> s_gxSeekers;
 		s_gxSeekers.clear();
+		std::optional<GxTimeScope> gxBuildT(std::in_place, GXT_COLLIDE_BUILD);	// tickTiming: dirty cells + pair offers
 		const Bool gxStorePairs = gxMatchRule(GXRULE_STORE_PAIRS);
 		g_gxDeferStamp = 0;
 		if (gxEvery > 1)
@@ -3788,7 +3805,11 @@ void PartitionManager::update()
 
 		if (gxStorePairs)
 			gxStoreBroadPhase(s_gxSeekers, &ctList);
-		ctList.processContactList();
+		gxBuildT.reset();
+		{
+			GxTimeScope gxProcT(GXT_COLLIDE_PROCESS);	// tickTiming
+			ctList.processContactList();
+		}
 		// put the deferred units back on the dirty list (found by ID: a reaction may have removed them)
 		for (ObjectID id : s_gxLater)
 		{

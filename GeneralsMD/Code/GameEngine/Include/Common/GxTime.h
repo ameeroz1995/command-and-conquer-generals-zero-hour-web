@@ -22,11 +22,12 @@ static inline int GLES3_Page_Switches4() { return 0; }
 static inline double emscripten_get_now() { return 0.0; }
 #endif
 
-enum GxTimeId { GXT_LOGIC, GXT_FRAME, GXT_SEARCH, GXT_FOG_REVEAL, GXT_TIME_COUNT };
+enum GxTimeId { GXT_LOGIC, GXT_FRAME, GXT_SEARCH, GXT_FOG_REVEAL, GXT_PHYSICS, GXT_COLLIDE_BUILD, GXT_COLLIDE_PROCESS, GXT_TIME_COUNT };
 enum GxCountId
 {
 	GXC_SEARCHES, GXC_SEARCH_CELLS, GXC_SEARCH_ENTRIES, GXC_SEARCH_UNITS, GXC_SIMD_CULLED,
 	GXC_FOG_CIRCLES, GXC_FOG_CELLS, GXC_FOG_STATUS_CALLS, GXC_FOG_RECOMPUTES, GXC_FOG_KEPT,
+	GXC_PHYS_UNITS, GXC_COLLIDE_SEEKERS, GXC_PAIR_CELLS, GXC_PAIR_TESTS, GXC_PAIRS, GXC_ALLOCS,
 	GXC_COUNT
 };
 
@@ -73,9 +74,10 @@ inline void gxTimeTickEnd()
 	if (!gxTimingOn()) return;
 	GxTimeState &s = gxTime();
 	if (++s.ticks % 300) return;
-	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal" };
+	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "physics", "collideBuild", "collideProcess" };
 	static const char *cn[GXC_COUNT] = { "searches", "searchCells", "searchEntries", "searchUnits", "simdCulled",
-		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept" };
+		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept",
+		"physUnits", "collideSeekers", "pairCells", "pairTests", "pairs", "allocs" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())
@@ -84,7 +86,7 @@ inline void gxTimeTickEnd()
 		p99 = f[(size_t)(0.99 * (f.size() - 1))];
 		for (size_t i = 0; i < f.size(); ++i) if (f[i] > 100.0f) ++over100;
 	}
-	char buf[1024]; int k = snprintf(buf, sizeof(buf), "GXTIME ticks %llu:", s.ticks);
+	char buf[4096]; int k = snprintf(buf, sizeof(buf), "GXTIME ticks %llu:", s.ticks);
 	for (int i = 0; i < GXT_TIME_COUNT; ++i) k += snprintf(buf + k, sizeof(buf) - k, " %s %.3f ms/tick;", tn[i], s.ms[i] / s.ticks);
 	for (int i = 0; i < GXC_COUNT; ++i) k += snprintf(buf + k, sizeof(buf) - k, " %s %.1f/tick;", cn[i], (double)s.n[i] / s.ticks);
 	snprintf(buf + k, sizeof(buf) - k, " frames %d, p99 %.1f ms, over 100 ms %d", (int)f.size(), p99, over100);

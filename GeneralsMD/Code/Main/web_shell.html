@@ -2056,7 +2056,7 @@
           (function () {
             var cats = [
               { name: 'MANAGER PATTERN', note: 'Unit data kept in one store, and each game system run as one pass over all its units, in unit order.',
-                keys: ['positionInStore', 'updatePasses', 'moveAfterTick', 'physBulk', 'physSimd', 'storePairs', 'scanManager', 'rowKernels', 'simdSearch', 'fogStamps', 'fogKeep', 'weaponPass', 'weaponSkip', 'damageQueue', 'animStoreList', 'disabledList'] },
+                keys: ['positionInStore', 'updatePasses', 'moveAfterTick', 'physBulk', 'physSimd', 'storePairs', 'collideSimd', 'scanManager', 'rowKernels', 'simdSearch', 'fogStamps', 'fogKeep', 'weaponPass', 'weaponSkip', 'damageQueue', 'animStoreList', 'disabledList'] },
               { name: 'ROUTE PLANNING', note: 'How units find their way: shared route maps, route reuse and how much planning each frame does.',
                 keys: ['flowFields', 'lazyFields', 'gpuFlowFields', 'flowCover', 'coarseStart', 'groupRoute', 'routeQueue', 'routeCache', 'routeRefine', 'sharedRoutes', 'routeBudget', 'ignoreUnitsInPaths', 'openHeap', 'cellBits', 'cpopSegments'] },
               { name: 'COMPUTATION', note: 'Cheaper game logic: searches, collisions, physics and bookkeeping.',

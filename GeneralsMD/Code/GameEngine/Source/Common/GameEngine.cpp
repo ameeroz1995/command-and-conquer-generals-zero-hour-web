@@ -1146,7 +1146,10 @@ void GameEngine::update() {
       TheGameClient->step();
       {
         GxTimeScope gxT(GXT_LOGIC);	// web port: tickTiming (Common/GxTime.h)
+        extern unsigned long long g_gxAllocs;
+        const unsigned long long gxA0 = g_gxAllocs;
         TheGameLogic->UPDATE();
+        gxCount(GXC_ALLOCS, g_gxAllocs - gxA0);	// game memory blocks allocated during the tick
       }
       gxTimeTickEnd();
     } else if (canUpdateScript) {
