@@ -3125,6 +3125,34 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   PathNode setter (paths are edited in place from AIUpdate and several Pathfinder functions). Not
   built. A windowed search around the last closest segment would cut more but changes results
   (match rule 1024), for well under 1% of the frame: not worth the visual checks.
+## 2026-11-24 — Round 3, update loop as a flat system (logic-ai agent): measured, stopped
+
+Merged perf/low-end dc2f00b first.
+
+What the loop is: m_sleepyUpdates is a binary heap of update modules keyed by
+(next frame << 2 | phase), with the key copy beside each entry already (sleepyKeys). Many entries
+share a key each frame, and the order among them, which is the simulation order, comes from the
+heap's exact sift mechanics. So a same-game rebuild must keep that heap algorithm; only where its
+data lives can change. Every entry popped is then run through its module's own update(), which
+touches the module and its object anyway.
+
+Share of the frame (build ai-5, load 30-52, inclusive): armies — sifting (rebalance*) 1.3%,
+GameLogic::update's own code 1.1%; strikes — 0.8% and 0.7%. AIUpdateInterface::update 6.4-7.8%,
+StateMachine::updateStateMachine 4.4-5.3%: the state work under it is mostly route searches, enemy
+searches and weapons (other agents' systems). Ceiling for rebuilding the loop: about 2%.
+
+Prototype (holeSift, bit 15): the sift held the moving entry aside and slid the others into the
+hole, writing the index into a module once per level instead of twice. Verify mode (the swapping
+sift replayed on copies every 97th call and compared, entry by entry, with indexes): 0 mismatches.
+Replay matched.
+- profile pair, strikes (load 8-12): sifting 1.6% off, 1.6% on.
+- A/B pairs, work ms off/on (load 8-30): armies 59.8/62.1, 67.5/51.9; strikes 85.5/97.6, 82.8/75.8;
+  aftermath 68.4/53.3, 43.8/75.3. Noise in both directions, no gain.
+The sift's cost is the cache misses on the entries that really move (their keys and their
+modules' index fields), which the hole does not avoid; the extra writes it saved were to the
+moving entry, already in cache. Not kept (code reverted), per this round's rule: the full flat
+rewrite of the loop cannot pay more than ~2% and the slice shows nothing.
+
 ## 2026-11-24 — paths, ai and collide branches merged (dc2f00b); AI and collision rules are match rules
 
 - Merged perf/logic-paths (match rules, coarseStart), perf/logic-ai (sharedRoutes, routeBudget,
@@ -3318,3 +3346,45 @@ Built per the user's round-3 decision (small gains meant to add up). Two parts:
   no gain, not slower.
 - crushFirst pair rerun at load 5-7 (col-3t, the first pair started at load 12): crush-check time
   off 10.25 / 9.95 ms, on 10.77 / 9.33 ms: inside noise, not slower (kept on: same game).
+## 2026-11-24 — Round 3 update 3: drifting update loop (4-ary queue) built, measured, not kept (logic-ai)
+
+Merged perf/low-end 501981e first. Built behind match rule 4096 (GXRULE_UPDATE_LOOP, second-word
+bit 15, default off): the update queue as a 4-ary heap (half as deep, the moving entry held aside
+and the others sliding into the hole). The heap is binary at every game start and switches shape
+only at the start of the update pass by a rebuild, so record and playback follow the same steps.
+- Determinism: old referee replay matches (rule off); a skirmish recorded with the rule on replays
+  to a match (rules from the replay header 0x1002). Verify mode with the rule on: the queue is a
+  valid 4-ary heap with right indexes and keys every frame, 0 mismatches.
+- Profile pair, strikes (load 17-21): sifting 2.2% -> 1.9% of the frame.
+- A/B pairs off/on (load 15-30), work ms: armies 80.4/94.3, 59.0/76.5; strikes 116.9/141.8,
+  108.9/161.3 — and with the rule on the strike phase hit the benchmark's time limit both times.
+  Screenshots (~/generals-bench/ai-ul-{off1,on1}_battle*.png): at the same shot the armies had not
+  met yet with the rule on. The order of updates due on the same frame changes, and the battle
+  plays out differently and heavier; the queue itself got only 0.3 points cheaper.
+Not kept (code reverted): it is measurably slower in its own pairs. The update queue's turn order
+is part of how the battle unfolds; a cheaper queue would have to keep today's tie order.
+
+## 2026-11-25 — Round 3: update-loop flat pass (logic-ai), merged perf/low-end a0897b2
+
+Where GameLogic::update's own time goes (strikes, load 9-15): GameLogic::update self 1.1-1.5%,
+heap sifting (rebalance*) 1.1-1.7%; AIUpdateInterface::update 7.7-12.6% inclusive, of which the
+state machines' own dispatch is small (updateStateMachine self ~0.3-0.4%; the rest is the states'
+route, enemy-search and weapon work, other agents' systems). The ~4.5% figure did not reproduce.
+The heap's order is the simulation order (earlier entries: hole sift gave nothing exact, 4-ary heap
+drifted into slower battles), so this round's slice is the other per-tick walk in the loop.
+
+disabledList (third switch word bit 8, exact, default ON): the end-of-tick check for disabled
+objects walked every object in the game to find the few that are disabled. Now
+Object::setDisabledUntil adds the object to a flat list (and registerObject, for objects disabled
+before they were registered); the list is sorted into object-list order (each object gets a number
+when it is prepended, so the list is in descending numbers; rebuilt from the list itself after a
+reset or a load) and only those objects are checked; ones no longer disabled drop out.
+- Verify mode: every frame the listed disabled objects, in order, equal the full walk's, and the
+  list order is descending numbers: 0 mismatches (up to 538 disabled objects at once).
+- Old referee replay matches.
+- Profile pair, strikes (load 11): GameLogic::update self 1.5% -> 1.4%; the walk was ~0.1%.
+- A/B pairs off/on, work ms (load 10-24): armies 68.8/61.8, 59.1/61.4; strikes 110.4/102.2,
+  99.1/96.7; aftermath 51.2/51.2, 52.7/51.6. Within noise, not slower. Kept, default on.
+AI state dispatch as a flat pass: no slice found that pays. A state machine's per-tick cost is its
+transition tests and state updates, which read their own unit and the world; the dispatch itself
+(sleep check, virtual calls) is ~0.5% of the frame.

@@ -56,7 +56,7 @@ static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
-static int g_PageSwitches3 = 0 | 16 | 32;
+static int g_PageSwitches3 = 0 | 16 | 32 | 256;
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -473,7 +473,8 @@ void GLES3_Begin_Scene() {
                  | (o.routeRefine === true ? 2097152 : 0)  // bit 21: match rule routeRefine, detailed search only for the next stretch (AIPathfind.cpp)
                  | (o.flowCover === true ? 4194304 : 0)   // bit 22: match rule flowCover, flow fields for moves over 8 cells (AIPathfind.cpp)
                  | (o.crushFirst === false ? 0 : 16)   // bit 4: crush tests compare crush levels before the ally lookup (Object.cpp; same game)
-                 | (o.collideList === false ? 0 : 32);  // bit 5: each unit lists its collide modules once instead of asking every module per collision (Object.cpp; same game)
+                 | (o.collideList === false ? 0 : 32)  // bit 5: each unit lists its collide modules once instead of asking every module per collision (Object.cpp; same game)
+                 | (o.disabledList === false ? 0 : 256);  // bit 8: end-of-tick disabled check visits a list of disabled objects, not every object (GameLogic.cpp; same game)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;

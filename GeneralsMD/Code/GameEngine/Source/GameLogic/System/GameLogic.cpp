@@ -401,6 +401,8 @@ void GameLogic::reset()
 //	m_objHash.resize(OBJ_HASH_SIZE);
 	m_objVector.clear();
 	m_objVector.resize(OBJ_HASH_SIZE, nullptr);
+	m_gxDisabledObjs.clear();
+	m_gxDisabledListValid = false;
 
 	m_pauseFrame = 0;
 	m_gamePaused = FALSE;
@@ -2606,6 +2608,13 @@ void GameLogic::processDestroyList()
 
 
 		currentObject->removeFromList(&m_objList);//remove from object list
+		currentObject->m_gxListSeq = 0;	// web port: out of the list (switch disabledList)
+		if (currentObject->m_gxDisabledListed)	// web port: and from the list of disabled objects
+		{
+			std::vector<Object *>::iterator it = std::find(m_gxDisabledObjs.begin(), m_gxDisabledObjs.end(), currentObject);
+			if (it != m_gxDisabledObjs.end()) m_gxDisabledObjs.erase(it);
+			currentObject->m_gxDisabledListed = false;
+		}
 
 		// remove object from lookup table
 		removeObjectFromLookupTable( currentObject );
@@ -3919,16 +3928,7 @@ void GameLogic::update()
 	TheLocomotorStore->UPDATE();
 	TheVictoryConditions->UPDATE();
 
-	{
-		//Handle disabled statii (and re-enable objects once frame matches)
-		for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
-		{
-			if( obj->isDisabled() )
-			{
-				obj->checkDisabledStatus();
-			}
-		}
-	}
+	gxCheckDisabledObjects();
 
 
 
@@ -4015,6 +4015,104 @@ void GameLogic::removeObjectFromLookupTable( Object *obj )
 }
 
 // ------------------------------------------------------------------------------------------------
+// Handle disabled statii (and re-enable objects once frame matches).
+// Web port (switch disabledList, third word bit 8, same game): instead of walking every object
+// for the few that are disabled, visit the list of objects that were disabled (Object::
+// setDisabledUntil adds them), sorted into object-list order. Objects are only ever prepended
+// to the list, so list order is descending m_gxListSeq; after a reset or load the numbers and
+// the list are rebuilt from the object list itself.
+// ------------------------------------------------------------------------------------------------
+void GameLogic::gxNoteDisabled( Object *obj )
+{
+	// only objects in the object list (numbered when registered); others are never walked either
+	if (obj->m_gxListSeq != 0 && !obj->m_gxDisabledListed)
+	{
+		obj->m_gxDisabledListed = true;
+		m_gxDisabledObjs.push_back(obj);
+	}
+}
+
+void GameLogic::gxCheckDisabledObjects()
+{
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches3();
+	const Bool flat = (GLES3_Page_Switches3() & 256) != 0;
+#else
+	const Bool flat = FALSE;
+#endif
+	if (!m_gxDisabledListValid)
+	{
+		// rebuild: number the list from the tail up, and list the disabled objects
+		UnsignedInt n = 0;
+		for (Object *obj = m_objList; obj; obj = obj->getNextObject()) ++n;
+		m_gxListSeqNext = n;
+		for (Object *obj = m_objList; obj; obj = obj->getNextObject()) obj->m_gxListSeq = n--;
+		for (Object *obj : m_gxDisabledObjs) obj->m_gxDisabledListed = false;
+		m_gxDisabledObjs.clear();
+		for (Object *obj = m_objList; obj; obj = obj->getNextObject())
+			if (obj->isDisabled()) gxNoteDisabled(obj);
+		m_gxDisabledListValid = true;
+	}
+	std::sort(m_gxDisabledObjs.begin(), m_gxDisabledObjs.end(),
+		[](const Object *a, const Object *b) { return a->m_gxListSeq > b->m_gxListSeq; });
+#ifdef __EMSCRIPTEN__
+	if (GLES3_Page_Switches() & 2097152)	// verify mode: the list's disabled objects, in order, are the walk's
+	{
+		extern int gx_verify_mismatch, gx_verify_checked;
+		static std::vector<Object *> walk;
+		walk.clear();
+		UnsignedInt prev = 0xffffffff;
+		Bool bad = FALSE;
+		for (Object *obj = m_objList; obj; obj = obj->getNextObject())
+		{
+			if (obj->m_gxListSeq >= prev) bad = TRUE;	// list order must be descending numbers
+			prev = obj->m_gxListSeq;
+			if (obj->isDisabled()) walk.push_back(obj);
+		}
+		size_t k = 0;
+		for (Object *obj : m_gxDisabledObjs)
+			if (obj->isDisabled()) { if (k >= walk.size() || walk[k] != obj) bad = TRUE; ++k; }
+		if (k != walk.size()) bad = TRUE;
+		++gx_verify_checked;
+		if (bad) ++gx_verify_mismatch;
+		if (bad || getFrame() % 300 == 0)
+			printf("GXVERIFY disabled list (%d listed, %d disabled) checked %d, mismatches %d\n",
+				(int)m_gxDisabledObjs.size(), (int)walk.size(), gx_verify_checked, gx_verify_mismatch);
+	}
+#endif
+	if (!flat)
+	{
+		for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
+		{
+			if( obj->isDisabled() )
+			{
+				obj->checkDisabledStatus();
+			}
+		}
+	}
+	else
+	{
+		// checkDisabledStatus only clears; an object newly disabled meanwhile is appended and seen next frame
+		const size_t n = m_gxDisabledObjs.size();
+		for (size_t k = 0; k < n; ++k)
+		{
+			Object *obj = m_gxDisabledObjs[k];
+			if (obj->isDisabled())
+				obj->checkDisabledStatus();
+		}
+	}
+	// drop the objects that are no longer disabled
+	size_t w = 0;
+	for (size_t k = 0; k < m_gxDisabledObjs.size(); ++k)
+	{
+		Object *obj = m_gxDisabledObjs[k];
+		if (obj->isDisabled()) m_gxDisabledObjs[w++] = obj;
+		else obj->m_gxDisabledListed = false;
+	}
+	m_gxDisabledObjs.resize(w);
+}
+
+// ------------------------------------------------------------------------------------------------
 /** Given an object, register it with the GameLogic and give it a unique ID. */
 // ------------------------------------------------------------------------------------------------
 void GameLogic::registerObject( Object *obj )
@@ -4022,6 +4120,8 @@ void GameLogic::registerObject( Object *obj )
 
 	// add the object to the global list
 	obj->prependToList(&m_objList);
+	obj->m_gxListSeq = ++m_gxListSeqNext;	// web port: list order = descending m_gxListSeq
+	if (obj->isDisabled()) gxNoteDisabled(obj);	// disabled before it was registered
 
 	// add object to lookup table
 	addObjectToLookupTable( obj );
@@ -5273,6 +5373,7 @@ void GameLogic::xfer( Xfer *xfer )
 // ------------------------------------------------------------------------------------------------
 void GameLogic::loadPostProcess()
 {
+	m_gxDisabledListValid = false;	// web port: the object list was rebuilt; the disabled list is rebuilt from it
 
 	//
 	// the act of loading objects can (theoretically) as a side effect create other objects,
