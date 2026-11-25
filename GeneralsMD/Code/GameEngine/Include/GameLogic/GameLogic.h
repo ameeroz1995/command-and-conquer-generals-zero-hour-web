@@ -123,6 +123,17 @@ public:
 																			 void *userData );	///< Logic command list processing
 
 	void registerObject( Object *obj );							///< Given an object, register it with the GameLogic and give it a unique ID
+
+	// Web port (round 5 addendum, kernels): a system registers a kernel and an apply step for a
+	// GxUnitStore behaviour bit and an update phase (PHASE_INITIAL..PHASE_FINAL). Every frame, at the
+	// start of that phase (before any of the phase's module updates, with or without updatePasses),
+	// the slots of TheGxUnitStore.pass(bit) in object-ID order are handed to the kernel as one range
+	// [0, n) (later: split over workers), then to apply on the main thread.
+	// kernel: writes only its own units' rows; no allocation, events, RNG or other globals.
+	// apply: the side effects (events, other objects, RNG), in object-ID order.
+	typedef void (*GxKernelFn)( const Int *slots, Int begin, Int end );
+	typedef void (*GxApplyFn)( const Int *slots, Int count );
+	static void gxRegisterKernel( Int storeBit, Int phase, GxKernelFn kernel, GxApplyFn apply );
 	void gxNoteDisabled( Object *obj );	///< web port: obj may now be disabled (switch disabledList)
 
 	void addObjectToLookupTable( Object *obj );			///< add object ID to hash lookup table
