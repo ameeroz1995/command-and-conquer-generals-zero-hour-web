@@ -121,6 +121,7 @@ constexpr const UnsignedInt MAX_SAFE_PATH_CELL_COUNT = 2000;
 
 struct GxQueued { ObjectID id; UnsignedInt frame; };
 static std::vector<GxQueued> s_gxOverflow;
+static Path *gxRouteCacheLookup( Pathfinder *pf, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center, Bool *probeHit = nullptr );
 // web port (match rule routeQueue): spreading an army order's burst over frames, in request order
 static UnsignedInt s_gxEligibleAt[PATHFIND_QUEUE_LEN];	// first frame a queued request may run
 static UnsignedInt s_gxBurstFrame = 0; static Int s_gxBurstCount = 0;	// requests queued this frame
@@ -6357,6 +6358,31 @@ void Pathfinder::processPathfindQueue()
 		}
 		s_gxCoarseWaiting.erase(s_gxCoarseWaiting.begin(), s_gxCoarseWaiting.begin() + k);
 	}
+	if (gxStagger && gxMatchRule(GXRULE_ROUTE_CACHE)) {
+		// web port (match rules routeQueue + routeCache): the route manager first serves, in queue
+		// order, the eligible plain move requests among the next 256 whose route is in the cache
+		// (no search cells), then spends the budget on the searches
+		const UnsignedInt now = TheGameLogic->getFrame();
+		Int slot = m_queuePRHead;
+		for (Int n = 0; slot != m_queuePRTail && n < 256; ++n) {
+			const ObjectID id = m_queuedPathfindRequests[slot];
+			if (id != INVALID_ID && s_gxEligibleAt[slot] <= now) {
+				Object *o = TheGameLogic->findObjectByID(id);
+				AIUpdateInterface *ai = o ? o->getAIUpdateInterface() : nullptr;
+				if (ai && ai->gxPlainRequest() && ai->isDoingGroundMovement()) {
+					Int radius = 0; Bool center = true;
+					getRadiusAndCenter(o, radius, center);
+					Bool hit = FALSE;
+					gxRouteCacheLookup(this, o, ai->getLocomotorSet(), o->getPosition(), ai->gxRequestedDest(), radius, center, &hit);
+					if (hit) {
+						m_queuedPathfindRequests[slot] = INVALID_ID;
+						ai->doPathfind(this);
+					}
+				}
+			}
+			if (++slot >= PATHFIND_QUEUE_LEN) slot = 0;
+		}
+	}
 	while (m_cumulativeCellsAllocated < gxCellsPerFrame &&
 		m_queuePRTail!=m_queuePRHead) {
 		if (gxStagger) {
@@ -6803,7 +6829,6 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
  * Find a short, valid path between given locations.
  * Uses A* algorithm.
  */
-static Path *gxRouteCacheLookup( Pathfinder *pf, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center );
 static void gxRouteCacheStore( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center, Path *path );
 
 Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
@@ -12090,7 +12115,7 @@ struct GxCachedRoute {
 std::vector<GxCachedRoute> s_routeCache;
 }
 
-static Path *gxRouteCacheLookup( Pathfinder *pf, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center )
+static Path *gxRouteCacheLookup( Pathfinder *pf, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center, Bool *probeHit )
 {
 	const UnsignedInt now = TheGameLogic->getFrame();
 	const LocomotorSurfaceTypeMask surfaces = locomotorSet.getValidSurfaces();
@@ -12109,6 +12134,7 @@ static Path *gxRouteCacheLookup( Pathfinder *pf, Object *obj, const LocomotorSet
 			if (!pf->validMovementPosition(crusher, LAYER_GROUND, locomotorSet, &p)) { ok = FALSE; break; }
 		}
 		if (!ok) continue;
+		if (probeHit) { *probeHit = TRUE; return nullptr; }	// only asking: nothing built, nothing touched
 		Path *path = newInstance(Path);
 		path->appendNode(from, LAYER_GROUND);
 		for (const Coord3D &p0 : r.pts) { Coord3D p = p0; p.x += ox; p.y += oy; path->appendNode(&p, LAYER_GROUND); }
