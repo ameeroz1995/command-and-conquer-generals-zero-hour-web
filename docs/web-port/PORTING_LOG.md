@@ -3877,3 +3877,25 @@ Stays default off.
   isolated measurement: paths-28 predates collide's and ai's round-4/5 merges, and the r5d half ran
   at lower load. It does show the rows are not slower. The rows have no switch (the data either
   lives in the row or on the object); the kernel rides on updatePasses.
+
+## 2026-11-25 — Round 5 paths: kernel + apply inside every paths module (same game)
+Each module's update now calls a pure kernel (its row + gathered inputs in, its row + an op out; no
+allocation, events, RNG or object changes) and then applies the side effects in the old order. When
+ai's per-kind hook lands, the range kernel is a loop of these calls over the kind's list.
+- Kernels: AnimationSteering (turn animation state), Float (water-surface position), Horde (horde
+  state from the gathered neighbour count and rub-off), TensileFormation (slide inertia and step),
+  MobMemberSlaved (branch and catch-up crisis timer), Slaved (update throttle, repair/attack/scout/
+  guard priority), Missile (no-turn distance, decoy timer), Jet (attack-loco, attackers-miss and
+  untargetable timers), Dock (entrance permission), QueueProductionExit (exit delay), RailroadBehavior
+  (conductor brake/wait/pull-away), DeployStyle (deploy timer, then deploy/pack decision; turret facts
+  gathered after the first change, as before), AssaultTransport (member list drop/add, the old loop's
+  slot order kept), DeliverPayload (dive state and strafe point), RailedTransport (arrival),
+  Chinook (healed take-off, idle land/take-off/pending), Dozer and Worker (task validity),
+  HackInternet (pending command), RailedTransportDock (pull-in / push-out scoot step).
+- No kernel needed: SupplyTruck (its update only runs the state machine), SupplyCenterDock (the base
+  dock's kernel), Default/SpawnPoint/SupplyCenter exits (update sleeps forever), Wander, Transport,
+  PrisonDock (no state).
+- Found while splitting: RailroadBehavior kept `conductorPullInfo` (no m_ prefix) on the object; it
+  is now in the train's row too.
+- Checks: paths-r5e (first batch) and paths-r5f (all) match the referee replay with verify (90,629 and
+  90,613 checks, 0 mismatches) and play the kernel recording (GX=FEE6E7) to a match.
