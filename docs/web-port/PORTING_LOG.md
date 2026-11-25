@@ -3622,3 +3622,27 @@ Default off (it changes the order of same-frame updates); for the main chat's co
   returns the store's Coord3D, arrays reserved for 16k units so the pointer stays put within a frame).
   Position stays in the Object's matrix with write-through (x/y/z), likewise radius and player.
 - Same game: referee replay matches (9,000 frames, build store-1).
+
+## 2026-11-25 — Round 4, lines 3 and 4 (logic-ai): dispatch table over GxUnitStore + AI passes by state
+
+Merged GxUnitStore (logic-collide e1001f1). Still under match rule 131072 (third word bit 9, OFF).
+- Line 3 (every-frame modules from a mask-driven dispatch table over dense store lists, object-ID
+  order; heap only for sleeping modules): each module kind that runs every frame gets a store
+  behaviour bit (32-59, 28 kinds, numbered in the order they first appear in a game; the table runs
+  them AI kinds first, then by a hash of the module name). A unit's bit is set when its module starts
+  running every frame (at the end of that frame) and cleared when it sleeps, is put to sleep by
+  another unit or is destroyed; never re-tested per tick (line 2). Each kind's pass walks
+  TheGxUnitStore.pass(bit) and calls that kind's module of each unit. Kinds past the 28th and a
+  second module of one kind on a unit use bit 60+phase ("misc"): its pass walks the store list and
+  runs the unit's misc modules. Verify-mode count (rule on): per 300 frames ~1.25-2.9 million calls
+  through the table, 0 through any other list; the heap made 55-125 calls a frame (modules waking
+  from a real sleep, which then join a pass if they ask to run every frame).
+- Line 4 (AI state machine, one pass per state): the AI kinds' units are taken from their store
+  lists and run grouped by current AI state, then kind, then object ID.
+- Determinism: referee replay matches (rule off); a skirmish recorded with the rule on replays to a
+  match (build ai-15).
+- Profile, strikes: heap sifting 1.5% -> 0.1%; GxUnitStore 0.1% -> 0.4% (pass lists rebuilt as units
+  join and leave passes); GameLogic::update self 1.5% -> 1.4%. About 1 point net.
+- A/B, work ms off/on: pair 1 (load 31-34) armies 137.7/54.4, strikes 113.4/114.3; pair 2 (load
+  15-20) armies 67.5/66.6, strikes 87.8/113.4, aftermath 51.3/58.1. Inside the noise of this loaded
+  machine, pair 2's strikes slower; the earlier passes-only build was not slower. Stays default off.

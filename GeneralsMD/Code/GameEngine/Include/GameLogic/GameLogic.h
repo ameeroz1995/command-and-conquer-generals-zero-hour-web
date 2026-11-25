@@ -352,6 +352,18 @@ private:
 	void gxPassFlushToHeap();
 	void gxPassMerge();
 	void gxPassMergeJoin();
+	// The dispatch table (round 4, same rule): one behaviour bit (GxUnitStore, bits 32-63) per
+	// module kind that runs every frame. Its pass walks TheGxUnitStore.pass(bit) in object-ID order
+	// and calls that kind's module of each unit (modById). Kind members have index-in-logic -4; a
+	// second module of the same kind on one unit, or kinds past the 32nd, use the lists above (-2).
+	struct GxKind { NameKeyType nk; unsigned long long order; Int bit; Int phase; Bool isAI; std::vector<UpdateModulePtr> modById; };
+	std::vector<GxKind> m_gxKinds;
+	std::vector<Int> m_gxKindOrder;	///< m_gxKinds indexes in dispatch order (AI kinds first, then name hash)
+	Int gxKindOf(UpdateModulePtr u, Bool create);
+	/// per phase, per object ID: the unit's every-frame modules without a kind bit of their own
+	/// (kinds past the 28th, or a second module of one kind); behaviour bit 60 + phase. Index -5.
+	std::vector<std::vector<UpdateModulePtr>> m_gxMiscById[4];
+	void gxKindsClear(Bool toHeap);
 	// Web port (switch disabledList, third word bit 8): the objects that may be disabled, so the
 	// end-of-tick check visits them instead of walking every object. Order = object-list order
 	// (descending m_gxListSeq). Rebuilt from the list after a reset or a load.
