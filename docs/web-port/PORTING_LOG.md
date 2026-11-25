@@ -3587,3 +3587,39 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
   returns the store's Coord3D, arrays reserved for 16k units so the pointer stays put within a frame).
   Position stays in the Object's matrix with write-through (x/y/z), likewise radius and player.
 - Same game: referee replay matches (9,000 frames, build store-1).
+- Physics on the store (build store-2): physBulk's pass now walks the store's PHYS list (object-ID
+  order) and reads/writes the store's velocities; its own behaviour list is gone. The store's cell is
+  now write-through with x/y (partition cell under the centre, cy * cellCountX + cx).
+  Referee replay matches; a skirmish recorded with physBulk on (header rules 0x822) replays to a match.
+- Collision broad phase over store cells: not built. The pair test already reads kept places
+  (pairPlace, query agent), and the pair-list build measured ~0.6 ms per frame at the peak (round 2
+  timers) against ~2/3 of collision time in the reactions (onCollide + AI processCollision), so a
+  drifting store-cell broad phase can win at most that 0.6 ms.
+
+## 2026-11-25 — Round 4, 100% adoption: positions in the store, physics pass, store broad phase
+
+- positionInStore (third word bit 7, on; same game): an Object's position lives in the unit store
+  (pos[slot], one Coord3D per slot). Thing::getPosition() returns it, Thing's setters write it, and
+  getTransformMatrix() refreshes the matrix translation from it on every read. Fixed per object when
+  it enters the store (so switching it mid-game only affects new objects); when an object leaves the
+  store the position is copied back. Without the switch the store keeps a write-through copy. Every
+  Object knows its slot (gxStoreSlot(), kept by the store at add and compaction); physics velocity
+  reads by that slot (no epoch check any more). Store API change: x/y/z are now pos[s].x/y/z.
+- physBulk (match rule 2048) is now the whole physics step: at the first physics update of a frame,
+  every unit whose physics is due steps in one pass over the store's PHYS list (object-ID order);
+  each unit's own heap call returns the sleep time its step gave. Units woken later in the phase step
+  on their own call as before.
+- storePairs (match rule 65536, third word bit 6, off): collision broad phase over the store. All
+  units the partition holds go in a grid by the store's cell index (units larger than half a cell in
+  every cell under their bounding square); each unit due a collision check (object-ID order) is
+  offered every unit in reach, with pairPlace's distance cut; pairs go to the flat contact arrays.
+- collideStagger's tie-break between two waiting units now compares object IDs (it compared
+  partition-data addresses, which can differ between machines now that the stagger is a match rule).
+- Checks: referee replay matches on store-3 (positionInStore) and store-4 (all of it, verify mode:
+  contact array checked 90,600, mismatches 0); the verify battle on store-3 printed 1,870 GXVERIFY
+  lines, none with a mismatch. A skirmish recorded with physBulk + storePairs on (header rules
+  0x10822) replays to a match. Screenshot with both rules on (store4-rules_battle3-5): normal
+  crowded fight, nothing stuck or piled up.
+- Still write-through (store holds a copy): radius (truth is the GeometryInfo, a value type shared
+  with templates), player (truth is the Team pointer; the store holds the derived index). The cell is
+  written by the partition (query); mask and velocity have no other copy.
