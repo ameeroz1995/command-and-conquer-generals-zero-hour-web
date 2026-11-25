@@ -3685,3 +3685,8 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
   matches. Screenshot of the fight with it on: normal. fps pairs: load 20-48, all hit the time limit
   (unusable).
 - Store hooks (line 2): GXB_SCAN set once for AI units at creation; never re-tested per tick.
+
+- scanManager fps pairs (query-19, under ~/generals-bench/timing.lock, load < 8 at start):
+  pair 1 (load 5.7 before, 8.8 after): armies 15.9 -> 18.0, strikes 13.6 -> 13.4, aftermath 25.5 -> 25.4.
+  pair 2 (load 5.7 before, 13.2 after): armies 18.5 -> 13.2, strikes 12.5 -> 12.2, aftermath 21.3 -> 24.2.
+  Strikes flat (-1..-2%); armies and aftermath swing both ways with load, so no fps gain shown. Stays default off.
