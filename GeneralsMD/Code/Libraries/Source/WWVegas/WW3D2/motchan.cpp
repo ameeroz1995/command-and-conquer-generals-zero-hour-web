@@ -77,6 +77,11 @@ static float filtertable[FILTER_TABLE_SIZE] = {
 };
 static bool table_valid = false;
 
+// boneWorker: set on the bone worker thread. Animations are shared between units and their decode
+// caches below are written in place; the game logic also decodes bones (Get_Bone_Transform), so the
+// worker must never touch them. On the worker every lookup decodes without the caches (same values).
+thread_local bool gxAnimNoCache = false;
+
 /***********************************************************************************************
  * MotionChannelClass::MotionChannelClass -- constructor                                       *
  *                                                                                             *
@@ -614,6 +619,8 @@ uint32 TimeCodedMotionChannelClass::binary_search_index(uint32 timecode)
  *=============================================================================================*/
 uint32 TimeCodedMotionChannelClass::get_index(uint32 timecode)
 {
+	if (gxAnimNoCache) return binary_search_index(timecode);
+
 	assert(CachedIdx <= LastTimeCodeIdx);
 
 	uint32	time;
@@ -796,6 +803,14 @@ int TimeCodedBitChannelClass::Get_Bit(int frame)
 
 	int time;
 	int idx=0;
+
+	if (gxAnimNoCache) {
+		for (; idx < (int) NumTimeCodes; idx++) {
+			if (frame < (int)(Bits[idx] & ~W3D_TIMECODED_BIT_MASK)) break;
+		}
+		idx = idx > 0 ? idx - 1 : 0;
+		return (((Bits[idx] & W3D_TIMECODED_BIT_MASK) == W3D_TIMECODED_BIT_MASK));
+	}
 
 	time = Bits[CachedIdx] & ~W3D_TIMECODED_BIT_MASK;
 
@@ -1136,6 +1151,13 @@ float AdaptiveDeltaMotionChannelClass::getframe(uint32 frame_idx, uint32 vector_
 	// Make sure frame_idx is valid
 
 	if (frame_idx >= NumFrames) frame_idx = NumFrames - 1;
+
+	if (gxAnimNoCache) {
+		float out[4];
+		assert(VectorLen <= 4);
+		decompress(frame_idx, out);
+		return out[vector_idx];
+	}
 
 	// Check to see if the data is already in cache?
 

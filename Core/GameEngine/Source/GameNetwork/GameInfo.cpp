@@ -1694,7 +1694,8 @@ unsigned int gxLocalMatchRules()
 		| ((GLES3_Page_Switches3() & 2097152) ? GXRULE_ROUTE_REFINE : 0)	// third word bit 21: routeRefine
 		| ((GLES3_Page_Switches3() & 4194304) ? GXRULE_FLOW_COVER : 0)	// third word bit 22: flowCover
 		| ((s2 & 134217728) ? GXRULE_PHYS_BULK : 0)		// bit 27: physBulk
-		| ((s2 & 536870912) ? GXRULE_SPATIAL_PAIRS : 0);	// bit 29: pairOffer
+		| ((s2 & 536870912) ? GXRULE_SPATIAL_PAIRS : 0)	// bit 29: pairOffer
+		| ((GLES3_Page_Switches3() & 65536) ? GXRULE_WEAPON_PASS : 0);	// third word bit 16: weaponPass
 #else
 	return 0;
 #endif

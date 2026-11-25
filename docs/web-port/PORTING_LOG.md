@@ -3153,6 +3153,24 @@ modules' index fields), which the hole does not avoid; the extra writes it saved
 moving entry, already in cache. Not kept (code reverted), per this round's rule: the full flat
 rewrite of the loop cannot pay more than ~2% and the slice shows nothing.
 
+## 2026-11-24 — combat round 3: weapons + damage as a data-oriented system — measured, not built
+- Share of the frame, build combat-3 (merge dc2f00b, current switch defaults), profile inclusive:
+  | | strikes (load 60-70) | armies (load 38-55) |
+  |---|---|---|
+  | ObjectWeaponStatusHelper::update (the per-frame weapon-status pass) | 0.4% | 0.7% |
+  | WeaponTemplate::fireWeaponTemplate (firing, incl. damage) | 1.4% | 1.8% |
+  | of which dealDamageInternal / Object::attemptDamage / ActiveBody::attemptDamage | 0.7 / 0.7 / 0.6% | 1.0 / 0.9 / 0.8% |
+  | Weapon::getStatus, updateWeaponSet, chooseBestWeapon, range checks | ≤0.1% each | ≤0.1% each |
+  | GameLogic::update | 38% | 55% |
+- Only the weapon-status helper is a bulk loop (one entry per armed unit, every frame). Firing and
+  damage are events: they touch other objects, random numbers, FX and object creation, so they
+  stay in queue order and have no loop to flatten. Health is read through pointers by AI and
+  targeting at scattered times; a flat health table has no hot loop to speed up.
+- Ceiling: removing the status pass entirely (plus its update-queue entries) saves at most ~0.5-1%
+  of the frame. A/B pairs on this shared machine move ±9% between runs, so a flat-table rewrite
+  (weapon reload/clip/status + body health arrays, kept in sync with the old fields) could not be
+  shown to pay. Stopped before building it, per the round-3 rule. Bits 23/30 and match rule 16384
+  stay unused.
 ## 2026-11-24 — paths, ai and collide branches merged (dc2f00b); AI and collision rules are match rules
 
 - Merged perf/logic-paths (match rules, coarseStart), perf/logic-ai (sharedRoutes, routeBudget,
@@ -3439,3 +3457,99 @@ transition tests and state updates, which read their own unit and the world; the
   verify mode the fast path runs on odd frames (the fill check on even ones), so the search check
   covers lists it reordered.
 - Verify: 90k searches, 0 mismatches; cellReuse checks 0 mismatches; referee replay matches.
+## 2026-11-25 — Visual staggering (combat agent; switches animStagger / soundStagger / particleStagger)
+
+- Drawing and sound only; the game logic never reads any of it. Plain Settings switches, no match
+  rule. Referee replay matches with all three on (combat-4, 9,000 frames).
+- animStagger (second word bit 23, **off**): a single-animation unit that is small on screen
+  (radius/distance < 1/50) and has not moved advances its bones every 2nd drawn frame
+  (Animatable3DObjClass::Render). Bone share stayed 1-2.7% either way; no measured gain, so off.
+- soundStagger (second word bit 25, on): 3D sounds still playing update position/volume every 3rd
+  frame (MilesAudioManager::processPlayingList); full update when the volume changes.
+- particleStagger (second word bit 30, on): each particle system steps its particles twice every
+  2nd logic frame, alternating systems by ID (ParticleSystem::update).
+- A/B on combat-4, off → on (two pairs, shares incl.):
+
+  | pair / phase | load | bones | particles | sound |
+  |---|---|---|---|---|
+  | 1 strikes | 38→53 | 1.7→2.7% | 1.0→1.3% | 0.1→0.0% |
+  | 1 armies | 23→15 | 1.0→0.8% | 1.6→1.2% | 0.2→0.1% |
+  | 2 strikes | 25→15 | 2.5→2.3% | 1.3→1.2% | 0.0→0.0% |
+  | 2 armies | 26→17 | 0.8→0.2% | 1.1→0.6% | 0.1→0.1% |
+
+  Inside the noise of this shared machine except particles (−0.1 to −0.5%). Screenshots show
+  different battle moments, nothing broken.
+
+## 2026-11-25 — Weapon status in one pass (combat agent; match rule weaponPass 16384, third word bit 16, off)
+
+- ObjectWeaponStatusHelper ran every frame for every armed unit through the update queue. With the
+  rule on, the helper does its first update, then leaves the queue (sleeps forever) and joins a list
+  sorted by object ID; gxWeaponStatusPass() in GameLogic::update, right after the sleepy-update
+  loop (movement pass first, then weapons), runs adjustModelConditionForWeaponStatus for every
+  listed object that is not disabled. Results drift (queue entries leave the heap, ties reorder),
+  so it is a match rule.
+- The hook is not guarded: if the rule goes off mid-game (single player, live switch) the pass wakes
+  every listed helper back into the queue and empties the list. A loaded save puts a sleeping helper
+  back in the queue.
+- Checks (combat-5): referee replay with the rule off matches; a recording made with the rule on
+  replays to a match; toggle test (verify mode, rule flipped every 200 frames, diagnostics removed since): each switch-off woke every listed helper (934, 1593, 1019, 710, 597) and each switch-on refilled the list (1596, 1024, 711, 598).
+- A/B off → on: status share 1.1→0.4% / 1.1→0.5% (strikes), 1.2→0.5% / 1.4→0.5% (armies),
+  i.e. −0.6 to −0.9% of the frame. fps armies/strikes: pair 2 strikes 11.5/10.2 → 14.1/10.8,
+  pair 2 armies 13.6/10.1 → 14.1/11.2; pair 1 noise in both directions (load 10↔29).
+
+## 2026-11-25 — Unit bones on a worker thread (combat agent; switch boneWorker, third word bit 17, mt build, off)
+
+- Share first (single-thread build, combat-5): HLodClass::Update_Sub_Object_Transforms 3.6% incl in
+  strikes, 2.1% in armies; particles 1.3% + doParticles 0.6-0.7%. The profiler cannot sample the mt
+  build's game thread (every function reads 0.0%), so the mt A/B is by fps only. Note: bench_build
+  with variants ["opt"] leaves the previous mt build staged.
+- The handoff is inside the draw, not across the simulation: logic changes animations while it runs
+  (model-condition changes call Set_Animation / swap render objects), and animations shared between
+  units keep shared decode caches (motchan.h CachedIdx / CacheData), so a worker running during
+  logic would read freed or half-written state. RTS3DScene::Customized_Render queues the visible
+  HLods (holding a reference), wakes one worker pthread, draws the terrain, then takes the jobs the
+  worker has not reached itself and waits for the worker's last one. Render skips an object the
+  worker already brought to this WW3D frame. Objects whose animation plays sounds stay on the main
+  thread (sounds are main-thread only). Particles were not moved (they allocate from the game's
+  memory pools, which are not thread-safe).
+- Replay (mt, switch on) matches. Screenshots normal.
+- A/B mt, quiet machine (load 3-6), fps armies / strikes / aftermath, off → on:
+  - first version (main waited for the worker; the terrain is < 70 draws, little to overlap):
+    18.1/13.7/23.2 → 18.7/13.1/24.8, 18.9/14.4/24.4 → 18.9/13.6/24.8 (strikes −4 to −6%)
+  - main thread takes the remaining jobs: 18.7/13.7/25.0 → 17.7/14.3/27.7,
+    20.9/15.0/28.4 → 21.5/15.5/28.7 (strikes +3-4%, armies −5% / +3%)
+- Off by default until more pairs show armies is not slower.
+- More pairs (combat-9, load 2-12): armies 20.0 → 15.6 (one 130 ms frame, likely the worker
+  pthread starting on first use) and 19.6 → 20.7; strikes 14.9 → 14.3 and 9.7 → 15.6. Stays off.
+  The worker threads now start on the first scene draw (the menu) when any worker switch is on.
+- Worker threads decode animations without the shared caches (motchan.cpp, thread_local
+  gxAnimNoCache): the game logic decodes bones too (Get_Bone_Transform), and a cache index raced
+  by a worker could otherwise be left wrong for the logic's next lookup.
+
+## 2026-11-25 — Unit poses ahead during the logic; particles on a worker (combat agent; boneAhead bit 23, particleWorker bit 24, third word, mt, off)
+
+- boneAhead: at the end of frame N's object draw every visible unit playing one compressed animation
+  is snapshotted (a reference on the animation, its next frame predicted from the last step). The
+  worker decodes each bone's translation / rotation / visibility while the logic runs frame N+1; the
+  draw of N+1 builds the bone hierarchy from them (HTreeClass::gxAnimUpdateFromPose) if the unit
+  still plays that animation, else decodes as before. The worker never touches the unit. At most one
+  frame of animation lag.
+- particleWorker: ParticleSystem::update keeps emission, the particle cap and system logic on the
+  main thread and queues the motion of the existing particles. The worker moves them between the end
+  of ParticleSystemManager::update (inside W3DDisplay::draw) and doParticles, a window in which
+  nothing creates, frees or reads particles; at the join the main thread deletes the dead ones
+  (memory pools are main-thread only). Also joined on manager update, reset and save.
+- Replay (mt, boneWorker + boneAhead + particleWorker on) matches. Screenshots normal.
+- A/B mt, quiet machine (load 1-4), fps armies / strikes / aftermath, off → on:
+  - boneAhead: 20.1/15.7/29.4 → 21.2/15.2/28.8, 21.2/15.4/29.1 → 21.0/15.3/28.5 (no gain; the
+    decode it moves is a small part of the bone work)
+  - particleWorker: 21.5/15.4/28.4 → 21.5/16.2/27.5, 20.1/15.5/27.8 → 21.5/15.9/27.4 (strikes +3-5%,
+    armies 0/+7%, aftermath −1 to −3%)
+- Both off: boneAhead gains nothing; particleWorker is slower in the aftermath in both pairs.
+- particleWorker threshold: live particles sit at the particle cap (~500, MaxParticleCount from the
+  LOD) in every bench phase, so a particle-count threshold cannot tell heavy frames from light ones.
+  Instead the worker is used only while frames are long: frame time averaged over ~8 frames, on above
+  40 ms, off below 32 ms (the hand-off costs the same every frame; weak machines are the target).
+  combat-13 mt, load 2-5, fps armies / strikes / aftermath off → on: 21.0/15.9/28.7 → 21.2/15.9/30.4,
+  20.4/15.9/28.9 → 20.7/15.7/28.9. Replay matches. Nothing slower: **particleWorker on by default**
+  (no effect on the single-thread build). boneAhead and boneWorker stay off.

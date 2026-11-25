@@ -52,11 +52,11 @@ double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gle
 static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 // Second switch word (the first is full): bit 0 contactTable, bit 1 sleepyKeys, bit 2 openHeap, bit 3 contactArray (game logic, same game).
-static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 512 | 65536 | 131072 | 262144 | 524288 | 128 | 67108864 | 268435456;
+static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 512 | 65536 | 131072 | 262144 | 524288 | 128 | 67108864 | 268435456 | 33554432 | 1073741824;
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
-static int g_PageSwitches3 = 0 | 16 | 32 | 256;
+static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216;	// collide 4-5, ai 8, particleWorker 24 on
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -451,6 +451,9 @@ void GLES3_Begin_Scene() {
                  | (o.boneCache === false ? 0 : 1048576)  // bit 20: loaded-missile bones found by index, not by name every frame (W3DModelDraw.cpp; drawing only)
                  | (o.lightCache === false ? 0 : 2097152)  // bit 21: headlight sub-objects listed once per model (W3DModelDraw.cpp; drawing only)
                  | (o.clipSkip === false ? 0 : 4194304)   // bit 22: loaded-missile display asked only of models that show it (Drawable.cpp; drawing only)
+                 | (o.animStagger === true ? 8388608 : 0)  // bit 23 (off: no measured gain): still, small-on-screen units animate every 2nd drawn frame (animobj.cpp; drawing only)
+                 | (o.soundStagger === false ? 0 : 33554432)  // bit 25: playing 3D sounds follow their unit every 3rd frame (MilesAudioManager.cpp; sound only)
+                 | (o.particleStagger === false ? 0 : 1073741824)  // bit 30: particle systems step every 2nd frame with double steps (ParticleSys.cpp; drawing only)
                  | (o.cellReuse === false ? 0 : 256)  // bit 8: a moved unit still on the same map squares is moved to the front of their lists, not refilled (PartitionManager.cpp; same game)
                  | (o.leanPairs === false ? 0 : 512)   // bit 9: touching-pair offers read no unit data and use a 4x smaller table (PartitionManager.cpp; same game)
                  | (o.collideStagger === true ? 1024 : 0)   // bit 10: ground units check collisions every 2nd frame (PartitionManager.cpp; match rule)
@@ -476,7 +479,11 @@ void GLES3_Begin_Scene() {
                  | (o.flowCover === true ? 4194304 : 0)   // bit 22: match rule flowCover, flow fields for moves over 8 cells (AIPathfind.cpp)
                  | (o.crushFirst === false ? 0 : 16)   // bit 4: crush tests compare crush levels before the ally lookup (Object.cpp; same game)
                  | (o.collideList === false ? 0 : 32)  // bit 5: each unit lists its collide modules once instead of asking every module per collision (Object.cpp; same game)
-                 | (o.disabledList === false ? 0 : 256);  // bit 8: end-of-tick disabled check visits a list of disabled objects, not every object (GameLogic.cpp; same game)
+                 | (o.disabledList === false ? 0 : 256)  // bit 8: end-of-tick disabled check visits a list of disabled objects, not every object (GameLogic.cpp; same game)
+                 | (o.weaponPass === true ? 65536 : 0)    // bit 16: match rule weaponPass, armed units' weapon status in one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
+                 | (o.boneWorker === true ? 131072 : 0)   // bit 17: boneWorker, mt build: visible units' bones computed on a worker thread while the terrain draws (animobj.cpp, W3DScene.cpp)
+                 | (o.particleWorker === false ? 0 : 16777216)  // bit 24: particleWorker (on), mt build: existing particles move on a worker during the draw when frames are long (ParticleSys.cpp)
+                 | (o.boneAhead === true ? 8388608 : 0);  // bit 23: boneAhead, mt build: drawn units' next poses decoded on a worker while the game logic runs (animobj.cpp, W3DScene.cpp)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;

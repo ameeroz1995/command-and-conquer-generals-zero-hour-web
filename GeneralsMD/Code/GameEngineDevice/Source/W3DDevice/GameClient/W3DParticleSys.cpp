@@ -104,6 +104,7 @@ void DoParticles( RenderInfoClass &rinfo )
 
 void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 {
+	ParticleSystem::gxParticleJoin();	// particleWorker: the worker's moves are in, dead particles freed
 
 	if (m_readyToRender == false)
 		return;

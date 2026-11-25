@@ -2322,6 +2322,12 @@ void MilesAudioManager::processPlayingList()
 		}
 	}
 
+	// soundStagger (second switch word bit 25, sound only): each playing 3D sound follows its unit
+	// (position, loudness cut-off, owner gone) on every 3rd call, a third of them per call.
+	extern int GLES3_Page_Switches2();
+	static unsigned s_gxSoundTick = 0;
+	const Bool gxStagger = (GLES3_Page_Switches2() & 33554432) != 0 && !m_volumeHasChanged;
+	unsigned gxSlot = ++s_gxSoundTick;
 	for (it = m_playing3DSounds.begin(); it != m_playing3DSounds.end(); )
 	{
 		playing = (*it);
@@ -2339,6 +2345,11 @@ void MilesAudioManager::processPlayingList()
 		}
 		else
 		{
+			if (gxStagger && (gxSlot++ % 3) != 0)
+			{
+				++it;
+				continue;
+			}
 			if (m_volumeHasChanged)
 			{
 				adjustPlayingVolume(playing);

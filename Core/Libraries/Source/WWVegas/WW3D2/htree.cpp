@@ -604,6 +604,31 @@ void HTreeClass::Anim_Update(const Matrix3D & root,HAnimClass * motion,float fra
 	}
 }
 
+void HTreeClass::gxAnimUpdateFromPose(const Matrix3D & root, const Vector3 * t, const Quaternion * q,
+	const bool * vis, int stride, int num_anim_pivots)
+{
+	Matrix3D mtx;
+	Pivot[0].Transform = root;
+	Pivot[0].IsVisible = true;
+	for (int piv_idx = 1; piv_idx < NumPivots; piv_idx++) {
+		PivotClass * pivot = &Pivot[piv_idx];
+		Matrix3D::Multiply(pivot->Parent->Transform, pivot->BaseTransform, &(pivot->Transform));
+		if (piv_idx < num_anim_pivots) {
+			pivot->Transform.Translate(*t * ScaleFactor);
+			::Build_Matrix3D(*q, mtx);
+			pivot->Transform.postMul(mtx);
+			pivot->IsVisible = *vis;
+			t = (const Vector3 *)((const char *)t + stride);
+			q = (const Quaternion *)((const char *)q + stride);
+			vis = (const bool *)((const char *)vis + stride);
+		}
+		if (pivot->Is_Captured()) {
+			pivot->Capture_Update();
+			pivot->IsVisible = true;
+		}
+	}
+}
+
 /*Customized version of the above which excludes interpolation and assumes HRawAnimClass
 For use by 'Generals' -MW*/
 void HTreeClass::Anim_Update_Without_Interpolation(const Matrix3D & root,HRawAnimClass * motion,float frame)

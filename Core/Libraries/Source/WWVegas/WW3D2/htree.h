@@ -96,6 +96,10 @@ public:
 													HAnimClass *			motion,
 													float						frame);
 	void					Anim_Update_Without_Interpolation(const Matrix3D & root,HRawAnimClass * motion,float frame);
+	// boneAhead (animobj.cpp): Anim_Update from already decoded per-pivot translation / rotation /
+	// visibility (pivots 1..num_anim_pivots-1, records 'stride' bytes apart)
+	void					gxAnimUpdateFromPose(const Matrix3D & root, const Vector3 * t, const Quaternion * q,
+												const bool * vis, int stride, int num_anim_pivots);
 
 	void					Blend_Update(		const Matrix3D &		root,
 													HAnimClass *			motion0,
