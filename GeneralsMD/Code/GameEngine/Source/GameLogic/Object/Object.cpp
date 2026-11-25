@@ -30,6 +30,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #define DEFINE_WEAPONCONDITIONMAP
+#include "Common/GxUnitStore.h"
 #include "Common/BitFlagsIO.h"
 #include "Common/BuildAssistant.h"
 #include "Common/Dict.h"
@@ -497,6 +498,16 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 	//Modules have now been completely created!
 	m_modulesReady = true;
 
+	// web port (round 4): the unit store's behaviour bits for what this object has
+	{
+		GxBehaviourMask m = 0;
+		if (getPhysics())	m |= GXB_BIT(GXB_PHYS);
+		if (getAI())		m |= GXB_BIT(GXB_AI);
+		for (BehaviorModule** b = m_behaviors; *b; ++b)
+			if ((*b)->getCollide()) { m |= GXB_BIT(GXB_COLLIDE); break; }
+		TheGxUnitStore.setMask(this, m);
+	}
+
 	TheRadar->addObject( this );
 
 	// register the object with the GameLogic
@@ -606,6 +617,7 @@ void Object::initObject()
 //-------------------------------------------------------------------------------------------------
 Object::~Object()
 {
+	TheGxUnitStore.remove(this);	// web port (round 4)
 
 	// tell the AI the building is gone
 	/// @todo Generalize the notion of objects entering and leaving the world, so we don't have to special case this
@@ -793,6 +805,7 @@ void Object::onDestroy()
 void Object::setGeometryInfo(const GeometryInfo& geom)
 {
 	m_geometryInfo = geom;
+	TheGxUnitStore.setRadius(this, geom.getBoundingCircleRadius());	// web port (round 4)
 	if( m_partitionData )
 	{
 		// if our geometry changes, we unregister and re-register with the partitionmgr
@@ -949,6 +962,7 @@ void Object::setOrRestoreTeam( Team* team, Bool restoring )
 	// Tell TheInGameUI that the object has changed hands
 	Int oldPlayerIndex = (oldTeam)?(oldTeam->getControllingPlayer()->getPlayerIndex()):-1;
 	Int newPlayerIndex = (m_team)?(m_team->getControllingPlayer()->getPlayerIndex()):-1;
+	TheGxUnitStore.setPlayer(this, newPlayerIndex);	// web port (round 4)
 	if (oldPlayerIndex != newPlayerIndex)
 		TheInGameUI->objectChangedTeam(this, oldPlayerIndex, newPlayerIndex);
 }
@@ -1854,6 +1868,8 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
 	{
   	m_drawable->setTransformMatrix( this->getTransformMatrix() );
 	}
+
+	TheGxUnitStore.setPos(this, *getPosition());	// web port (round 4)
 
 	// web port (switch searchCache): range searches keep a copy of where we are
 	if (m_partitionData)
@@ -2883,11 +2899,22 @@ void Object::setID( ObjectID id )
 	// remove this objects previous id from the lookup table
 	TheGameLogic->removeObjectFromLookupTable( this );
 
+	// web port (round 4): the unit store keys slots by ID; keep the mask across the change
+	const int gxOld = TheGxUnitStore.slotOf(this);
+	const GxBehaviourMask gxMask = gxOld >= 0 ? TheGxUnitStore.mask[gxOld] : 0;
+	Coord3D gxVel; gxVel.zero();
+	if (gxOld >= 0) gxVel = TheGxUnitStore.vel[gxOld];
+	TheGxUnitStore.remove(this);
+
 	// assign new id
 	m_id = id;
 
 	// add new id to lookup table
 	TheGameLogic->addObjectToLookupTable( this );
+
+	TheGxUnitStore.add(this);
+	TheGxUnitStore.setMask(this, gxMask);
+	if (TheGxUnitStore.slotOf(this) >= 0) TheGxUnitStore.vel[TheGxUnitStore.slotOf(this)] = gxVel;
 
 }
 
