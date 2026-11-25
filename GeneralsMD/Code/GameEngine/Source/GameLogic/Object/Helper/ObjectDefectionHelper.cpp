@@ -36,14 +36,12 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/Module/ObjectDefectionHelper.h"
 
-GX_COMPONENT_TABLE_DEFINE(ObjectDefectionHelper)
 
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 ObjectDefectionHelper::~ObjectDefectionHelper()
 {
-	gxTable().remove(m_gxRow);
 }
 
 // ------------------------------------------------------------------------------------------------

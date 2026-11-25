@@ -52,7 +52,6 @@
 #include "GameLogic/Module/SpecialPowerModule.h"
 #include "GameLogic/ScriptEngine.h"
 
-GX_COMPONENT_TABLE_DEFINE(CommandButtonHuntUpdate)
 
 
 //-------------------------------------------------------------------------------------------------
@@ -80,7 +79,6 @@ CommandButtonHuntUpdateModuleData::CommandButtonHuntUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 CommandButtonHuntUpdate::CommandButtonHuntUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = gxTable().add(this);
 	R().m_commandButton = nullptr;
 
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
@@ -91,7 +89,6 @@ CommandButtonHuntUpdate::CommandButtonHuntUpdate( Thing *thing, const ModuleData
 //-------------------------------------------------------------------------------------------------
 CommandButtonHuntUpdate::~CommandButtonHuntUpdate()
 {
-	gxTable().remove(m_gxRow);
 
 }
 

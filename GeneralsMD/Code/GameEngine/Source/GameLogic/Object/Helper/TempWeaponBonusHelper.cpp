@@ -38,13 +38,11 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/Weapon.h"
 
-GX_COMPONENT_TABLE_DEFINE(TempWeaponBonusHelper)
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 TempWeaponBonusHelper::TempWeaponBonusHelper( Thing *thing, const ModuleData *modData ) : ObjectHelper( thing, modData )
 {
-	m_gxRow = gxTable().add(this);
 
 	R().m_currentBonus = WEAPONBONUSCONDITION_INVALID;
 	R().m_frameToRemove = 0;
@@ -56,7 +54,6 @@ TempWeaponBonusHelper::TempWeaponBonusHelper( Thing *thing, const ModuleData *mo
 // ------------------------------------------------------------------------------------------------
 TempWeaponBonusHelper::~TempWeaponBonusHelper()
 {
-	gxTable().remove(m_gxRow);
 
 }
 

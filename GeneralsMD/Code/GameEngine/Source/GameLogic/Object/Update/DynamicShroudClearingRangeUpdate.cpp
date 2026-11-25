@@ -34,7 +34,6 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/Module/DynamicShroudClearingRangeUpdate.h"
 
-GX_COMPONENT_TABLE_DEFINE(DynamicShroudClearingRangeUpdate)
 
 
 
@@ -85,7 +84,6 @@ DynamicShroudClearingRangeUpdateModuleData::DynamicShroudClearingRangeUpdateModu
 //-------------------------------------------------------------------------------------------------
 DynamicShroudClearingRangeUpdate::DynamicShroudClearingRangeUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = gxTable().add(this);
 
 	DynamicShroudClearingRangeUpdateModuleData *md = (DynamicShroudClearingRangeUpdateModuleData *)moduleData;
 //	m_shrinkStartCountdown = md->m_shrinkDelay;
@@ -136,7 +134,6 @@ DynamicShroudClearingRangeUpdate::DynamicShroudClearingRangeUpdate( Thing *thing
 //-------------------------------------------------------------------------------------------------
 DynamicShroudClearingRangeUpdate::~DynamicShroudClearingRangeUpdate()
 {
-	gxTable().remove(m_gxRow);
 	killGridDecals();// just in case
 
 }

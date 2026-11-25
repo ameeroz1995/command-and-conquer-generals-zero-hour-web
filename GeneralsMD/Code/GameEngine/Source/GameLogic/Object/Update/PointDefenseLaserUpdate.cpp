@@ -42,13 +42,13 @@
 
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/PartitionManager.h"
+#include "Common/Player.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/ObjectIter.h"
 #include "GameLogic/Module/PointDefenseLaserUpdate.h"
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Weapon.h"
 
-GX_COMPONENT_TABLE_DEFINE(PointDefenseLaserUpdate)
 
 
 
@@ -83,7 +83,6 @@ PointDefenseLaserUpdateModuleData::PointDefenseLaserUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 PointDefenseLaserUpdate::PointDefenseLaserUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = gxTable().add(this);
 
 	R().m_bestTargetID = INVALID_ID;
 	R().m_nextScanFrames = 0;
@@ -97,7 +96,6 @@ PointDefenseLaserUpdate::PointDefenseLaserUpdate( Thing *thing, const ModuleData
 //-------------------------------------------------------------------------------------------------
 PointDefenseLaserUpdate::~PointDefenseLaserUpdate()
 {
-	gxTable().remove(m_gxRow);
 
 }
 
@@ -147,7 +145,7 @@ UpdateSleepTime PointDefenseLaserUpdate::update()
 
 	//Optimized firing at acquired target
 	// round 5: the countdown is a kernel (GxComponentTable.h); this apply step commits it
-	if( !gxCountdownCommit(gxTable(), R(), TheGameLogic->getFrame(), &GxRow::m_nextScanFrames, &GxRow::m_gxReload) )
+	if( !gxCountdownCommit(R(), TheGameLogic->getFrame(), &GxRowT::m_nextScanFrames, &GxRowT::m_gxReload) )
 	{
 		fireWhenReady(); //Only happens if something is tracked.
 		return UPDATE_SLEEP_NONE;
@@ -316,7 +314,27 @@ Object* PointDefenseLaserUpdate::scanClosestTarget()
 		if (f)
 			same = false;
 		++gx_verify_checked;
-		if (!same) { ++gx_verify_mismatch; printf("GXVERIFY laser scan mismatch: object %u\n", me->getID()); }
+		if (!same)
+		{
+			++gx_verify_mismatch;
+			printf("GXVERIFY laser scan mismatch: object %u (%s) frame %u at %.2f %.2f range %.1f\n", me->getID(), me->getTemplate()->getName().str(),
+				TheGameLogic->getFrame(), me->getPosition()->x, me->getPosition()->y, data->m_scanRange);
+			// diagnosis: every object passing both filters in either list, with its places
+			for (Int pass = 0; pass < 2; ++pass)
+			{
+				ObjectIterator *it = pass ? a : all;
+				for (Object *o = it->first(); o; o = it->next())
+				{
+					if (!filterEnemy.allow(o) || !filterTarget.allow(o))
+						continue;
+					const PartitionData *pd = o->friend_getPartitionData();
+					const Player *pl = o->getControllingPlayer();
+					printf("GXVERIFY   %s %u %s pos %.2f %.2f r %.2f place %.2f %.2f %.2f player %d store %d\n", pass ? "filtered" : "all", o->getID(),
+						o->getTemplate()->getName().str(), o->getPosition()->x, o->getPosition()->y, o->getGeometryInfo().getBoundingCircleRadius(),
+						pd ? pd->gxX() : -1.0f, pd ? pd->gxY() : -1.0f, pd ? pd->gxR() : -1.0f, pl ? pl->getPlayerIndex() : -1, o->gxPlayerIndex());
+				}
+			}
+		}
 
 		static Int gxScans;
 		static double gxMs[2];

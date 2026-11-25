@@ -49,7 +49,6 @@
 #include "GameLogic/WeaponSet.h"
 #include "GameLogic/Module/AIUpdate.h"
 
-GX_COMPONENT_TABLE_DEFINE(AutoFindHealingUpdate)
 
 
 //-------------------------------------------------------------------------------------------------
@@ -81,7 +80,6 @@ AutoFindHealingUpdateModuleData::AutoFindHealingUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 AutoFindHealingUpdate::AutoFindHealingUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = gxTable().add(this);
 
 	R().m_nextScanFrames						= 0;
 	R().m_gxReload = getAutoFindHealingUpdateModuleData()->m_scanFrames;
@@ -91,7 +89,6 @@ AutoFindHealingUpdate::AutoFindHealingUpdate( Thing *thing, const ModuleData* mo
 //-------------------------------------------------------------------------------------------------
 AutoFindHealingUpdate::~AutoFindHealingUpdate()
 {
-	gxTable().remove(m_gxRow);
 
 }
 
@@ -116,7 +113,7 @@ UpdateSleepTime AutoFindHealingUpdate::update()
 
 	//Optimized firing at acquired target
 	// round 5: the countdown is a kernel (GxComponentTable.h); this apply step commits it
-	if( !gxCountdownCommit(gxTable(), R(), TheGameLogic->getFrame(), &GxRow::m_nextScanFrames, &GxRow::m_gxReload) )
+	if( !gxCountdownCommit(R(), TheGameLogic->getFrame(), &GxRowT::m_nextScanFrames, &GxRowT::m_gxReload) )
 		return UPDATE_SLEEP_NONE;
 
 	AIUpdateInterface *ai = obj->getAI();

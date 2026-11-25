@@ -3851,3 +3851,13 @@ Stays default off.
   StatusDamageHelper, SubdualDamageHelper, TempWeaponBonusHelper. ObjectHelper, ObjectRepulsorHelper,
   ObjectSMCHelper and ObjectWeaponStatusHelper hold no per-unit fields.
 - Same game: referee replay on query-20 matches (9000 frames). Layout change only, so no switch.
+- Kernel step (rowKernels, fourth word bit 12, default on): EnemyNear, AutoFindHealing and PointDefenseLaser
+  scan countdowns are one kernel over the component pool (reads delay/reload, writes only the row's tick;
+  no allocation, RNG, events or globals); each module's update is the apply step (commit, scan, side effects).
+  A changed delay is recomputed inline, so same game. Sleep-scheduled modules (StealthDetector, SpyVision,
+  CommandButtonHunt, helpers) have no per-frame row math: their update is all apply.
+- On collide's GxComponentPool (9e1aa3d): modules hold GxRow<Row>; GxComponentTable.h is now only R() and the kernel.
+- simdSearch (fourth word bit 13, default on): the store-list search (scanManager) culls 4 slots at a time by
+  distance from the live x/y/radius columns (wasm simd128, same f32 ops, keep unless d2 > lim^2, scalar
+  recheck after): same game. Referee replay and query-mgr3.rep (scanManager on) match on query-22.
+  Pair tests not SIMD: per-cell linked lists of 2-4 neighbours; collide's store broad phase is the place.

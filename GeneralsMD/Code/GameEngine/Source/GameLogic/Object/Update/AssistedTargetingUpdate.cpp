@@ -41,7 +41,6 @@
 #include "GameLogic/Module/AssistedTargetingUpdate.h"
 #include "GameLogic/Module/LaserUpdate.h"
 
-GX_COMPONENT_TABLE_DEFINE(AssistedTargetingUpdate)
 
 
 
@@ -67,7 +66,6 @@ void AssistedTargetingUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 AssistedTargetingUpdate::AssistedTargetingUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = gxTable().add(this);
 
 	R().m_laserFromAssisted = nullptr;
 	R().m_laserToTarget = nullptr;
@@ -77,7 +75,6 @@ AssistedTargetingUpdate::AssistedTargetingUpdate( Thing *thing, const ModuleData
 //-------------------------------------------------------------------------------------------------
 AssistedTargetingUpdate::~AssistedTargetingUpdate()
 {
-	gxTable().remove(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------

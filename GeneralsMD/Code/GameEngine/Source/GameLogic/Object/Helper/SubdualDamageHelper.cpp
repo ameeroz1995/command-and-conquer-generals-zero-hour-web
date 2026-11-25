@@ -35,13 +35,11 @@
 #include "GameLogic/Module/BodyModule.h"
 #include "GameLogic/Module/SubdualDamageHelper.h"
 
-GX_COMPONENT_TABLE_DEFINE(SubdualDamageHelper)
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 SubdualDamageHelper::SubdualDamageHelper( Thing *thing, const ModuleData *modData ) : ObjectHelper( thing, modData )
 {
-	m_gxRow = gxTable().add(this);
 
 	R().m_healingStepCountdown = 0;
 
@@ -52,7 +50,6 @@ SubdualDamageHelper::SubdualDamageHelper( Thing *thing, const ModuleData *modDat
 // ------------------------------------------------------------------------------------------------
 SubdualDamageHelper::~SubdualDamageHelper()
 {
-	gxTable().remove(m_gxRow);
 
 }
 

@@ -40,7 +40,6 @@
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Module/AIUpdate.h"
 
-GX_COMPONENT_TABLE_DEFINE(EnemyNearUpdate)
 
 //-------------------------------------------------------------------------------------------------
 
@@ -48,7 +47,6 @@ GX_COMPONENT_TABLE_DEFINE(EnemyNearUpdate)
 //-------------------------------------------------------------------------------------------------
 EnemyNearUpdate::EnemyNearUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = gxTable().add(this);
 	R().m_enemyNear = false;
 	R().m_gxReload = getEnemyNearUpdateModuleData()->m_enemyScanDelayTime;
 	R().m_enemyScanDelay = 0;
@@ -61,7 +59,6 @@ EnemyNearUpdate::EnemyNearUpdate( Thing *thing, const ModuleData* moduleData ) :
 //-------------------------------------------------------------------------------------------------
 EnemyNearUpdate::~EnemyNearUpdate()
 {
-	gxTable().remove(m_gxRow);
 }
 
 
@@ -73,7 +70,7 @@ void EnemyNearUpdate::checkForEnemies()
 {
 	// periodic enemy checks
 	// round 5: the countdown is a kernel (GxComponentTable.h); this apply step commits it and scans
-	if (gxCountdownCommit(gxTable(), R(), TheGameLogic->getFrame(), &GxRow::m_enemyScanDelay, &GxRow::m_gxReload))
+	if (gxCountdownCommit(R(), TheGameLogic->getFrame(), &GxRowT::m_enemyScanDelay, &GxRowT::m_gxReload))
 	{
 		Real visionRange = getObject()->getVisionRange();
 		Object* enemy = TheAI->findClosestEnemy( getObject(), visionRange, AI::CAN_SEE );

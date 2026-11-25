@@ -52,7 +52,6 @@
 #include "Common/PlayerList.h"
 #include "Common/Player.h"
 
-GX_COMPONENT_TABLE_DEFINE(StealthDetectorUpdate)
 
 
 //-------------------------------------------------------------------------------------------------
@@ -85,7 +84,6 @@ void StealthDetectorUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 StealthDetectorUpdate::StealthDetectorUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = gxTable().add(this);
 
 	const StealthDetectorUpdateModuleData *data = getStealthDetectorUpdateModuleData();
 	R().m_enabled = !data->m_initiallyDisabled;
@@ -98,7 +96,6 @@ StealthDetectorUpdate::StealthDetectorUpdate( Thing *thing, const ModuleData* mo
 //-------------------------------------------------------------------------------------------------
 StealthDetectorUpdate::~StealthDetectorUpdate()
 {
-	gxTable().remove(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------

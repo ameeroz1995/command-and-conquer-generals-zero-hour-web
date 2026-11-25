@@ -60,7 +60,6 @@
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/SpawnBehavior.h"
 
-GX_COMPONENT_TABLE_DEFINE(StealthUpdate)
 
 
 
@@ -125,7 +124,6 @@ void StealthUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 StealthUpdate::StealthUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = gxTable().add(this);
 
 	const StealthUpdateModuleData *data = getStealthUpdateModuleData();
 
@@ -168,7 +166,6 @@ StealthUpdate::StealthUpdate( Thing *thing, const ModuleData* moduleData ) : Upd
 //-------------------------------------------------------------------------------------------------
 StealthUpdate::~StealthUpdate()
 {
-	gxTable().remove(m_gxRow);
 
 }
 

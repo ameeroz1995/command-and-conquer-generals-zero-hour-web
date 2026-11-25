@@ -38,14 +38,12 @@
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Module/SpyVisionUpdate.h"
 
-GX_COMPONENT_TABLE_DEFINE(SpyVisionUpdate)
 
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 SpyVisionUpdate::SpyVisionUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = gxTable().add(this);
 
 	R().m_deactivateFrame = 0;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
@@ -58,7 +56,6 @@ SpyVisionUpdate::SpyVisionUpdate( Thing *thing, const ModuleData* moduleData ) :
 //-------------------------------------------------------------------------------------------------
 SpyVisionUpdate::~SpyVisionUpdate()
 {
-	gxTable().remove(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------

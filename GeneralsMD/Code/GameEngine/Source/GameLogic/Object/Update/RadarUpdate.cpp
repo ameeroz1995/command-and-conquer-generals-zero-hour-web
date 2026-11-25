@@ -37,7 +37,6 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/Module/RadarUpdate.h"
 
-GX_COMPONENT_TABLE_DEFINE(RadarUpdate)
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -56,7 +55,6 @@ RadarUpdateModuleData::RadarUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 RadarUpdate::RadarUpdate( Thing *thing, const ModuleData *moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = gxTable().add(this);
 
 
 	R().m_radarActive = FALSE;
@@ -69,7 +67,6 @@ RadarUpdate::RadarUpdate( Thing *thing, const ModuleData *moduleData ) : UpdateM
 //-------------------------------------------------------------------------------------------------
 RadarUpdate::~RadarUpdate()
 {
-	gxTable().remove(m_gxRow);
 
 }
 

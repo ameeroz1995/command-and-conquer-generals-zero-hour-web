@@ -36,13 +36,11 @@
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
 
-GX_COMPONENT_TABLE_DEFINE(StatusDamageHelper)
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 StatusDamageHelper::StatusDamageHelper( Thing *thing, const ModuleData *modData ) : ObjectHelper( thing, modData )
 {
-	m_gxRow = gxTable().add(this);
 
 	R().m_statusToHeal = OBJECT_STATUS_NONE;
 	R().m_frameToHeal = 0;
@@ -54,7 +52,6 @@ StatusDamageHelper::StatusDamageHelper( Thing *thing, const ModuleData *modData 
 // ------------------------------------------------------------------------------------------------
 StatusDamageHelper::~StatusDamageHelper()
 {
-	gxTable().remove(m_gxRow);
 
 }
 

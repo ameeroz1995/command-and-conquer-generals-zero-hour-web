@@ -67,7 +67,6 @@ public:
 
 	ObjectDefectionHelper( Thing *thing, const ModuleData *modData ) : ObjectHelper( thing, modData )
 	{
-		m_gxRow = gxTable().add(this);
 		R().m_defectionDetectionEnd = 0;
 		R().m_defectionDetectionFlashPhase = FALSE;
 		R().m_defectionDetectionStart = 0;

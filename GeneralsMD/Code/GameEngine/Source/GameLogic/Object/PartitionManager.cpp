@@ -4029,6 +4029,15 @@ static UnsignedInt gxEnemySlots(PartitionFilter **filters)
 // - Result cache: within a tick, a search with the same searcher (or point), range, distance type,
 //   mode and filter classes reuses the first answer (units that died since are left out).
 // Changes the game (answers as of the tick's first search): a match rule, default off.
+#ifdef __wasm_simd128__
+#include <wasm_simd128.h>
+#endif
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches4();
+#else
+static int GLES3_Page_Switches4() { return 0; }
+#endif
+static unsigned long long g_gxSimdCulled = 0;	// lanes the SIMD cull dropped (verify report)
 static std::vector<Int> s_gxSnapStart, s_gxSnapSlots;	// per cell: first index into slots; one more at the end
 static std::vector<UnsignedInt> s_gxSnapStamp;			// per slot: last search that looked at it
 static UnsignedInt s_gxSnapSearch = 0, s_gxSnapFrame = ~0u, s_gxSnapEpoch = 0;
@@ -4361,8 +4370,8 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 		if (!same)
 			++gx_mgr_differ;
 		if (gx_gco_calls % 3000 == 0)
-			printf("GXVERIFY scan manager: searches %u, cache hits %u, misses %u, pass scans %u, answers differing from the plain walk %u; manager %.1f ms, plain %.1f ms\n",
-				gx_gco_calls, gx_mgr_hits, gx_mgr_misses, gx_mgr_pass, gx_mgr_differ, gx_gco_fastMs, gx_gco_refMs);
+			printf("GXVERIFY scan manager: searches %u, cache hits %u, misses %u, pass scans %u, answers differing from the plain walk %u; manager %.1f ms, plain %.1f ms; simd culled %llu\n",
+				gx_gco_calls, gx_mgr_hits, gx_mgr_misses, gx_mgr_pass, gx_mgr_differ, gx_gco_fastMs, gx_gco_refMs, g_gxSimdCulled);
 	}
 	return result;
 #else
@@ -4461,9 +4470,36 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 				// match rule scanManager: this tick's list of store slots for the cell, store columns first
 				const GxUnitStore &S = TheGxUnitStore;
 				const Int ci = gxY * m_cellCountX + gxX;
-				for (Int k = s_gxSnapStart[ci]; k < s_gxSnapStart[ci + 1]; ++k)
+				const Int kEnd = s_gxSnapStart[ci + 1];
+				// switch simdSearch (fourth word bit 13): the distance cull 4 slots at a time from the live
+				// x/y/radius columns. Same f32 ops as the scalar test below and the limit only shrinks, so
+				// a lane it drops the scalar test would drop too; kept lanes run the unchanged body.
+				const Bool gxSimd = gxCache && (GLES3_Page_Switches4() & 8192);
+				UnsignedInt gxLanes = ~0u;
+				for (Int k = s_gxSnapStart[ci]; k < kEnd; ++k)
 				{
 					const Int s = s_gxSnapSlots[k];
+#ifdef __wasm_simd128__
+					if (gxSimd && ((k - s_gxSnapStart[ci]) & 3) == 0)
+					{
+						gxLanes = ~0u;
+						if (kEnd - k >= 4)
+						{
+							const Int *q = &s_gxSnapSlots[k];
+							const v128_t vx = wasm_f32x4_make(S.x[q[0]], S.x[q[1]], S.x[q[2]], S.x[q[3]]);
+							const v128_t vy = wasm_f32x4_make(S.y[q[0]], S.y[q[1]], S.y[q[2]], S.y[q[3]]);
+							const v128_t vr = wasm_f32x4_make(S.radius[q[0]], S.radius[q[1]], S.radius[q[2]], S.radius[q[3]]);
+							const v128_t dx = wasm_f32x4_sub(vx, wasm_f32x4_splat(px));
+							const v128_t dy = wasm_f32x4_sub(vy, wasm_f32x4_splat(py));
+							const v128_t lim = wasm_f32x4_add(wasm_f32x4_splat(gxLimit), wasm_f32x4_mul(wasm_f32x4_splat(2.0f), vr));
+							const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy));
+							gxLanes = (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim))));	// keep unless "> lim^2", as the scalar test (NaN kept)
+							g_gxSimdCulled += 4 - __builtin_popcount(gxLanes);
+						}
+					}
+					if (!((gxLanes >> ((k - s_gxSnapStart[ci]) & 3)) & 1))
+						continue;
+#endif
 					Object *thisObj = S.obj[s];
 					if (!thisObj || thisObj == obj)
 						continue;
