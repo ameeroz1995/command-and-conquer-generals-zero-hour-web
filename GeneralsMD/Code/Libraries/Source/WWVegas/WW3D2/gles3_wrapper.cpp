@@ -56,7 +56,7 @@ static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
-static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128;	// collide 4-5, ai 8, particleWorker 24 on
+static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 134217728;	// collide 4-5, ai 8, particleWorker 24, weaponSkip 19, animStoreList 27 on
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -484,8 +484,8 @@ void GLES3_Begin_Scene() {
                  | (o.disabledList === false ? 0 : 256)  // bit 8: end-of-tick disabled check visits a list of disabled objects, not every object (GameLogic.cpp; same game)
                  | (o.weaponPass === true ? 65536 : 0)    // bit 16: match rule weaponPass, armed units' weapon status in one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
                  | (o.damageQueue === true ? 262144 : 0)   // bit 18: match rule damageQueue, weapon damage queued in the tick and applied in victim-ID order (Weapon.cpp)
-                 | (o.weaponSkip === true ? 524288 : 0)    // bit 19: weaponSkip, with weaponPass: the store pass skips armed units whose weapon pose would not change (Object.cpp; same game)
-                 | (o.animStoreList === true ? 134217728 : 0)  // bit 27: animStoreList, the bone workers take their units from the store's ANIM list (W3DScene.cpp)
+                 | (o.weaponSkip === false ? 0 : 524288)    // bit 19: weaponSkip, with weaponPass: the store pass skips armed units whose weapon pose would not change (Object.cpp; same game)
+                 | (o.animStoreList === false ? 0 : 134217728)  // bit 27: animStoreList, the bone workers take their units from the store's ANIM list (W3DScene.cpp)
                  | (o.boneWorker === true ? 131072 : 0)   // bit 17: boneWorker, mt build: visible units' bones computed on a worker thread while the terrain draws (animobj.cpp, W3DScene.cpp)
                  | (o.particleWorker === false ? 0 : 16777216)  // bit 24: particleWorker (on), mt build: existing particles move on a worker during the draw when frames are long (ParticleSys.cpp)
                  | (o.boneAhead === true ? 8388608 : 0);  // bit 23: boneAhead, mt build: drawn units' next poses decoded on a worker while the game logic runs (animobj.cpp, W3DScene.cpp)

@@ -3588,7 +3588,7 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
   Position stays in the Object's matrix with write-through (x/y/z), likewise radius and player.
 - Same game: referee replay matches (9,000 frames, build store-1).
 
-## 2026-11-25 — Round 4, combat: weapons and damage as managers over GxUnitStore (all off)
+## 2026-11-25 — Round 4, combat: weapons and damage as managers over GxUnitStore
 
 - damageQueue (match rule 524288, third word bit 18): WeaponTemplate::dealDamageInternal queues
   (victim ID, DamageInfoInput) instead of calling attemptDamage; gxApplyDamageQueue applies the
@@ -3610,10 +3610,20 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
 - animStoreList (third word bit 27, mt, drawing only): the bone workers take their units from
   pass(GXB_ANIM) (set when W3DModelDraw creates an HLod model) plus the visibility check, instead of
   scanning the scene's render list. mt referee with boneWorker + boneAhead + animStoreList matches.
-- Not moved to the store: particle motion (particles are not units; the store has no particle data),
-  and weaponReady is written but nothing decides on it yet (a skip on it alone would not be exact:
-  some reload events, e.g. setClipPercentFull, do not know their object).
-- fps pairs ran at load 15-56 (other agents profiling) and are not usable; all four switches off.
+- weaponReady is exact: every Weapon and WeaponSet knows its unit (gxSetOwner when a set is built
+  or loaded), and every reload, ammo, status, pre-attack, last-shot or current-weapon change calls
+  TheGxUnitStore.weaponTouch(unit), which zeroes weaponReady. weaponSkip now first skips a unit with
+  no target, weaponReady still in the future and a quiet pose (gxWeaponStillQuiet) without calling
+  getStatus at all. Referee matches; the weaponPass recording replays to a match with it on; verify
+  with weaponPass + weaponSkip: 2142 checks, 0 mismatches.
+- Not moved to the store: particle motion (particles are not units; the store has no particle data).
+- Quiet pairs (flock timing.lock, load 6-11; 2 pairs per phase, profiled, fps armies / strikes / aftermath):
+  weaponSkip (with weaponPass): status share 0.4-0.5% → 0.1% in all 8 runs; fps off/on 19.1/17.2,
+  14.5/13.9, 18.9/8.9 (load jumped to 13.5), 14.5/14.3, 20.2/17.9, 14.1/17.2: within the noise →
+  on by default (it acts only when the weaponPass rule is on).
+  damageQueue: strikes 13.7/10.7, 13.3/13.8; armies 9.9/16.4, 16.3/14.5: neutral; stays off (match rule).
+  animStoreList (mt): armies 15.6/17.8, 15.9/17.7; strikes 10.9/14.4, 12.8/9.4: not slower → on by
+  default (it acts only with boneWorker or boneAhead).
 - Physics on the store (build store-2): physBulk's pass now walks the store's PHYS list (object-ID
   order) and reads/writes the store's velocities; its own behaviour list is gone. The store's cell is
   now write-through with x/y (partition cell under the centre, cy * cellCountX + cx).
