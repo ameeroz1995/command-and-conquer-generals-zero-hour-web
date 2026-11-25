@@ -54,6 +54,9 @@
 
 #include "Common/GxUnitStore.h"
 #include "Common/GxMatchRules.h"
+#ifdef __wasm_simd128__
+#include <wasm_simd128.h>
+#endif
 #include "Common/ActionManager.h"
 #include "Common/DiscreteCircle.h"
 #include "Common/GameEngine.h"
@@ -4801,6 +4804,130 @@ SimpleObjectIterator *PartitionManager::iterateObjectsInRange(
 	getClosestObjects(nullptr, pos, maxDist, dc, filters, iter, nullptr, nullptr);
 
 	iter->sort(order);
+	iterHolder.release();
+	return iter;
+}
+
+//-----------------------------------------------------------------------------
+// combat, round 5 (fourth word bit 25, splashSimd; same game). A splash (WeaponTemplate::
+// dealDamageInternal) asks for every unit within its radius, no filters. The plain cell walk visits
+// the cells around the blast ring by ring (m_radiusVec) and each cell's COI list (high to low
+// sequence), taking each unit at its first COI. Here:
+//   kernel: a SIMD pass over the store's x/y/sphere columns keeps the slots whose centre is near
+//           enough (a loose test: 2D centre distance against range + bounding sphere radius + 2;
+//           the 3D test measures centre distance minus the sphere, never less than the 2D one);
+//   then, per kept unit, the walk's own distance test and its walk key (ring rank of the first
+//   visited cell that holds one of its COIs, then that COI's sequence, high first); units are put
+//   in the iterator in key order, which is the order the walk would have inserted them in.
+// Not used when match rule scanManager is on (that search answers from its own tick cache).
+SimpleObjectIterator *PartitionManager::gxSplashSearch(const Coord3D *pos, Real maxDist, DistanceCalculationType dc)
+{
+	extern bool gxMatchRule(unsigned int rule);
+	if (gxMatchRule(262144 /* GXRULE_SCAN_MANAGER */) || !m_cells || maxDist >= HUGE_DIST)
+		return nullptr;
+
+	// the walk's ring rank of every cell offset, built once per partition layout
+	static std::vector<Int> rankOf;	// (2R+1)^2, -1: not visited
+	static std::vector<Int> ringOf;
+	static Int rankR = -1, rankRings = -1;
+	if (rankR != m_maxGcoRadius || rankRings != (Int)m_radiusVec.size())
+	{
+		rankR = m_maxGcoRadius;
+		rankRings = (Int)m_radiusVec.size();
+		const Int w = 2 * rankR + 1;
+		rankOf.assign(w * w, -1);
+		ringOf.assign(w * w, -1);
+		Int rank = 0;
+		for (Int r = 0; r < rankRings; ++r)
+			for (OffsetVec::const_iterator it = m_radiusVec[r].begin(); it != m_radiusVec[r].end(); ++it, ++rank)
+			{
+				if (abs(it->x) > rankR || abs(it->y) > rankR)
+					continue;
+				const Int k = (it->y + rankR) * w + (it->x + rankR);
+				if (rankOf[k] < 0) { rankOf[k] = rank; ringOf[k] = r; }
+			}
+	}
+	const Int w = 2 * rankR + 1;
+	const Int limit = minInt(m_maxGcoRadius, worldToCellDist(maxDist));
+	Int ccx, ccy;
+	worldToCell(pos->x, pos->y, &ccx, &ccy);
+
+	// kernel: near slots by the store's columns, 4 per step
+	const GxUnitStore &S = TheGxUnitStore;
+	const Int n = (Int)S.obj.size();
+	static std::vector<Int> near;
+	near.clear();
+	const float px = pos->x, py = pos->y, reach = maxDist + 2.0f;
+	Int s = 0;
+#ifdef __wasm_simd128__
+	{
+		const v128_t vpx = wasm_f32x4_splat(px), vpy = wasm_f32x4_splat(py), vreach = wasm_f32x4_splat(reach);
+		for (; s + 4 <= n; s += 4)
+		{
+			const v128_t dx = wasm_f32x4_sub(wasm_v128_load(&S.x[s]), vpx);
+			const v128_t dy = wasm_f32x4_sub(wasm_v128_load(&S.y[s]), vpy);
+			const v128_t lim = wasm_f32x4_add(vreach, wasm_v128_load(&S.sphere[s]));
+			const v128_t in = wasm_f32x4_le(wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)), wasm_f32x4_mul(lim, lim));
+			for (Int m = wasm_i32x4_bitmask(in); m; m &= m - 1)
+				near.push_back(s + __builtin_ctz(m));
+		}
+	}
+#endif
+	for (; s < n; ++s)
+	{
+		const float dx = S.x[s] - px, dy = S.y[s] - py, lim = reach + S.sphere[s];
+		if (dx * dx + dy * dy <= lim * lim)
+			near.push_back(s);
+	}
+
+	// the walk's test and key for each near unit
+	struct Hit { long long key; Object *obj; Real distSqr; };
+	static std::vector<Hit> hits;
+	hits.clear();
+	DistCalcProc distProc = theDistCalcProcs[dc];
+	const Real maxDistSqr = maxDist * maxDist;
+	for (size_t i = 0; i < near.size(); ++i)
+	{
+		Object *o = S.obj[near[i]];
+		if (!o)
+			continue;
+		PartitionData *pd = o->friend_getPartitionData();
+		if (!pd)
+			continue;
+		long long best = -1;
+		CellAndObjectIntersection *coi = pd->friend_getCoiArray();
+		for (Int k = pd->friend_getCoiArrayCount(); k; --k, ++coi)
+		{
+			PartitionCell *cell = coi->getCell();
+			if (!cell || coi->getModule() != pd)
+				continue;
+			const Int ox = cell->getCellX() - ccx, oy = cell->getCellY() - ccy;
+			if (abs(ox) > rankR || abs(oy) > rankR)
+				continue;
+			const Int t = (oy + rankR) * w + (ox + rankR);
+			if (rankOf[t] < 0 || ringOf[t] > limit)
+				continue;
+			const long long key = ((long long)rankOf[t] << 32) | (long long)(0xffffffffu - coi->gxSeq());
+			if (best < 0 || key < best)
+				best = key;
+		}
+		if (best < 0)
+			continue;	// none of its cells is on the walk
+		Real d2;
+		Coord3D v;
+		if (!(*distProc)(pos, nullptr, o->getPosition(), o, d2, v, maxDistSqr))
+			continue;
+		Hit h = { best, o, d2 };
+		hits.push_back(h);
+	}
+	std::sort(hits.begin(), hits.end(), [](const Hit &a, const Hit &b) { return a.key < b.key; });
+
+	MemoryPoolObjectHolder iterHolder;
+	SimpleObjectIterator *iter = newInstance(SimpleObjectIterator);
+	iterHolder.hold(iter);
+	for (size_t i = 0; i < hits.size(); ++i)
+		iter->insert(hits[i].obj, hits[i].distSqr);
+	iter->sort(ITER_FASTEST);
 	iterHolder.release();
 	return iter;
 }

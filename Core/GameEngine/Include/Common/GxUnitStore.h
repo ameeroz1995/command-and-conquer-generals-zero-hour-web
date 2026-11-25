@@ -90,6 +90,8 @@ public:
 	std::vector<int>							target;			///< current victim ObjectID, 0 none (write-through: AIUpdateInterface::setCurrentVictim)
 	std::vector<unsigned int>			weaponReady;	///< frame a weapon's reload / pre-attack ends (weapon-status pass); 0 = look now
 	std::vector<unsigned int>			weaponSig;		///< weapon-status pass: ammo/status signature last shown on the drawable
+	std::vector<float>						sphere;			///< bounding sphere radius (splashSimd: the 3D blast test's reach)
+	void setSphere(const Object *o, float r) { const int s = slotOf(o); if (s >= 0) sphere[s] = r; }
 	void setTarget(const Object *o, int victimId);
 	/// a weapon of this unit changed (fired, reloaded, ammo, pre-attack, slot): the pass looks at it now
 	void weaponTouch(int objectId) { const int s = slotOfId(objectId); if (s >= 0) weaponReady[s] = 0; }

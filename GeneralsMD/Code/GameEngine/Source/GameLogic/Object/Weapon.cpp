@@ -33,9 +33,12 @@
 // ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h" // This must go first in EVERY cpp file in the GameEngine
 #include "Common/GxMatchRules.h"
+#include <unordered_map>
 #ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
 extern int GLES3_Page_Switches4();
 #else
+static int GLES3_Page_Switches() { return 0; }
 static int GLES3_Page_Switches4() { return 0; }
 #endif
 #include "Common/GxUnitStore.h"
@@ -73,6 +76,7 @@ static int GLES3_Page_Switches4() { return 0; }
 #include "GameLogic/Module/AssaultTransportAIUpdate.h"
 #include "GameLogic/Module/BehaviorModule.h"
 #include "GameLogic/Module/BodyModule.h"
+#include "GameLogic/Module/ActiveBody.h"
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/LaserUpdate.h"
 #include "GameLogic/Module/SpecialPowerCompletionDie.h"
@@ -709,6 +713,42 @@ Real WeaponTemplate::estimateWeaponTemplateDamage(
   damageInfo.m_deathType = deathType;
   damageInfo.m_sourceID = sourceObj->getID();
   damageInfo.m_amount = damageAmount;
+
+  // Round 5 (fourth word bit 26, damageTable; same game): a per-frame table of weapon x armor
+  // results, keyed by weapon template, bonus state (the bonused amount it gives) and the victim's
+  // current armor template. Only for victims with an ActiveBody and damage types whose estimate is
+  // plain armor (ActiveBody::estimateDamage's special cases are subdual, KILL_GARRISONED, SNIPER).
+  if ((GLES3_Page_Switches4() & 67108864) && !IsSubdualDamage(damageType) &&
+      damageType != DAMAGE_KILL_GARRISONED && damageType != DAMAGE_SNIPER) {
+    const ActiveBody *ab = dynamic_cast<const ActiveBody *>(victimObj->getBodyModule());
+    if (ab) {
+      struct Key {
+        const WeaponTemplate *w; const ArmorTemplate *a; UnsignedInt amount;
+        bool operator==(const Key &o) const { return w == o.w && a == o.a && amount == o.amount; }
+      };
+      struct KeyHash {
+        size_t operator()(const Key &k) const {
+          return (size_t)(uintptr_t)k.w * 2654435761u ^ (size_t)(uintptr_t)k.a * 40503u ^ k.amount;
+        }
+      };
+      static std::unordered_map<Key, Real, KeyHash> table;
+      static UnsignedInt tableFrame = ~0u;
+      if (tableFrame != TheGameLogic->getFrame()) {
+        tableFrame = TheGameLogic->getFrame();
+        table.clear();
+      }
+      Key k;
+      k.w = this;
+      k.a = ab->gxArmorTemplate();
+      memcpy(&k.amount, &damageAmount, sizeof(UnsignedInt));
+      std::unordered_map<Key, Real, KeyHash>::const_iterator it = table.find(k);
+      if (it != table.end())
+        return it->second;
+      const Real r = victimObj->estimateDamage(damageInfo);
+      table[k] = r;
+      return r;
+    }
+  }
   return victimObj->estimateDamage(damageInfo);
 }
 
@@ -1480,8 +1520,31 @@ void WeaponTemplate::dealDamageInternal(ObjectID sourceID, ObjectID victimID,
     Real primaryRadiusSqr = sqr(primaryRadius);
     Real radius = max(primaryRadius, secondaryRadius);
     if (radius > 0.0f) {
-      iter = ThePartitionManager->iterateObjectsInRange(pos, radius,
-                                                        DAMAGE_RANGE_CALC_TYPE);
+      iter = (GLES3_Page_Switches4() & 33554432)	// fourth word bit 25, splashSimd
+                 ? ThePartitionManager->gxSplashSearch(pos, radius, DAMAGE_RANGE_CALC_TYPE)
+                 : nullptr;
+      if (iter && (GLES3_Page_Switches() & 2097152)) {
+        // verify mode: the plain walk must give the same units, distances and order
+        static UnsignedInt checked = 0, bad = 0;
+        SimpleObjectIterator *ref = ThePartitionManager->iterateObjectsInRange(pos, radius, DAMAGE_RANGE_CALC_TYPE);
+        Real da, db;
+        Object *a = iter->firstWithNumeric(&da), *b = ref->firstWithNumeric(&db);
+        Bool same = true;
+        for (; a && b && same; a = iter->nextWithNumeric(&da), b = ref->nextWithNumeric(&db))
+          same = a == b && memcmp(&da, &db, sizeof(Real)) == 0;
+        same = same && !a && !b;
+        ++checked;
+        if (!same) {
+          ++bad;
+          printf("GXVERIFY splash mismatch at frame %u\n", TheGameLogic->getFrame());
+        }
+        if (checked % 500 == 0)
+          printf("GXVERIFY splash searches checked %u, mismatches %u\n", checked, bad);
+        deleteInstance(ref);
+      }
+      if (!iter)
+        iter = ThePartitionManager->iterateObjectsInRange(pos, radius,
+                                                          DAMAGE_RANGE_CALC_TYPE);
       curVictim = iter->firstWithNumeric(&curVictimDistSqr);
     } else {
       // DEBUG_ASSERTCRASH(primaryVictim != nullptr, ("weapons without radii
@@ -2082,9 +2145,37 @@ void Weapon::computeBonus(const Object *source,
       flags |= theirContain->getWeaponBonusPassedToPassengers();
   }
 
+  // Round 5 (fourth word bit 26, damageTable; same game): the bonus chain depends only on the
+  // weapon template (its extra bonus set) and the condition flags, so this frame's answers are kept in
+  // a table keyed by both; target evaluation (estimateWeaponDamage per weapon per candidate) then
+  // reads the table instead of walking the bonus sets again.
+  const WeaponTemplate *tmpl = TheGxWeapons.tmpl[m_row];
+  const Bool table = (GLES3_Page_Switches4() & 67108864) != 0;
+  unsigned long long key = 0;
+  if (table) {
+    static std::unordered_map<unsigned long long, WeaponBonus> cache;
+    static UnsignedInt cacheFrame = ~0u;
+    if (cacheFrame != TheGameLogic->getFrame()) {
+      cacheFrame = TheGameLogic->getFrame();
+      cache.clear();
+    }
+    key = ((unsigned long long)(uintptr_t)tmpl << 32) | flags;
+    std::unordered_map<unsigned long long, WeaponBonus>::const_iterator it = cache.find(key);
+    if (it != cache.end()) {
+      bonus = it->second;
+      return;
+    }
+    if (TheGlobalData->m_weaponBonusSet)
+      TheGlobalData->m_weaponBonusSet->appendBonuses(flags, bonus);
+    if (tmpl->getExtraBonus())
+      tmpl->getExtraBonus()->appendBonuses(flags, bonus);
+    cache[key] = bonus;
+    return;
+  }
+
   if (TheGlobalData->m_weaponBonusSet)
     TheGlobalData->m_weaponBonusSet->appendBonuses(flags, bonus);
-  const WeaponBonusSet *extra = TheGxWeapons.tmpl[m_row]->getExtraBonus();
+  const WeaponBonusSet *extra = tmpl->getExtraBonus();
   if (extra)
     extra->appendBonuses(flags, bonus);
 }

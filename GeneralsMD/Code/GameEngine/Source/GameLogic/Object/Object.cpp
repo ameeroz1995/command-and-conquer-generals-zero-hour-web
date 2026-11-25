@@ -824,6 +824,7 @@ void Object::setGeometryInfo(const GeometryInfo& geom)
 {
 	m_geometryInfo = geom;
 	TheGxUnitStore.setRadius(this, geom.getBoundingCircleRadius());	// web port (round 4)
+	TheGxUnitStore.setSphere(this, geom.getBoundingSphereRadius());	// combat, splashSimd
 	if( m_partitionData )
 	{
 		// if our geometry changes, we unregister and re-register with the partitionmgr

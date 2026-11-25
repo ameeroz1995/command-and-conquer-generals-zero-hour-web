@@ -1304,6 +1304,8 @@
             { key: 'boneWorker', def: true, label: 'UNIT ANIMATION ON A WORKER THREAD (EXPERIMENT)', note: 'Multi-threaded build only. The bones of the units on screen are computed on a second thread while the ground is drawn. Drawing only: the game itself is not affected.' },
             { key: 'boneAhead', def: false, label: 'UNIT ANIMATION AHEAD ON A WORKER THREAD (EXPERIMENT)', note: 'Multi-threaded build only. While the game computes the next frame, a second thread already works out how the units on screen will be posed. Drawing only: the game itself is not affected. Animations may lag by up to one frame.' },
             { key: 'weaponReload', def: false, label: 'WEAPON RELOADS AS ONE SYSTEM (EXPERIMENT)', note: 'With UPDATE PASSES on: at the start of each game tick, every weapon that has finished reloading is marked ready in one sweep over all weapons. Same fights; the saved weapon state is updated earlier, so it rides on the update passes rule.' },
+            { key: 'splashSimd', def: false, label: 'FIND SPLASH VICTIMS WITH SIMD (EXPERIMENT)', note: 'Explosions find the units in their blast with one fast sweep over all units, four at a time, then take them in the usual order. Same game.' },
+            { key: 'damageTable', def: false, label: 'REMEMBER WEAPON BONUSES EACH FRAME (EXPERIMENT)', note: 'When units weigh up targets, each weapon\'s bonus for a set of conditions is worked out once per frame and then looked up. Same game.' },
             { key: 'animStoreList', def: true, label: 'ANIMATION WORKERS USE THE UNIT LIST (EXPERIMENT)', note: 'With the animation worker switches: the units to pose are taken from the game\'s unit list instead of scanning everything drawn. Drawing only.' },
             { key: 'particleWorker', def: true, label: 'PARTICLES ON A WORKER THREAD', note: 'Multi-threaded build only. When the game runs slowly (frames over 40 ms), smoke, fire and dust particles are moved on a second thread while the frame is drawn; new particles are still made on the main thread. Drawing only: the game itself is not affected.' },
             { key: 'cellReuse', def: true, label: 'KEEP MAP SQUARES OF UNITS THAT STAY IN THEM', note: 'A unit that moved but still covers the same map squares keeps its place in them instead of being taken out and put back. Same game.' },
@@ -2050,7 +2052,7 @@
           (function () {
             var cats = [
               { name: 'MANAGER PATTERN', note: 'Unit data kept in one store, and each game system run as one pass over all its units, in unit order.',
-                keys: ['positionInStore', 'updatePasses', 'moveAfterTick', 'physBulk', 'storePairs', 'scanManager', 'weaponPass', 'weaponSkip', 'weaponReload', 'damageQueue', 'animStoreList', 'disabledList'] },
+                keys: ['positionInStore', 'updatePasses', 'moveAfterTick', 'physBulk', 'storePairs', 'scanManager', 'weaponPass', 'weaponSkip', 'weaponReload', 'splashSimd', 'damageTable', 'damageQueue', 'animStoreList', 'disabledList'] },
               { name: 'ROUTE PLANNING', note: 'How units find their way: shared route maps, route reuse and how much planning each frame does.',
                 keys: ['flowFields', 'lazyFields', 'gpuFlowFields', 'flowCover', 'coarseStart', 'groupRoute', 'routeQueue', 'routeCache', 'routeRefine', 'sharedRoutes', 'routeBudget', 'ignoreUnitsInPaths', 'openHeap', 'cellBits', 'cpopSegments'] },
               { name: 'COMPUTATION', note: 'Cheaper game logic: searches, collisions, physics and bookkeeping.',

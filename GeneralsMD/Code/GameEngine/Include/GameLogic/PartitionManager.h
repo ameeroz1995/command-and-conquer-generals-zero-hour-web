@@ -606,6 +606,8 @@ public:
 	void friend_removeAllTouchedCells() { removeAllTouchedCells(); }	///< this is only for use by PartitionManager
 	void friend_updateCellsTouched()	{ updateCellsTouched(); } ///< this is only for use by PartitionManager
 	Int friend_getCoiInUseCount() { return m_coiInUseCount; } ///< this is only for use by PartitionManager
+	CellAndObjectIntersection *friend_getCoiArray() { return m_coiArray; }	///< combat, splashSimd (PartitionManager::gxSplashSearch)
+	Int friend_getCoiArrayCount() const { return m_coiArrayCount; }
 	Bool friend_collidesWith(const PartitionData *that, CollideLocAndNormal *cinfo) const { return collidesWith(that, cinfo); }	///< this is only for use by PartitionContactList
 
 	// these are only for use by getClosestObjects.
@@ -1500,6 +1502,10 @@ public:
 		PartitionFilter **filters = nullptr,
 		IterOrderType order = ITER_FASTEST
 	);
+	/// combat, round 5 (fourth word bit 25, splashSimd; same game): iterateObjectsInRange(pos, maxDist, dc)
+	/// with no filters, found by a SIMD pass over the unit store's x/y/radius columns and put in the
+	/// cell walk's order. Returns nullptr when it can't promise the walk's answer (caller walks).
+	SimpleObjectIterator *gxSplashSearch(const Coord3D *pos, Real maxDist, DistanceCalculationType dc);
 
 	SimpleObjectIterator *iterateAllObjects(PartitionFilter **filters = nullptr);
 

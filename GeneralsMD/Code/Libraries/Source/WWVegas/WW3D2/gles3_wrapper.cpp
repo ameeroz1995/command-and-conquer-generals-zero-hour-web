@@ -474,7 +474,9 @@ void GLES3_Begin_Scene() {
         g_PageSwitches4 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
-                 | (o.weaponReload === true ? 16777216 : 0);   // bit 24: weaponReload, with match rule updatePasses: weapon reloads as a system at the start of the tick (Weapon.cpp)
+                 | (o.weaponReload === true ? 16777216 : 0)   // bit 24: weaponReload, with match rule updatePasses: weapon reloads as a system at the start of the tick (Weapon.cpp)
+                 | (o.splashSimd === true ? 33554432 : 0)    // bit 25: splashSimd, splash victims found by a SIMD pass over the unit store, in the cell walk's order (PartitionManager.cpp; same game)
+                 | (o.damageTable === true ? 67108864 : 0);  // bit 26: damageTable, per-frame table of weapon bonuses for target evaluation (Weapon.cpp; same game)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
