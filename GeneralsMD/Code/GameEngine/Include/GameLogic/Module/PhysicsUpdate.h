@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "Common/GxUnitStore.h"
 #include "Common/AudioEventRTS.h"
 #include "Common/GameAudio.h"
 #include "GameLogic/Module/BehaviorModule.h"
@@ -136,7 +137,7 @@ public:
 	Real getCenterOfMassOffset() const { return getPhysicsBehaviorModuleData()->m_centerOfMassOffset; }
 
 	const Coord3D *getAcceleration() const { return &m_prevAccel; }		///< get last frame's acceleration
-	const Coord3D *getVelocity() const { return &m_vel; }			///< get current velocity
+	const Coord3D *getVelocity() const { return &gxVel(); }			///< get current velocity
 	Real getVelocityMagnitude() const;																		///< return velocity magnitude (speed)
 	Real getForwardSpeed2D() const;															///< compute speed along object's 2d direction vector
 	Real getForwardSpeed3D() const;															///< compute speed along object's 3d direction vector
@@ -266,7 +267,9 @@ private:
 	DynamicAudioEventRTS*				m_bounceSound;						///< The sound for when this thing bounces, or nullptr
 	Coord3D											m_accel;									///< current acceleration
 	Coord3D											m_prevAccel;							///< last frame's acceleration
-	Coord3D											m_vel;										///< current velocity
+	// web port (round 4): the velocity lives in the unit store (TheGxUnitStore.vel), found by slot
+	mutable Int									m_gxSlot;
+	mutable UnsignedInt					m_gxEpoch;
 	PhysicsTurningType					m_turning;								///< 0 = not turning, -1 = turn negative, 1 = turn positive.
 	ObjectID										m_ignoreCollisionsWith;
 	Int													m_flags;
@@ -288,6 +291,23 @@ private:
 	UnsignedInt									m_gxPreFrame;							///< frame whose integration the bulk pass already did
 	void gxIntegrate();
 	static void gxBulkPass(UnsignedInt now);
+
+	/// the current velocity, in the unit store (web port, round 4)
+	Coord3D &gxVel() const
+	{
+		if (m_gxEpoch != TheGxUnitStore.epoch())
+		{
+			m_gxSlot = TheGxUnitStore.slotOf(getObject());
+			m_gxEpoch = TheGxUnitStore.epoch();
+		}
+		if (m_gxSlot < 0)
+		{
+			static Coord3D s_none;	// object not in the store (never for a live object)
+			s_none.zero();
+			return s_none;
+		}
+		return TheGxUnitStore.vel[m_gxSlot];
+	}
 
 	void setFlag(PhysicsFlagsType f, Bool set) { if (set) m_flags |= f; else m_flags &= ~f; }
 	Bool getFlag(PhysicsFlagsType f) const { return (m_flags & f) != 0; }

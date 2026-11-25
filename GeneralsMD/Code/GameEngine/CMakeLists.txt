@@ -950,6 +950,7 @@ set(GAMEENGINE_SRC
     Source/GameLogic/Object/ObjectCreationList.cpp
     Source/GameLogic/Object/ObjectTypes.cpp
     Source/GameLogic/Object/PartitionManager.cpp
+    Source/GameLogic/Object/GxUnitStore.cpp
     Source/GameLogic/Object/SimpleObjectIterator.cpp
     Source/GameLogic/Object/SpecialPower/BaikonurLaunchPower.cpp
     Source/GameLogic/Object/SpecialPower/CashBountyPower.cpp
