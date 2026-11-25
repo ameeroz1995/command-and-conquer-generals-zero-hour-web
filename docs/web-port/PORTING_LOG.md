@@ -3638,3 +3638,24 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
   is now written right after m_team changes, before anything in setOrRestoreTeam can read it.
   Referee replay matches with verify (contact array 90,600 checks, 0 mismatches); the verify battle
   printed 3,076 GXVERIFY lines, none with a mismatch.
+
+## 2026-11-25 — Round 4, 100% adoption: movement manager on the store; route look-ahead (paths agent)
+- Line 5, movement + route following (match rule moveAfterTick 32768, third word bit 1, off): one pass
+  per frame over `TheGxUnitStore.pass(GXB_MOVE)`, in object-ID order, after the update queue and
+  before physics. It runs doLocomotor (locomotion, computePointOnPath, final-position nudge) for every
+  unit in the list. Positions are read and written through Thing, which with positionInStore keeps
+  them in the store's `pos[s]`; writing `pos[s]` directly would skip the matrix and partition updates.
+- Line 2, the MOVE mask is set on state change only: AIUpdate::gxSetMoving(TRUE) when the AI wakes and
+  the unit is not already in the list, gxSetMoving(FALSE) when doLocomotor says it can sleep forever.
+  A member flag (m_gxMoveOn, not saved; a load starts with no masks) means the store is not re-tested.
+  The per-tick flag array of the first version (8a2733f) is gone. A unit that keeps moving wakes its
+  AI next frame, as the old in-update call did.
+- Route look-ahead (routeQueue + routeCache, no new rule): within the next 256 eligible queued plain
+  requests, cache hits are served first. Serving queue entries by store slot (slotOfId) instead of
+  findObjectByID gains nothing: findObjectByID is already an array index.
+- Checks: paths-27 referee replay matches; a recording with moveAfterTick on (GX=8022) plays back to a
+  match with it off. paths-28 (after merging collide's store-owned position, radius and player)
+  matches the referee and that recording. paths-24 (look-ahead): referee matches; a recording with
+  groupRoute + routeCache + flowCover + routeRefine + routeQueue on matches with them off.
+- Timing: the first paths-23/24 pairs ran while load climbed from 12 to 18–34, so they don't count.
+  The pairs are being rerun one at a time under timing.lock at load < 8.
