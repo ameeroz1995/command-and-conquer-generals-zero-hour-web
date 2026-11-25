@@ -56,7 +56,7 @@ static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
-static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128;	// collide 4-5, ai 8, particleWorker 24 on
+static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216;	// collide 4-5, ai 8, particleWorker 24 on
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -480,7 +480,7 @@ void GLES3_Begin_Scene() {
                  | (o.crushFirst === false ? 0 : 16)   // bit 4: crush tests compare crush levels before the ally lookup (Object.cpp; same game)
                  | (o.collideList === false ? 0 : 32)  // bit 5: each unit lists its collide modules once instead of asking every module per collision (Object.cpp; same game)
                  | (o.storePairs === true ? 64 : 0)   // bit 6: match rule storePairs, collision broad phase over the unit store's cells (PartitionManager.cpp)
-                 | (o.positionInStore === false ? 0 : 128)  // bit 7: positions live in the unit store (Thing.h / GxUnitStore; same game; fixed per object when it enters the store)
+                 | (o.positionInStore ? 128 : 0)  // bit 7: positions live in the unit store (Thing.h / GxUnitStore; same game; fixed per object when it enters the store)
                  | (o.disabledList === false ? 0 : 256)  // bit 8: end-of-tick disabled check visits a list of disabled objects, not every object (GameLogic.cpp; same game)
                  | (o.weaponPass === true ? 65536 : 0)    // bit 16: match rule weaponPass, armed units' weapon status in one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
                  | (o.boneWorker === true ? 131072 : 0)   // bit 17: boneWorker, mt build: visible units' bones computed on a worker thread while the terrain draws (animobj.cpp, W3DScene.cpp)

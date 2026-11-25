@@ -3638,3 +3638,24 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
   is now written right after m_team changes, before anything in setOrRestoreTeam can read it.
   Referee replay matches with verify (contact array 90,600 checks, 0 mismatches); the verify battle
   printed 3,076 GXVERIFY lines, none with a mismatch.
+
+### Round 4: store timing (lane 4, store-6t at 1f29afe, locked pairs)
+
+Six pairs under `flock ~/generals-bench/timing.lock`, load < 8 checked inside the lock (start/end
+load logged; posC's run saw a spike to 20). Logic / collide ms per logic frame, summed over the 12
+battle windows (the first 6 windows are the pre-battle shell and are left out):
+
+| pair | A | B | change |
+|---|---|---|---|
+| positionInStore off / on | 402 / 416 | | +3.5% |
+| positionInStore on / off | 472 / 403 | | +17% |
+| on / physBulk | 384 / 371 | | -3.4% |
+| physBulk / on | 462 / 437 | | +5.6% |
+| storePairs / on | 447 / 480 (load spike) | collide build 57 / 37 | |
+| on / storePairs | 472 / 499 | collide build 35 / 62 | +6%, build ~1.8x |
+
+- positionInStore: slower in both orders (3-17%), so its default is now **off** (third word bit 7;
+  page switch `positionInStore: true` turns it on). The code path stays (line 1 is reachable).
+- physBulk: no measurable change either way (-3% / +6%); stays off.
+- storePairs: collide build ~1.8x slower in both orders (re-bucketing every unit each frame
+  instead of reusing the partition's cells); stays off.
