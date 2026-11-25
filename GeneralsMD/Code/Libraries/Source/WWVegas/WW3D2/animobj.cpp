@@ -291,29 +291,163 @@ void Animatable3DObjClass::Render(RenderInfoClass & rinfo)
 		return;
 	}
 
-	//
-	// Force the hierarchy to be recalculated for single animations.
-	//
-	const bool isSingleAnim = CurMotionMode == SINGLE_ANIM && ModeAnim.AnimMode != ANIM_MODE_MANUAL;
-
-	if (!Is_Hierarchy_Valid() || Are_Sub_Object_Transforms_Dirty()) {
-		Update_Sub_Object_Transforms();
-	} else if (isSingleAnim) {
-		// animStagger (second switch word bit 23, drawing only): a unit that has not moved and is
-		// small on screen advances its animation every 2nd drawn frame; the animation clock still
-		// runs, so the next update catches up the full time.
-		extern int GLES3_Page_Switches2();
-		if (GLES3_Page_Switches2() & 8388608) {
-			const SphereClass & s = CachedBoundingSphere;
-			const Vector3 d = s.Center - rinfo.Camera.Get_Position();
-			const float r = s.Radius * 50.0f;		// staggered when radius/distance < 1/50
-			if (r * r < d.Length2() && ((WW3D::Get_Frame_Count() + ((unsigned)(size_t)this >> 6)) & 1)) {
-				return;
-			}
-		}
+	// boneWorker: the worker already brought the bones to this frame (or found them not due)
+	if (GxBonesFrame == WW3D::Get_Frame_Count() && Is_Hierarchy_Valid() && !Are_Sub_Object_Transforms_Dirty()) {
+		return;
+	}
+	if (gxBonesDue(rinfo.Camera.Get_Position())) {
 		Update_Sub_Object_Transforms();
 	}
 }
+
+// Whether the bones must be updated for this drawn frame: always when the hierarchy is invalid;
+// for single animations every frame (the animation clock moves).
+bool Animatable3DObjClass::gxBonesDue(const Vector3 & camPos)
+{
+	if (!Is_Hierarchy_Valid() || Are_Sub_Object_Transforms_Dirty()) {
+		return true;
+	}
+	if (CurMotionMode != SINGLE_ANIM || ModeAnim.AnimMode == ANIM_MODE_MANUAL) {
+		return false;
+	}
+	// animStagger (second switch word bit 23, drawing only): a unit that has not moved and is
+	// small on screen advances its animation every 2nd drawn frame; the animation clock still
+	// runs, so the next update catches up the full time.
+	extern int GLES3_Page_Switches2();
+	if (GLES3_Page_Switches2() & 8388608) {
+		const SphereClass & s = CachedBoundingSphere;
+		const Vector3 d = s.Center - camPos;
+		const float r = s.Radius * 50.0f;		// staggered when radius/distance < 1/50
+		if (r * r < d.Length2() && ((WW3D::Get_Frame_Count() + ((unsigned)(size_t)this >> 6)) & 1)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool Animatable3DObjClass::gxHasSounds() const
+{
+	switch (CurMotionMode) {
+		case SINGLE_ANIM:
+			return ModeAnim.Motion && ModeAnim.Motion->Has_Embedded_Sounds();
+		case DOUBLE_ANIM:
+			return (ModeInterp.Motion0 && ModeInterp.Motion0->Has_Embedded_Sounds()) ||
+				(ModeInterp.Motion1 && ModeInterp.Motion1->Has_Embedded_Sounds());
+		case MULTIPLE_ANIM:
+			for (int i = 0; i < ModeCombo.AnimCombo->Get_Num_Anims(); i++) {
+				HAnimClass * m = ModeCombo.AnimCombo->Peek_Motion(i);
+				if (m && m->Has_Embedded_Sounds()) return true;
+			}
+			return false;
+		default:
+			return false;
+	}
+}
+
+// Worker thread. Sounds are main-thread only, so an object whose animation plays sounds is left to
+// Render. Writes only this object's own tree (its bones and its sub-objects' transforms).
+void Animatable3DObjClass::gxPrepareBones(const Vector3 & camPos)
+{
+	if (HTree == nullptr || Is_Not_Hidden_At_All() == false || gxHasSounds()) {
+		return;
+	}
+	if (gxBonesDue(camPos)) {
+		Update_Sub_Object_Transforms();
+	}
+	GxBonesFrame = WW3D::Get_Frame_Count();
+}
+
+// boneWorker (third switch word bit 17). One worker pthread; the main thread queues the visible
+// objects (holding a reference so none can go away), wakes the worker, draws the terrain, then
+// waits. Nothing here is read by the game logic, which is not running during the draw.
+// ponytail: one worker, plain mutex + condition variable; after the terrain the main thread takes
+// the remaining jobs itself, so it waits at most for the worker's last object.
+extern int GLES3_Page_Switches3();
+#ifdef __EMSCRIPTEN_PTHREADS__
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <vector>
+static std::vector<Animatable3DObjClass *> s_gxBoneJobs;
+static Vector3 s_gxBoneCam;
+static std::mutex s_gxBoneMutex;
+static std::condition_variable s_gxBoneCv;
+static unsigned s_gxBoneGen = 0, s_gxBoneDone = 0;
+static bool s_gxBonePending = false;
+static std::atomic<size_t> s_gxBoneNext(0);	// next job to take; the worker and, after the terrain, the main thread both take
+
+static void gxBoneDrain()
+{
+	for (size_t i; (i = s_gxBoneNext.fetch_add(1)) < s_gxBoneJobs.size();) {
+		s_gxBoneJobs[i]->gxPrepareBones(s_gxBoneCam);
+	}
+}
+
+static void gxBoneLoop()
+{
+	unsigned seen = 0;
+	for (;;) {
+		{
+			std::unique_lock<std::mutex> lock(s_gxBoneMutex);
+			s_gxBoneCv.wait(lock, [&] { return s_gxBoneGen != seen; });
+			seen = s_gxBoneGen;
+		}
+		gxBoneDrain();
+		{
+			std::lock_guard<std::mutex> lock(s_gxBoneMutex);
+			s_gxBoneDone = seen;
+		}
+		s_gxBoneCv.notify_all();
+	}
+}
+
+bool gxBoneWorkerOn() { return (GLES3_Page_Switches3() & 131072) != 0; }
+
+void gxBoneWorkerAdd(RenderObjClass * robj)
+{
+	robj->Add_Ref();
+	s_gxBoneJobs.push_back(static_cast<Animatable3DObjClass *>(robj));
+}
+
+void gxBoneWorkerStart(const Vector3 & camPos)
+{
+	if (s_gxBoneJobs.empty()) return;
+	static bool started = false;
+	if (!started) {
+		std::thread(gxBoneLoop).detach();
+		started = true;
+	}
+	{
+		std::lock_guard<std::mutex> lock(s_gxBoneMutex);
+		s_gxBoneCam = camPos;
+		s_gxBoneNext = 0;
+		++s_gxBoneGen;
+	}
+	s_gxBonePending = true;
+	s_gxBoneCv.notify_all();
+}
+
+void gxBoneWorkerJoin()
+{
+	if (s_gxBonePending) {
+		gxBoneDrain();	// the main thread takes what the worker has not reached yet
+		std::unique_lock<std::mutex> lock(s_gxBoneMutex);
+		s_gxBoneCv.wait(lock, [] { return s_gxBoneDone == s_gxBoneGen; });
+		s_gxBonePending = false;
+	}
+	for (size_t i = 0; i < s_gxBoneJobs.size(); i++) {
+		s_gxBoneJobs[i]->Release_Ref();
+	}
+	s_gxBoneJobs.clear();
+}
+#else
+bool gxBoneWorkerOn() { return false; }
+void gxBoneWorkerAdd(RenderObjClass *) {}
+void gxBoneWorkerStart(const Vector3 &) {}
+void gxBoneWorkerJoin() {}
+#endif
+
 
 /***********************************************************************************************
  * Animatable3DObjClass::Special_Render -- "special render" function for animatables           *

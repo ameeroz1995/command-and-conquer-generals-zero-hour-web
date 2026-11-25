@@ -120,6 +120,10 @@ public:
 	///when marked dirty.  DON'T USE THIS UNLESS YOU HAVE A GOOD REASON! -MW
 	void							Friend_Set_Hierarchy_Valid(bool onoff) const  	{ IsTreeValid = onoff; }
 
+	// boneWorker (third switch word bit 17, mt build, drawing only): the bone worker thread runs
+	// this for each visible object while the main thread draws the terrain (RTS3DScene).
+	void							gxPrepareBones(const Vector3 & camPos);
+
 protected:
 
 	// internally used to compute the current frame if the object is in ANIM_MODE_MANUAL
@@ -157,6 +161,11 @@ protected:
 
 	// Release any animations
 	void								Release();
+
+	// boneWorker: whether Render must update the bones now; whether an animation plays sounds
+	bool								gxBonesDue(const Vector3 & camPos);
+	bool								gxHasSounds() const;
+	unsigned							GxBonesFrame = ~0u;	// WW3D frame the worker prepared the bones for
 
 protected:
 
@@ -319,3 +328,11 @@ inline void Animatable3DObjClass::Combo_Update( const Matrix3D & root, HAnimComb
 	}
 	Set_Hierarchy_Valid(true);
 }
+
+// boneWorker hand-off (RTS3DScene::Customized_Render): gxBoneWorkerAdd queues the visible objects,
+// gxBoneWorkerStart wakes the worker before the terrain is drawn, gxBoneWorkerJoin waits for it
+// before the objects are drawn. Off (or not an mt build): nothing is queued.
+bool gxBoneWorkerOn();
+void gxBoneWorkerAdd(RenderObjClass * robj);
+void gxBoneWorkerStart(const Vector3 & camPos);
+void gxBoneWorkerJoin();

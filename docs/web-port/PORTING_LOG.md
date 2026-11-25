@@ -3174,3 +3174,26 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
 - A/B off → on: status share 1.1→0.4% / 1.1→0.5% (strikes), 1.2→0.5% / 1.4→0.5% (armies),
   i.e. −0.6 to −0.9% of the frame. fps armies/strikes: pair 2 strikes 11.5/10.2 → 14.1/10.8,
   pair 2 armies 13.6/10.1 → 14.1/11.2; pair 1 noise in both directions (load 10↔29).
+
+## 2026-11-25 — Unit bones on a worker thread (combat agent; switch boneWorker, third word bit 17, mt build, off)
+
+- Share first (single-thread build, combat-5): HLodClass::Update_Sub_Object_Transforms 3.6% incl in
+  strikes, 2.1% in armies; particles 1.3% + doParticles 0.6-0.7%. The profiler cannot sample the mt
+  build's game thread (every function reads 0.0%), so the mt A/B is by fps only. Note: bench_build
+  with variants ["opt"] leaves the previous mt build staged.
+- The handoff is inside the draw, not across the simulation: logic changes animations while it runs
+  (model-condition changes call Set_Animation / swap render objects), and animations shared between
+  units keep shared decode caches (motchan.h CachedIdx / CacheData), so a worker running during
+  logic would read freed or half-written state. RTS3DScene::Customized_Render queues the visible
+  HLods (holding a reference), wakes one worker pthread, draws the terrain, then takes the jobs the
+  worker has not reached itself and waits for the worker's last one. Render skips an object the
+  worker already brought to this WW3D frame. Objects whose animation plays sounds stay on the main
+  thread (sounds are main-thread only). Particles were not moved (they allocate from the game's
+  memory pools, which are not thread-safe).
+- Replay (mt, switch on) matches. Screenshots normal.
+- A/B mt, quiet machine (load 3-6), fps armies / strikes / aftermath, off → on:
+  - first version (main waited for the worker; the terrain is < 70 draws, little to overlap):
+    18.1/13.7/23.2 → 18.7/13.1/24.8, 18.9/14.4/24.4 → 18.9/13.6/24.8 (strikes −4 to −6%)
+  - main thread takes the remaining jobs: 18.7/13.7/25.0 → 17.7/14.3/27.7,
+    20.9/15.0/28.4 → 21.5/15.5/28.7 (strikes +3-4%, armies −5% / +3%)
+- Off by default until more pairs show armies is not slower.
