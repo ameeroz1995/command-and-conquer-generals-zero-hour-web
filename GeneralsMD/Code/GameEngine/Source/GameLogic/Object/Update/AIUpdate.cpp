@@ -28,6 +28,7 @@
 // Subsequently : John Ahlquist 2002 and a cast of thousands.
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxUnitStore.h"
 
 #define DEFINE_LOCOMOTORSET_NAMES					// for TheLocomotorSetNames[]
 #define DEFINE_AUTOACQUIRE_NAMES
@@ -1045,32 +1046,47 @@ void AIUpdateInterface::friend_notifyStateMachineChanged()
  * The "main loop" of the AI subsystem
  */
 DECLARE_PERF_TIMER(AIUpdateInterface_update)
-// web port (match rule moveAfterTick): units whose AI updated this tick, in update-queue order
-static std::vector<ObjectID> s_gxMovementQueue;
+// web port (match rule moveAfterTick, round 4): the movement manager. A unit is in the store's MOVE
+// list while its locomotor needs calling: AIUpdate puts it there when it wakes (gxSetMoving), and the
+// pass takes it out when doLocomotor says it can sleep. Each frame, after the update queue, one pass
+// over pass(GXB_MOVE), in object-ID order, runs locomotion + route following for every unit in it.
+void AIUpdateInterface::gxSetMoving(Bool on)
+{
+	if (m_gxMoveOn == on)
+		return;
+	m_gxMoveOn = on;
+	TheGxUnitStore.setMask(getObject(), on ? GXB_BIT(GXB_MOVE) : 0, on ? 0 : GXB_BIT(GXB_MOVE));
+}
 
 void AIUpdateInterface::gxMovementPassStep()
 {
 	UpdateSleepTime sleep = doLocomotor();
+	if (sleep == UPDATE_SLEEP_FOREVER)
+	{
+		gxSetMoving(FALSE);	// idle: out of the list until the AI wakes again
+		return;
+	}
 #ifdef SLEEPY_AI
 	if (sleep < getWakeFrame())
-		setWakeFrame(getObject(), sleep);
+		setWakeFrame(getObject(), sleep);	// still moving: the AI runs next frame, as before
 #endif
 }
 
 void gxRunMovementPass()
 {
-	if (s_gxMovementQueue.empty())
-		return;
-	for (size_t i = 0; i < s_gxMovementQueue.size(); ++i)
+	static std::vector<int> s_list;	// copy: a step may change masks (the store rebuilds its list)
+	s_list = TheGxUnitStore.pass(GXB_MOVE);
+	for (size_t i = 0; i < s_list.size(); ++i)
 	{
-		Object *obj = TheGameLogic->findObjectByID(s_gxMovementQueue[i]);
+		Object *obj = TheGxUnitStore.obj[s_list[i]];
 		if (!obj || obj->isDestroyed())
 			continue;
 		AIUpdateInterface *ai = obj->getAI();
 		if (ai)
 			ai->gxMovementPassStep();
+		else
+			TheGxUnitStore.setMask(obj, 0, GXB_BIT(GXB_MOVE));
 	}
-	s_gxMovementQueue.clear();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1190,7 +1206,7 @@ UpdateSleepTime AIUpdateInterface::update()
 	// update queue (gxRunMovementPass), in this same order; the pass wakes us earlier if needed
 	extern bool gxMatchRule(unsigned int rule);
 	if (gxMatchRule(32768 /* GXRULE_MOVE_AFTER_TICK */)) {
-		s_gxMovementQueue.push_back(getObject()->getID());
+		gxSetMoving(TRUE);
 	} else {
 	UpdateSleepTime tmp = doLocomotor();
 	if (tmp < subMachineSleep)

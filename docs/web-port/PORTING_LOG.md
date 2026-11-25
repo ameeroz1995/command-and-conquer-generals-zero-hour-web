@@ -3782,3 +3782,27 @@ Stays default off.
   pair 1 (load 5.7 before, 8.8 after): armies 15.9 -> 18.0, strikes 13.6 -> 13.4, aftermath 25.5 -> 25.4.
   pair 2 (load 5.7 before, 13.2 after): armies 18.5 -> 13.2, strikes 12.5 -> 12.2, aftermath 21.3 -> 24.2.
   Strikes flat (-1..-2%); armies and aftermath swing both ways with load, so no fps gain shown. Stays default off.
+## 2026-11-25 — Round 4, 100% adoption: movement manager on the store; route look-ahead (paths agent)
+- Line 5, movement + route following (match rule moveAfterTick 32768, third word bit 1, off): one pass
+  per frame over `TheGxUnitStore.pass(GXB_MOVE)`, in object-ID order, after the update queue and
+  before physics. It runs doLocomotor (locomotion, computePointOnPath, final-position nudge) for every
+  unit in the list. Positions are read and written through Thing, which with positionInStore keeps
+  them in the store's `pos[s]`; writing `pos[s]` directly would skip the matrix and partition updates.
+- Line 2, the MOVE mask is set on state change only: AIUpdate::gxSetMoving(TRUE) when the AI wakes and
+  the unit is not already in the list, gxSetMoving(FALSE) when doLocomotor says it can sleep forever.
+  A member flag (m_gxMoveOn, not saved; a load starts with no masks) means the store is not re-tested.
+  The per-tick flag array of the first version (8a2733f) is gone. A unit that keeps moving wakes its
+  AI next frame, as the old in-update call did.
+- Route look-ahead (routeQueue + routeCache, no new rule): within the next 256 eligible queued plain
+  requests, cache hits are served first. Serving queue entries by store slot (slotOfId) instead of
+  findObjectByID gains nothing: findObjectByID is already an array index.
+- Checks: paths-27 referee replay matches; a recording with moveAfterTick on (GX=8022) plays back to a
+  match with it off. paths-28 (after merging collide's store-owned position, radius and player)
+  matches the referee and that recording. paths-24 (look-ahead): referee matches; a recording with
+  groupRoute + routeCache + flowCover + routeRefine + routeQueue on matches with them off.
+- Timing (pairs under timing.lock, load 5–10; strikes phase fps / 1% low / frames over 100 ms):
+  - Look-ahead, paths-23 vs paths-24 with all five route rules on: 14.4 → 16.0 / 6.9 → 7.0 / 20 → 10
+    and 15.0 → 15.9 / 7.7 → 6.9 / 13 → 16. Kept (it rides on routeQueue + routeCache).
+  - moveAfterTick off vs on (paths-28): 14.9 → 14.5 / 7.0 → 6.5 / 34 → 35 and 14.7 → 12.3 /
+    6.0 → 5.9 / 21 → 115 (that half ran at load 8.6–9.8). Not faster: kept behind its rule,
+    default off, as the round-4 bar asks.
