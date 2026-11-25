@@ -483,8 +483,8 @@ void GLES3_Begin_Scene() {
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
-                 | (o.multiDraw === false ? 0 : 1073741824)   // bit 30: different rigid parts of one material in one multi-draw call (dx8renderer.cpp)
-                 | (o.multiLights === false ? 0 : 536870912)   // bit 29: ... each with its own lights, so parts in different light join too
+                 | (o.multiDraw === true ? 1073741824 : 0)   // bit 30: different rigid parts of one material in one multi-draw call (dx8renderer.cpp)
+                 | (o.multiLights === true ? 536870912 : 0)   // bit 29: ... each with its own lights, so parts in different light join too
                  | (o.uiMerge === false ? 0 : 268435456)       // bit 28: consecutive interface pictures with one texture drawn together (render2d.cpp)
                  | (o.sortMaterials === false ? 0 : 67108864)   // bit 26: see-through draws with equal materials merge (sortingrenderer.cpp)
                  | (o.cpopSegments === true ? 1 : 0)   // bit 0: route-following reads each route's segments from one flat array (AIPathfind.cpp; same game)
