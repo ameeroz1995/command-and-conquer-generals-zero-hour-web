@@ -1869,7 +1869,8 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
   	m_drawable->setTransformMatrix( this->getTransformMatrix() );
 	}
 
-	TheGxUnitStore.setPos(this, *getPosition());	// web port (round 4)
+	if (!gxPosInStore())
+		TheGxUnitStore.setPos(this, *getPosition());	// web port (round 4): write-through without positionInStore
 
 	// web port (switch searchCache): range searches keep a copy of where we are
 	if (m_partitionData)
@@ -2915,6 +2916,7 @@ void Object::setID( ObjectID id )
 	TheGxUnitStore.add(this);
 	TheGxUnitStore.setMask(this, gxMask);
 	if (TheGxUnitStore.slotOf(this) >= 0) TheGxUnitStore.vel[TheGxUnitStore.slotOf(this)] = gxVel;
+	TheGxUnitStore.bumpEpoch();	// the slot changed
 
 }
 

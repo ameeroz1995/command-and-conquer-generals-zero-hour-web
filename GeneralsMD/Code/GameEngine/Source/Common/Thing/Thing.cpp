@@ -70,6 +70,8 @@ Thing::Thing( const ThingTemplate *thingTemplate )
 	m_templateName = thingTemplate->getName();
 #endif
 	m_transform.Make_Identity();
+	m_gxSlot = -1;
+	m_gxPosInStore = false;
 	m_cachedPos.x = InitialThingPosX;
 	m_cachedPos.y = InitialThingPosY;
 	m_cachedPos.z = 0.0f;
@@ -99,7 +101,7 @@ const ThingTemplate *Thing::getTemplate() const
 //=============================================================================
 Bool Thing::isPositioned() const
 {
-	return m_cachedPos.x != InitialThingPosX || m_cachedPos.y != InitialThingPosY;
+	return gxPos().x != InitialThingPosX || gxPos().y != InitialThingPosY;
 }
 
 //=============================================================================
@@ -142,11 +144,11 @@ void Thing::setPositionZ( Real z )
 	if( !m_template->isKindOf( KINDOF_STICK_TO_TERRAIN_SLOPE) )
 	{
 		Real oldAngle = m_cachedAngle;
-		Coord3D oldPos = m_cachedPos;
+		Coord3D oldPos = gxPos();
 		Matrix3D oldMtx = m_transform;
 
 		m_transform.Set_Z_Translation( z );
-		m_cachedPos.z = z;
+		gxPos().z = z;
 
 		if (m_cacheFlags & VALID_ALTITUDE_TERRAIN)
 		{
@@ -163,7 +165,7 @@ void Thing::setPositionZ( Real z )
 	{
 		Matrix3D mtx;
 		const Bool stickToGround = true;	// yes, set the "z" pos
-		Coord3D pos = m_cachedPos;
+		Coord3D pos = gxPos();
 		pos.z = z;
 		TheTerrainLogic->alignOnTerrain(getOrientation(), pos, stickToGround, mtx );
 		setTransformMatrix(&mtx);
@@ -178,14 +180,14 @@ void Thing::setPosition( const Coord3D *pos )
 	if( !m_template->isKindOf( KINDOF_STICK_TO_TERRAIN_SLOPE) )
 	{
 		Real oldAngle = m_cachedAngle;
-		Coord3D oldPos = m_cachedPos;
+		Coord3D oldPos = gxPos();
 		Matrix3D oldMtx = m_transform;
 
 		//DEBUG_ASSERTCRASH(!(_isnan(pos->x) || _isnan(pos->y) || _isnan(pos->z)), ("Drawable/Object position NAN! '%s'", m_template->getName().str() ));
 		m_transform.Set_X_Translation( pos->x );
 		m_transform.Set_Y_Translation( pos->y );
 		m_transform.Set_Z_Translation( pos->z );
-		m_cachedPos = *pos;
+		gxPos() = *pos;
 		m_cacheFlags &= ~(VALID_ALTITUDE_TERRAIN | VALID_ALTITUDE_SEALEVEL);	// but don't clear the dir flags.
 
 		reactToTransformChange(&oldMtx, &oldPos, oldAngle);
@@ -211,7 +213,7 @@ void Thing::setOrientation( Real angle )
 	// don't want this? call setTransformMatrix instead.
 
 	Real oldAngle = m_cachedAngle;
-	Coord3D oldPos = m_cachedPos;
+	Coord3D oldPos = gxPos();
 	Matrix3D oldMtx = m_transform;
 
 	pos.x = m_transform.Get_X_Translation();
@@ -243,7 +245,7 @@ void Thing::setOrientation( Real angle )
 
 	//DEBUG_ASSERTCRASH(-PI <= angle && angle <= PI, ("Please pass only normalized (-PI..PI) angles to setOrientation (%f).", angle));
 	m_cachedAngle = normalizeAngle(angle);
-	m_cachedPos = pos;
+	gxPos() = pos;
 	m_cacheFlags &= ~VALID_DIRVECTOR;	// but don't clear the altitude flags.
 
 	reactToTransformChange(&oldMtx, &oldPos, oldAngle);
@@ -257,13 +259,13 @@ void Thing::setTransformMatrix( const Matrix3D *mx )
 {
 	//USE_PERF_TIMER(ThingMatrixStuff)
 	Real oldAngle = m_cachedAngle;
-	Coord3D oldPos = m_cachedPos;
+	Coord3D oldPos = gxPos();
 	Matrix3D oldMtx = m_transform;
 
 	m_transform = *mx;
-	m_cachedPos.x = m_transform.Get_X_Translation();
-	m_cachedPos.y = m_transform.Get_Y_Translation();
-	m_cachedPos.z = m_transform.Get_Z_Translation();
+	gxPos().x = m_transform.Get_X_Translation();
+	gxPos().y = m_transform.Get_Y_Translation();
+	gxPos().z = m_transform.Get_Z_Translation();
 	m_cachedAngle = m_transform.Get_Z_Rotation();
 	m_cacheFlags = 0;
 
@@ -395,4 +397,18 @@ void Thing::transformPoint( const Coord3D *in, Coord3D *out )
 	out->y = vectorOut.Y;
 	out->z = vectorOut.Z;
 
+}
+
+//-------------------------------------------------------------------------------------------------
+// web port (round 4, switch positionInStore): move the position into / out of the unit store slot
+// (the store calls this; the values are copied, so nothing changes for the game)
+void Thing::gxSetPosInStore(Bool on)
+{
+	if (on == m_gxPosInStore || m_gxSlot < 0)
+		return;
+	if (on)
+		TheGxUnitStore.pos[m_gxSlot] = m_cachedPos;
+	else
+		m_cachedPos = TheGxUnitStore.pos[m_gxSlot];
+	m_gxPosInStore = on;
 }

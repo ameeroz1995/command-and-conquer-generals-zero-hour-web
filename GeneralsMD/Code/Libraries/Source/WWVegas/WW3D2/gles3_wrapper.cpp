@@ -56,7 +56,7 @@ static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
-static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216;	// collide 4-5, ai 8, particleWorker 24 on
+static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128;	// collide 4-5, ai 8, particleWorker 24 on
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -459,7 +459,7 @@ void GLES3_Begin_Scene() {
                  | (o.collideStagger === true ? 1024 : 0)   // bit 10: ground units check collisions every 2nd frame (PartitionManager.cpp; match rule)
                  | (o.collideStagger3 === true ? 2048 : 0)  // bit 11: ... every 3rd frame (wins over bit 10)
                  | (o.physReuse === false ? 0 : 67108864)  // bit 26: physics reuses its ground height for the airborne check (PhysicsUpdate.cpp; same game)
-                 | (o.physBulk === true ? 134217728 : 0)  // bit 27: physics forces + velocity for all units in one pass (PhysicsUpdate.cpp; match rule)
+                 | (o.physBulk === true ? 134217728 : 0)  // bit 27: the whole physics step of all units in one pass over the unit store (PhysicsUpdate.cpp; match rule)
                  | (o.searchSlotSkip === false ? 0 : 65536)  // bit 16: range searches skip entries of players the relationship filter rejects (PartitionManager.cpp; same game)
                  | (o.laserFilters === false ? 0 : 131072)   // bit 17: point-defense lasers filter inside the range search (PointDefenseLaserUpdate.cpp; same game)
                  | (o.denseCellMask === false ? 0 : 262144)  // bit 18: range searches read each cell's player mask from one dense array (PartitionManager.cpp; same game)
@@ -479,6 +479,8 @@ void GLES3_Begin_Scene() {
                  | (o.flowCover === true ? 4194304 : 0)   // bit 22: match rule flowCover, flow fields for moves over 8 cells (AIPathfind.cpp)
                  | (o.crushFirst === false ? 0 : 16)   // bit 4: crush tests compare crush levels before the ally lookup (Object.cpp; same game)
                  | (o.collideList === false ? 0 : 32)  // bit 5: each unit lists its collide modules once instead of asking every module per collision (Object.cpp; same game)
+                 | (o.storePairs === true ? 64 : 0)   // bit 6: match rule storePairs, collision broad phase over the unit store's cells (PartitionManager.cpp)
+                 | (o.positionInStore === false ? 0 : 128)  // bit 7: positions live in the unit store (Thing.h / GxUnitStore; same game; fixed per object when it enters the store)
                  | (o.disabledList === false ? 0 : 256)  // bit 8: end-of-tick disabled check visits a list of disabled objects, not every object (GameLogic.cpp; same game)
                  | (o.weaponPass === true ? 65536 : 0)    // bit 16: match rule weaponPass, armed units' weapon status in one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
                  | (o.damageQueue === true ? 262144 : 0)   // bit 18: match rule damageQueue, weapon damage queued in the tick and applied in victim-ID order (Weapon.cpp)
