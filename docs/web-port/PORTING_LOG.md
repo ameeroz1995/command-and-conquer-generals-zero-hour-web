@@ -3571,6 +3571,41 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
 - Read: defaults give strikes +4–7% and aftermath +4–6%, armies flat. The match rules add armies +10%,
   strikes +13–17%, and aftermath 1% lows +60%; aftermath average fps is 2–4% lower with the rules on.
 
+## 2026-11-25 — Round 4: update loop as manager passes (logic-ai), merged origin/perf/low-end 9a9c823
+
+(GxUnitStore.h from collide had not landed yet; this part does not need it: the passes run the
+modules themselves, grouped by behaviour, and can read the store once it exists.)
+
+What runs every frame (counter, first 300 frames of the battle benchmark): ~4,240 update calls a
+frame, nearly all returning "call me next frame": ObjectWeaponStatusHelper ~880, AIUpdateInterface
+~530, PhysicsBehavior ~530, ProductionUpdate ~520 (buildings), StealthUpdate ~265,
+GenerateMinefieldBehavior ~140, RebuildHoleBehavior ~110, slaved/spawn/horde/contain updates...
+Each of them was popped from the update heap (25,000 entries) and sifted back every frame.
+
+updatePasses (match rule 131072, third switch word bit 9, default OFF): a module whose update asks
+to run next frame leaves the heap and joins a flat pass list for its update phase. Per phase the
+heap's due entries run first, then that phase's pass list in one loop (phases keep today's order:
+initial, physics, normal, final). A list is sorted by behaviour (AI kinds first, then a hash of the
+module's name, the same on every machine) and object ID; equal keys keep the order they joined.
+A module that asks to sleep, is put to sleep by another object (setWakeFrame later than next frame)
+or is destroyed goes back to the heap or leaves the list. Switching the rule off puts every pass
+module back into the heap. The one gate is gxMatchRule(GXRULE_UPDATE_PASSES).
+- Determinism: old referee replay matches (rule off); a skirmish recorded with the rule on replays
+  to a match (rules from the replay header 0x20022).
+- Profile, strikes (load 18-20): heap sifting 1.5% -> 0.1% of the frame, pass bookkeeping 0.1%,
+  GameLogic::update's own time 1.4% -> 1.3%.
+- A/B (load 11-20, work ms off / passes): armies 72.7/59.3, 77.0/54.4; strikes 110.0/99.4,
+  104.1/84.2; aftermath 39.7/58.2, 47.4/60.8 — but the rule-off aftermaths ended with far fewer
+  units drawn (1147, 1352 vs 1762, 1799; the phases are time-limited, and the off runs had played
+  further), so aftermath is not comparable. An earlier batch at load 22-47: armies 94.8/114.1 off vs
+  61.7-77.7 with passes; strikes 166/223 vs 98-139. Never slower; the size of the gain is mostly
+  battle drift plus load, the measured saving in the loop itself is ~1.5 points.
+- Screenshots (~/generals-bench/ai-up-{off1,pass1}_battle*.png): armies engage normally, no stuck
+  or stacked units.
+- AI by state (a pass per AI state: AI entries re-sorted each frame by current state, then ID):
+  measured, no consistent gain (armies 72.2/54.1, strikes 94.1/88.3 vs passes 59.3/54.4, 99.4/84.2);
+  removed.
+Default off (it changes the order of same-frame updates); for the main chat's combined measurement.
 ## 2026-11-25 — Round 4: GxUnitStore, first version (shared by all logic agents)
 
 - Core/GameEngine/Include/Common/GxUnitStore.h + GameLogic/Object/GxUnitStore.cpp: one slot per
@@ -3587,6 +3622,30 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
   returns the store's Coord3D, arrays reserved for 16k units so the pointer stays put within a frame).
   Position stays in the Object's matrix with write-through (x/y/z), likewise radius and player.
 - Same game: referee replay matches (9,000 frames, build store-1).
+
+## 2026-11-25 — Round 4, lines 3 and 4 (logic-ai): dispatch table over GxUnitStore + AI passes by state
+
+Merged GxUnitStore (logic-collide e1001f1). Still under match rule 131072 (third word bit 9, OFF).
+- Line 3 (every-frame modules from a mask-driven dispatch table over dense store lists, object-ID
+  order; heap only for sleeping modules): each module kind that runs every frame gets a store
+  behaviour bit (32-59, 28 kinds, numbered in the order they first appear in a game; the table runs
+  them AI kinds first, then by a hash of the module name). A unit's bit is set when its module starts
+  running every frame (at the end of that frame) and cleared when it sleeps, is put to sleep by
+  another unit or is destroyed; never re-tested per tick (line 2). Each kind's pass walks
+  TheGxUnitStore.pass(bit) and calls that kind's module of each unit. Kinds past the 28th and a
+  second module of one kind on a unit use bit 60+phase ("misc"): its pass walks the store list and
+  runs the unit's misc modules. Verify-mode count (rule on): per 300 frames ~1.25-2.9 million calls
+  through the table, 0 through any other list; the heap made 55-125 calls a frame (modules waking
+  from a real sleep, which then join a pass if they ask to run every frame).
+- Line 4 (AI state machine, one pass per state): the AI kinds' units are taken from their store
+  lists and run grouped by current AI state, then kind, then object ID.
+- Determinism: referee replay matches (rule off); a skirmish recorded with the rule on replays to a
+  match (build ai-15).
+- Profile, strikes: heap sifting 1.5% -> 0.1%; GxUnitStore 0.1% -> 0.4% (pass lists rebuilt as units
+  join and leave passes); GameLogic::update self 1.5% -> 1.4%. About 1 point net.
+- A/B, work ms off/on: pair 1 (load 31-34) armies 137.7/54.4, strikes 113.4/114.3; pair 2 (load
+  15-20) armies 67.5/66.6, strikes 87.8/113.4, aftermath 51.3/58.1. Inside the noise of this loaded
+  machine, pair 2's strikes slower; the earlier passes-only build was not slower. Stays default off.
 - Physics on the store (build store-2): physBulk's pass now walks the store's PHYS list (object-ID
   order) and reads/writes the store's velocities; its own behaviour list is gone. The store's cell is
   now write-through with x/y (partition cell under the centre, cy * cellCountX + cx).
@@ -3659,3 +3718,15 @@ battle windows (the first 6 windows are the pre-battle shell and are left out):
 - physBulk: no measurable change either way (-3% / +6%); stays off.
 - storePairs: collide build ~1.8x slower in both orders (re-bucketing every unit each frame
   instead of reusing the partition's cells); stays off.
+## 2026-11-25 — updatePasses (dispatch table + AI by state), quiet pair under timing.lock (logic-ai)
+
+Build ai-16 (perf/logic-ai 50ae273), rule 131072 off/on, inside `flock ~/generals-bench/timing.lock`,
+started at load < 8. Work ms (fps):
+- pair 1 (load 7.9-9.6): armies 74.9 (10.5) / 48.5 (18.3); strikes 79.2 (12.4) / 82.5 (11.9);
+  aftermath 38.2 (25.7) / 34.5 (28.5)
+- pair 2 (load 7.6-8.6): armies 53.9 (16.5) / 47.9 (18.3); strikes 72.3 (13.4) / 79.6 (12.4);
+  aftermath 37.6 (26.2) / 38.2 (25.7)
+Armies phase faster (11-35% less work), strike phase 4-10% slower, aftermath even. The strike phase
+has the most churn (units starting and stopping every-frame updates, AI states changing), where the
+per-frame AI state sort and the store's pass-list rebuilds cost more than the heap they replace.
+Stays default off.

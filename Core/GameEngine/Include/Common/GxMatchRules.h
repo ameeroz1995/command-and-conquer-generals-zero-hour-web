@@ -27,6 +27,7 @@ enum GxMatchRule
 	GXRULE_PHYS_BULK      = 2048,	///< physBulk: the whole physics step of all units in one pass over the unit store (PhysicsUpdate.cpp)
 	GXRULE_SPATIAL_PAIRS  = 8192,	///< pairOffer: touching-pair search drops clearly-apart neighbours when offered (PartitionManager.cpp)
 	GXRULE_WEAPON_PASS    = 16384,	///< weaponPass: armed objects' weapon status kept by one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
+	GXRULE_UPDATE_PASSES  = 131072,	///< updatePasses: every-frame update modules run as flat passes per phase, by behaviour then object ID (GameLogic.cpp)
 };
 
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for

@@ -29,6 +29,7 @@
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #include <algorithm>
+#include <map>
 #include <Utility/gx_trace.h>
 
 #include "Common/AudioAffect.h"
@@ -91,6 +92,7 @@
 #include "GameLogic/Locomotor.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/Module/AIUpdate.h"
+#include "Common/GxUnitStore.h"
 #include "GameLogic/Module/BodyModule.h"
 #include "GameLogic/Module/CreateModule.h"
 #include "GameLogic/Module/DestroyModule.h"
@@ -455,6 +457,14 @@ void GameLogic::reset()
 	{
 		(*it)->friend_setIndexInLogic(-1);
 	}
+	for (Int ph = 0; ph < 4; ++ph)
+	{
+		for (size_t k = 0; k < m_gxPass[ph].size(); ++k) if (m_gxPass[ph][k].u) m_gxPass[ph][k].u->friend_setIndexInLogic(-1);
+		m_gxPass[ph].clear();
+	}
+	for (size_t k = 0; k < m_gxPassJoin.size(); ++k) if (m_gxPassJoin[k].u) m_gxPassJoin[k].u->friend_setIndexInLogic(-1);
+	m_gxPassJoin.clear();
+	gxKindsClear(FALSE);	// a new game numbers its kinds afresh (the same on every machine)
 	m_sleepyUpdates.clear();
 	m_gxSleepyKey.clear();
 	m_curUpdateModule = nullptr;
@@ -2555,6 +2565,18 @@ void GameLogic::processDestroyList()
 		UpdateModulePtr sleepyUpdatesForThisObject[MAX_SUO];
 		Int numSUO = 0;
 
+		// updatePasses: this object's modules that run in a pass leave it
+		for (BehaviorModule** b = currentObject->getBehaviorModules(); b && *b; ++b)
+		{
+#ifdef DIRECT_UPDATEMODULE_ACCESS
+			UpdateModulePtr u = (UpdateModulePtr)((*b)->getUpdate());
+#else
+			UpdateModulePtr u = (*b)->getUpdate();
+#endif
+			if (u && (u->friend_getIndexInLogic() == -2 || u->friend_getIndexInLogic() == -4 || u->friend_getIndexInLogic() == -5))
+				gxPassRemove(u);
+		}
+
 #ifdef __EMSCRIPTEN__
 		// Web port (Settings switch fastDestroy, page switch bit 20): an object's sleepy updates are
 		// its own behavior modules' updates (registerObject), so take them from the object and put
@@ -2629,6 +2651,201 @@ void GameLogic::processDestroyList()
 
 //-------------------------------------------------------------------------------------------------
 /** Process the command list passed to the logic from the network */
+// ------------------------------------------------------------------------------------------------
+// updatePasses (match rule 131072): the pass lists. Sort key: AI kinds first, then the behaviour
+// (a hash of its module name, so the same on every machine), then the object ID; equal keys keep
+// the order they joined in (stable merge), which is the heap's order that frame.
+// ------------------------------------------------------------------------------------------------
+static unsigned long long gxPassKey(UpdateModulePtr u)
+{
+	static std::map<NameKeyType, unsigned long long> kinds;
+	const NameKeyType nk = u->getModuleNameKey();
+	std::map<NameKeyType, unsigned long long>::iterator it = kinds.find(nk);
+	if (it == kinds.end())
+	{
+		const AsciiString name = KEYNAME(nk);
+		unsigned h = 2166136261u;
+		for (const char *c = name.str(); *c; ++c) h = (h ^ (unsigned char)*c) * 16777619u;
+		const unsigned long long rank = strstr(name.str(), "AIUpdate") ? 0ull : 1ull;
+		it = kinds.insert(std::make_pair(nk, (rank << 62) | ((unsigned long long)(h & 0x3fffffffu) << 32))).first;
+	}
+	return it->second | (unsigned long long)u->friend_getObject()->getID();
+}
+
+void GameLogic::gxPassMerge()
+{
+	for (Int ph = 0; ph < 4; ++ph)
+	{
+		std::vector<GxPassEntry> &list = m_gxPass[ph];
+		size_t w = 0;
+		for (size_t k = 0; k < list.size(); ++k)
+			if (list[k].u) list[w++] = list[k];
+		list.resize(w);
+	}
+	gxPassMergeJoin();
+}
+
+static const Int GX_KIND_BIT0 = 32, GX_KIND_MAX = 28;	// GxUnitStore behaviour bits 32-59 (ai); 60-63 misc per phase
+static const Int GX_MISC_BIT0 = 60;
+
+Int GameLogic::gxKindOf(UpdateModulePtr u, Bool create)
+{
+	const NameKeyType nk = u->getModuleNameKey();
+	for (size_t i = 0; i < m_gxKinds.size(); ++i)
+		if (m_gxKinds[i].nk == nk) return (Int)i;
+	if (!create || (Int)m_gxKinds.size() >= GX_KIND_MAX)
+		return -1;
+	GxKind k;
+	k.nk = nk;
+	k.order = gxPassKey(u) & ~0xffffffffull;	// rank (AI first) and name hash
+	k.bit = GX_KIND_BIT0 + (Int)m_gxKinds.size();
+	k.phase = u->friend_getNextCallPhase() & 3;
+	k.isAI = (k.order >> 62) == 0;
+	m_gxKinds.push_back(k);
+	m_gxKindOrder.push_back((Int)m_gxKinds.size() - 1);
+	std::stable_sort(m_gxKindOrder.begin(), m_gxKindOrder.end(),
+		[this](Int a, Int b) { return m_gxKinds[a].order < m_gxKinds[b].order; });
+	return (Int)m_gxKinds.size() - 1;
+}
+
+void GameLogic::gxKindsClear(Bool toHeap)
+{
+	for (size_t i = 0; i < m_gxKinds.size(); ++i)
+	{
+		GxKind &k = m_gxKinds[i];
+		for (size_t id = 0; id < k.modById.size(); ++id)
+		{
+			UpdateModulePtr u = k.modById[id];
+			if (!u) continue;
+			u->friend_setIndexInLogic(-1);
+			if (toHeap)
+			{
+				TheGxUnitStore.setMask(u->friend_getObject(), 0, GXB_BIT(k.bit));
+				pushSleepyUpdate(u);
+			}
+		}
+	}
+	m_gxKinds.clear();
+	m_gxKindOrder.clear();
+	for (Int ph = 0; ph < 4; ++ph)
+	{
+		for (size_t id = 0; id < m_gxMiscById[ph].size(); ++id)
+		{
+			std::vector<UpdateModulePtr> &v = m_gxMiscById[ph][id];
+			for (size_t q = 0; q < v.size(); ++q)
+			{
+				v[q]->friend_setIndexInLogic(-1);
+				if (toHeap) pushSleepyUpdate(v[q]);
+			}
+			if (toHeap && !v.empty()) TheGxUnitStore.setMask(v[0]->friend_getObject(), 0, GXB_BIT(GX_MISC_BIT0 + ph));
+		}
+		m_gxMiscById[ph].clear();
+	}
+}
+
+void GameLogic::gxPassMergeJoin()
+{
+	if (m_gxPassJoin.empty())
+		return;
+	const size_t old[4] = { m_gxPass[0].size(), m_gxPass[1].size(), m_gxPass[2].size(), m_gxPass[3].size() };
+	for (size_t k = 0; k < m_gxPassJoin.size(); ++k)
+	{
+		GxPassEntry e = m_gxPassJoin[k];
+		if (!e.u) continue;
+		// the dispatch table first: the unit's bit for this kind, set now that it runs every frame
+		const Object *obj = e.u->friend_getObject();
+		const Int id = (Int)obj->getID();
+		const Int ki = gxKindOf(e.u, TRUE);
+		if (ki >= 0 && TheGxUnitStore.slotOfId(id) >= 0 && (e.u->friend_getNextCallPhase() & 3) == m_gxKinds[ki].phase)
+		{
+			std::vector<UpdateModulePtr> &byId = m_gxKinds[ki].modById;
+			if ((Int)byId.size() <= id) byId.resize(id + 1, nullptr);
+			if (!byId[id])
+			{
+				byId[id] = e.u;
+				e.u->friend_setIndexInLogic(-4);
+				TheGxUnitStore.setMask(obj, GXB_BIT(m_gxKinds[ki].bit));
+				continue;
+			}
+		}
+		if (TheGxUnitStore.slotOfId(id) >= 0)
+		{
+			// misc: this phase's misc bit; the unit's misc modules run in join order
+			const Int ph = e.u->friend_getNextCallPhase() & 3;
+			std::vector<std::vector<UpdateModulePtr>> &misc = m_gxMiscById[ph];
+			if ((Int)misc.size() <= id) misc.resize(id + 1);
+			misc[id].push_back(e.u);
+			e.u->friend_setIndexInLogic(-5);
+			TheGxUnitStore.setMask(obj, GXB_BIT(GX_MISC_BIT0 + ph));
+			continue;
+		}
+		e.key = gxPassKey(e.u);
+		m_gxPass[e.u->friend_getNextCallPhase() & 3].push_back(e);
+	}
+	m_gxPassJoin.clear();
+	auto byKey = [](const GxPassEntry &a, const GxPassEntry &b) { return a.key < b.key; };
+	for (Int ph = 0; ph < 4; ++ph)
+	{
+		std::vector<GxPassEntry> &list = m_gxPass[ph];
+		if (list.size() == old[ph]) continue;
+		std::stable_sort(list.begin() + old[ph], list.end(), byKey);
+		std::inplace_merge(list.begin(), list.begin() + old[ph], list.end(), byKey);
+	}
+}
+
+void GameLogic::gxPassRemove(UpdateModulePtr u)
+{
+	if (u->friend_getIndexInLogic() == -5)
+	{
+		const Int ph = u->friend_getNextCallPhase() & 3;
+		const Int id = (Int)u->friend_getObject()->getID();
+		if (id < (Int)m_gxMiscById[ph].size())
+		{
+			std::vector<UpdateModulePtr> &v = m_gxMiscById[ph][id];
+			std::vector<UpdateModulePtr>::iterator it = std::find(v.begin(), v.end(), u);
+			if (it != v.end()) v.erase(it);
+			if (v.empty()) TheGxUnitStore.setMask(u->friend_getObject(), 0, GXB_BIT(GX_MISC_BIT0 + ph));
+		}
+		u->friend_setIndexInLogic(-1);
+		return;
+	}
+	if (u->friend_getIndexInLogic() == -4)
+	{
+		const Int ki = gxKindOf(u, FALSE);
+		const Int id = (Int)u->friend_getObject()->getID();
+		if (ki >= 0 && id < (Int)m_gxKinds[ki].modById.size() && m_gxKinds[ki].modById[id] == u)
+		{
+			m_gxKinds[ki].modById[id] = nullptr;
+			TheGxUnitStore.setMask(u->friend_getObject(), 0, GXB_BIT(m_gxKinds[ki].bit));
+		}
+		u->friend_setIndexInLogic(-1);
+		return;
+	}
+	std::vector<GxPassEntry> &list = m_gxPass[u->friend_getNextCallPhase() & 3];
+	for (size_t k = 0; k < list.size(); ++k)
+		if (list[k].u == u) { list[k].u = nullptr; u->friend_setIndexInLogic(-1); return; }
+	for (size_t k = 0; k < m_gxPassJoin.size(); ++k)
+		if (m_gxPassJoin[k].u == u) { m_gxPassJoin[k].u = nullptr; u->friend_setIndexInLogic(-1); return; }
+	u->friend_setIndexInLogic(-1);
+}
+
+void GameLogic::gxPassFlushToHeap()
+{
+	gxPassMerge();	// joiners into the lists first
+	gxKindsClear(TRUE);
+	for (Int ph = 0; ph < 4; ++ph)
+	{
+		for (size_t k = 0; k < m_gxPass[ph].size(); ++k)
+		{
+			UpdateModulePtr u = m_gxPass[ph][k].u;
+			if (!u) continue;
+			u->friend_setIndexInLogic(-1);
+			pushSleepyUpdate(u);
+		}
+		m_gxPass[ph].clear();
+	}
+}
+
 //-------------------------------------------------------------------------------------------------
 void GameLogic::processCommandList( CommandList *list )
 {
@@ -3152,6 +3369,18 @@ void GameLogic::friend_awakenUpdateModule(Object* obj, UpdateModulePtr u, Unsign
 		// since that would prevent us from getting called THIS frame. since UPDATE_SLEEP_NONE
 		// really means "wake up as soon as possible", we don't want to change our status
 		// if we are already awake. (srj)
+		return;
+	}
+
+	if (u->friend_getIndexInLogic() == -2 || u->friend_getIndexInLogic() == -4 || u->friend_getIndexInLogic() == -5)
+	{
+		// updatePasses: it runs every frame anyway; asked to sleep longer, it goes back to the heap
+		if (whenToWakeUp > now + 1)
+		{
+			gxPassRemove(u);
+			u->friend_setNextCallFrame(whenToWakeUp);
+			pushSleepyUpdate(u);
+		}
 		return;
 	}
 
@@ -3852,6 +4081,169 @@ void GameLogic::update()
 	}
 #endif
 
+	extern bool gxMatchRule(unsigned int rule);
+	if (gxMatchRule(131072))
+	{
+		// updatePasses: phase by phase, first the heap's due entries, then that phase's pass list.
+		// A module that asks to run every frame joins a pass (merged after the tick); one that asks
+		// to sleep goes (back) to the heap.
+		auto runOne = [&](UpdateModulePtr u) -> UpdateSleepTime
+		{
+			UpdateSleepTime sleepLen = UPDATE_SLEEP_NONE;	// default, if it is disabled.
+			DisabledMaskType dis = u->friend_getObject()->getDisabledFlags();
+			if (!dis.any() || dis.anyIntersectionWith(u->getDisabledTypesToProcess()))
+			{
+				m_curUpdateModule = u;
+				sleepLen = u->update();
+				if (sleepLen < 1)
+					sleepLen = UPDATE_SLEEP_NONE;
+				m_curUpdateModule = nullptr;
+			}
+			return sleepLen;
+		};
+		static unsigned gxCalls[3];	// verify mode report: heap, dispatch table, fallback lists
+		auto runHeap = [&](UnsignedInt limit)
+		{
+			while (!m_sleepyUpdates.empty() && m_gxSleepyKey[0] <= limit)
+			{
+				UpdateModulePtr u = peekSleepyUpdate();
+				gxCalls[0]++;
+				const UpdateSleepTime sleepLen = runOne(u);
+				if (sleepLen == UPDATE_SLEEP_NONE && m_sleepyUpdates[0] == u)
+				{
+					popSleepyUpdate();
+					u->friend_setNextCallFrame(now + 1);
+					u->friend_setIndexInLogic(-2);
+					GxPassEntry e = { 0, u };
+					m_gxPassJoin.push_back(e);
+				}
+				else
+				{
+					u->friend_setNextCallFrame(now + sleepLen);
+					rebalanceSleepyUpdate(u->friend_getIndexInLogic());
+				}
+			}
+		};
+		for (Int ph = 0; ph < 4; ++ph)
+		{
+			runHeap((now << 2) | ph);
+			// the dispatch table: kinds of this phase in table order, each over its store list
+			auto afterRun = [&](UpdateModulePtr u, UpdateSleepTime sleepLen)
+			{
+				if (sleepLen == UPDATE_SLEEP_NONE)
+					u->friend_setNextCallFrame(now + 1);
+				else
+				{
+					gxPassRemove(u);
+					u->friend_setNextCallFrame(now + sleepLen);
+					pushSleepyUpdate(u);
+				}
+			};
+			{
+				// AI kinds: one pass per AI state, over the units in that state (object-ID order inside)
+				static std::vector<GxPassEntry> ai;
+				ai.clear();
+				for (size_t oi = 0; oi < m_gxKindOrder.size(); ++oi)
+				{
+					GxKind &kd = m_gxKinds[m_gxKindOrder[oi]];
+					if (!kd.isAI || kd.phase != ph) continue;
+					const std::vector<int> &slots = TheGxUnitStore.pass(kd.bit);
+					for (size_t q = 0; q < slots.size(); ++q)
+					{
+						const int sl = slots[q];
+						if (!TheGxUnitStore.obj[sl]) continue;
+						const int id = TheGxUnitStore.id[sl];
+						UpdateModulePtr u = id < (int)kd.modById.size() ? kd.modById[id] : nullptr;
+						if (!u) continue;
+						AIUpdateInterface *aiu = u->getAIUpdateInterface();
+						const unsigned long long st = aiu ? (unsigned long long)(aiu->getAIStateType() & 0xffffff) : 0ull;
+						GxPassEntry e = { (st << 40) | ((unsigned long long)oi << 32) | (unsigned long long)(unsigned)id, u };
+						ai.push_back(e);
+					}
+				}
+				std::sort(ai.begin(), ai.end(), [](const GxPassEntry &a, const GxPassEntry &b) { return a.key < b.key; });
+				for (size_t q = 0; q < ai.size(); ++q)
+				{
+					UpdateModulePtr u = ai[q].u;
+					if (u->friend_getIndexInLogic() != -4) continue;	// left the pass since (put to sleep by another unit)
+					gxCalls[1]++;
+					afterRun(u, runOne(u));
+				}
+				// the other kinds, one pass each over the store's list in object-ID order
+				static std::vector<int> slotsCopy;
+				for (size_t oi = 0; oi < m_gxKindOrder.size(); ++oi)
+				{
+					const Int ki = m_gxKindOrder[oi];
+					if (m_gxKinds[ki].isAI || m_gxKinds[ki].phase != ph) continue;
+					slotsCopy = TheGxUnitStore.pass(m_gxKinds[ki].bit);	// copied: masks change as modules leave
+					for (size_t q = 0; q < slotsCopy.size(); ++q)
+					{
+						const int sl = slotsCopy[q];
+						if (!TheGxUnitStore.obj[sl]) continue;
+						const int id = TheGxUnitStore.id[sl];
+						std::vector<UpdateModulePtr> &byId = m_gxKinds[ki].modById;
+						UpdateModulePtr u = id < (int)byId.size() ? byId[id] : nullptr;
+						if (!u) continue;
+						gxCalls[1]++;
+						afterRun(u, runOne(u));
+					}
+				}
+			}
+			{
+				// misc: units with every-frame modules that have no kind bit, in object-ID order
+				static std::vector<int> miscSlots;
+				static std::vector<UpdateModulePtr> mods;
+				miscSlots = TheGxUnitStore.pass(GX_MISC_BIT0 + ph);
+				for (size_t q = 0; q < miscSlots.size(); ++q)
+				{
+					const int sl = miscSlots[q];
+					if (!TheGxUnitStore.obj[sl]) continue;
+					const int id = TheGxUnitStore.id[sl];
+					if (id >= (int)m_gxMiscById[ph].size()) continue;
+					mods = m_gxMiscById[ph][id];	// copied: modules can leave while running
+					for (size_t m = 0; m < mods.size(); ++m)
+					{
+						UpdateModulePtr u = mods[m];
+						if (u->friend_getIndexInLogic() != -5) continue;
+						gxCalls[1]++;
+						afterRun(u, runOne(u));
+					}
+				}
+			}
+			std::vector<GxPassEntry> &list = m_gxPass[ph];
+			const size_t n = list.size();
+			for (size_t k = 0; k < n; ++k)
+			{
+				UpdateModulePtr u = list[k].u;
+				if (!u) continue;
+				gxCalls[2]++;
+				const UpdateSleepTime sleepLen = runOne(u);
+				if (list[k].u != u) continue;	// left the pass during its own update (cannot, but be safe)
+				if (sleepLen == UPDATE_SLEEP_NONE)
+					u->friend_setNextCallFrame(now + 1);
+				else
+				{
+					list[k].u = nullptr;
+					u->friend_setIndexInLogic(-1);
+					u->friend_setNextCallFrame(now + sleepLen);
+					pushSleepyUpdate(u);
+				}
+			}
+		}
+		runHeap((now << 2) | 3);	// anything made due during the passes, as the heap loop would
+		gxPassMerge();
+#ifdef __EMSCRIPTEN__
+		if ((GLES3_Page_Switches() & 2097152) && now % 300 == 0)
+		{
+			printf("GXVERIFY updatePasses f%u: calls heap %u, dispatch table %u (%d kinds), fallback lists %u; heap holds %d\n",
+				now, gxCalls[0], gxCalls[1], (int)m_gxKinds.size(), gxCalls[2], (int)m_sleepyUpdates.size());
+			gxCalls[0] = gxCalls[1] = gxCalls[2] = 0;
+		}
+#endif
+	}
+	else
+	{
+		gxPassFlushToHeap();
 	{
 		while (!m_sleepyUpdates.empty())
 		{
@@ -3895,6 +4287,7 @@ void GameLogic::update()
 		}
 	}
 
+	}
 	validateSleepyUpdate();
 
 	// web port (match rule moveAfterTick, paths agent): every unit's locomotion in one pass

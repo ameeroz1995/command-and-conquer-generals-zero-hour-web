@@ -482,6 +482,7 @@ void GLES3_Begin_Scene() {
                  | (o.storePairs === true ? 64 : 0)   // bit 6: match rule storePairs, collision broad phase over the unit store's cells (PartitionManager.cpp)
                  | (o.positionInStore ? 128 : 0)  // bit 7: positions live in the unit store (Thing.h / GxUnitStore; same game; fixed per object when it enters the store)
                  | (o.disabledList === false ? 0 : 256)  // bit 8: end-of-tick disabled check visits a list of disabled objects, not every object (GameLogic.cpp; same game)
+                 | (o.updatePasses === true ? 512 : 0)   // bit 9: match rule updatePasses, every-frame update modules run as flat passes per phase (GameLogic.cpp)
                  | (o.weaponPass === true ? 65536 : 0)    // bit 16: match rule weaponPass, armed units' weapon status in one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
                  | (o.boneWorker === true ? 131072 : 0)   // bit 17: boneWorker, mt build: visible units' bones computed on a worker thread while the terrain draws (animobj.cpp, W3DScene.cpp)
                  | (o.particleWorker === false ? 0 : 16777216)  // bit 24: particleWorker (on), mt build: existing particles move on a worker during the draw when frames are long (ParticleSys.cpp)
