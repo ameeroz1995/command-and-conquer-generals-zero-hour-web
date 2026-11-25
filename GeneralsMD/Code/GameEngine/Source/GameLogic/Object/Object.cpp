@@ -502,7 +502,7 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 	{
 		GxBehaviourMask m = 0;
 		if (getPhysics())	m |= GXB_BIT(GXB_PHYS);
-		if (getAI())		m |= GXB_BIT(GXB_AI);
+		if (getAI())		m |= GXB_BIT(GXB_AI) | GXB_BIT(GXB_SCAN);	// AI units run the idle enemy scans (query)
 		for (BehaviorModule** b = m_behaviors; *b; ++b)
 			if ((*b)->getCollide()) { m |= GXB_BIT(GXB_COLLIDE); break; }
 		TheGxUnitStore.setMask(this, m);

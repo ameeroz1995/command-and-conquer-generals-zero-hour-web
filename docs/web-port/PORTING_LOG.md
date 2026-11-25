@@ -3730,3 +3730,55 @@ Armies phase faster (11-35% less work), strike phase 4-10% slower, aftermath eve
 has the most churn (units starting and stopping every-frame updates, AI states changing), where the
 per-frame AI state sort and the store's pass-list rebuilds cost more than the heap they replace.
 Stays default off.
+## 2026-11-25 — Round 4 (range searches as a manager): measured before building
+
+- Repeats within a tick (counters per frame on searcher, range, distance type and filter classes;
+  load 64-75, counts only): per 150 frames 17,662 searches, 967 (5.5%) repeated in the same frame.
+  Enemy-target scans (findClosestEnemy chains, ~5,000) repeat 0 times: every unit scans from its own
+  place with its own line-of-sight / attack filters. The repeats are point-defense lasers rescanning
+  after a target dies (~15% of laser scans) and one player-affiliation scan (~25%).
+- After rounds 1-3 range searches are ~1.5-2% of the frame (paired timing: 0.17 of the plain walk),
+  so a per-tick result cache can save well under 0.1% of the frame. A one-pass batch of every unit's
+  scans would need the AI callers to submit requests instead of calling (ai agent's code).
+
+## 2026-11-25 — Round 4: per-tick search snapshot measured, slower, not kept; store hooks kept
+
+- Kept (exact): the partition writes each unit's centre cell into GxUnitStore (setCell, when the
+  centre cell changes; -1 off the map), and units with an AI get the GXB_SCAN behaviour bit (they run
+  the idle enemy scans). Replay matches; verify 0 mismatches (96k searches).
+- Tried (match rule scanSnapshot 262144, third word bit 12): at the first search of a tick every
+  cell's entries (place, radius, player slot, module) copied into one flat array in cell-list order,
+  rebuilt when a PartitionData is destroyed; that tick's scans read it instead of the cell lists.
+  Paired timing in verify runs (copy time counted on the fast side; load 21-34): fast / plain walk
+  0.43 and 0.37 with it vs 0.18 and 0.17 without; 0.5-1% of searches gave a different result.
+  Copying ~all COIs every tick costs more than the ~100 searches a tick it serves (the live lists
+  already skip other players and far entries without reading units). Removed; the rule value is
+  free again. Patch kept outside the repo (side-session notes, logic-query-scansnapshot.patch).
+- With the earlier count (5.5% of searches repeat within a tick, 0 enemy-target scans), a per-tick
+  result cache can save under 0.1% of the frame: not built.
+
+## 2026-11-25 — Round 4 line 7: range searches as a manager (match rule scanManager 262144, third word bit 12, default off)
+
+- Built on the user's 100%-adoption bar although it measured slower. Three parts, one switch (so all
+  players agree on one rule value):
+  - per-tick lists: at the first search of a tick every store slot in the partition goes into the
+    cells its circle covers, in slot (object-ID) order; scans read the store's obj / player / x / y /
+    radius columns and open a unit only when it is near (twice the bounding circle stands in for the
+    sphere);
+  - scan pass: then one pass over pass(GXB_SCAN) in object-ID order reruns each unit's plain enemy
+    scan from last tick (AI::findClosestEnemy reports them via gxScanNoteRequest; the pass's own scans
+    don't count, else every unit rescans every tick: first version, 403k pass scans per run);
+  - result cache: within a tick a search with the same searcher / point, range, distance type, mode
+    and filter classes reuses the first answer (units destroyed since are left out).
+- Verify runs (paired; the pass counted on the manager side; load 15-28): manager / plain walk 0.81
+  and 0.80, vs 0.18 for the default (exact) path. Cache hits ~24% of searches; ~22% of answers differ
+  from a plain walk at the moment of the call (answers as of the tick's first search, slot order).
+- Deterministic: recorded 9003 frames with it on, played back: matches. Referee replay (rule off)
+  matches. Screenshot of the fight with it on: normal. fps pairs: load 20-48, all hit the time limit
+  (unusable).
+- Store hooks (line 2): GXB_SCAN set once for AI units at creation; never re-tested per tick.
+
+- scanManager fps pairs (query-19, under ~/generals-bench/timing.lock, load < 8 at start):
+  pair 1 (load 5.7 before, 8.8 after): armies 15.9 -> 18.0, strikes 13.6 -> 13.4, aftermath 25.5 -> 25.4.
+  pair 2 (load 5.7 before, 13.2 after): armies 18.5 -> 13.2, strikes 12.5 -> 12.2, aftermath 21.3 -> 24.2.
+  Strikes flat (-1..-2%); armies and aftermath swing both ways with load, so no fps gain shown. Stays default off.

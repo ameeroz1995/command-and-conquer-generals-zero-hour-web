@@ -1340,6 +1340,10 @@ protected:
 		Real *closestDistArg,
 		Coord3D *closestVecArg
 	);
+	/// web port (round 4, match rule scanManager): the search manager (per-tick store lists, scan pass, result cache)
+	Object *gxManagedSearch(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,
+		PartitionFilter **filters, SimpleObjectIterator *iterArg, Real *closestDistArg, Coord3D *closestVecArg,
+		UnsignedInt gxFlags, UnsignedInt gxMask);
 	/// web port: the FASTER_GCO walk of getClosestObjects, with the skips named in gxFlags
 	/// (GX_GCO_* in PartitionManager.cpp); trace (verify mode) gets every object that passed.
 	Object *gxClosestImpl(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,

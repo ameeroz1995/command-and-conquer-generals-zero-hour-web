@@ -79,6 +79,11 @@
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/StealthUpdate.h"
 #include "GameLogic/PartitionManager.h"
+#include "Common/GxUnitStore.h"
+#include "GameLogic/AI.h"
+#include "GameLogic/ScriptEngine.h"
+#include <unordered_map>
+#include <typeinfo>
 #include "Common/Recorder.h"
 #include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/Squad.h"
@@ -2455,6 +2460,8 @@ void PartitionData::updateCellsTouched()
 	const PartitionCell *currentCell = ThePartitionManager->getCellAt( currentCellIndexX, currentCellIndexY );
 	if(obj && currentCell != m_lastCell )
 	{
+		// web port (round 4): the unit store's centre cell (-1 off the map)
+		TheGxUnitStore.setCell(obj, currentCell ? currentCellIndexY * ThePartitionManager->getCellCountX() + currentCellIndexX : -1);
 		// To not expose PartitionCells, he will think in terms of points.  He will
 		// unlook at a point and look at the new point.  We do the rounding and the
 		// changing into PartitionCells
@@ -4011,6 +4018,104 @@ static UnsignedInt gxEnemySlots(PartitionFilter **filters)
 	return mask;
 }
 
+// ---------------------------------------------------------------------------------------------------
+// Web port (round 4, match rule scanManager 262144, third word bit 12): range searches as a manager.
+// - Per-tick lists: at the first search of a tick, every unit in the unit store (GxUnitStore) that is
+//   in the partition goes into the cells its circle covers, in store-slot (object-ID) order. Scans
+//   then read the store's columns (obj, player, x, y, radius) and open a unit only when it is near.
+// - Scan pass: right after, one pass over pass(GXB_SCAN) in object-ID order runs each unit's nearest
+//   enemy scan as its AI asked for it last tick (AI::findClosestEnemy without extra filter / priority
+//   info), so the AI's own call this tick finds the answer in the cache.
+// - Result cache: within a tick, a search with the same searcher (or point), range, distance type,
+//   mode and filter classes reuses the first answer (units that died since are left out).
+// Changes the game (answers as of the tick's first search): a match rule, default off.
+static std::vector<Int> s_gxSnapStart, s_gxSnapSlots;	// per cell: first index into slots; one more at the end
+static std::vector<UnsignedInt> s_gxSnapStamp;			// per slot: last search that looked at it
+static UnsignedInt s_gxSnapSearch = 0, s_gxSnapFrame = ~0u, s_gxSnapEpoch = 0;
+struct GxScanRequest { UnsignedInt frame; Real range; UnsignedInt qualifiers; };
+static std::unordered_map<Int, GxScanRequest> s_gxScanRequests;	// by object ID: the last plain enemy scan asked for
+struct GxCachedSearch { ObjectID closest; Real dist; Coord3D vec; std::vector<std::pair<ObjectID, Real> > list; };
+static std::unordered_map<unsigned long long, GxCachedSearch> s_gxSearchCache;
+static UnsignedInt s_gxManagerFrame = ~0u;
+static Bool s_gxScanPassDone = false;
+static Bool s_gxInScanPass = false;	// the pass's own scans are not requests (else every unit rescans forever)
+static UnsignedInt gx_mgr_hits, gx_mgr_misses, gx_mgr_pass, gx_mgr_differ;
+
+/// AI::findClosestEnemy reports each scan here (match rule scanManager), so next tick's pass can run it
+void gxScanNoteRequest(const Object *me, Real range, UnsignedInt qualifiers, const AttackPriorityInfo *info, PartitionFilter *optionalFilter)
+{
+	extern bool gxMatchRule(unsigned int rule);
+	if (s_gxInScanPass || !me || !TheGameLogic || !gxMatchRule(262144 /* GXRULE_SCAN_MANAGER */))
+		return;
+	if (optionalFilter || (info && info != TheScriptEngine->getDefaultAttackInfo()))
+		return;	// only the plain scan can be rerun by the pass
+	GxScanRequest r = { TheGameLogic->getFrame(), range, qualifiers };
+	s_gxScanRequests[me->getID()] = r;
+}
+
+static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
+{
+	GxUnitStore &S = TheGxUnitStore;
+	S.pass(GXB_SCAN);	// compacts the store now if it is going to this frame, so slots stay put after
+	const Int n = S.size(), cells = cellCountX * cellCountY;
+	s_gxSnapStart.assign(cells + 1, 0);
+	if ((Int)s_gxSnapStamp.size() < n)
+		s_gxSnapStamp.resize(n, 0);
+	static std::vector<Int> box;	// per slot: x0, y0, x1, y1 (x0 = -1: not in the partition)
+	box.resize(4 * n);
+	for (Int s = 0; s < n; ++s)
+	{
+		Object *o = S.obj[s];
+		box[4 * s] = -1;
+		if (!o || !o->friend_getPartitionData())
+			continue;
+		const Real r = S.radius[s];
+		Int x0, y0, x1, y1;
+		ThePartitionManager->worldToCell(S.pos[s].x - r, S.pos[s].y - r, &x0, &y0);
+		ThePartitionManager->worldToCell(S.pos[s].x + r, S.pos[s].y + r, &x1, &y1);
+		x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, cellCountX - 1); y1 = min(y1, cellCountY - 1);
+		if (x0 > x1 || y0 > y1)
+			continue;
+		box[4 * s] = x0; box[4 * s + 1] = y0; box[4 * s + 2] = x1; box[4 * s + 3] = y1;
+		for (Int y = y0; y <= y1; ++y)
+			for (Int x = x0; x <= x1; ++x)
+				++s_gxSnapStart[y * cellCountX + x + 1];
+	}
+	for (Int c = 0; c < cells; ++c)
+		s_gxSnapStart[c + 1] += s_gxSnapStart[c];
+	s_gxSnapSlots.resize(s_gxSnapStart[cells]);
+	static std::vector<Int> fill;
+	fill.assign(s_gxSnapStart.begin(), s_gxSnapStart.end() - 1);
+	for (Int s = 0; s < n; ++s)
+	{
+		if (box[4 * s] < 0)
+			continue;
+		for (Int y = box[4 * s + 1]; y <= box[4 * s + 3]; ++y)
+			for (Int x = box[4 * s]; x <= box[4 * s + 2]; ++x)
+				s_gxSnapSlots[fill[y * cellCountX + x]++] = s;
+	}
+	s_gxSnapEpoch = S.epoch();
+}
+
+static unsigned long long gxSearchKey(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,
+	PartitionFilter **filters, Bool iter)
+{
+	unsigned long long h = 1469598103934665603ull;
+	#define GXH(v) h = (h ^ (unsigned long long)(v)) * 1099511628211ull
+	if (obj)
+		GXH(obj->getID());
+	else
+	{
+		UnsignedInt a, b; memcpy(&a, &pos->x, 4); memcpy(&b, &pos->y, 4); GXH(a); GXH(b); GXH(0x9e37u);
+	}
+	{ UnsignedInt d; memcpy(&d, &maxDist, 4); GXH(d); }
+	GXH(dc); GXH(iter ? 1 : 2);
+	for (PartitionFilter **f = filters; f && *f; ++f)
+		GXH((uintptr_t)typeid(**f).name());
+	#undef GXH
+	return h;
+}
+
 #ifdef FASTER_GCO
 
 // Web port: what a range search may skip (gxClosestImpl's gxFlags). Each is exact: it only
@@ -4020,7 +4125,8 @@ enum
 	GX_GCO_CELLS = 1,		// cells holding no player in the mask (switch enemySearchSkip)
 	GX_GCO_ENTRIES = 2,		// entries of players not in the mask (switch searchSlotSkip)
 	GX_GCO_DENSE = 4,		// read cell masks from the dense array (switch denseCellMask)
-	GX_GCO_CACHE = 8		// entries farther than the range by their cached place (switch searchCache)
+	GX_GCO_CACHE = 8,		// entries farther than the range by their cached place (switch searchCache)
+	GX_GCO_SNAP = 32		// read this tick's per-cell lists of store slots (match rule scanManager)
 };
 
 void PartitionData::gxRefreshPlace()
@@ -4067,6 +4173,11 @@ Object *PartitionManager::getClosestObjects(
 			flags |= GX_GCO_ENTRIES;
 		if (sw & 262144)
 			flags |= GX_GCO_DENSE;
+	}
+	{
+		extern bool gxMatchRule(unsigned int rule);
+		if (gxMatchRule(262144 /* GXRULE_SCAN_MANAGER */) && TheGameLogic && m_cells)
+			return gxManagedSearch(obj, pos, maxDist, dc, filters, iterArg, closestDistArg, closestVecArg, flags, mask);
 	}
 	if (!(GLES3_Page_Switches() & 2097152) || g_gxNoSearchVerify)
 		return gxClosestImpl(obj, pos, maxDist, dc, filters, iterArg, closestDistArg, closestVecArg, flags, mask, nullptr);
@@ -4131,6 +4242,134 @@ Object *PartitionManager::getClosestObjects(
 #endif
 }
 
+Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,
+	PartitionFilter **filters, SimpleObjectIterator *iterArg, Real *closestDistArg, Coord3D *closestVecArg,
+	UnsignedInt flags, UnsignedInt mask)
+{
+#ifdef __EMSCRIPTEN__
+	const Bool verify = (GLES3_Page_Switches() & 2097152) != 0 && !g_gxNoSearchVerify;
+	const double t0 = verify ? emscripten_get_now() : 0.0;
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	// a new tick: forget last tick's answers
+	if (frame != s_gxManagerFrame)
+	{
+		s_gxManagerFrame = frame;
+		s_gxSearchCache.clear();
+		s_gxScanPassDone = false;
+	}
+	// this tick's per-cell lists (again if the store moved slots, e.g. a unit was removed)
+	if (frame != s_gxSnapFrame || TheGxUnitStore.epoch() != s_gxSnapEpoch)
+	{
+		gxBuildStoreSnapshot(m_cellCountX, m_cellCountY);
+		s_gxSnapFrame = frame;
+	}
+	// the scan pass: every SCAN unit's plain enemy scan from last tick, in object-ID order
+	if (!s_gxScanPassDone)
+	{
+		s_gxScanPassDone = true;
+		const std::vector<int> scanners = TheGxUnitStore.pass(GXB_SCAN);	// a copy: the pass may add to the store
+		for (size_t i = 0; i < scanners.size(); ++i)
+		{
+			Object *o = TheGxUnitStore.obj[scanners[i]];
+			if (!o || o->isEffectivelyDead())
+				continue;
+			std::unordered_map<Int, GxScanRequest>::iterator r = s_gxScanRequests.find(o->getID());
+			if (r == s_gxScanRequests.end() || r->second.frame + 1 != frame)
+				continue;
+			++gx_mgr_pass;
+			s_gxInScanPass = true;
+			TheAI->findClosestEnemy(o, r->second.range, r->second.qualifiers, nullptr, nullptr);
+			s_gxInScanPass = false;
+		}
+	}
+
+	// the result cache
+	Object *result = nullptr;
+	Real dist = 0.0f;
+	Coord3D vec;
+	vec.zero();
+	const unsigned long long key = gxSearchKey(obj, pos, maxDist, dc, filters, iterArg != nullptr);
+	std::unordered_map<unsigned long long, GxCachedSearch>::iterator c = s_gxSearchCache.find(key);
+	Bool hit = false;
+	if (c != s_gxSearchCache.end())
+	{
+		const GxCachedSearch &cs = c->second;
+		if (iterArg)
+		{
+			// the list as the search left it (iterator order); inserting in reverse rebuilds that order
+			for (size_t i = cs.list.size(); i-- > 0; )
+			{
+				Object *o = TheGameLogic->findObjectByID(cs.list[i].first);
+				if (o && !o->isDestroyed())
+					iterArg->insert(o, cs.list[i].second);
+			}
+			hit = true;
+		}
+		else
+		{
+			result = cs.closest ? TheGameLogic->findObjectByID(cs.closest) : nullptr;
+			hit = !cs.closest || (result && !result->isDestroyed());	// a dead answer: search again
+			dist = cs.dist;
+			vec = cs.vec;
+		}
+	}
+	if (hit)
+		++gx_mgr_hits;
+	else
+	{
+		++gx_mgr_misses;
+		result = gxClosestImpl(obj, pos, maxDist, dc, filters, iterArg, &dist, &vec, flags | GX_GCO_SNAP, mask, nullptr);
+		GxCachedSearch &cs = s_gxSearchCache[key];
+		cs.closest = result ? result->getID() : INVALID_ID;
+		cs.dist = dist;
+		cs.vec = vec;
+		cs.list.clear();
+		if (iterArg)
+		{
+			Real num;
+			for (Object *o = iterArg->firstWithNumeric(&num); o; o = iterArg->nextWithNumeric(&num))
+				cs.list.push_back(std::make_pair(o->getID(), num));
+			iterArg->first();
+		}
+	}
+	if (closestDistArg)
+		*closestDistArg = dist;
+	if (closestVecArg)
+		*closestVecArg = vec;
+
+	if (verify)
+	{
+		// verify mode: time against the plain walk and count answers that differ (the drift)
+		const double t1 = emscripten_get_now();
+		SimpleObjectIterator *refIter = iterArg ? newInstance(SimpleObjectIterator) : nullptr;
+		Real refDist;
+		Coord3D refVec;
+		Object *ref = gxClosestImpl(obj, pos, maxDist, dc, filters, refIter, &refDist, &refVec, 0, 0xffffffffu, nullptr);
+		gx_gco_fastMs += t1 - t0;
+		gx_gco_refMs += emscripten_get_now() - t1;
+		Bool same = ref == result;
+		if (refIter)
+		{
+			Object *a = iterArg->first(), *b = refIter->first();
+			for (; a && b && same; a = iterArg->next(), b = refIter->next())
+				same = a == b;
+			same = same && !a && !b;
+			iterArg->first();
+			deleteInstance(refIter);
+		}
+		++gx_gco_calls;
+		if (!same)
+			++gx_mgr_differ;
+		if (gx_gco_calls % 3000 == 0)
+			printf("GXVERIFY scan manager: searches %u, cache hits %u, misses %u, pass scans %u, answers differing from the plain walk %u; manager %.1f ms, plain %.1f ms\n",
+				gx_gco_calls, gx_mgr_hits, gx_mgr_misses, gx_mgr_pass, gx_mgr_differ, gx_gco_fastMs, gx_gco_refMs);
+	}
+	return result;
+#else
+	return gxClosestImpl(obj, pos, maxDist, dc, filters, iterArg, closestDistArg, closestVecArg, flags, mask, nullptr);
+#endif
+}
+
 Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,
 	PartitionFilter **filters, SimpleObjectIterator *iterArg, Real *closestDistArg, Coord3D *closestVecArg,
 	UnsignedInt gxFlags, UnsignedInt gxEnemyMask, std::vector<Object*> *trace)
@@ -4175,6 +4414,8 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 
 	static Int theIterFlag = 1;	// nonzero, thanks
 	++theIterFlag;
+	if (gxFlags & GX_GCO_SNAP)
+		++s_gxSnapSearch;
 
 	// Web port (switch searchCache): an entry whose cached centre is farther than the range plus
 	// both radii plus one unit can't pass the distance test, whatever the distance type (every
@@ -4215,6 +4456,58 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 			// switch searchSlotSkip: walk only the lists of the players in the mask, merged back into the
 			// cell list's order by sequence (high to low), so entries of other players are never read
 			// (same reasoning as the cell skip). Otherwise the whole cell list.
+			if (gxFlags & GX_GCO_SNAP)
+			{
+				// match rule scanManager: this tick's list of store slots for the cell, store columns first
+				const GxUnitStore &S = TheGxUnitStore;
+				const Int ci = gxY * m_cellCountX + gxX;
+				for (Int k = s_gxSnapStart[ci]; k < s_gxSnapStart[ci + 1]; ++k)
+				{
+					const Int s = s_gxSnapSlots[k];
+					Object *thisObj = S.obj[s];
+					if (!thisObj || thisObj == obj)
+						continue;
+					const Int p = S.player[s];
+					if (!((1u << ((p >= 0 && p < MAX_PLAYER_COUNT) ? p : MAX_PLAYER_COUNT)) & gxEnemyMask))
+						continue;
+					if (gxCache)
+					{
+						// the store keeps the bounding circle; twice it stands in for the sphere
+						const Real dx = S.pos[s].x - px, dy = S.pos[s].y - py, lim = gxLimit + 2.0f * S.radius[s];
+						if (dx * dx + dy * dy > lim * lim)
+							continue;
+					}
+					if (s_gxSnapStamp[s] == s_gxSnapSearch)
+						continue;
+					s_gxSnapStamp[s] = s_gxSnapSearch;
+					if (!thisObj->friend_getPartitionData())
+						continue;	// left the partition during the tick (e.g. entered a building)
+
+					Real thisDistSqr;
+					Coord3D distVec;
+					if (!(*distProc)(objPos, objToUse, thisObj->getPosition(), thisObj, thisDistSqr, distVec, closestDistSqr))
+						continue;
+					if (!filtersAllow(filters, thisObj))
+						continue;
+					if (trace)
+						trace->push_back(thisObj);
+					if (iterArg)
+						iterArg->insert(thisObj, thisDistSqr);
+					else
+					{
+						closestObj = thisObj;
+						closestDistSqr = thisDistSqr;
+						closestVec = distVec;
+						if (gxCache)
+							gxLimit = sqrtf(closestDistSqr) + gxMyR + 1.0f;
+						if (!foundAny)
+							maxRadiusLimit = curRadius;
+						foundAny = true;
+					}
+				}
+				continue;
+			}
+
 			CellAndObjectIntersection *gxHeads[MAX_PLAYER_COUNT + 1];
 			Int gxHeadCount = 0;
 			const Bool gxSlots = (gxFlags & GX_GCO_ENTRIES) != 0;
