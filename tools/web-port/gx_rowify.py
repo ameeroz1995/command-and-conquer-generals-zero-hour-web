@@ -187,6 +187,11 @@ while True:
     pos = ctor.start() + len(nn); nct += 1
 if not nct: die("constructor not found")
 dtor = re.search(r'\n' + cls + r'::~' + cls + r'\s*\(\s*(void)?\s*\)\s*\{', S2)
+_inl_dtor = re.search(r'\ninline\s+' + cls + r'::~' + cls + r'\s*\(\s*\)\s*\{\s*\}[^\n]*\n', H2)
+if not dtor and add_dtor and _inl_dtor:
+    H2 = H2[:_inl_dtor.start()] + '\n' + H2[_inl_dtor.end():]	# an empty inline destructor: now defined in the .cpp
+    S2 = S2.rstrip('\n') + '\n\n' + cls + '::~' + cls + '()\n{\n}\n'
+    dtor = re.search(r'\n' + cls + r'::~' + cls + r'\s*\(\s*(void)?\s*\)\s*\{', S2)
 if not dtor and add_dtor and re.search(r'EMPTY_DTOR\(\s*' + cls + r'\s*\)', H2):
     H2 = re.sub(r'EMPTY_DTOR\(\s*' + cls + r'\s*\)\s*\n', '', H2)	# declared by the memory-pool glue; now defined in the .cpp
     S2 = S2.rstrip('\n') + '\n\n' + cls + '::~' + cls + '()\n{\n}\n'
@@ -194,7 +199,7 @@ if not dtor and add_dtor and re.search(r'EMPTY_DTOR\(\s*' + cls + r'\s*\)', H2):
 if not dtor and add_dtor:
     # declare one in the class (right after the row handle) and define it after the constructor
     H2 = H2.replace('\tInt ' + handle + ';', '\tInt ' + handle + ';\npublic:\n\tvirtual ~' + cls + '();\nprivate:', 1) if False else H2
-    H2 = re.sub(r'(\nclass\s+' + cls + r'\b[^{]*\{)', r'\1\npublic:\n\tvirtual ~' + cls + '();\t///< web port (round 5): releases the row\n', H2, count=1)
+    H2 = re.sub(r'(\nclass\s+' + cls + r'\b[^;{]*\{)', r'\1\npublic:\n\tvirtual ~' + cls + '();\t///< web port (round 5): releases the row\n', H2, count=1)
     cpos = S2.find(ctor_new) + len(ctor_new)
     d, e = 1, cpos
     while d:
@@ -245,5 +250,28 @@ defs = (f'\n\n// Web port (round 5, units are pure data): {cls}\'s per-unit stat
         f'// {rowm} is this unit\'s row (the old m_ members), so logic and xfer/CRC order are unchanged.\n'
         f'GxComponentTable<{row}> {table};\n#define {rowm} ({table}.at({handle}))\n')
 S2 = head + defs + tail
+def rewrite_header_defs(text):
+    out, pos = [], 0
+    for fm in re.finditer(r'\b' + cls + r'\s*::\s*~?\w+\s*\(', text):
+        if fm.start() < pos or 'gxRow()' in text[fm.start():fm.start()+40]: continue
+        k, depth = fm.end(), 1
+        while depth and k < len(text):
+            if text[k] == '(': depth += 1
+            elif text[k] == ')': depth -= 1
+            k += 1
+        semi, brace = text.find(';', k), text.find('{', k)
+        if brace < 0 or (0 <= semi < brace): continue
+        d, e = 1, brace + 1
+        while d and e < len(text):
+            if text[e] == '{': d += 1
+            elif text[e] == '}': d -= 1
+            e += 1
+        out.append(text[pos:fm.start()])
+        out.append(re.sub(r'(?<!->)(?<![\w.])(' + '|'.join(names) + r')\b', lambda x: 'gxRow().' + x.group(1)[2:], text[fm.start():e]))
+        pos = e
+    out.append(text[pos:])
+    return ''.join(out)
+_ce = H2.index(f'inline {row} &{cls}::gxRow()')
+H2 = H2[:_ce] + rewrite_header_defs(H2[_ce:])
 open(hdr, 'w').write(H2); open(src, 'w').write(S2)
 print("converted", cls, ":", ', '.join(names))

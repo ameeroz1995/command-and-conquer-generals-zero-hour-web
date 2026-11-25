@@ -126,6 +126,7 @@ extern Bool wantToSquishTarget( State *thisState, void* userData );
 	NOTE NOTE NOTE NOTE NOTE
 
  */
+struct GxAIStateMachineRow;
 class AIStateMachine : public StateMachine
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( AIStateMachine, "AIStateMachine" );
@@ -145,7 +146,7 @@ public:
 	void setGoalPath( std::vector<Coord3D>* path );
 	void addToGoalPath( const Coord3D *pathPoint );
 	const Coord3D *getGoalPathPosition( Int i ) const;		///< return path position at index "i"
-	Int getGoalPathSize() const { return m_goalPath.size(); }
+	Int getGoalPathSize() const;
 
 
 	void setGoalWaypoint( const Waypoint *way );		///< move toward this waypoint, continue if connected
@@ -159,7 +160,7 @@ public:
 	Squad *getGoalSquad();
 
 	StateReturnType setTemporaryState( StateID newStateID, Int frameLimitCoount );			///< change the temporary state of the machine, and number of frames limit.
-	StateID getTemporaryState() const {return m_temporaryState?m_temporaryState->getID():INVALID_STATE_ID;}
+	StateID getTemporaryState() const;
 
 public:	// overrides.
 	virtual StateReturnType updateStateMachine();				///< run one step of the machine
@@ -174,15 +175,33 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	std::vector<Coord3D>	m_goalPath;					///< defines a simple path to follow
-	const Waypoint *			m_goalWaypoint;
-	Squad *								m_goalSquad;
+	struct GxAIStateMachineRow *m_gxAIStateMachineRow;	///< web port (round 5): this unit's row in TheGxAIStateMachines
+	friend struct GxAIStateMachineRow;
+	inline struct GxAIStateMachineRow &gxRow() const;
 
 	/** A temporary state to run for a while (usually AI_MOVE_OUT_OF_THE_WAY).
 	Doesn't clear or reset the state machine, so it goes back to doing what it was doing.  jba. */
-	State									*m_temporaryState;
-	UnsignedInt						m_temporaryStateFramEnd; ///< Last frame to run m_temporaryState.
 };
+
+// Web port (round 5, units are pure data): AIStateMachine's per-unit state, one row per unit in TheGxAIStateMachines;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIStateMachineRow
+{
+	std::vector<Coord3D> goalPath;
+	const Waypoint * goalWaypoint;
+	Squad * goalSquad;
+	State* temporaryState;
+	UnsignedInt temporaryStateFramEnd;
+};
+extern GxComponentTable<GxAIStateMachineRow> TheGxAIStateMachines;
+
+
+inline GxAIStateMachineRow &AIStateMachine::gxRow() const { return TheGxAIStateMachines.at(m_gxAIStateMachineRow); }
+inline Int AIStateMachine::getGoalPathSize() const
+{ return gxRow().goalPath.size(); }
+inline StateID AIStateMachine::getTemporaryState() const
+{return gxRow().temporaryState?gxRow().temporaryState->getID():INVALID_STATE_ID;}
+
 
 
 //-----------------------------------------------------------------------------------------------------------

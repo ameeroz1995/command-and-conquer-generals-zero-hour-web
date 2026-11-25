@@ -20,10 +20,25 @@ while d:
     cend += 1
 body = H[cm.end():cend - 1]
 head = re.compile(r'(?m)^(?P<ind>[ \t]*)(?P<virt>virtual\s+)?(?P<ret>(?:const\s+)?[\w:<>]+(?:\s*[\*&]+)?)\s*(?P<name>\w+)\s*\((?P<args>[^)]*)\)\s*(?P<cv>const)?\s*\{')
+def pp_cond(text):
+    # the preprocessor conditions in force at the end of `text` (within the class body)
+    st = []
+    for line in text.split('\n'):
+        t = line.strip()
+        if t.startswith('#ifdef'): st.append('defined(' + t.split()[1] + ')')
+        elif t.startswith('#ifndef'): st.append('!defined(' + t.split()[1] + ')')
+        elif t.startswith('#if'): st.append('(' + t[3:].strip() + ')')
+        elif t.startswith('#elif'): st.append(None)
+        elif t.startswith('#else') and st: st[-1] = None if st[-1] is None else '!' + st[-1]
+        elif t.startswith('#endif') and st: st.pop()
+    return st
 out, moved, pos = [], [], 0
 for m in head.finditer(body):
     if m.start() < pos or m.group('name') in ('gxRow', cls):
         continue
+    conds = pp_cond(body[:m.start()])
+    if None in conds:
+        continue	# inside an #elif: leave it
     d, e = 1, m.end()
     while d:
         if body[e] == '{': d += 1
@@ -40,7 +55,9 @@ for m in head.finditer(body):
     cv = ' const' if m.group('cv') else ''
     out.append(body[pos:m.start()])
     out.append(f"{m.group('ind')}{m.group('virt') or ''}{m.group('ret')} {m.group('name')}({m.group('args')}){cv};")
-    moved.append(f"inline {m.group('ret')} {cls}::{m.group('name')}({args_def}){cv}\n{fbody}\n")
+    d = f"inline {m.group('ret')} {cls}::{m.group('name')}({args_def}){cv}\n{fbody}\n"
+    if conds: d = '#if ' + ' && '.join(conds) + '\n' + d + '#endif\n'
+    moved.append(d)
     pos = e
 out.append(body[pos:])
 H2 = H[:cm.end()] + ''.join(out) + H[cend - 1:anchor.end()] + ''.join(moved) + H[anchor.end():]

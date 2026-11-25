@@ -29,6 +29,7 @@
 #pragma once
 
 #include "Common/GameMemory.h"
+#include "GameLogic/GxComponents.h"	// web port (round 5)
 #include "Common/GameType.h"
 #include "Common/ModelState.h"
 #include "Common/Snapshot.h"
@@ -135,6 +136,7 @@ struct StateConditionInfo
 /**
  * An abstraction of a machine's "state".
  */
+struct GxStateRow;
 class State : public MemoryPoolObject, public Snapshot
 {
 	MEMORY_POOL_GLUE_ABC( State )						///< this abstract class needs memory pool hooks
@@ -153,8 +155,8 @@ public:
 	//Definition of busy -- when explicitly in the busy state. Moving or attacking is not considered busy!
 	virtual Bool isBusy() const { return false; }
 
-	StateMachine* getMachine() { return m_machine; }		///< return the machine this state is part of
-	StateID getID() const { return m_ID; }			///< get this state's id
+	StateMachine* getMachine();		///< return the machine this state is part of
+	StateID getID() const;			///< get this state's id
 
 	Object* getMachineOwner();
 	const Object* getMachineOwner() const;
@@ -163,14 +165,14 @@ public:
 	const Coord3D* getMachineGoalPosition() const;
 
 #ifdef STATE_MACHINE_DEBUG
-	virtual AsciiString getName() const {return m_name;}
+	virtual AsciiString getName() const;
 	std::vector<StateID> *getTransitions();
 #endif
 
 	// for internal use by the StateMachine class ---------------------------------------------------------
-	void friend_setID( StateID id ) { m_ID = id; }			///< define this state's id (for use only by StateMachine class)
-	void friend_onSuccess( StateID toStateID ) { m_successStateID = toStateID; }	///< define which state to move to after successful completion
-	void friend_onFailure( StateID toStateID ) { m_failureStateID = toStateID; }	///< define which state to move to after failure
+	void friend_setID( StateID id );			///< define this state's id (for use only by StateMachine class)
+	void friend_onSuccess( StateID toStateID );	///< define which state to move to after successful completion
+	void friend_onFailure( StateID toStateID );	///< define which state to move to after failure
 	void friend_onCondition( StateTransFuncPtr test, StateID toStateID, void* userData, const char* description = nullptr );	///< define when to change state
 	StateReturnType friend_checkForTransitions( StateReturnType status );	///< given a return code, handle state transitions
 	StateReturnType friend_checkForSleepTransitions( StateReturnType status );	///< given a return code, handle state transitions
@@ -178,7 +180,7 @@ public:
 protected:
 
 #ifdef STATE_MACHINE_DEBUG
-	inline void setName(AsciiString n) { m_name = n; }
+	inline void setName(AsciiString n) { gxRow().name = n; }
 #endif
 
 protected:
@@ -211,18 +213,45 @@ private:
 		{ }
 	};
 
-	StateID m_ID;																///< this state's ID
-	StateID m_successStateID;										///< state to move to upon success
-	StateID m_failureStateID;										///< state to move to upon failure
-	std::vector<TransitionInfo> m_transitions;	///< possible transitions from this state
+	struct GxStateRow *m_gxStateRow;	///< web port (round 5): this unit's row in TheGxStates
+	friend struct GxStateRow;
+	inline struct GxStateRow &gxRow() const;
 
-	StateMachine *m_machine;										///< the state machine this state is part of
 protected:
 #ifdef STATE_MACHINE_DEBUG
-	AsciiString m_name;													///< Human readable name of this state - for debugging.  jba.
 #endif
 };
-inline State::~State() { }
+
+// Web port (round 5, units are pure data): State's per-unit state, one row per unit in TheGxStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxStateRow
+{
+	StateID ID;
+	StateID successStateID;
+	StateID failureStateID;
+	std::vector<State::TransitionInfo> transitions;
+	StateMachine* machine;
+	AsciiString name;
+};
+extern GxComponentTable<GxStateRow> TheGxStates;
+
+
+inline GxStateRow &State::gxRow() const { return TheGxStates.at(m_gxStateRow); }
+inline StateMachine* State::getMachine()
+{ return gxRow().machine; }
+inline StateID State::getID() const
+{ return gxRow().ID; }
+#if defined(STATE_MACHINE_DEBUG)
+inline AsciiString State::getName() const
+{return gxRow().name;}
+#endif
+inline void State::friend_setID( StateID id )
+{ gxRow().ID = id; }
+inline void State::friend_onSuccess( StateID toStateID )
+{ gxRow().successStateID = toStateID; }
+inline void State::friend_onFailure( StateID toStateID )
+{ gxRow().failureStateID = toStateID; }
+
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -231,6 +260,7 @@ inline State::~State() { }
 /**
  * A finite state machine.
  */
+struct GxStateMachineRow;
 class StateMachine : public MemoryPoolObject, public Snapshot
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( StateMachine, "StateMachinePool" );
@@ -257,59 +287,47 @@ public:
 
 	virtual StateReturnType setState( StateID newStateID );			///< change the current state of the machine (which may cause further state changes, due to onEnter)
 
-	void Add_Ref() const { m_refCount.Add_Ref(); }
-	void Release_Ref() const { m_refCount.Release_Ref(MemoryPoolObject::deleteInstanceInternal, this); }
-	UnsignedByte Num_Refs() const { return m_refCount.Num_Refs(); }
+	void Add_Ref() const;
+	void Release_Ref() const;
+	UnsignedByte Num_Refs() const;
 
-	StateID getCurrentStateID() const { return m_currentState ? m_currentState->getID() : INVALID_STATE_ID; }	///< return the id of the current state of the machine
-	Bool isInIdleState() const { return m_currentState ? m_currentState->isIdle() : true; }	// stateless things are considered 'idle'
-	Bool isInAttackState() const { return m_currentState ? m_currentState->isAttack() : true; }	// stateless things are considered 'idle'
-	Bool isInForceAttackState() const { return m_currentState ? m_currentState->isIdle() : true; }	// stateless things are considered 'idle'
-	Bool isInGuardIdleState() const { return m_currentState ? m_currentState->isGuardIdle() : FALSE; } // stateless things aren't guard idle.
+	StateID getCurrentStateID() const;	///< return the id of the current state of the machine
+	Bool isInIdleState() const;	// stateless things are considered 'idle'
+	Bool isInAttackState() const;	// stateless things are considered 'idle'
+	Bool isInForceAttackState() const;	// stateless things are considered 'idle'
+	Bool isInGuardIdleState() const; // stateless things aren't guard idle.
 
 	//Definition of busy -- when explicitly in the busy state. Moving or attacking is not considered busy!
-	Bool isInBusyState() const { return m_currentState ? m_currentState->isBusy() : false; }	// stateless things are not considered 'busy'
+	Bool isInBusyState() const;	// stateless things are not considered 'busy'
 
 	// no, this is now deprecated. you should strive to avoid having to get the current state.
 	// try to make do with getCurrentStateID() or isInIdleState() instead. (srj)
-	// State *getCurrentState() { return m_currentState; }	///< return the current state of the machine
+	// State *getCurrentState() { return gxRow().currentState; }	///< return the current state of the machine
 
 	/**
 	 * Lock/unlock this state machine.
 	 * If a machine is locked, it cannot be reset, or given external setStates(), etc.
 	 */
-	void lock(const char* msg)
-	{
-		m_locked = true;
-#ifdef STATE_MACHINE_DEBUG
-		m_lockedby = msg;
-#endif
-	}
+	void lock(const char* msg);
 
-	void unlock()
-	{
-		m_locked = false;
-#ifdef STATE_MACHINE_DEBUG
-		m_lockedby = nullptr;
-#endif
-	}
+	void unlock();
 
-	Bool isLocked() const { return m_locked; }
+	Bool isLocked() const;
 
 	/**
 	 * Get the object that "owns" this machine.
 	 * There need not be an object with a machine, but it is so common
 	 * that it is useful to have this method in the generic state machine.
 	 */
-	Object *getOwner() { return m_owner; }
-	const Object *getOwner() const { return m_owner; }
+	Object * getOwner();
+	const Object * getOwner() const;
 
 	// common parameters for state machines
 	void setGoalObject( const Object *obj );
 	Object *getGoalObject();
 	const Object *getGoalObject() const;
 	void setGoalPosition( const Coord3D *pos );
-	const Coord3D *getGoalPosition() const { return &m_goalPosition; }
+	const Coord3D * getGoalPosition() const;
 	Bool isGoalObjectDestroyed() const;  ///< Returns true if we had a goal object, but it has been destroyed.
 
 	virtual void halt(); ///< Stops the state machine & disables it in preparation for deleting it.
@@ -320,15 +338,15 @@ public:
 	StateReturnType internalSetState( StateID newStateID );	///< for internal use only - change the current state of the machine
 
 #if defined(RTS_DEBUG)
-	UnsignedInt peekSleepTill() const { return m_sleepTill; }
+	UnsignedInt peekSleepTill() const;
 #endif
 
 #ifdef STATE_MACHINE_DEBUG
 	Bool getWantsDebugOutput() const;
-	void setDebugOutput( Bool output ) { m_debugOutput = output; }
-	void setName( AsciiString name) {m_name = name;}
-	inline AsciiString getName() const {return m_name;}
-	virtual AsciiString getCurrentStateName() const { return m_currentState ? m_currentState->getName() : AsciiString::TheEmptyString;}
+	void setDebugOutput( Bool output );
+	void setName( AsciiString name);
+	inline AsciiString getName() const {return gxRow().name;}
+	virtual AsciiString getCurrentStateName() const;
 #else
 	Bool getWantsDebugOutput() const { return false; }
 	AsciiString getCurrentStateName() const { return AsciiString::TheEmptyString;}
@@ -362,38 +380,108 @@ private:
 	void internalSetGoalPosition( const Coord3D *pos);
 
 
-	std::map<StateID, State *>	m_stateMap;			///< the mapping of ids to states
-	Object*											m_owner;				///< object that "owns" this machine
+	struct GxStateMachineRow *m_gxStateMachineRow;	///< web port (round 5): this unit's row in TheGxStateMachines
+	friend struct GxStateMachineRow;
+	inline struct GxStateMachineRow &gxRow() const;
 
-	UnsignedInt		m_sleepTill;									///< if nonzero, we are sleeping 'till this frame
 
-	StateID				m_defaultStateID;									///< the default state of the machine
-	State*				m_currentState;
 
-	ObjectID			m_goalObjectID;										///< the object of interest for this state
-	Coord3D				m_goalPosition;										///< the position of interest for this state
 
-	Bool					m_locked;													///< whether this machine is locked or not
-	Bool					m_defaultStateInited;							///< if initDefaultState has been called
 
-	RefCountValue<UnsignedByte> m_refCount;
 
 #ifdef STATE_MACHINE_DEBUG
-	Bool					m_debugOutput;
-	AsciiString		m_name;													///< Human readable name of this state - for debugging.  jba.
-	const char*		m_lockedby;
 #endif
 };
 
+// Web port (round 5, units are pure data): StateMachine's per-unit state, one row per unit in TheGxStateMachines;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxStateMachineRow
+{
+	std::map<StateID, State *> stateMap;
+	Object* owner;
+	UnsignedInt sleepTill;
+	StateID defaultStateID;
+	State* currentState;
+	ObjectID goalObjectID;
+	Coord3D goalPosition;
+	Bool locked;
+	Bool defaultStateInited;
+	RefCountValue<UnsignedByte> refCount;
+	Bool debugOutput;
+	AsciiString name;
+	const char* lockedby;
+};
+extern GxComponentTable<GxStateMachineRow> TheGxStateMachines;
+
+
+inline GxStateMachineRow &StateMachine::gxRow() const { return TheGxStateMachines.at(m_gxStateMachineRow); }
+inline void StateMachine::Add_Ref() const
+{ gxRow().refCount.Add_Ref(); }
+inline void StateMachine::Release_Ref() const
+{ gxRow().refCount.Release_Ref(MemoryPoolObject::deleteInstanceInternal, this); }
+inline UnsignedByte StateMachine::Num_Refs() const
+{ return gxRow().refCount.Num_Refs(); }
+inline StateID StateMachine::getCurrentStateID() const
+{ return gxRow().currentState ? gxRow().currentState->getID() : INVALID_STATE_ID; }
+inline Bool StateMachine::isInIdleState() const
+{ return gxRow().currentState ? gxRow().currentState->isIdle() : true; }
+inline Bool StateMachine::isInAttackState() const
+{ return gxRow().currentState ? gxRow().currentState->isAttack() : true; }
+inline Bool StateMachine::isInForceAttackState() const
+{ return gxRow().currentState ? gxRow().currentState->isIdle() : true; }
+inline Bool StateMachine::isInGuardIdleState() const
+{ return gxRow().currentState ? gxRow().currentState->isGuardIdle() : FALSE; }
+inline Bool StateMachine::isInBusyState() const
+{ return gxRow().currentState ? gxRow().currentState->isBusy() : false; }
+inline void StateMachine::lock(const char* msg)
+{
+		gxRow().locked = true;
+#ifdef STATE_MACHINE_DEBUG
+		gxRow().lockedby = msg;
+#endif
+	}
+inline void StateMachine::unlock()
+{
+		gxRow().locked = false;
+#ifdef STATE_MACHINE_DEBUG
+		gxRow().lockedby = nullptr;
+#endif
+	}
+inline Bool StateMachine::isLocked() const
+{ return gxRow().locked; }
+inline Object * StateMachine::getOwner()
+{ return gxRow().owner; }
+inline const Object * StateMachine::getOwner() const
+{ return gxRow().owner; }
+inline const Coord3D * StateMachine::getGoalPosition() const
+{ return &gxRow().goalPosition; }
+#if (defined(RTS_DEBUG))
+inline UnsignedInt StateMachine::peekSleepTill() const
+{ return gxRow().sleepTill; }
+#endif
+#if defined(STATE_MACHINE_DEBUG)
+inline void StateMachine::setDebugOutput( Bool output )
+{ gxRow().debugOutput = output; }
+#endif
+#if defined(STATE_MACHINE_DEBUG)
+inline void StateMachine::setName( AsciiString name)
+{gxRow().name = name;}
+#endif
+#if defined(STATE_MACHINE_DEBUG)
+inline AsciiString StateMachine::getCurrentStateName() const
+{ return gxRow().currentState ? gxRow().currentState->getName() : AsciiString::TheEmptyString;}
+#endif
+
+
 //-----------------------------------------------------------------------------
 
-inline Object* State::getMachineOwner() { return m_machine->getOwner(); }
-inline const Object* State::getMachineOwner() const { return m_machine->getOwner(); }
+inline Object* State::getMachineOwner() { return gxRow().machine->getOwner(); }
+inline const Object* State::getMachineOwner() const { return gxRow().machine->getOwner(); }
 
-inline Object* State::getMachineGoalObject() { return m_machine->getGoalObject(); }		///< return the machine this state is part of
-inline const Object* State::getMachineGoalObject() const { return m_machine->getGoalObject(); }		///< return the machine this state is part of
+inline Object* State::getMachineGoalObject() { return gxRow().machine->getGoalObject(); }		///< return the machine this state is part of
+inline const Object* State::getMachineGoalObject() const { return gxRow().machine->getGoalObject(); }		///< return the machine this state is part of
 
-inline const Coord3D* State::getMachineGoalPosition() const { return m_machine->getGoalPosition(); }		///< return the machine this state is part of
+inline const Coord3D* State::getMachineGoalPosition() const { return gxRow().machine->getGoalPosition(); }		///< return the machine this state is part of
 
 //-----------------------------------------------------------------------------------------------------------
 /**

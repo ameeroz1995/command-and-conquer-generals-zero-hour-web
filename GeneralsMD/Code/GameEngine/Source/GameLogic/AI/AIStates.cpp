@@ -69,6 +69,12 @@
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Module/StealthUpdate.h"
 
+// Web port (round 5, units are pure data): AIStateMachine's per-unit state is a row of TheGxAIStateMachines;
+// GXROW_AISTATEMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIStateMachineRow> TheGxAIStateMachines;
+#define GXROW_AISTATEMACHINE (TheGxAIStateMachines.at(m_gxAIStateMachineRow))
+
+
 // Web port (round 5, units are pure data): AIWanderState's per-unit state is a row of TheGxAIWanderStates;
 // GXROW_AIWANDERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
 GxComponentTable<GxAIWanderStateRow> TheGxAIWanderStates;
@@ -853,15 +859,17 @@ void AIRappelState::onExit( StateExitType status )
 */
 AIStateMachine::AIStateMachine( Object *obj, AsciiString name ) : StateMachine( obj, name )
 {
+	m_gxAIStateMachineRow = TheGxAIStateMachines.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
 	DEBUG_ASSERTCRASH(getOwner(), ("An AI State Machine '%s' was constructed without an owner, please tell JKMCD", name.str()));
 	DEBUG_ASSERTCRASH(getOwner()->getAI(), ("An AI State Machine '%s' was constructed without an AIUpdateInterface, please tell JKMCD", name.str()));
 
-	m_goalPath.clear();
-	m_goalWaypoint = nullptr;
-	m_goalSquad = nullptr;
+	GXROW_AISTATEMACHINE.goalPath.clear();
+	GXROW_AISTATEMACHINE.goalWaypoint = nullptr;
+	GXROW_AISTATEMACHINE.goalSquad = nullptr;
 
-	m_temporaryState = nullptr;
-	m_temporaryStateFramEnd = 0;
+	GXROW_AISTATEMACHINE.temporaryState = nullptr;
+	GXROW_AISTATEMACHINE.temporaryStateFramEnd = 0;
 
 	// order matters: first state is the default state.
 	defineState( AI_IDLE,																	newInstance(AIIdleState)( this, AIIdleState::LOOK_FOR_TARGETS), AI_IDLE, AI_IDLE );
@@ -913,7 +921,8 @@ AIStateMachine::AIStateMachine( Object *obj, AsciiString name ) : StateMachine( 
 //----------------------------------------------------------------------------------------------------------
 AIStateMachine::~AIStateMachine()
 {
-	deleteInstance(m_goalSquad);
+	deleteInstance(GXROW_AISTATEMACHINE.goalSquad);
+	TheGxAIStateMachines.release( m_gxAIStateMachineRow );	// web port (round 5)
 }
 
 
@@ -939,56 +948,56 @@ void AIStateMachine::xfer( Xfer *xfer )
 	StateMachine::xfer(xfer);
 
 	Int i;
-	Int count = m_goalPath.size();
+	Int count = GXROW_AISTATEMACHINE.goalPath.size();
 	xfer->xferInt(&count);
 	for (i=0; i<count; i++) {
 		Coord3D pos;
 		if (xfer->getXferMode() != XFER_LOAD)
 		{
-			pos = m_goalPath[i];
+			pos = GXROW_AISTATEMACHINE.goalPath[i];
 		}
 		xfer->xferCoord3D(&pos);
 		if (xfer->getXferMode() == XFER_LOAD)
 		{
-			m_goalPath.push_back(pos);
+			GXROW_AISTATEMACHINE.goalPath.push_back(pos);
 		}
 	}
 
 	AsciiString waypointName;
-	if (m_goalWaypoint) waypointName = m_goalWaypoint->getName();
+	if (GXROW_AISTATEMACHINE.goalWaypoint) waypointName = GXROW_AISTATEMACHINE.goalWaypoint->getName();
 	xfer->xferAsciiString(&waypointName);
 	if (xfer->getXferMode() == XFER_LOAD)
 	{
 		if (waypointName.isNotEmpty()) {
-			m_goalWaypoint = TheTerrainLogic->getWaypointByName(waypointName);
+			GXROW_AISTATEMACHINE.goalWaypoint = TheTerrainLogic->getWaypointByName(waypointName);
 		}
 	}
-	Bool hasSquad = (m_goalSquad!=nullptr);
+	Bool hasSquad = (GXROW_AISTATEMACHINE.goalSquad!=nullptr);
 	xfer->xferBool(&hasSquad);
 	if (xfer->getXferMode() == XFER_LOAD)
 	{
-		if (hasSquad && m_goalSquad==nullptr) {
-			m_goalSquad = newInstance( Squad );
+		if (hasSquad && GXROW_AISTATEMACHINE.goalSquad==nullptr) {
+			GXROW_AISTATEMACHINE.goalSquad = newInstance( Squad );
 		}
 	}
 	if (hasSquad) {
-		xfer->xferSnapshot(m_goalSquad);
+		xfer->xferSnapshot(GXROW_AISTATEMACHINE.goalSquad);
 	}
 
 	StateID id = INVALID_STATE_ID;
-	if (m_temporaryState) {
-		id = m_temporaryState->getID();
+	if (GXROW_AISTATEMACHINE.temporaryState) {
+		id = GXROW_AISTATEMACHINE.temporaryState->getID();
 		DEBUG_ASSERTCRASH(id!=INVALID_STATE_ID, ("State has invalid state id, no really. jba."));
 	}
 	xfer->xferUnsignedInt(&id);
 	if (xfer->getXferMode() == XFER_LOAD && id != INVALID_STATE_ID) {
-		m_temporaryState = internalGetState( id );
+		GXROW_AISTATEMACHINE.temporaryState = internalGetState( id );
 	}
-	if (m_temporaryState!=nullptr) {
-		xfer->xferSnapshot(m_temporaryState);
+	if (GXROW_AISTATEMACHINE.temporaryState!=nullptr) {
+		xfer->xferSnapshot(GXROW_AISTATEMACHINE.temporaryState);
 	}
 
-	xfer->xferUnsignedInt(&m_temporaryStateFramEnd);
+	xfer->xferUnsignedInt(&GXROW_AISTATEMACHINE.temporaryStateFramEnd);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1005,7 +1014,7 @@ void AIStateMachine::loadPostProcess()
  */
 void AIStateMachine::setGoalPath( std::vector<Coord3D>* path )
 {
-	stl::move_or_swap(m_goalPath, *path);
+	stl::move_or_swap(GXROW_AISTATEMACHINE.goalPath, *path);
 }
 
 #ifdef STATE_MACHINE_DEBUG
@@ -1017,9 +1026,9 @@ AsciiString AIStateMachine::getCurrentStateName() const
 {
 	AsciiString name = StateMachine::getCurrentStateName();
 
-	if (m_temporaryState) {
+	if (GXROW_AISTATEMACHINE.temporaryState) {
 		name.concat(" /T/");
-		name.concat(m_temporaryState->getName());
+		name.concat(GXROW_AISTATEMACHINE.temporaryState->getName());
 	}
 	return name;
 }
@@ -1039,11 +1048,11 @@ StateReturnType AIStateMachine::updateStateMachine()
 	#endif
 	//end -extraLogging
 
-	if (m_temporaryState)
+	if (GXROW_AISTATEMACHINE.temporaryState)
 	{
 		// execute this state
-		StateReturnType status = m_temporaryState->update();
-		if (m_temporaryStateFramEnd < TheGameLogic->getFrame()) {
+		StateReturnType status = GXROW_AISTATEMACHINE.temporaryState->update();
+		if (GXROW_AISTATEMACHINE.temporaryStateFramEnd < TheGameLogic->getFrame()) {
 			// ran out of time.
 			if (status == STATE_CONTINUE) {
 				status = STATE_SUCCESS;
@@ -1060,8 +1069,8 @@ StateReturnType AIStateMachine::updateStateMachine()
 
 			return status;
 		}
-		m_temporaryState->onExit(EXIT_NORMAL);
-		m_temporaryState = nullptr;
+		GXROW_AISTATEMACHINE.temporaryState->onExit(EXIT_NORMAL);
+		GXROW_AISTATEMACHINE.temporaryState = nullptr;
 	}
 	StateReturnType retType = StateMachine::updateStateMachine();
 
@@ -1107,12 +1116,12 @@ StateReturnType AIStateMachine::setTemporaryState( StateID newStateID, Int frame
 	if (getWantsDebugOutput())
 	{
 		StateID curState = INVALID_STATE_ID;
-		if (m_temporaryState) {
-			curState = m_temporaryState->getID();
+		if (GXROW_AISTATEMACHINE.temporaryState) {
+			curState = GXROW_AISTATEMACHINE.temporaryState->getID();
 		}
 		DEBUG_LOG_RAW(("%d '%s' -(TEMP)- '%s' %x exit ", TheGameLogic->getFrame(), getOwner()->getTemplate()->getName().str(), getName().str(), this));
-		if (m_temporaryState) {
-			DEBUG_LOG_RAW((" '%s' ", m_temporaryState->getName().str()));
+		if (GXROW_AISTATEMACHINE.temporaryState) {
+			DEBUG_LOG_RAW((" '%s' ", GXROW_AISTATEMACHINE.temporaryState->getName().str()));
 		} else {
 			DEBUG_LOG_RAW((" INVALID_STATE_ID "));
 		}
@@ -1123,16 +1132,16 @@ StateReturnType AIStateMachine::setTemporaryState( StateID newStateID, Int frame
 		}
 	}
 #endif
-	if (m_temporaryState) {
-		m_temporaryState->onExit(EXIT_RESET);
-		m_temporaryState = nullptr;
+	if (GXROW_AISTATEMACHINE.temporaryState) {
+		GXROW_AISTATEMACHINE.temporaryState->onExit(EXIT_RESET);
+		GXROW_AISTATEMACHINE.temporaryState = nullptr;
 	}
 	if (newState) {
-		m_temporaryState = newState;
-		StateReturnType ret = m_temporaryState->onEnter();
+		GXROW_AISTATEMACHINE.temporaryState = newState;
+		StateReturnType ret = GXROW_AISTATEMACHINE.temporaryState->onEnter();
 		if (ret != STATE_CONTINUE) {
-			m_temporaryState->onExit(EXIT_NORMAL);
-			m_temporaryState = nullptr;
+			GXROW_AISTATEMACHINE.temporaryState->onExit(EXIT_NORMAL);
+			GXROW_AISTATEMACHINE.temporaryState = nullptr;
 			return ret;
 		}
 		enum {FRAME_COUNT_MAX = 60*LOGICFRAMES_PER_SECOND};
@@ -1141,7 +1150,7 @@ StateReturnType AIStateMachine::setTemporaryState( StateID newStateID, Int frame
 		if (frameLimitCoount>FRAME_COUNT_MAX) {
 			frameLimitCoount = FRAME_COUNT_MAX;
 		}
-		m_temporaryStateFramEnd = TheGameLogic->getFrame()+frameLimitCoount;
+		GXROW_AISTATEMACHINE.temporaryStateFramEnd = TheGameLogic->getFrame()+frameLimitCoount;
 		return ret;
 	}
 	return STATE_FAILURE;
@@ -1153,13 +1162,13 @@ StateReturnType AIStateMachine::setTemporaryState( StateID newStateID, Int frame
  */
 void AIStateMachine::addToGoalPath( const Coord3D *pathPoint)
 {
-	if (m_goalPath.empty()) {
-		m_goalPath.push_back(*pathPoint);
+	if (GXROW_AISTATEMACHINE.goalPath.empty()) {
+		GXROW_AISTATEMACHINE.goalPath.push_back(*pathPoint);
 	}	else {
-		Coord3D *finalPoint = &m_goalPath[ m_goalPath.size() - 1 ];
+		Coord3D *finalPoint = &GXROW_AISTATEMACHINE.goalPath[ GXROW_AISTATEMACHINE.goalPath.size() - 1 ];
 		if( !finalPoint->equals( *pathPoint ) )
 		{
-			m_goalPath.push_back(*pathPoint);
+			GXROW_AISTATEMACHINE.goalPath.push_back(*pathPoint);
 		}
 	}
 }
@@ -1170,10 +1179,10 @@ void AIStateMachine::addToGoalPath( const Coord3D *pathPoint)
  */
 const Coord3D *AIStateMachine::getGoalPathPosition( Int i ) const
 {
-	if (i < 0 || i >= m_goalPath.size())
+	if (i < 0 || i >= GXROW_AISTATEMACHINE.goalPath.size())
 		return nullptr;
 
-	return &m_goalPath[i];
+	return &GXROW_AISTATEMACHINE.goalPath[i];
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -1183,7 +1192,7 @@ const Coord3D *AIStateMachine::getGoalPathPosition( Int i ) const
  */
 void AIStateMachine::setGoalWaypoint( const Waypoint *way )
 {
-	m_goalWaypoint = way;
+	GXROW_AISTATEMACHINE.goalWaypoint = way;
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -1192,16 +1201,16 @@ void AIStateMachine::setGoalWaypoint( const Waypoint *way )
  */
 const Waypoint *AIStateMachine::getGoalWaypoint()
 {
-	return m_goalWaypoint;
+	return GXROW_AISTATEMACHINE.goalWaypoint;
 }
 
 //----------------------------------------------------------------------------------------------------------
 void AIStateMachine::clear()
 {
 	StateMachine::clear();
-	m_goalPath.clear();
-	m_goalWaypoint = nullptr;
-	m_goalSquad = nullptr;
+	GXROW_AISTATEMACHINE.goalPath.clear();
+	GXROW_AISTATEMACHINE.goalWaypoint = nullptr;
+	GXROW_AISTATEMACHINE.goalSquad = nullptr;
 
 	AIUpdateInterface* ai = getOwner()->getAI();
 	if (ai)
@@ -1236,37 +1245,37 @@ StateReturnType AIStateMachine::setState(StateID newStateID)
 //----------------------------------------------------------------------------------------------------------
 void AIStateMachine::setGoalTeam( const Team *team )
 {
-	if (m_goalSquad == nullptr) {
-		m_goalSquad = newInstance( Squad );
+	if (GXROW_AISTATEMACHINE.goalSquad == nullptr) {
+		GXROW_AISTATEMACHINE.goalSquad = newInstance( Squad );
 	}
 
-	m_goalSquad->squadFromTeam(team, true);
+	GXROW_AISTATEMACHINE.goalSquad->squadFromTeam(team, true);
 }
 
 //----------------------------------------------------------------------------------------------------------
 void AIStateMachine::setGoalSquad( const Squad *squad )
 {
-	if (m_goalSquad == nullptr) {
-		m_goalSquad = newInstance( Squad );
+	if (GXROW_AISTATEMACHINE.goalSquad == nullptr) {
+		GXROW_AISTATEMACHINE.goalSquad = newInstance( Squad );
 	}
 
-	(*m_goalSquad) = (*squad);
+	(*GXROW_AISTATEMACHINE.goalSquad) = (*squad);
 }
 
 //----------------------------------------------------------------------------------------------------------
 void AIStateMachine::setGoalAIGroup( const AIGroup *group )
 {
-	if (m_goalSquad == nullptr) {
-		m_goalSquad = newInstance( Squad );
+	if (GXROW_AISTATEMACHINE.goalSquad == nullptr) {
+		GXROW_AISTATEMACHINE.goalSquad = newInstance( Squad );
 	}
 
-	m_goalSquad->squadFromAIGroup(group, true);
+	GXROW_AISTATEMACHINE.goalSquad->squadFromAIGroup(group, true);
 }
 
 //----------------------------------------------------------------------------------------------------------
 Squad *AIStateMachine::getGoalSquad()
 {
-	return m_goalSquad;
+	return GXROW_AISTATEMACHINE.goalSquad;
 }
 
 // State transition conditions ----------------------------------------------------------------------------
