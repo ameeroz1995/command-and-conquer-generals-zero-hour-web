@@ -4025,3 +4025,36 @@ data lives; dataBehaviors only gates the minefield's cached lookup).
   checks, 0 mismatches each); r5i plays the round-5 kernel recording (paths-r5c.rep) to a match; a
   recording made on r5j with updatePasses + moveAfterTick on (GX=FEE6E7, paths-r5j.rep) plays back to
   a match with both off.
+### Round 5 (lane 4, collide): units are pure data — store SoA, component rows, SIMD
+
+- Merged origin/perf/low-end f8473f1 (fourth switch word).
+- **Store SoA layout** (9e1aa3d, pushed first): GxUnitStore keeps float columns x/y/z, vx/vy/vz,
+  ax/ay/az (acceleration) and radius. pos[]/vel[] are gone: posOf(s), velOf(s), velRef(s)/accelRef(s)
+  (GxVec3Ref, a Coord3D-shaped view of three columns). Thing::getPosition() reads through the columns
+  with positionInStore (copies them into the Thing's cached Coord3D); PhysicsBehavior::getVelocity()
+  copies vx/vy/vz out. Replay: matches with positionInStore off and on (verify 0 mismatches).
+- **Component rows** (Common/GxComponentPool.h): GxComponentPool<Row> (deque rows, never move, free
+  list) and GxRow<Row> (the module's only state member, allocates/frees its row). Rows are per module,
+  not per store slot (an object can have several modules of one kind). Converted (all per-unit state
+  out of the module objects; the modules stay as facades for INI, engine calls, xfer and CRC):
+  PhysicsBehavior (20 fields; acceleration in the store columns), BodyModule, ActiveBody (20),
+  InactiveBody, StructureBody, TransitionDamageFX, FireWeaponCollide, SpecialPowerCompletionDie.
+  The other files of the families (Collide/ 19 incl. crates, Body/ Highlander, Immortal, Undead,
+  HiveStructure, Damage/ BoneFXDamage, DamageModule, Destroy/, Die/ 11) hold no per-unit state: they
+  are already facades over INI data, nothing to move. No family file has a per-frame update besides
+  physics; the rest are event handlers (onCollide / onDie / onDamage) over their rows.
+- **SIMD physics integration** (switch physSimd, fourth word bit 0, off; rides on match rule physBulk):
+  the physics pass does every due unit's forces, then velocity += acceleration, the tiny-velocity clamp
+  and the acceleration reset for all of them in one wasm simd128 pass over the store columns
+  (gxIntegrateColumns, 4 rows per instruction, same float ops), then each unit's remaining step.
+- **SIMD collision broad phase** (switch collideSimd, fourth word bit 1, on; works under storePairs):
+  the store grid is laid out as one block per cell (units in the same order the linked lists visit
+  them) with x, y, radius copied in, so the distance cut tests 4 units per instruction. Same pairs as
+  storePairs without it.
+- **Kernel + apply split** (round 5 addendum, for the round-6 job system; both on the main thread
+  now): physics integration is the kernel gxIntegrateColumns(due, begin, end) (reads due[], v, a;
+  writes v, a of its rows only); the forces before it and each unit's remaining step after it are the
+  main-thread parts. The broad phase is prepare (main: grid blocks, each seeker's slot and cell
+  rectangle) -> gxPairKernel(in, begin, end, out, cap) (reads the blocks and store columns, writes
+  only (seeker, slot) pairs to its own out; returns -1 when out is full, the main thread grows it and
+  reruns) -> apply (main, seekers in object-ID order: collideStagger, addToContactList).

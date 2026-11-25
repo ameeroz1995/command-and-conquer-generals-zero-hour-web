@@ -29,6 +29,8 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
+
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/DamageFX.h"
 #include "GameLogic/Module/BodyModule.h"
@@ -61,6 +63,32 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5, units are pure data): ActiveBody's per-unit state, one row per module in
+// GxComponentPool<ActiveBodyRow> (the module keeps only the row index, m_gxActiveBody)
+struct ActiveBodyRow
+{
+	Real									m_currentHealth;				///< health of the object
+	Real									m_prevHealth;						///< previous health value before current health change op
+  Real									m_maxHealth;						///< max health this object can have
+  Real									m_initialHealth;				///< starting health for this object
+	Real									m_currentSubdualDamage = 0;	///< Starts at zero and goes up.  Inherited modules will do something when "subdued".
+	BodyDamageType				m_curDamageState = BODY_PRISTINE;				///< last known damage state
+	UnsignedInt						m_nextDamageFXTime = 0;
+	DamageType						m_lastDamageFXDone = (DamageType)-1;
+	DamageInfo						m_lastDamageInfo;				///< store the last DamageInfo object that we received
+	UnsignedInt						m_lastDamageTimestamp = 0xffffffff; 	///< frame of last damage dealt
+	UnsignedInt						m_lastHealingTimestamp = 0xffffffff; ///< frame of last healing dealt
+	Bool									m_frontCrushed = false;
+	Bool									m_backCrushed = false;
+	Bool									m_lastDamageCleared = false;
+	Bool									m_indestructible = false;				///< is this object indestructible?
+	BodyParticleSystem *m_particleSystems = nullptr;				///< particle systems created and attached to this object
+	ArmorSetFlags											m_curArmorSetFlags;
+	mutable const ArmorTemplateSet*		m_curArmorSet = nullptr;
+	mutable Armor											m_curArmor;
+	mutable const DamageFX*						m_curDamageFX = nullptr;
+};
+
 class ActiveBody : public BodyModule
 {
 
@@ -84,36 +112,36 @@ public:
 	virtual UnsignedInt getSubdualDamageHealRate() const;
 	virtual Real getSubdualDamageHealAmount() const;
 	virtual Bool hasAnySubdualDamage() const;
-	virtual Real getCurrentSubdualDamageAmount() const { return m_currentSubdualDamage; }
+	virtual Real getCurrentSubdualDamageAmount() const { return m_gxActiveBody->m_currentSubdualDamage; }
 
-	virtual const DamageInfo *getLastDamageInfo() const { return &m_lastDamageInfo; }	///< return info on last damage dealt to this object
-	virtual UnsignedInt getLastDamageTimestamp() const { return m_lastDamageTimestamp; }	///< return frame of last damage dealt
-	virtual UnsignedInt getLastHealingTimestamp() const { return m_lastHealingTimestamp; }	///< return frame of last damage dealt
-	virtual ObjectID getClearableLastAttacker() const { return (m_lastDamageCleared ? INVALID_ID : m_lastDamageInfo.in.m_sourceID); }
-	virtual void clearLastAttacker() { m_lastDamageCleared = true; }
+	virtual const DamageInfo *getLastDamageInfo() const { return &m_gxActiveBody->m_lastDamageInfo; }	///< return info on last damage dealt to this object
+	virtual UnsignedInt getLastDamageTimestamp() const { return m_gxActiveBody->m_lastDamageTimestamp; }	///< return frame of last damage dealt
+	virtual UnsignedInt getLastHealingTimestamp() const { return m_gxActiveBody->m_lastHealingTimestamp; }	///< return frame of last damage dealt
+	virtual ObjectID getClearableLastAttacker() const { return (m_gxActiveBody->m_lastDamageCleared ? INVALID_ID : m_gxActiveBody->m_lastDamageInfo.in.m_sourceID); }
+	virtual void clearLastAttacker() { m_gxActiveBody->m_lastDamageCleared = true; }
 
 	void onVeterancyLevelChanged( VeterancyLevel oldLevel, VeterancyLevel newLevel, Bool provideFeedback = TRUE );
 
-	virtual void setArmorSetFlag(ArmorSetType ast) { m_curArmorSetFlags.set(ast, 1); }
-	virtual void clearArmorSetFlag(ArmorSetType ast) { m_curArmorSetFlags.set(ast, 0); }
-	virtual Bool testArmorSetFlag(ArmorSetType ast) { return m_curArmorSetFlags.test(ast); }
+	virtual void setArmorSetFlag(ArmorSetType ast) { m_gxActiveBody->m_curArmorSetFlags.set(ast, 1); }
+	virtual void clearArmorSetFlag(ArmorSetType ast) { m_gxActiveBody->m_curArmorSetFlags.set(ast, 0); }
+	virtual Bool testArmorSetFlag(ArmorSetType ast) { return m_gxActiveBody->m_curArmorSetFlags.test(ast); }
 
 	virtual void setInitialHealth(Int initialPercent); ///< Sets the initial load health %.
 	virtual void setMaxHealth( Real maxHealth, MaxHealthChangeType healthChangeType = SAME_CURRENTHEALTH ); ///< Sets the initial max health
 
-	virtual Bool getFrontCrushed() const { return m_frontCrushed; }
-	virtual Bool getBackCrushed() const { return m_backCrushed; }
+	virtual Bool getFrontCrushed() const { return m_gxActiveBody->m_frontCrushed; }
+	virtual Bool getBackCrushed() const { return m_gxActiveBody->m_backCrushed; }
 
-	virtual void setFrontCrushed(Bool v) { m_frontCrushed = v; }
-	virtual void setBackCrushed(Bool v) { m_backCrushed = v; }
+	virtual void setFrontCrushed(Bool v) { m_gxActiveBody->m_frontCrushed = v; }
+	virtual void setBackCrushed(Bool v) { m_gxActiveBody->m_backCrushed = v; }
 
 	virtual Real getMaxHealth() const;  ///< return max health
 	virtual Real getInitialHealth() const;  // return initial health
 
-	virtual Real getPreviousHealth() const { return m_prevHealth; }
+	virtual Real getPreviousHealth() const { return m_gxActiveBody->m_prevHealth; }
 
 	virtual void setIndestructible( Bool indestructible );
-	virtual Bool isIndestructible() const { return m_indestructible; }
+	virtual Bool isIndestructible() const { return m_gxActiveBody->m_indestructible; }
 
 	virtual void internalChangeHealth( Real delta );								///< change health
 
@@ -143,31 +171,12 @@ protected:
 
 private:
 
-	Real									m_currentHealth;				///< health of the object
-	Real									m_prevHealth;						///< previous health value before current health change op
-  Real									m_maxHealth;						///< max health this object can have
-  Real									m_initialHealth;				///< starting health for this object
-	Real									m_currentSubdualDamage;	///< Starts at zero and goes up.  Inherited modules will do something when "subdued".
+	GxRow<ActiveBodyRow> m_gxActiveBody;	///< web port (round 5): this module's state, a row of its component pool
 
-	BodyDamageType				m_curDamageState;				///< last known damage state
-	UnsignedInt						m_nextDamageFXTime;
-	DamageType						m_lastDamageFXDone;
-	DamageInfo						m_lastDamageInfo;				///< store the last DamageInfo object that we received
-	UnsignedInt						m_lastDamageTimestamp; 	///< frame of last damage dealt
-	UnsignedInt						m_lastHealingTimestamp; ///< frame of last healing dealt
-	Bool									m_frontCrushed;
-	Bool									m_backCrushed;
-	Bool									m_lastDamageCleared;
-	Bool									m_indestructible;				///< is this object indestructible?
 
-	BodyParticleSystem *m_particleSystems;				///< particle systems created and attached to this object
 
 	/*
 		Note, you MUST call validateArmorAndDamageFX() before accessing these fields.
 	*/
-	ArmorSetFlags											m_curArmorSetFlags;
-	mutable const ArmorTemplateSet*		m_curArmorSet;
-	mutable Armor											m_curArmor;
-	mutable const DamageFX*						m_curDamageFX;
 
 };

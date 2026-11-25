@@ -40,8 +40,8 @@
 //-------------------------------------------------------------------------------------------------
 SpecialPowerCompletionDie::SpecialPowerCompletionDie( Thing *thing, const ModuleData* moduleData ) : DieModule( thing, moduleData )
 {
-	m_creatorID = INVALID_ID;
-	m_creatorSet = FALSE;
+	m_gxSpecialPowerCompletionDie->m_creatorID = INVALID_ID;
+	m_gxSpecialPowerCompletionDie->m_creatorSet = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -64,12 +64,12 @@ void SpecialPowerCompletionDie::onDie( const DamageInfo *damageInfo )
 //-------------------------------------------------------------------------------------------------
 void SpecialPowerCompletionDie::notifyScriptEngine()
 {
-	if (m_creatorID != INVALID_ID)
+	if (m_gxSpecialPowerCompletionDie->m_creatorID != INVALID_ID)
 	{
 		TheScriptEngine->notifyOfCompletedSpecialPower(
 			getObject()->gxPlayerIndex(),
 			getSpecialPowerCompletionDieModuleData()->m_specialPowerTemplate->getName(),
-			m_creatorID);
+			m_gxSpecialPowerCompletionDie->m_creatorID);
 	}
 }
 
@@ -77,10 +77,10 @@ void SpecialPowerCompletionDie::notifyScriptEngine()
 //-------------------------------------------------------------------------------------------------
 void SpecialPowerCompletionDie::setCreator( ObjectID creatorID )
 {
-	if (!m_creatorSet)
+	if (!m_gxSpecialPowerCompletionDie->m_creatorSet)
 	{
-		m_creatorSet = TRUE;
-		m_creatorID = creatorID;
+		m_gxSpecialPowerCompletionDie->m_creatorSet = TRUE;
+		m_gxSpecialPowerCompletionDie->m_creatorID = creatorID;
 	}
 }
 
@@ -112,10 +112,10 @@ void SpecialPowerCompletionDie::xfer( Xfer *xfer )
 	DieModule::xfer( xfer );
 
 	// creator id
-	xfer->xferObjectID( &m_creatorID );
+	xfer->xferObjectID( &m_gxSpecialPowerCompletionDie->m_creatorID );
 
 	// creator set
-	xfer->xferBool( &m_creatorSet );
+	xfer->xferBool( &m_gxSpecialPowerCompletionDie->m_creatorSet );
 
 }
 

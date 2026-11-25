@@ -29,6 +29,8 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
+
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/INI.h"
 #include "GameLogic/Module/DieModule.h"
@@ -63,6 +65,14 @@ public:
 //-------------------------------------------------------------------------------------------------
 /** Special power completion die */
 //-------------------------------------------------------------------------------------------------
+// web port (round 5, units are pure data): SpecialPowerCompletionDie's per-unit state, one row per module in
+// GxComponentPool<SpecialPowerCompletionDieRow> (the module keeps only the row index, m_gxSpecialPowerCompletionDie)
+struct SpecialPowerCompletionDieRow
+{
+	ObjectID m_creatorID;
+	Bool m_creatorSet;
+};
+
 class SpecialPowerCompletionDie : public DieModule
 {
 
@@ -81,8 +91,7 @@ public:
 
 protected:
 
-	ObjectID m_creatorID;
-	Bool m_creatorSet;
+	GxRow<SpecialPowerCompletionDieRow> m_gxSpecialPowerCompletionDie;	///< web port (round 5): this module's state, a row of its component pool
 
 };
 

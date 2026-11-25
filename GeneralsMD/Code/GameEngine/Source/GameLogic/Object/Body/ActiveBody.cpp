@@ -155,25 +155,12 @@ void ActiveBodyModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 ActiveBody::ActiveBody( Thing *thing, const ModuleData* moduleData ) :
-	BodyModule(thing, moduleData),
-	m_curDamageFX(nullptr),
-	m_curArmorSet(nullptr),
-	m_frontCrushed(false),
-	m_backCrushed(false),
-	m_lastDamageTimestamp(0xffffffff),// So we don't think we just got damaged on the first frame
-	m_lastHealingTimestamp(0xffffffff),// So we don't think we just got healed on the first frame
-	m_curDamageState(BODY_PRISTINE),
-	m_nextDamageFXTime(0),
-	m_lastDamageFXDone((DamageType)-1),
-	m_lastDamageCleared(false),
-	m_particleSystems(nullptr),
-	m_currentSubdualDamage(0),
-	m_indestructible(false)
+	BodyModule(thing, moduleData)
 {
-	m_currentHealth = getActiveBodyModuleData()->m_initialHealth;
-	m_prevHealth = getActiveBodyModuleData()->m_initialHealth;
-	m_maxHealth = getActiveBodyModuleData()->m_maxHealth;
-	m_initialHealth = getActiveBodyModuleData()->m_initialHealth;
+	m_gxActiveBody->m_currentHealth = getActiveBodyModuleData()->m_initialHealth;
+	m_gxActiveBody->m_prevHealth = getActiveBodyModuleData()->m_initialHealth;
+	m_gxActiveBody->m_maxHealth = getActiveBodyModuleData()->m_maxHealth;
+	m_gxActiveBody->m_initialHealth = getActiveBodyModuleData()->m_initialHealth;
 
 	// force an initially-valid armor setup
 	validateArmorAndDamageFX();
@@ -202,10 +189,10 @@ void ActiveBody::onDelete()
 //-------------------------------------------------------------------------------------------------
 void ActiveBody::setCorrectDamageState()
 {
-	m_curDamageState = calcDamageState(m_currentHealth, m_maxHealth);
+	m_gxActiveBody->m_curDamageState = calcDamageState(m_gxActiveBody->m_currentHealth, m_gxActiveBody->m_maxHealth);
 
 	/// @todo srj -- bleah, this is an icky way to do it. oh well.
-	if (m_curDamageState == BODY_RUBBLE && getObject()->isKindOf(KINDOF_STRUCTURE))
+	if (m_gxActiveBody->m_curDamageState == BODY_RUBBLE && getObject()->isKindOf(KINDOF_STRUCTURE))
 	{
 		Real rubbleHeight = getObject()->getTemplate()->getStructureRubbleHeight();
 
@@ -251,9 +238,9 @@ void ActiveBody::setDamageState( BodyDamageType newState )
 	{
 		ratio = 0.0f;
 	}
-	Real desiredHealth = m_maxHealth * ratio - 1;// -1 because < not <= in calcState
+	Real desiredHealth = m_gxActiveBody->m_maxHealth * ratio - 1;// -1 because < not <= in calcState
 	desiredHealth = max( desiredHealth, 0.0f );
-	internalChangeHealth( desiredHealth - m_currentHealth );
+	internalChangeHealth( desiredHealth - m_gxActiveBody->m_currentHealth );
 	setCorrectDamageState();
 }
 
@@ -261,20 +248,20 @@ void ActiveBody::setDamageState( BodyDamageType newState )
 //-------------------------------------------------------------------------------------------------
 void ActiveBody::validateArmorAndDamageFX() const
 {
-	const ArmorTemplateSet* set = getObject()->getTemplate()->findArmorTemplateSet(m_curArmorSetFlags);
+	const ArmorTemplateSet* set = getObject()->getTemplate()->findArmorTemplateSet(m_gxActiveBody->m_curArmorSetFlags);
 	DEBUG_ASSERTCRASH(set, ("findArmorSet should never return null"));
-	if (set && set != m_curArmorSet)
+	if (set && set != m_gxActiveBody->m_curArmorSet)
 	{
 		if (set->getArmorTemplate())
 		{
-			m_curArmor = TheArmorStore->makeArmor(set->getArmorTemplate());
+			m_gxActiveBody->m_curArmor = TheArmorStore->makeArmor(set->getArmorTemplate());
 		}
 		else
 		{
-			m_curArmor.clear();
+			m_gxActiveBody->m_curArmor.clear();
 		}
-		m_curDamageFX = set->getDamageFX();
-		m_curArmorSet = set;
+		m_gxActiveBody->m_curDamageFX = set->getDamageFX();
+		m_gxActiveBody->m_curArmorSet = set;
 	}
 }
 
@@ -306,7 +293,7 @@ Real ActiveBody::estimateDamage( DamageInfoInput& damageInfo ) const
 		}
 	}
 
-	Real amount = m_curArmor.adjustDamage(damageInfo.m_damageType, damageInfo.m_amount);
+	Real amount = m_gxActiveBody->m_curArmor.adjustDamage(damageInfo.m_damageType, damageInfo.m_amount);
 
 	return amount;
 }
@@ -323,15 +310,15 @@ void ActiveBody::doDamageFX( const DamageInfo *damageInfo )
 		damageTypeToUse = damageInfo->in.m_damageFXOverride;
 	}
 
-	if (m_curDamageFX)
+	if (m_gxActiveBody->m_curDamageFX)
 	{
 		UnsignedInt now = TheGameLogic->getFrame();
-		if (damageTypeToUse == m_lastDamageFXDone && m_nextDamageFXTime > now)
+		if (damageTypeToUse == m_gxActiveBody->m_lastDamageFXDone && m_gxActiveBody->m_nextDamageFXTime > now)
 			return;
 		Object *source = TheGameLogic->findObjectByID(damageInfo->in.m_sourceID);	// might be null, I guess
-		m_lastDamageFXDone = damageTypeToUse;
-		m_nextDamageFXTime = now + m_curDamageFX->getDamageFXThrottleTime(damageTypeToUse, source);
-		m_curDamageFX->doDamageFX(damageTypeToUse, damageInfo->out.m_actualDamageDealt, source, getObject());
+		m_gxActiveBody->m_lastDamageFXDone = damageTypeToUse;
+		m_gxActiveBody->m_nextDamageFXTime = now + m_gxActiveBody->m_curDamageFX->getDamageFXThrottleTime(damageTypeToUse, source);
+		m_gxActiveBody->m_curDamageFX->doDamageFX(damageTypeToUse, damageInfo->out.m_actualDamageDealt, source, getObject());
 	}
 }
 
@@ -345,7 +332,7 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 	if( damageInfo == nullptr )
 		return;
 
-	if ( m_indestructible )
+	if ( m_gxActiveBody->m_indestructible )
 		return;
 
 	// initialize these, just in case we bail out early
@@ -367,7 +354,7 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 
 	Bool alreadyHandled = FALSE;
 	Bool allowModifier = TRUE;
-	Real amount = m_curArmor.adjustDamage(damageInfo->in.m_damageType, damageInfo->in.m_amount);
+	Real amount = m_gxActiveBody->m_curArmor.adjustDamage(damageInfo->in.m_damageType, damageInfo->in.m_amount);
 
 	switch( damageInfo->in.m_damageType )
 	{
@@ -501,7 +488,7 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 		// of health to prevent indefinite subdue status when internally shifting health across the threshold.
 		Bool wasSubdued = isSubdued();
 		internalAddSubdualDamage(amount);
-		Bool nowSubdued = m_maxHealth <= m_currentSubdualDamage;
+		Bool nowSubdued = m_gxActiveBody->m_maxHealth <= m_gxActiveBody->m_currentSubdualDamage;
 		alreadyHandled = TRUE;
 		allowModifier = FALSE;
 
@@ -519,19 +506,19 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 		{
 			// Apply the damage scalar (extra bonuses -- like strategy center defensive battle plan)
 			// And remember not to adjust unresistable damage, just like the armor code can't.
-			amount *= m_damageScalar;
+			amount *= m_gxBodyModule->m_damageScalar;
 		}
 	}
 
 	// sanity check the damage value -- can't apply negative damage
 	if( amount > 0.0f || damageInfo->in.m_kill )
 	{
-		BodyDamageType oldState = m_curDamageState;
+		BodyDamageType oldState = m_gxActiveBody->m_curDamageState;
 
 		//If the object is going to die, make sure we damage all remaining health.
 		if( damageInfo->in.m_kill )
 		{
-			amount = m_currentHealth;
+			amount = m_gxActiveBody->m_currentHealth;
 		}
 
 		if (!alreadyHandled)
@@ -546,13 +533,13 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 //THIS CODE HAS BEEN DISABLED FOR THE MULTIPLAYER PLAY TEST!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!**
 //*****************************************************************************************
 //		// if we were "killed" by surrender damage...
-//		if (damageInfo->in.m_damageType == DAMAGE_SURRENDER && m_currentHealth <= 0.0f && obj->isKindOf(KINDOF_CAN_SURRENDER))
+//		if (damageInfo->in.m_damageType == DAMAGE_SURRENDER && m_gxActiveBody->m_currentHealth <= 0.0f && obj->isKindOf(KINDOF_CAN_SURRENDER))
 //		{
 //			AIUpdateInterface* ai = obj->getAIUpdateInterface();
 //			if (ai)
 //			{
 //				// do no damage, but make it surrender instead.
-//				m_currentHealth = m_prevHealth;
+//				m_gxActiveBody->m_currentHealth = m_gxActiveBody->m_prevHealth;
 //				const Object* killer = TheGameLogic->findObjectByID( damageInfo->in.m_sourceID );
 //				ai->setSurrendered(killer, true);
 //				return;
@@ -564,32 +551,32 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 
 		// record the actual damage done from this, and when it happened
 		damageInfo->out.m_actualDamageDealt = amount;
-		damageInfo->out.m_actualDamageClipped = m_prevHealth - m_currentHealth;
+		damageInfo->out.m_actualDamageClipped = m_gxActiveBody->m_prevHealth - m_gxActiveBody->m_currentHealth;
 
 		// then copy the whole DamageInfo struct for easy lookup
 		// (object pointer loses scope as soon as atteptdamage's caller ends)
-		// m_lastDamageTimestamp is initialized to FFFFFFFFFF, so doing a < compare is problematic.
+		// m_gxActiveBody->m_lastDamageTimestamp is initialized to FFFFFFFFFF, so doing a < compare is problematic.
 		// jba.
-		if (m_lastDamageTimestamp!=TheGameLogic->getFrame() && m_lastDamageTimestamp != TheGameLogic->getFrame()-1) {
-			m_lastDamageInfo = *damageInfo;
-			m_lastDamageCleared = false;
-			m_lastDamageTimestamp = TheGameLogic->getFrame();
+		if (m_gxActiveBody->m_lastDamageTimestamp!=TheGameLogic->getFrame() && m_gxActiveBody->m_lastDamageTimestamp != TheGameLogic->getFrame()-1) {
+			m_gxActiveBody->m_lastDamageInfo = *damageInfo;
+			m_gxActiveBody->m_lastDamageCleared = false;
+			m_gxActiveBody->m_lastDamageTimestamp = TheGameLogic->getFrame();
 		} else {
 			// Multiple damages applied in one/next frame.  We prefer the one that tells who the attacker is.
-			Object *srcObj1 = TheGameLogic->findObjectByID(m_lastDamageInfo.in.m_sourceID);
+			Object *srcObj1 = TheGameLogic->findObjectByID(m_gxActiveBody->m_lastDamageInfo.in.m_sourceID);
 			Object *srcObj2 = TheGameLogic->findObjectByID(damageInfo->in.m_sourceID);
 			if (srcObj2) {
 				if (srcObj1) {
 					if (srcObj2->isKindOf(KINDOF_VEHICLE) || srcObj2->isKindOf(KINDOF_INFANTRY) ||
 						srcObj2->isFactionStructure()) {
-							m_lastDamageInfo = *damageInfo;
-							m_lastDamageCleared = false;
-							m_lastDamageTimestamp = TheGameLogic->getFrame();
+							m_gxActiveBody->m_lastDamageInfo = *damageInfo;
+							m_gxActiveBody->m_lastDamageCleared = false;
+							m_gxActiveBody->m_lastDamageTimestamp = TheGameLogic->getFrame();
 						}
 				} else {
-					m_lastDamageInfo = *damageInfo;
-					m_lastDamageCleared = false;
-					m_lastDamageTimestamp = TheGameLogic->getFrame();
+					m_gxActiveBody->m_lastDamageInfo = *damageInfo;
+					m_gxActiveBody->m_lastDamageCleared = false;
+					m_gxActiveBody->m_lastDamageTimestamp = TheGameLogic->getFrame();
 				}
 
 			}	else {
@@ -598,9 +585,9 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 		}
 
 		// Notify the player that they have been attacked by this player
-		if (m_lastDamageInfo.in.m_sourceID != INVALID_ID)
+		if (m_gxActiveBody->m_lastDamageInfo.in.m_sourceID != INVALID_ID)
 		{
-			Object *srcObj = TheGameLogic->findObjectByID(m_lastDamageInfo.in.m_sourceID);
+			Object *srcObj = TheGameLogic->findObjectByID(m_gxActiveBody->m_lastDamageInfo.in.m_sourceID);
 			if (srcObj)
 			{
 				Player *srcPlayer = srcObj->getControllingPlayer();
@@ -609,7 +596,7 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 		}
 
 		// if our health has gone down then do run the damage module callback
-		if( m_currentHealth < m_prevHealth )
+		if( m_gxActiveBody->m_currentHealth < m_gxActiveBody->m_prevHealth )
 		{
 			for (BehaviorModule** m = obj->getBehaviorModules(); *m; ++m)
 			{
@@ -621,7 +608,7 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 			}
 		}
 
-		if (m_curDamageState != oldState)
+		if (m_gxActiveBody->m_curDamageState != oldState)
 		{
 			for (BehaviorModule** m = obj->getBehaviorModules(); *m; ++m)
 			{
@@ -629,17 +616,17 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 				if (!d)
 					continue;
 
-				d->onBodyDamageStateChange( damageInfo, oldState, m_curDamageState );
+				d->onBodyDamageStateChange( damageInfo, oldState, m_gxActiveBody->m_curDamageState );
 			}
 
 			// @todo: This really feels like it should be in the TransitionFX lists.
-			if (m_curDamageState == BODY_DAMAGED)
+			if (m_gxActiveBody->m_curDamageState == BODY_DAMAGED)
 			{
 				AudioEventRTS damaged = *obj->getTemplate()->getSoundOnDamaged();
 				damaged.setObjectID(obj->getID());
 				TheAudio->addAudioEvent(&damaged);
 			}
-			else if (m_curDamageState == BODY_REALLYDAMAGED)
+			else if (m_gxActiveBody->m_curDamageState == BODY_REALLYDAMAGED)
 			{
 				AudioEventRTS reallyDamaged = *obj->getTemplate()->getSoundOnReallyDamaged();
 				reallyDamaged.setObjectID(obj->getID());
@@ -649,9 +636,9 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 		}
 
 		// Should we play our fear sound?
-		if( (m_prevHealth / m_maxHealth) > YELLOW_DAMAGE_PERCENT &&
-				(m_currentHealth / m_maxHealth) < YELLOW_DAMAGE_PERCENT &&
-				(m_currentHealth > 0) )
+		if( (m_gxActiveBody->m_prevHealth / m_gxActiveBody->m_maxHealth) > YELLOW_DAMAGE_PERCENT &&
+				(m_gxActiveBody->m_currentHealth / m_gxActiveBody->m_maxHealth) < YELLOW_DAMAGE_PERCENT &&
+				(m_gxActiveBody->m_currentHealth > 0) )
 		{
 			// 25% chance to play
 			if (GameLogicRandomValue(0, 99) < 25)
@@ -664,7 +651,7 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 		}
 
 		// check to see if we died
-		if( m_currentHealth <= 0 && m_prevHealth > 0 )
+		if( m_gxActiveBody->m_currentHealth <= 0 && m_gxActiveBody->m_prevHealth > 0 )
 		{
 			// Give our killer credit for killing us, if there is one.
 			if( damager )
@@ -824,31 +811,31 @@ void ActiveBody::attemptHealing( DamageInfo *damageInfo )
 	damageInfo->out.m_actualDamageDealt = 0.0f;
 	damageInfo->out.m_actualDamageClipped = 0.0f;
 
-	Real amount = m_curArmor.adjustDamage(damageInfo->in.m_damageType, damageInfo->in.m_amount);
+	Real amount = m_gxActiveBody->m_curArmor.adjustDamage(damageInfo->in.m_damageType, damageInfo->in.m_amount);
 
 	// sanity check the damage value -- can't apply negative healing
 	if( amount > 0.0f )
 	{
-		BodyDamageType oldState = m_curDamageState;
+		BodyDamageType oldState = m_gxActiveBody->m_curDamageState;
 
 		// do the damage simplistic damage ADDITION
 		internalChangeHealth( amount );
 
 		// record the actual damage done from this, and when it happened
 		damageInfo->out.m_actualDamageDealt = amount;
-		damageInfo->out.m_actualDamageClipped = m_prevHealth - m_currentHealth;
+		damageInfo->out.m_actualDamageClipped = m_gxActiveBody->m_prevHealth - m_gxActiveBody->m_currentHealth;
 
 		//then copy the whole DamageInfo struct for easy lookup
 		//(object pointer loses scope as soon as atteptdamage's caller ends)
-		m_lastDamageInfo = *damageInfo;
-		m_lastDamageCleared = false;
+		m_gxActiveBody->m_lastDamageInfo = *damageInfo;
+		m_gxActiveBody->m_lastDamageCleared = false;
 #if PRESERVE_RETAIL_BEHAVIOR
-		m_lastDamageTimestamp = TheGameLogic->getFrame();
+		m_gxActiveBody->m_lastDamageTimestamp = TheGameLogic->getFrame();
 #endif
-		m_lastHealingTimestamp = TheGameLogic->getFrame();
+		m_gxActiveBody->m_lastHealingTimestamp = TheGameLogic->getFrame();
 
 		// if our health has gone UP then do run the damage module callback
-		if( m_currentHealth > m_prevHealth )
+		if( m_gxActiveBody->m_currentHealth > m_gxActiveBody->m_prevHealth )
 		{
 			for (BehaviorModule** m = obj->getBehaviorModules(); *m; ++m)
 			{
@@ -860,7 +847,7 @@ void ActiveBody::attemptHealing( DamageInfo *damageInfo )
 			}
 		}
 
-		if (m_curDamageState != oldState)
+		if (m_gxActiveBody->m_curDamageState != oldState)
 		{
 			for (BehaviorModule** m = obj->getBehaviorModules(); *m; ++m)
 			{
@@ -868,7 +855,7 @@ void ActiveBody::attemptHealing( DamageInfo *damageInfo )
 				if (!d)
 					continue;
 
-				d->onBodyDamageStateChange( damageInfo, oldState, m_curDamageState );
+				d->onBodyDamageStateChange( damageInfo, oldState, m_gxActiveBody->m_curDamageState );
 			}
 		}
 	}
@@ -884,13 +871,13 @@ void ActiveBody::setInitialHealth(Int initialPercent)
 {
 
 	// save the current health as the previous health
-	m_prevHealth = m_currentHealth;
+	m_gxActiveBody->m_prevHealth = m_gxActiveBody->m_currentHealth;
 
 	Real factor = initialPercent/100.0f;
-	Real newHealth = factor * m_initialHealth;
+	Real newHealth = factor * m_gxActiveBody->m_initialHealth;
 
 	// change the health to the requested percentage.
-	internalChangeHealth(newHealth - m_currentHealth);
+	internalChangeHealth(newHealth - m_gxActiveBody->m_currentHealth);
 
 }
 
@@ -900,9 +887,9 @@ void ActiveBody::setInitialHealth(Int initialPercent)
 //-------------------------------------------------------------------------------------------------
 void ActiveBody::setMaxHealth( Real maxHealth, MaxHealthChangeType healthChangeType )
 {
-	Real prevMaxHealth = m_maxHealth;
-	m_maxHealth = maxHealth;
-	m_initialHealth = maxHealth;
+	Real prevMaxHealth = m_gxActiveBody->m_maxHealth;
+	m_gxActiveBody->m_maxHealth = maxHealth;
+	m_gxActiveBody->m_initialHealth = maxHealth;
 
 	switch( healthChangeType )
 	{
@@ -910,9 +897,9 @@ void ActiveBody::setMaxHealth( Real maxHealth, MaxHealthChangeType healthChangeT
 		{
 			//400/500 (80%) + 100 becomes 480/600 (80%)
 			//200/500 (40%) - 100 becomes 160/400 (40%)
-			Real ratio = m_currentHealth / prevMaxHealth;
+			Real ratio = m_gxActiveBody->m_currentHealth / prevMaxHealth;
 			Real newHealth = maxHealth * ratio;
-			internalChangeHealth( newHealth - m_currentHealth );
+			internalChangeHealth( newHealth - m_gxActiveBody->m_currentHealth );
 			break;
 		}
 		case ADD_CURRENT_HEALTH_TOO:
@@ -933,7 +920,7 @@ void ActiveBody::setMaxHealth( Real maxHealth, MaxHealthChangeType healthChangeT
 			// Set current to the new Max.
 			//400/500 (80%) + 100 becomes 600/600 (100%)
 			//200/500 (40%) - 100 becomes 400/400 (100%)
-			internalChangeHealth(m_maxHealth - m_currentHealth);
+			internalChangeHealth(m_gxActiveBody->m_maxHealth - m_gxActiveBody->m_currentHealth);
 			break;
 		}
 	}
@@ -944,9 +931,9 @@ void ActiveBody::setMaxHealth( Real maxHealth, MaxHealthChangeType healthChangeT
 	// new cap.  Note that we are *NOT* going through any healing or damage methods here
 	// and are doing a direct set
 	//
-	if( m_currentHealth > maxHealth )
+	if( m_gxActiveBody->m_currentHealth > maxHealth )
 	{
-		internalChangeHealth( maxHealth - m_currentHealth );
+		internalChangeHealth( maxHealth - m_gxActiveBody->m_currentHealth );
 	}
 
 }
@@ -961,7 +948,7 @@ void ActiveBody::evaluateVisualCondition()
 	Drawable* draw = getObject()->getDrawable();
 	if (draw)
 	{
-		draw->reactToBodyDamageStateChange(m_curDamageState);
+		draw->reactToBodyDamageStateChange(m_gxActiveBody->m_curDamageState);
 	}
 
 	//
@@ -1072,8 +1059,8 @@ void ActiveBody::createParticleSystems( const AsciiString &boneBaseName,
 			// create a new body particle system entry and keep this particle system in it
 			BodyParticleSystem *newEntry = newInstance(BodyParticleSystem);
 			newEntry->m_particleSystemID = particleSystem->getSystemID();
-			newEntry->m_next = m_particleSystems;
-			m_particleSystems = newEntry;
+			newEntry->m_next = m_gxActiveBody->m_particleSystems;
+			m_gxActiveBody->m_particleSystems = newEntry;
 
 		}
 
@@ -1089,22 +1076,22 @@ void ActiveBody::deleteAllParticleSystems()
 	BodyParticleSystem *nextBodySystem;
 	ParticleSystem *particleSystem;
 
-	while( m_particleSystems )
+	while( m_gxActiveBody->m_particleSystems )
 	{
 
 		// get this particle system
-		particleSystem = TheParticleSystemManager->findParticleSystem( m_particleSystems->m_particleSystemID );
+		particleSystem = TheParticleSystemManager->findParticleSystem( m_gxActiveBody->m_particleSystems->m_particleSystemID );
 		if( particleSystem )
 			particleSystem->destroy();
 
 		// get next system in the body
-		nextBodySystem = m_particleSystems->m_next;
+		nextBodySystem = m_gxActiveBody->m_particleSystems->m_next;
 
 		// destroy this entry
-		deleteInstance(m_particleSystems);
+		deleteInstance(m_gxActiveBody->m_particleSystems);
 
 		// set the body systems head to the next
-		m_particleSystems = nextBodySystem;
+		m_gxActiveBody->m_particleSystems = nextBodySystem;
 
 	}
 
@@ -1217,27 +1204,27 @@ void ActiveBody::updateBodyParticleSystems()
 void ActiveBody::internalChangeHealth( Real delta )
 {
 	// save the current health as the previous health
-	m_prevHealth = m_currentHealth;
+	m_gxActiveBody->m_prevHealth = m_gxActiveBody->m_currentHealth;
 
 	// change the health by the delta, it can be positive or negative
-	m_currentHealth += delta;
+	m_gxActiveBody->m_currentHealth += delta;
 
 	// high end cap
-	Real maxHealth = m_maxHealth;
-	if( m_currentHealth > maxHealth )
-		m_currentHealth = maxHealth;
+	Real maxHealth = m_gxActiveBody->m_maxHealth;
+	if( m_gxActiveBody->m_currentHealth > maxHealth )
+		m_gxActiveBody->m_currentHealth = maxHealth;
 
 	// low end cap
 	const Real lowEndCap = 0.0f;  // low end cap for health, don't go below this
-	if( m_currentHealth < lowEndCap )
-		m_currentHealth = lowEndCap;
+	if( m_gxActiveBody->m_currentHealth < lowEndCap )
+		m_gxActiveBody->m_currentHealth = lowEndCap;
 
 	// recalc the damage state
-	BodyDamageType oldState = m_curDamageState;
+	BodyDamageType oldState = m_gxActiveBody->m_curDamageState;
 	setCorrectDamageState();
 
 	// if our state has changed
-	if( m_curDamageState != oldState )
+	if( m_gxActiveBody->m_curDamageState != oldState )
 	{
 
 		//
@@ -1252,7 +1239,7 @@ void ActiveBody::internalChangeHealth( Real delta )
 
 	// mark the bit according to our health. (if our AI is dead but our health improves, it will
 	// still re-flag this bit in the AIDeadState every frame.)
-	getObject()->setEffectivelyDead(m_currentHealth <= 0);
+	getObject()->setEffectivelyDead(m_gxActiveBody->m_currentHealth <= 0);
 
 }
 
@@ -1262,13 +1249,13 @@ void ActiveBody::internalAddSubdualDamage( Real delta )
 {
 	const ActiveBodyModuleData *data = getActiveBodyModuleData();
 
-	m_currentSubdualDamage += delta;
+	m_gxActiveBody->m_currentSubdualDamage += delta;
 #if RETAIL_COMPATIBLE_CRC
-	m_currentSubdualDamage = min(m_currentSubdualDamage, data->m_subdualDamageCap);
+	m_gxActiveBody->m_currentSubdualDamage = min(m_gxActiveBody->m_currentSubdualDamage, data->m_subdualDamageCap);
 #else
 	// TheSuperHackers @bugfix Stubbjax 25/01/2026 Subdual damage can no longer go negative, which
 	// stops weak subdual damage + rapid healing from negatively stacking subdual damage over time.
-	m_currentSubdualDamage = clamp(0.0f, m_currentSubdualDamage, data->m_subdualDamageCap);
+	m_gxActiveBody->m_currentSubdualDamage = clamp(0.0f, m_gxActiveBody->m_currentSubdualDamage, data->m_subdualDamageCap);
 #endif
 }
 
@@ -1327,12 +1314,12 @@ void ActiveBody::onSubdualChange( Bool isNowSubdued )
 Bool ActiveBody::isSubdued() const
 {
 #if RETAIL_COMPATIBLE_CRC
-	return m_maxHealth <= m_currentSubdualDamage;
+	return m_gxActiveBody->m_maxHealth <= m_gxActiveBody->m_currentSubdualDamage;
 #else
   // TheSuperHackers @info Projectiles don't receive the DISABLED_SUBDUED flag (or any flag for
 	// that matter) when jammed, so we have to check their subdual damage directly.
 	if (getObject()->isKindOf(KINDOF_PROJECTILE))
-		return m_maxHealth <= m_currentSubdualDamage;
+		return m_gxActiveBody->m_maxHealth <= m_gxActiveBody->m_currentSubdualDamage;
 
 	return getObject()->isDisabledByType(DISABLED_SUBDUED);
 #endif
@@ -1342,21 +1329,21 @@ Bool ActiveBody::isSubdued() const
 //-------------------------------------------------------------------------------------------------
 Real ActiveBody::getHealth() const
 {
-	return m_currentHealth;
+	return m_gxActiveBody->m_currentHealth;
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 BodyDamageType ActiveBody::getDamageState() const
 {
-	return m_curDamageState;
+	return m_gxActiveBody->m_curDamageState;
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 Real ActiveBody::getMaxHealth() const
 {
-	return m_maxHealth;
+	return m_gxActiveBody->m_maxHealth;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1377,14 +1364,14 @@ Real ActiveBody::getSubdualDamageHealAmount() const
 //-------------------------------------------------------------------------------------------------
 Bool ActiveBody::hasAnySubdualDamage() const
 {
-	return m_currentSubdualDamage > 0;
+	return m_gxActiveBody->m_currentSubdualDamage > 0;
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 Real ActiveBody::getInitialHealth() const
 {
-	return m_initialHealth;
+	return m_gxActiveBody->m_initialHealth;
 }
 
 
@@ -1394,7 +1381,7 @@ Real ActiveBody::getInitialHealth() const
 void ActiveBody::setIndestructible( Bool indestructible )
 {
 
-	m_indestructible = indestructible;
+	m_gxActiveBody->m_indestructible = indestructible;
 
 	// for bridges, we mirror this state on its towers
 	Object *us = getObject();
@@ -1488,13 +1475,13 @@ void ActiveBody::onVeterancyLevelChanged( VeterancyLevel oldLevel, VeterancyLeve
 	Real mult = newBonus / oldBonus;
 
 	// get this before calling setMaxHealth, since it can clip curHealth
-	//Real newHealth = m_currentHealth * mult;
+	//Real newHealth = m_gxActiveBody->m_currentHealth * mult;
 
 	// change the max
-	setMaxHealth(m_maxHealth * mult, PRESERVE_RATIO );
+	setMaxHealth(m_gxActiveBody->m_maxHealth * mult, PRESERVE_RATIO );
 
 	// now change the cur (setMaxHealth now handles it)
-	//internalChangeHealth( newHealth - m_currentHealth );
+	//internalChangeHealth( newHealth - m_gxActiveBody->m_currentHealth );
 
 	switch (newLevel)
 	{
@@ -1562,53 +1549,53 @@ void ActiveBody::xfer( Xfer *xfer )
 	BodyModule::xfer( xfer );
 
 	// current health
-	xfer->xferReal( &m_currentHealth );
+	xfer->xferReal( &m_gxActiveBody->m_currentHealth );
 
-	xfer->xferReal( &m_currentSubdualDamage );
+	xfer->xferReal( &m_gxActiveBody->m_currentSubdualDamage );
 
 	// previous health
-	xfer->xferReal( &m_prevHealth );
+	xfer->xferReal( &m_gxActiveBody->m_prevHealth );
 
 	// max health
-	xfer->xferReal( &m_maxHealth );
+	xfer->xferReal( &m_gxActiveBody->m_maxHealth );
 
 	// initial health
-	xfer->xferReal( &m_initialHealth );
+	xfer->xferReal( &m_gxActiveBody->m_initialHealth );
 
 	// current damage state
-	xfer->xferUser( &m_curDamageState, sizeof( BodyDamageType ) );
+	xfer->xferUser( &m_gxActiveBody->m_curDamageState, sizeof( BodyDamageType ) );
 
 	// next damage fx time
-	xfer->xferUnsignedInt( &m_nextDamageFXTime );
+	xfer->xferUnsignedInt( &m_gxActiveBody->m_nextDamageFXTime );
 
 	// last damage fx done
-	xfer->xferUser( &m_lastDamageFXDone, sizeof( DamageType ) );
+	xfer->xferUser( &m_gxActiveBody->m_lastDamageFXDone, sizeof( DamageType ) );
 
 	// last damage info
-	xfer->xferSnapshot( &m_lastDamageInfo );
+	xfer->xferSnapshot( &m_gxActiveBody->m_lastDamageInfo );
 
 	// last damage timestamp
-	xfer->xferUnsignedInt( &m_lastDamageTimestamp );
+	xfer->xferUnsignedInt( &m_gxActiveBody->m_lastDamageTimestamp );
 
 	// last damage timestamp
-	xfer->xferUnsignedInt( &m_lastHealingTimestamp );
+	xfer->xferUnsignedInt( &m_gxActiveBody->m_lastHealingTimestamp );
 
 	// front crushed
-	xfer->xferBool( &m_frontCrushed );
+	xfer->xferBool( &m_gxActiveBody->m_frontCrushed );
 
 	// back crushed
-	xfer->xferBool( &m_backCrushed );
+	xfer->xferBool( &m_gxActiveBody->m_backCrushed );
 
 	// last damaged cleared
-	xfer->xferBool( &m_lastDamageCleared );
+	xfer->xferBool( &m_gxActiveBody->m_lastDamageCleared );
 
 	// indestructible
-	xfer->xferBool( &m_indestructible );
+	xfer->xferBool( &m_gxActiveBody->m_indestructible );
 
 	// particle system count
 	BodyParticleSystem *system;
 	UnsignedShort particleSystemCount = 0;
-	for( system = m_particleSystems; system; system = system->m_next )
+	for( system = m_gxActiveBody->m_particleSystems; system; system = system->m_next )
 		particleSystemCount++;
 	xfer->xferUnsignedShort( &particleSystemCount );
 
@@ -1617,7 +1604,7 @@ void ActiveBody::xfer( Xfer *xfer )
 	{
 
 		// walk the particle systems
-		for( system = m_particleSystems; system; system = system->m_next )
+		for( system = m_gxActiveBody->m_particleSystems; system; system = system->m_next )
 		{
 
 			// write particle system ID
@@ -1631,10 +1618,10 @@ void ActiveBody::xfer( Xfer *xfer )
 		ParticleSystemID particleSystemID;
 
 		// the list should be empty at this time
-		if( m_particleSystems != nullptr )
+		if( m_gxActiveBody->m_particleSystems != nullptr )
 		{
 
-			DEBUG_CRASH(( "ActiveBody::xfer - m_particleSystems should be empty, but is not" ));
+			DEBUG_CRASH(( "ActiveBody::xfer - m_gxActiveBody->m_particleSystems should be empty, but is not" ));
 			throw SC_INVALID_DATA;
 
 		}
@@ -1650,15 +1637,15 @@ void ActiveBody::xfer( Xfer *xfer )
 			// allocate entry and add to list
 			newEntry = newInstance(BodyParticleSystem);
 			newEntry->m_particleSystemID = particleSystemID;
-			newEntry->m_next = m_particleSystems;  // the list will be reversed, but we don't care
-			m_particleSystems = newEntry;
+			newEntry->m_next = m_gxActiveBody->m_particleSystems;  // the list will be reversed, but we don't care
+			m_gxActiveBody->m_particleSystems = newEntry;
 
 		}
 
 	}
 
 	// armor set flags
-	m_curArmorSetFlags.xfer( xfer );
+	m_gxActiveBody->m_curArmorSetFlags.xfer( xfer );
 
 }
 
