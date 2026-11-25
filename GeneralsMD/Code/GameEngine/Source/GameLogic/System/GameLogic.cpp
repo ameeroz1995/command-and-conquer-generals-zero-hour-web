@@ -3951,9 +3951,6 @@ extern __int64 Total_Load_3D_Assets;
 void GameLogic::update()
 {
 	USE_PERF_TIMER(GameLogic_update)
-	// web port (round 5 measuring): logic ms per tick for the paths GXTIME lines (setting gxPathsTiming)
-	extern void gxPathsTick(bool begin);
-	struct GxTickScope { GxTickScope() { gxPathsTick(true); } ~GxTickScope() { gxPathsTick(false); } } gxTickScope;
 
 	LatchRestore<Bool> inUpdateLatch(m_isInUpdate, TRUE);
 #ifdef DO_UNIT_TIMINGS
