@@ -297,10 +297,6 @@ protected:
 	struct GxAIInternalMoveToStateRow *m_gxAIInternalMoveToStateRow;	///< web port (round 5): this unit's row in TheGxAIInternalMoveToStates
 	friend struct GxAIInternalMoveToStateRow;
 	inline struct GxAIInternalMoveToStateRow &gxRow() const;
-	// web port (round 5): names for the two row fields that subclasses in other files (JetAIUpdate.cpp)
-	// still use directly; they refer to this unit's row, they hold no data of their own
-	Coord3D &m_goalPosition;
-	Bool &m_waitingForPath;
 private:
 																										//   occasionally false for things like car bombs.
 protected:

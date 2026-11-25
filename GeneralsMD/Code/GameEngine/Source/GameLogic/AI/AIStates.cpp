@@ -7719,9 +7719,7 @@ StateReturnType AIFaceState::update()
 }
 
 AIInternalMoveToState::AIInternalMoveToState( StateMachine *machine, AsciiString name ) : State( machine, name ),
-	m_gxAIInternalMoveToStateRow( TheGxAIInternalMoveToStates.alloc( nullptr ) ),	// web port (round 5): this unit's row (zeroed, like the module was)
-	m_goalPosition( m_gxAIInternalMoveToStateRow->goalPosition ),
-	m_waitingForPath( m_gxAIInternalMoveToStateRow->waitingForPath )
+	m_gxAIInternalMoveToStateRow( TheGxAIInternalMoveToStates.alloc( nullptr ) )	// web port (round 5): this unit's row (zeroed, like the module was)
 {
 
 		gxRow().goalPosition.zero();

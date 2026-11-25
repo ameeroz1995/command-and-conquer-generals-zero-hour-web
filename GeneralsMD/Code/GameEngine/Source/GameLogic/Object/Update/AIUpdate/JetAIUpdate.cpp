@@ -428,7 +428,7 @@ public:
 		}
 
 		setAdjustsDestination(true);
-		m_goalPosition = *jetAI->friend_getProducerLocation();
+		AIInternalMoveToState::gxRow().goalPosition = *jetAI->friend_getProducerLocation();
 
 		return AIInternalMoveToState::onEnter();
 	}
@@ -624,7 +624,7 @@ public:
 			}
 		}
 
-		m_waitingForPath = FALSE;
+		AIInternalMoveToState::gxRow().waitingForPath = FALSE;
 		TheAI->pathfinder()->setDebugPath(movePath);
 
 		setAdjustsDestination(false);	// precision is necessary
@@ -1685,7 +1685,7 @@ public:
 
 		if (jet->isKindOf(KINDOF_PRODUCED_AT_HELIPAD))
 		{
-			m_goalPosition = jetAI->friend_getLandingPosForHelipadStuff();
+			AIInternalMoveToState::gxRow().goalPosition = jetAI->friend_getLandingPosForHelipadStuff();
 		}
 		else
 		{
@@ -1693,7 +1693,7 @@ public:
 			if (!pp->reserveSpace(jet->getID(), jetAI->friend_getParkingOffset(), &ppinfo))
 				return STATE_FAILURE;
 
-			m_goalPosition = jetAI->friend_needsRunway() ? ppinfo.runwayApproach : ppinfo.parkingSpace;
+			AIInternalMoveToState::gxRow().goalPosition = jetAI->friend_needsRunway() ? ppinfo.runwayApproach : ppinfo.parkingSpace;
 		}
 		setAdjustsDestination(false);		// precision is necessary
 

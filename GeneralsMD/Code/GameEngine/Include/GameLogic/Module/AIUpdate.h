@@ -695,9 +695,6 @@ private:
 
 private:
 	struct GxAIUpdateInterfaceRow *m_gxAIUpdateInterfaceRow;	///< web port (round 5): this unit's row in TheGxAIUpdateInterfaces
-protected:
-	Path *&m_path;	///< web port (round 5): the row's path, by its old name for the AI subclasses in other files (no data of its own)
-private:
 	friend struct GxAIUpdateInterfaceRow;
 	inline struct GxAIUpdateInterfaceRow &gxRow() const;
 

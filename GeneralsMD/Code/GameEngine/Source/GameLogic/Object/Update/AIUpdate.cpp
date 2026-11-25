@@ -212,8 +212,7 @@ AIStateMachine* AIUpdateInterface::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 AIUpdateInterface::AIUpdateInterface( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData ),
-	m_gxAIUpdateInterfaceRow( TheGxAIUpdateInterfaces.alloc( getObject() ) ),	// web port (round 5): this unit's row (zeroed, like the module was)
-	m_path( m_gxAIUpdateInterfaceRow->path )
+	m_gxAIUpdateInterfaceRow( TheGxAIUpdateInterfaces.alloc( getObject() ) )	// web port (round 5): this unit's row (zeroed, like the module was)
 {
 
 	int i;
