@@ -3882,3 +3882,10 @@ Converted (per-unit state now in tables):
 Checks: referee replay matches (builds ai-19, ai-20, ai-21, ai-22); a recording made with
 updatePasses on replays to a match on each; verify mode shows no mismatch from these changes (the only
 mismatch lines on perf/low-end come from the "laser scan" check, objects 829/832/1624/1643).
+Timing (under timing.lock; started at load 7.5, other agents' builds pushed it to 11-17), work ms,
+ai-17 (merged base) / ai-22 (converted):
+- run 1: ai-17 at load 7.5: armies 42.9, strikes 73.4, aftermath 81.7; ai-22 at load 16: 77.4, 112.2, 78.1
+- run 2: ai-17 at load 15: 79.6, 116.5, 86.0; ai-22 at load 16->11: 56.0, 86.0, 52.3
+At matched load the converted build is level or faster; run 1's gap follows the load. Not slower within
+what this machine can show; it is the same game, so it stays on (there is no switch for where the
+data lives; dataBehaviors only gates the minefield's cached lookup).
