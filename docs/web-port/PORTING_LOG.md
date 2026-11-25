@@ -4058,3 +4058,24 @@ data lives; dataBehaviors only gates the minefield's cached lookup).
   rectangle) -> gxPairKernel(in, begin, end, out, cap) (reads the blocks and store columns, writes
   only (seeker, slot) pairs to its own out; returns -1 when out is full, the main thread grows it and
   reruns) -> apply (main, seekers in object-ID order: collideStagger, addToContactList).
+
+## 2026-11-26 — ai: pool migration, kernel hooks, shared timing (logic-ai)
+
+Merged paths 79c4008, query (GxTime), collide de3d971 (in-place pool rows, cached row pointer).
+- Kernel hooks (GameLogic.h): gxRegisterKernel(storeBit, phase, kernel(slots, b, e), apply(slots, n)),
+  every frame at the start of the phase; gxRegisterKindKernel(kindNameKey, kernel(mods, b, e),
+  apply(mods, n)), in the updatePasses dispatch right before that kind's module updates (fourth word
+  bit 7, kindKernels, on). Paths and combat have the API.
+- Minefield system as kernel + apply on store bit 56 (ai's kernel bits 56-59; dispatch kinds 32-55,
+  misc 60-63).
+- StateMachine / State / AIStateMachine per-unit state in rows too.
+- All 98 ai tables now on the shared GxComponentPool/GxRow (own GxComponents.h removed).
+- Timing on the shared GxTime (ids aiLoop, aiKernels, aiModuleCalls, aiKernelSlots).
+Checks (ai-29, ai-30): referee replay matches; recording ai-up5.rep (default rules 0xFEE6E7) replays
+to a match; verify mode: no mismatch lines.
+Timing, same recording ai-up5.rep, tickTiming on, timing.lock, load 3-5 (ai-29 before the pool
+migration / ai-30 after):
+- run 1: logic 0.511 / 0.522 ms/tick; aiLoop 0.079 / 0.079; aiKernels 0.011 / 0.010
+- run 2: logic 0.525 / 0.516 ms/tick; aiLoop 0.079 / 0.078; aiKernels 0.011 / 0.010
+- work counters identical: 33.7 module calls/tick; frames 9598, p99 17.5 / 17.4 ms, 5 frames over 100 ms
+Level (this recording is a light game: 0.5 ms of logic per tick).
