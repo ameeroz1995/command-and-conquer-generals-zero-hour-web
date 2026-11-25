@@ -134,6 +134,14 @@ public:
 	typedef void (*GxKernelFn)( const Int *slots, Int begin, Int end );
 	typedef void (*GxApplyFn)( const Int *slots, Int count );
 	static void gxRegisterKernel( Int storeBit, Int phase, GxKernelFn kernel, GxApplyFn apply );
+	// Per-kind batch hook (fourth switch word bit 7, kindKernels, on): for an update-module kind (its
+	// module name key), the updatePasses dispatch hands the kind's every-frame modules, in object-ID
+	// order, to kernel(mods, 0, n) and then apply(mods, n), right before that kind's per-module
+	// update loop. Only under updatePasses (the modules are in pass lists only then), so a module's
+	// update() must still do its job when the kernel did not run.
+	typedef void (*GxKindKernelFn)( UpdateModulePtr *mods, Int begin, Int end );
+	typedef void (*GxKindApplyFn)( UpdateModulePtr *mods, Int count );
+	static void gxRegisterKindKernel( NameKeyType kind, GxKindKernelFn kernel, GxKindApplyFn apply );
 	void gxNoteDisabled( Object *obj );	///< web port: obj may now be disabled (switch disabledList)
 
 	void addObjectToLookupTable( Object *obj );			///< add object ID to hash lookup table
