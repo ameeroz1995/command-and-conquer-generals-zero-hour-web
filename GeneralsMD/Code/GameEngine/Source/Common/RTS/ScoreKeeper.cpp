@@ -253,7 +253,7 @@ void ScoreKeeper::addObjectDestroyed( const Object *o)
 		return;
 	}
 
-	Int playerIdx = o->getControllingPlayer()->getPlayerIndex();
+	Int playerIdx = o->gxPlayerIndex();
 
 	Bool addToCount = FALSE;
 	if(o->getTemplate()->isKindOfMulti(scoringBuildingMask, KINDOFMASK_NONE))

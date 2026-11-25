@@ -90,7 +90,7 @@ EjectPilotDie::~EjectPilotDie()
 
 	AudioEventRTS voiceEject = *(dyingObject->getTemplate()->getPerUnitSound("VoiceEject"));
 	voiceEject.setPosition( dyingObject->getPosition() );
-	voiceEject.setPlayerIndex( dyingObject->getControllingPlayer()->getPlayerIndex() );
+	voiceEject.setPlayerIndex( dyingObject->gxPlayerIndex() );
 	TheAudio->addAudioEvent(&voiceEject);
 
 	AudioEventRTS soundEject = *(dyingObject->getTemplate()->getPerUnitSound("SoundEject"));

@@ -54,7 +54,7 @@ void GxUnitStore::add(Object *o)
 	pos.push_back(*p);
 	Coord3D zero; zero.zero();
 	vel.push_back(zero);
-	radius.push_back(o->getGeometryInfo().getBoundingCircleRadius());
+	radius.push_back(o->getGeometryInfo().getBoundingCircleRadius());	// not yet in the store: from the geometry
 	player.push_back((signed char)pi);
 	playerBit.push_back(pi >= 0 ? (1u << pi) : 0u);
 	cell.push_back(-1);

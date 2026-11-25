@@ -366,7 +366,7 @@ void TunnelContain::scatterToNearbyPosition(Object* obj)
 //	angle = TheTacticalView->getAngle();
 //	angle -= GameLogicRandomValueReal( PI / 3.0f, 2.0f * (PI / 3.0F) );
 
-	Real minRadius = theContainer->getGeometryInfo().getBoundingCircleRadius();
+	Real minRadius = theContainer->getBoundingCircleRadius();
 	Real maxRadius = minRadius + minRadius / 2.0f;
 	const Coord3D *containerPos = theContainer->getPosition();
 	Real dist = GameLogicRandomValueReal( minRadius, maxRadius );

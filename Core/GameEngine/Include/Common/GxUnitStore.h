@@ -23,8 +23,10 @@
 //   it. Without the switch it is a write-through copy (Object::reactToTransformChange).
 // - vel: the truth for every unit with physics (PhysicsBehavior reads and writes it here; one
 //   Coord3D per slot rather than three arrays, because getVelocity() hands out a Coord3D pointer).
-// - radius: write-through from Object::setGeometryInfo (bounding circle radius).
-// - player, playerBit: write-through from Object::setOrRestoreTeam (controlling player index).
+// - radius: the truth for the object's bounding circle radius (Object::getBoundingCircleRadius()
+//   reads it); set by Object::setGeometryInfo. The GeometryInfo keeps its own value for shape tests.
+// - player, playerBit: the truth for the controlling-player index (Object::gxPlayerIndex() reads it);
+//   set by Object::setOrRestoreTeam and TeamPrototype::setControllingPlayer (whole-team owner change).
 // - cell: the partition cell (cy * cellCountX + cx) under the unit's centre, written by
 //   PartitionData::updateCellsTouched when it changes (-1 off the map or before that).
 // - mask: set when a unit's behaviour set changes (setMask); never re-tested per tick.
@@ -48,6 +50,9 @@ enum GxBehaviour
 	GXB_AI      = 5,	///< has an AIUpdateInterface (ai)
 	GXB_ANIM    = 6,	///< animation / pose (combat)
 	GXB_DAMAGE  = 7,	///< has a body that takes damage (combat)
+	// 8-31: free for other passes. 32-63: reserved for ai, one bit per every-frame update-module kind
+	// (the update loop's dispatch table, GameLogic.cpp, match rule 131072).
+	GXB_AI_FIRST = 32,
 	GXB_COUNT   = 64
 };
 #define GXB_BIT(b) (1ull << (b))

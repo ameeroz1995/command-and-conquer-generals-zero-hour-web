@@ -1397,8 +1397,8 @@ void PhysicsBehavior::onCollide( Object *other, const Coord3D *loc, const Coord3
 	else
 	{
 		// do 2d testing.
-		usRadius = obj->getGeometryInfo().getBoundingCircleRadius();
-		themRadius = other->getGeometryInfo().getBoundingCircleRadius();
+		usRadius = obj->getBoundingCircleRadius();
+		themRadius = other->getBoundingCircleRadius();
 		distSqr = sqr(delta.x) + sqr(delta.y);
 		delta.z = 0;
 	}

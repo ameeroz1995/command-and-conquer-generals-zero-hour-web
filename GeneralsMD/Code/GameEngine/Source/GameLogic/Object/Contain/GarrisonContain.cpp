@@ -1434,7 +1434,7 @@ void GarrisonContain::validateRallyPoint()
 
 		// pick a location for everybody to rally at
 		options.flags = FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS;
-		options.minRadius = getObject()->getGeometryInfo().getBoundingCircleRadius();
+		options.minRadius = getObject()->getBoundingCircleRadius();
 		options.maxRadius = options.minRadius * 1.8f;  // arbitrary max distance away, change as needed
 		options.ignoreObject = getObject();
 		options.relationshipObject = getObject();
