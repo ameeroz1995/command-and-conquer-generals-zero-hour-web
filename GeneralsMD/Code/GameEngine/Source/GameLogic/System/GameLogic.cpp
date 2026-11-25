@@ -3947,6 +3947,8 @@ extern __int64 Total_Load_3D_Assets;
 
 // ------------------------------------------------------------------------------------------------
 /** Update all objects in the world by invoking their update() methods. */
+static void gxRunKernels( Int phase );	// round 5 kernels (defined with the registry below)
+
 // ------------------------------------------------------------------------------------------------
 void GameLogic::update()
 {
@@ -4126,6 +4128,7 @@ void GameLogic::update()
 		};
 		for (Int ph = 0; ph < 4; ++ph)
 		{
+			gxRunKernels(ph);	// round 5 kernels of this phase, before any of its module updates
 			runHeap((now << 2) | ph);
 			// the dispatch table: kinds of this phase in table order, each over its store list
 			auto afterRun = [&](UpdateModulePtr u, UpdateSleepTime sleepLen)
@@ -4245,6 +4248,7 @@ void GameLogic::update()
 	{
 		gxPassFlushToHeap();
 	{
+		Int gxPhaseDone = -1;	// round 5 kernels: run each phase's before its first module update
 		while (!m_sleepyUpdates.empty())
 		{
 			UpdateModulePtr u = peekSleepyUpdate();
@@ -4260,6 +4264,10 @@ void GameLogic::update()
 			if (u->friend_getNextCallFrame() > now)
 			{
 				break;
+			}
+			{
+				const Int ph = (Int)(u->friend_getPriority() & 3);
+				while (gxPhaseDone < ph) gxRunKernels(++gxPhaseDone);
 			}
 
 			UpdateSleepTime sleepLen = UPDATE_SLEEP_NONE;	// default, if it is disabled.
@@ -4285,6 +4293,7 @@ void GameLogic::update()
 			u->friend_setNextCallFrame(now + sleepLen);
 			rebalanceSleepyUpdate(0);
 		}
+		while (gxPhaseDone < 3) gxRunKernels(++gxPhaseDone);	// phases with no module due this frame
 	}
 
 	}
@@ -4512,6 +4521,35 @@ void GameLogic::gxCheckDisabledObjects()
 		else obj->m_gxDisabledListed = false;
 	}
 	m_gxDisabledObjs.resize(w);
+}
+
+// ------------------------------------------------------------------------------------------------
+// Web port (round 5 addendum): kernel registry (GameLogic.h gxRegisterKernel). Kept in registration
+// order; a bit+phase pair registered twice replaces the earlier entry.
+// ------------------------------------------------------------------------------------------------
+namespace {
+struct GxKernelEntry { Int bit, phase; GameLogic::GxKernelFn kernel; GameLogic::GxApplyFn apply; };
+std::vector<GxKernelEntry> &gxKernels() { static std::vector<GxKernelEntry> k; return k; }
+}
+void GameLogic::gxRegisterKernel( Int storeBit, Int phase, GxKernelFn kernel, GxApplyFn apply )
+{
+	for (GxKernelEntry &e : gxKernels())
+		if (e.bit == storeBit && e.phase == phase) { e.kernel = kernel; e.apply = apply; return; }
+	GxKernelEntry e = { storeBit, phase & 3, kernel, apply };
+	gxKernels().push_back(e);
+}
+static void gxRunKernels( Int phase )
+{
+	static std::vector<int> slots;
+	for (const GxKernelEntry &e : gxKernels())
+	{
+		if (e.phase != phase) continue;
+		slots = TheGxUnitStore.pass(e.bit);	// copied: apply may change masks
+		const Int n = (Int)slots.size();
+		if (!n) continue;
+		if (e.kernel) e.kernel(slots.data(), 0, n);
+		if (e.apply) e.apply(slots.data(), n);
+	}
 }
 
 // ------------------------------------------------------------------------------------------------
