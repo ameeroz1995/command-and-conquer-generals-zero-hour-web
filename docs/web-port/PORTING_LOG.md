@@ -3175,3 +3175,26 @@ Built per the user's round-3 decision (small gains meant to add up). Two parts:
   28.5 / 33.8 ms (same as physReuse: one pair each way). Strikes fps off 5.8 / 8.2, physReuse
   8.7 / 11.1, physBulk 10.7 / 8.4: load noise, physics is ~10% of a strike frame. physBulk gives
   nothing measurable on its own and is not slower; left off for the combined measurement.
+
+## 2026-11-25 — Collisions: quicker crush check and collide-module list (third word bits 4 / 5, on, same game)
+
+- Measured first (build col-t1, temporary timers; they inflate everything, compare shares only):
+  per strike frame 4k-31k pairs offered, 1.4k-5k really touching; the geometry test is about a third
+  of the collision time, Object::onCollide on both sides two thirds; inside PhysicsBehavior::onCollide
+  AI processCollision ~1/3 (2k-7k calls per frame; AIUpdate.cpp, the ai agent's file this round) and
+  the crush check ~15%.
+- crushFirst (third word bit 4, Object.cpp): canCrushOrSquish(TEST_CRUSH_ONLY) can only answer true
+  when my crusher level is above its crushable level, so it decides that before the ally lookup
+  (getRelationship changes nothing). Verify mode: 1,240,000 checks in the battle, 0 mismatches.
+  Pairs (col-2t, crush-check time summed over the first 6 windows, load 10-20): off 12.80 / 11.44 ms,
+  on 11.92 / 12.00 ms: inside noise, not slower.
+- collideList (third word bit 5, Object.cpp): Object::onCollide asked every behaviour module (20-40
+  per unit) for its collide interface on every collision; now each object lists its collide modules
+  once (behaviour order, built on its first collision; getCollide() is fixed per module and the
+  behaviour list never changes after creation). Same status check before each module. Verify mode:
+  10,080,000 checks, 0 mismatches. Pairs (col-3t, Object::onCollide time outside PhysicsBehavior
+  summed over the first 6 windows, same 20,617 touching pairs per run, load 5-11): off 45.5 / 27.4 ms
+  (the first under a load spike), on 18.9 / 19.1 ms: about -30% of the dispatch.
+- Referee replay matches (9,000 frames) on col-2 and col-3.
+- physBulk pair rerun (phys-6t, load 6-10): off 30.6 / 22.8 ms, on 26.2 / 27.0 ms: same as before,
+  no gain, not slower.

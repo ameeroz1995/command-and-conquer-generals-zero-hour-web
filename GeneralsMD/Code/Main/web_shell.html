@@ -1277,6 +1277,8 @@
             { key: 'leanPairs', def: true, label: 'LEANER TOUCHING-PAIR CHECK', note: 'Finding which units might touch reads less memory per pair (a smaller table, unit details read later). Same game.' },
             { key: 'physReuse', def: true, label: 'LEANER PHYSICS STEP', note: 'Unit physics reuses the ground height it just looked up instead of looking it up again. Same game.' },
             { key: 'physBulk', def: false, label: 'PHYSICS IN ONE PASS', note: 'Forces and speeds of all units are worked out in one pass at the start of physics. A push that lands later in the same frame counts one frame late. Changes the game slightly (match rule).' },
+            { key: 'crushFirst', def: true, label: 'QUICKER CRUSH CHECK', note: 'When units touch, the can-it-crush check compares crush levels before looking up whether they are allies. Same game.' },
+            { key: 'collideList', def: true, label: 'COLLIDE MODULE LIST', note: 'Each unit lists its collision handlers once instead of asking all its parts on every touch. Same game.' },
             { key: 'searchSlotSkip', def: true, label: 'SKIP FRIENDS IN NEARBY SEARCHES', note: 'Searches for nearby enemies (also stealth detectors) pass over each friendly unit without reading it. Same game: the answer is always the same.' },
             { key: 'laserFilters', def: true, label: 'NARROW LASER DEFENCE SCANS', note: 'Point-defence lasers ask only for enemy missiles and shells nearby instead of listing every unit around them. Same game.' },
             { key: 'denseCellMask', def: true, label: 'COMPACT MAP OF WHO IS WHERE', note: 'Enemy searches check a small table of which players are in each map square before reading the square itself. Same game.' },
