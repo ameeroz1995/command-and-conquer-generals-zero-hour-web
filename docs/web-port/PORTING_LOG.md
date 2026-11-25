@@ -3650,3 +3650,18 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
 - Still write-through (store holds a copy): radius (truth is the GeometryInfo, a value type shared
   with templates), player (truth is the Team pointer; the store holds the derived index). The cell is
   written by the partition (query); mask and velocity have no other copy.
+- Radius and player in the store (build store-5, same game): Object::getBoundingCircleRadius() and
+  Object::gxPlayerIndex() read the store; the store's radius is set by setGeometryInfo (the
+  GeometryInfo keeps its own copy for shape tests, it is a value type shared with templates), the
+  player index by setOrRestoreTeam and by TeamPrototype::setControllingPlayer for every member of
+  every instance of a team that changes owner. PhysicsBehavior::onCollide reads the radius from the
+  store. Referee replay matches with verify (contact array 90,600 checks, 0 mismatches).
+- Engine-wide switch to the store getters (build store-6, one mechanical commit, same game): every
+  `obj->getGeometryInfo().getBoundingCircleRadius()` (37 sites + 2 inside Object) now calls
+  `getBoundingCircleRadius()`, every Object `->getControllingPlayer()->getPlayerIndex()` (36 sites +
+  3 inside Object) calls `gxPlayerIndex()`. Left as they were: shape tests and local GeometryInfo
+  variables, template geometry (getTemplateGeometryInfo), Team receivers (2 in setOrRestoreTeam), and
+  the partition's kept place (max of circle and sphere radius, query's code). The store's player index
+  is now written right after m_team changes, before anything in setOrRestoreTeam can read it.
+  Referee replay matches with verify (contact array 90,600 checks, 0 mismatches); the verify battle
+  printed 3,076 GXVERIFY lines, none with a mismatch.

@@ -419,6 +419,10 @@ public:
 	/// cache the partition module (should be called only by PartitionData)
 	void friend_setPartitionData(PartitionData *pd) { m_partitionData = pd; }
 	PartitionData *friend_getPartitionData() const { return m_partitionData; }
+
+	// web port (round 4): hot fields whose truth is the unit store
+	Real getBoundingCircleRadius() const;	///< the store's radius (set from the geometry by setGeometryInfo)
+	Int gxPlayerIndex() const;				///< the store's controlling-player index (-1 none; set on every team or owner change)
 	const PartitionData *friend_getConstPartitionData() const { return m_partitionData; }
 	Bool hasGhostObject() const; ///< This object has a ghost object. This does not imply that a ghost snapshot is taken or active.
 

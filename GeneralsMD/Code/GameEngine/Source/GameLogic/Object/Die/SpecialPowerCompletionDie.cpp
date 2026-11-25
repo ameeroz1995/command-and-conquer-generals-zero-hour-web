@@ -67,7 +67,7 @@ void SpecialPowerCompletionDie::notifyScriptEngine()
 	if (m_creatorID != INVALID_ID)
 	{
 		TheScriptEngine->notifyOfCompletedSpecialPower(
-			getObject()->getControllingPlayer()->getPlayerIndex(),
+			getObject()->gxPlayerIndex(),
 			getSpecialPowerCompletionDieModuleData()->m_specialPowerTemplate->getName(),
 			m_creatorID);
 	}

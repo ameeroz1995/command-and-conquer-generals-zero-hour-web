@@ -947,7 +947,7 @@ void StealthUpdate::disguiseAsObject( const Object *target )
 		else
 		{
 			m_disguiseAsTemplate				= target->getTemplate();
-			m_disguiseAsPlayerIndex			= target->getControllingPlayer()->getPlayerIndex();
+			m_disguiseAsPlayerIndex			= target->gxPlayerIndex();
 		}
 
 		m_enabled										= true;

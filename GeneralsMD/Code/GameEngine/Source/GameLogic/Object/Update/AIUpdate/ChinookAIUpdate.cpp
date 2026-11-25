@@ -252,7 +252,7 @@ public:
 		{
 			Coord3D tmp;
 			FindPositionOptions options;
-			options.maxRadius = obj->getGeometryInfo().getBoundingCircleRadius() * 100.0f;
+			options.maxRadius = obj->getBoundingCircleRadius() * 100.0f;
 			if (ThePartitionManager->findPositionAround(&m_destLoc, &options, &tmp))
 			{
 				m_destLoc = tmp;
@@ -1234,7 +1234,7 @@ void ChinookAIUpdate::privateGetRepaired( Object *repairDepot, CommandSourceType
 	Coord3D pos = *repairDepot->getPosition();
 	Coord3D tmp;
 	FindPositionOptions options;
-	options.maxRadius = repairDepot->getGeometryInfo().getBoundingCircleRadius() * 100.0f;
+	options.maxRadius = repairDepot->getBoundingCircleRadius() * 100.0f;
 	if (ThePartitionManager->findPositionAround(&pos, &options, &tmp))
 		pos = tmp;
 
@@ -1262,7 +1262,7 @@ void ChinookAIUpdate::privateCombatDrop( Object* target, const Coord3D& pos, Com
 		// if you combat-drop into a spot in the fog-of-war.
 		Coord3D tmp;
 		FindPositionOptions options;
-		options.maxRadius = getObject()->getGeometryInfo().getBoundingCircleRadius() * 100.0f;
+		options.maxRadius = getObject()->getBoundingCircleRadius() * 100.0f;
 		if (ThePartitionManager->findPositionAround(&localPos, &options, &tmp))
 		{
 			localPos = tmp;

@@ -5775,7 +5775,7 @@ Object *InGameUI::findIdleWorker( Object *obj)
 	if(!obj)
 		return nullptr;
 
-	Int index = obj->getControllingPlayer()->getPlayerIndex();
+	Int index = obj->gxPlayerIndex();
 	if(m_idleWorkers[index].empty())
 		return nullptr;
 
@@ -5801,7 +5801,7 @@ void InGameUI::addIdleWorker( Object *obj )
 	if(findIdleWorker(obj))
 		return;
 
-	Int index = obj->getControllingPlayer()->getPlayerIndex();
+	Int index = obj->gxPlayerIndex();
 	m_idleWorkers[index].push_back(obj);
 }
 

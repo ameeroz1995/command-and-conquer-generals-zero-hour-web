@@ -243,7 +243,7 @@ void FirestormDynamicGeometryInfoUpdate::doDamageScan()
 	damageInfo.in.m_amount = modData->m_damageAmount;
 
 	// get the current bounding circle size for the firestorm
-	Real boundingCircle = firestorm->getGeometryInfo().getBoundingCircleRadius();
+	Real boundingCircle = firestorm->getBoundingCircleRadius();
 
 	// scan objects around us and do damage to objects we have "passed over"
 	if( boundingCircle )

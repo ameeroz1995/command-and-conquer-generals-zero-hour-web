@@ -163,7 +163,7 @@ static void doSetRallyPoint( Object *obj, const Coord3D& pos )
 			// play the no can do sound
 			static AudioEventRTS rallyNotSet("UnableToSetRallyPoint");
 			rallyNotSet.setPosition(&pos);
-			rallyNotSet.setPlayerIndex(obj->getControllingPlayer()->getPlayerIndex());
+			rallyNotSet.setPlayerIndex(obj->gxPlayerIndex());
 			TheAudio->addAudioEvent(&rallyNotSet);
 
 		}
@@ -185,7 +185,7 @@ static void doSetRallyPoint( Object *obj, const Coord3D& pos )
 		// play a sound for setting the rally point
 		static AudioEventRTS rallyPointSet("RallyPointSet");
 		rallyPointSet.setPosition(&pos);
-		rallyPointSet.setPlayerIndex(obj->getControllingPlayer()->getPlayerIndex());
+		rallyPointSet.setPlayerIndex(obj->gxPlayerIndex());
 		TheAudio->addAudioEvent(&rallyPointSet);
 
 		// mark the UI as dirty so that we re-evaluate the selection and show the rally point

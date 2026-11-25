@@ -3640,7 +3640,7 @@ static void localApplyBattlePlanBonusesToObject( Object *obj, void *userData )
 					CRCDEBUG_LOG(("Applying armor scalar of %g (%8.8X) to object %d (%ls) owned by player %d",
 						bonus->m_armorScalar, AS_INT(bonus->m_armorScalar), objectToModify->getID(),
 						objectToModify->getTemplate()->getDisplayName().str(),
-						objectToModify->getControllingPlayer()->getPlayerIndex()));
+						objectToModify->gxPlayerIndex()));
 					DEBUG_LOG(("After apply, armor scalar is %g", body->getDamageScalar()));
 				}
 				if( bonus->m_sightRangeScalar != 1.0f )

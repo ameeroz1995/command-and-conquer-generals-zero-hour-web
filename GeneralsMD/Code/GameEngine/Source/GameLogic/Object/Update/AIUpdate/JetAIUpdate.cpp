@@ -2271,7 +2271,7 @@ void JetAIUpdate::positionLockon()
 
 	Coord3D pos = *getObject()->getPosition();
 	Real frac = (Real)remaining / (Real)d->m_lockonTime;
-	Real finalDist = getObject()->getGeometryInfo().getBoundingCircleRadius();
+	Real finalDist = getObject()->getBoundingCircleRadius();
 	Real dist = finalDist + (d->m_lockonInitialDist - finalDist) * frac;
 	Real angle = d->m_lockonAngleSpin * frac;
 
@@ -2439,7 +2439,7 @@ void JetAIUpdate::doLandingCommand(Object *airfield, CommandSourceType cmdSource
 
 		Coord3D tmp;
 		FindPositionOptions options;
-		options.maxRadius = airfield->getGeometryInfo().getBoundingCircleRadius() * 10.0f;
+		options.maxRadius = airfield->getBoundingCircleRadius() * 10.0f;
 		if (ThePartitionManager->findPositionAround(&m_landingPosForHelipadStuff, &options, &tmp))
 			m_landingPosForHelipadStuff = tmp;
 	}

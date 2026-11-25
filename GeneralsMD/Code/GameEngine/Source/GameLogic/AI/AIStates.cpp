@@ -603,8 +603,8 @@ StateReturnType AIRappelState::update()
 					// Garrison doesn't have reserveDoor or exitDelay, so if we do nothing, everyone will appear on top
 					// of each other and get stuck inside each others' extent (except for the first guy).  So we'll
 					// scatter the start point around a little to make it better.
-					Real offset = min(obj->getGeometryInfo().getBoundingCircleRadius(),
-														bldg->getGeometryInfo().getBoundingCircleRadius());
+					Real offset = min(obj->getBoundingCircleRadius(),
+														bldg->getBoundingCircleRadius());
 					Real angle = GameLogicRandomValueReal( PI, 2*PI );//Downish.
 					Coord3D startPosition = *bldg->getPosition();
 					startPosition.x += offset * Cos( angle );

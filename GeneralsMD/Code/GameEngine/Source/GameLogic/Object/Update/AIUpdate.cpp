@@ -4739,7 +4739,7 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	const Object *container = obj->getContainedBy();
 	if( container )
 	{
-		rangeToFindWithin += container->getGeometryInfo().getBoundingCircleRadius();
+		rangeToFindWithin += container->getBoundingCircleRadius();
 	}
 
 	UnsignedInt moodMatrixVal = getMoodMatrixValue();
