@@ -4003,3 +4003,25 @@ what this machine can show; it is the same game, so it stays on (there is no swi
 data lives; dataBehaviors only gates the minefield's cached lookup).
 - ai-23 (ExitConditions converted): referee replay matches, the updatePasses recording replays to a
   match, verify mode clean (only the laser-scan lines).
+
+## 2026-11-25 — Round 5 paths: every paths class pure data; range kernels on ai's hook; shared GxTime
+- More per-unit state into component rows: the AI state classes in paths files (Jet x7, Chinook x3,
+  Dozer x6, DeliverPayload x4, HackInternet x3), DeliverPayload's target position, SpawnPoint's spawn
+  points. Left on purpose: INI data (module data, LocomotorTemplate), LocomotorStore (global),
+  partition filters (per-call temporaries), POWTruckAIUpdate (compiled out, ALLOW_SURRENDER).
+- Range kernels through ai's per-kind hook (GameLogic::gxRegisterKernel, GxPathsKernels.h, store bits
+  20-27): AnimationSteering, Float, QueueProductionExit, Dock in PHASE_NORMAL; Missile, Jet, DeployStyle
+  in PHASE_INITIAL; the train conductor in PHASE_PHYSICS. At the start of the phase the kernel runs
+  every listed unit's kernel step (own unit only; skipped if its update will not run this frame) and
+  stamps the result in its row; update() applies it. Under match rule updatePasses only (the inputs are
+  read at the start of the phase rather than at the unit's turn); without it update() computes as before.
+  Modules whose kernel inputs come from other units or allocate keep their kernel inside update():
+  Horde (range search), Slaved, MobMember, AssaultTransport, DeliverPayload dive, RailedTransport,
+  Chinook, Dozer, Worker, HackInternet, RailedTransportDock, TensileFormation.
+- Measuring on the shared GxTime (tickTiming, Common/GxTime.h): move / moveKernel ms per tick, and the
+  counters moveUnits, moveKernelPoints, moveKernelTaken, moveApplyPoints, hordeSearches. The GXTIME
+  line buffer is 2048 bytes now (more agents' counters).
+- Checks: paths-r5i (state classes) and paths-r5j (hook kernels) match the referee with verify (90,584
+  checks, 0 mismatches each); r5i plays the round-5 kernel recording (paths-r5c.rep) to a match; a
+  recording made on r5j with updatePasses + moveAfterTick on (GX=FEE6E7, paths-r5j.rep) plays back to
+  a match with both off.
