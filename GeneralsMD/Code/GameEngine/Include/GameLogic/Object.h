@@ -209,8 +209,8 @@ public:
 	Bool checkAndDetonateBoobyTrap(const Object *victim);
 
 	// cannot set velocity, since this is calculated from position every frame
-	Bool isDestroyed() const { return m_gxObj->m_status.test( OBJECT_STATUS_DESTROYED ); }		///< Returns TRUE if object has been destroyed
-	Bool isAirborneTarget() const { return m_gxObj->m_status.test( OBJECT_STATUS_AIRBORNE_TARGET ); }	///< Our locomotor will control marking us as a valid target for anti air weapons or not
+	Bool isDestroyed() const { return gxStatus().test( OBJECT_STATUS_DESTROYED ); }		///< Returns TRUE if object has been destroyed
+	Bool isAirborneTarget() const { return gxStatus().test( OBJECT_STATUS_AIRBORNE_TARGET ); }	///< Our locomotor will control marking us as a valid target for anti air weapons or not
 	Bool isUsingAirborneLocomotor() const;										///< returns true if the current locomotor is an airborne one
 
 	/// central place for us to put any additional capture logic
@@ -273,7 +273,7 @@ public:
 	inline Bool isCaptured() const { return BitIsSet(m_gxObj->m_privateStatus, CAPTURED); }
 	void setCaptured(Bool isCaptured);
 
-	inline const GeometryInfo& getGeometryInfo() const { return m_gxObj->m_geometryInfo; }
+	inline const GeometryInfo& getGeometryInfo() const { return gxGeom(); }
 	void setGeometryInfo(const GeometryInfo& geom);
 	void setGeometryInfoZ( Real newZ );
 
@@ -336,8 +336,8 @@ public:
 	CountermeasuresBehaviorInterface* getCountermeasuresBehaviorInterface();
 	const CountermeasuresBehaviorInterface* getCountermeasuresBehaviorInterface() const;
 
-	inline ObjectStatusMaskType getStatusBits() const { return m_gxObj->m_status; }
-	inline Bool testStatus( ObjectStatusTypes bit ) const { return m_gxObj->m_status.test( bit ); }
+	inline ObjectStatusMaskType getStatusBits() const { return gxStatus(); }
+	inline Bool testStatus( ObjectStatusTypes bit ) const { return gxStatus().test( bit ); }
 	void setStatus( ObjectStatusMaskType objectStatus, Bool set = true );
 	inline void clearStatus( ObjectStatusMaskType objectStatus ) { setStatus( objectStatus, false ); }
 	void updateUpgradeModules();	///< We need to go through our Upgrade Modules and see which should be activated
@@ -405,7 +405,7 @@ public:
 	Real getConstructionPercent() const { return m_gxObj->m_constructionPercent; }
 
   void setLayer( PathfindLayerEnum layer );
-	PathfindLayerEnum getLayer() const { return m_gxObj->m_layer; }
+	PathfindLayerEnum getLayer() const { return gxLayerRef(); }
 
   void setDestinationLayer( PathfindLayerEnum layer );
 	PathfindLayerEnum getDestinationLayer() const { return m_gxObj->m_destinationLayer; }
@@ -595,8 +595,8 @@ public:
 
 	ObjectShroudStatus getShroudedStatus(Int playerIndex) const;
 
-	DisabledMaskType getDisabledFlags() const { return m_gxObj->m_disabledMask; }
-	Bool isDisabled() const { return m_gxObj->m_disabledMask.any(); }
+	DisabledMaskType getDisabledFlags() const { return gxDisabled(); }
+	Bool isDisabled() const { return gxDisabled().any(); }
 	// Web port (switch disabledList, third word bit 8; GameLogic.cpp): place in the object list
 	// (higher = nearer the head) and whether the object is in GameLogic's list of disabled objects.
 	UnsignedInt m_gxListSeq = 0;
@@ -605,7 +605,7 @@ public:
 
 	void setDisabled( DisabledType type );
 	void setDisabledUntil( DisabledType type, UnsignedInt frame );
-	Bool isDisabledByType( DisabledType type ) const { return TEST_DISABLEDMASK( m_gxObj->m_disabledMask, type ); }
+	Bool isDisabledByType( DisabledType type ) const { return TEST_DISABLEDMASK( gxDisabled(), type ); }
 
 	UnsignedInt getDisabledUntil( DisabledType type = DISABLED_ANY ) const;
 
@@ -838,6 +838,20 @@ private:
 
 	};
 	GxRow<ObjectRow> m_gxObj;
+	// web port (round 5, switch hotInStore): the truth of the hot fields (store columns while the
+	// object is stored with the switch, else the row); use the reference right away
+	ObjectStatusMaskType &gxStatus() { return m_gxHotInStore ? TheGxUnitStore.status[gxStoreSlot()] : m_gxObj->m_status; }
+	const ObjectStatusMaskType &gxStatus() const { return m_gxHotInStore ? TheGxUnitStore.status[gxStoreSlot()] : m_gxObj->m_status; }
+	DisabledMaskType &gxDisabled() { return m_gxHotInStore ? TheGxUnitStore.disabled[gxStoreSlot()] : m_gxObj->m_disabledMask; }
+	const DisabledMaskType &gxDisabled() const { return m_gxHotInStore ? TheGxUnitStore.disabled[gxStoreSlot()] : m_gxObj->m_disabledMask; }
+	PathfindLayerEnum &gxLayerRef() { return m_gxHotInStore ? TheGxUnitStore.layer[gxStoreSlot()] : m_gxObj->m_layer; }
+	const PathfindLayerEnum &gxLayerRef() const { return m_gxHotInStore ? TheGxUnitStore.layer[gxStoreSlot()] : m_gxObj->m_layer; }
+	GeometryInfo &gxGeom() { return m_gxHotInStore ? TheGxUnitStore.geom[gxStoreSlot()] : m_gxObj->m_geometryInfo; }
+	const GeometryInfo &gxGeom() const { return m_gxHotInStore ? TheGxUnitStore.geom[gxStoreSlot()] : m_gxObj->m_geometryInfo; }
+public:
+	void gxSetHotInStore(Bool on);	///< GxUnitStore only: moves the hot fields into / out of the store
+	Bool gxHotRowsMarked() const;		///< verify: the rows still hold the marks left when moved in
+private:
 
 	/// @todo srj -- convert to non-DLINK list, after it is once again possible to test the change
 	MAKE_DLINK(Object, TeamMemberList)			///< other Things that are members of the same team

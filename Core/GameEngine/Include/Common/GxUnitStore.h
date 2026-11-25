@@ -33,18 +33,24 @@
 // - cell: the partition cell (cy * cellCountX + cx) under the unit's centre, written by
 //   PartitionData::updateCellsTouched when it changes (-1 off the map or before that).
 // - mask: set when a unit's behaviour set changes (setMask); never re-tested per tick.
-// - status, disabled, layer, geomType/geomHeight/geomMajor/geomMinor (round 5, the object's hot
-//   fields): write-through copies of Object's status bits, disabled mask, pathfind layer and
-//   geometry, written by every Object setter of those (setHot), so passes can filter units on them
-//   without touching the objects. The object's row stays the truth.
-// - angle, xf: write-through copies of the orientation and the 3x4 transform (setXf, from
-//   Object::reactToTransformChange, where the position is written through too).
+// - status, disabled, layer, geom, angle, xf (round 5, switch hotInStore, fourth word bit 2, fixed per
+//   object when it enters the store): the truth for the object's status bits, disabled mask,
+//   pathfind layer, geometry, orientation and transform while it is stored. Object/Thing read and
+//   write them through ref accessors (gxStatus(), gxDisabled(), gxLayerRef(), gxGeom(), gxAngle(),
+//   gxXf()); add() moves the object's values in, remove() moves them back to its rows. Without the
+//   switch the columns are unused (no copies). References into them are valid until objects are
+//   created (the columns can reallocate): use them right away.
 #pragma once
 
 #include <vector>
 #include "Lib/BaseType.h"	// Coord3D
+#include "Common/GameType.h"			// PathfindLayerEnum
+#include "Common/ObjectStatusTypes.h"
+#include "Common/DisabledTypes.h"
+#include "WWMath/matrix3d.h"
 
 class Object;
+class GeometryInfo;	// complete wherever geom is used (Common/Geometry.h)
 
 /// A Coord3D-shaped view of one row of three float columns: `velRef(s).x += a` writes the column.
 /// Use it right away (the columns can reallocate when objects are created).
@@ -61,8 +67,6 @@ struct GxVec3Ref
 
 typedef unsigned long long GxBehaviourMask;
 
-/// a 3x4 transform (Matrix3D's three rows of four floats)
-struct GxXf { float m[12]; };
 
 /// One bit per manager pass. Agents add their own below GXB_COUNT.
 enum GxBehaviour
@@ -96,13 +100,13 @@ public:
 	std::vector<unsigned int>			playerBit;		///< 1 << player (0 for none)
 	std::vector<int>							cell;			///< partition cell index, -1 unknown
 	std::vector<GxBehaviourMask>	mask;			///< behaviour bits (GXB_BIT)
-	std::vector<unsigned long long>	status;		///< ObjectStatusMaskType bits (write-through)
-	std::vector<unsigned int>			disabled;		///< DisabledMaskType bits (write-through)
-	std::vector<signed char>			layer;			///< PathfindLayerEnum (write-through)
-	std::vector<unsigned char>		geomType;		///< GeometryType (write-through)
-	std::vector<float>						geomHeight, geomMajor, geomMinor;	///< geometry sizes (write-through)
-	std::vector<float>						angle;			///< orientation (write-through)
-	std::vector<GxXf>							xf;				///< transform (write-through)
+	// hot fields (truth with hotInStore, see above)
+	std::vector<ObjectStatusMaskType>	status;		///< status bits
+	std::vector<DisabledMaskType>		disabled;		///< disabled mask
+	std::vector<PathfindLayerEnum>		layer;			///< pathfind layer
+	std::vector<GeometryInfo>			geom;			///< geometry
+	std::vector<float>						angle;			///< orientation
+	std::vector<Matrix3D>					xf;				///< transform
 
 	// ---- combat block (round 4, combat agent): weapons ----
 	std::vector<int>							target;			///< current victim ObjectID, 0 none (write-through: AIUpdateInterface::setCurrentVictim)
@@ -138,9 +142,7 @@ public:
 	void setRadius(const Object *o, float r);
 	void setPlayer(const Object *o, int playerIndex);
 	void setCell(const Object *o, int cellIndex);
-	void setHot(const Object *o);						///< status, disabled, layer, geometry from the object
-	void setXf(const Object *o);						///< angle and transform from the object
-	void gxVerifyHot(unsigned int frame);				///< verify mode: columns vs the objects
+	void gxVerifyHot(unsigned int frame);				///< verify mode: stored objects' rows untouched (hotInStore)
 	void compact();									///< close holes (pass() calls it once per frame)
 	void bumpEpoch() { ++m_epoch; }
 

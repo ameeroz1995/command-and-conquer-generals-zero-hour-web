@@ -3902,6 +3902,20 @@ Stays default off.
   positionInStore all match; hot fields 1,295,856 checks, 0 mismatches; disabled list 0 mismatches.
   Earlier: soa-4 default / storePairs+collideSimd / physSimd record-replay match; the physSimd
   recording replayed with scalar physics matches (SIMD integration = scalar). soa-6 (timer) matches.
+- **Hot fields: the store columns are the truth** (switch hotInStore, fourth word bit 2, off until
+  timed; fixed per object when it enters the store). The write-through copies are gone. Columns
+  status (ObjectStatusMaskType), disabled (DisabledMaskType), layer, geom (GeometryInfo), angle, xf
+  (Matrix3D). Object and Thing read and write them only through ref accessors (gxStatus(), gxDisabled(),
+  gxLayerRef(), gxGeom(), Thing::gxAngle(), gxXf(): the column while stored with the switch, else the
+  row); every former m_status / m_disabledMask / m_layer / m_geometryInfo / m_transform / m_cachedAngle
+  use goes through them (xfer too). GxUnitStore::add moves the row values in (Object::gxSetHotInStore),
+  remove moves them back (setID, destruction). Moving in leaves marks in the rows; verify mode checks
+  each frame that every stored object's rows still hold them ("GXVERIFY store hot fields (rows
+  untouched while stored)"), i.e. nothing read or wrote around the columns. Without the switch the
+  columns are unused.
+- Replay soa-9 (verify), all match: switch off; on (default rep); on + storePairs (collide-sp.rep); on +
+  physBulk + physSimd (collide-ps.rep); on + positionInStore. Rows untouched: 1,295,856 checks per run,
+  0 mismatches.
 - Timing: locked tickTiming replay pairs queued (collideSimd off/on on collide-sp.rep, physSimd
   off/on on collide-ps.rep, both orders); load stayed 25-70 (other lanes) so they had not started.
 

@@ -129,7 +129,7 @@ public:
 		}
 		return &m_gxThing->m_cachedPos;
 	}
-	Real getOrientation() const { return m_gxThing->m_cachedAngle; }
+	Real getOrientation() const { return gxAngle(); }
 
 	Bool isPositioned() const;
 
@@ -159,9 +159,9 @@ public:
 		{
 			// web port (positionInStore): the translation's truth is the unit store
 			const Coord3D p = gxPos();
-			m_gxThing->m_transform.Set_Translation(Vector3(p.x, p.y, p.z));
+			gxXf().Set_Translation(Vector3(p.x, p.y, p.z));
 		}
-		return &m_gxThing->m_transform;
+		return &gxXf();
 	}
 
 	// web port (round 4): this object's slot in the unit store (-1 if none; set by GxUnitStore only)
@@ -169,9 +169,10 @@ public:
 	void gxSetStoreSlot(Int s) { m_gxSlot = s; }
 	/// position kept in the store (switch positionInStore, fixed when the object enters the store)
 	Bool gxPosInStore() const { return m_gxPosInStore; }
+	Bool gxHotInStore() const { return m_gxHotInStore; }	///< switch hotInStore: angle/transform (and Object's hot fields) live in the store
 	void gxSetPosInStore(Bool on);	///< GxUnitStore only: moves the position into / out of the store
 
-	void transformPoint( const Coord3D *in, Coord3D *out );								///< transform this point using the m_gxThing->m_transform matrix of this thing
+	void transformPoint( const Coord3D *in, Coord3D *out );								///< transform this point using the m_transform matrix of this thing
 
 protected:
 
@@ -198,12 +199,20 @@ private:
 		yes, private; it's important that some of these only be modified
 		by going thru the right methods, thus we make 'em private to enforce this.
 
-		note that "m_gxThing->m_transform" is the true description of location; the other fields
+		note that "m_transform" (gxXf()) is the true description of location; the other fields
 		(pos, angle, etc) are all simply cached values used for efficiency and convenience.
 		you should NEVER modify them directly, because that won't change anything!
 	*/
 	Int m_gxSlot;													///< web port: unit store slot, -1 if none
 	Bool m_gxPosInStore;									///< web port: the position lives in TheGxUnitStore.x/y/z[m_gxSlot]
+protected:
+	Bool m_gxHotInStore = false;					///< web port (round 5, hotInStore): angle and transform live in TheGxUnitStore.angle/xf[m_gxSlot]
+	/// the truth of the transform / orientation (store columns with hotInStore, else this thing's row)
+	Matrix3D &gxXf() const { return m_gxHotInStore ? TheGxUnitStore.xf[m_gxSlot] : m_gxThing->m_transform; }
+	Real &gxAngle() const { return m_gxHotInStore ? TheGxUnitStore.angle[m_gxSlot] : m_gxThing->m_cachedAngle; }
+	void gxSetThingHotInStore(Bool on);	///< moves angle and transform into / out of the store
+	Bool gxThingRowMarked() const;		///< verify: the row still holds the marks left when moved in
+private:
 	/// the position's truth, as a Coord3D-shaped view (store columns or m_gxThing->m_cachedPos)
 	GxVec3Ref gxPos() const
 	{

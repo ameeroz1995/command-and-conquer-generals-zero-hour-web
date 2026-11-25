@@ -190,7 +190,7 @@ static int gx_verify_mismatch, gx_verify_checked;
 Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatusMask, Team *team ) :
 	Thing(tt)
 {
-	m_gxObj->m_geometryInfo = tt->getTemplateGeometryInfo();
+	gxGeom() = tt->getTemplateGeometryInfo();
 #if defined(RTS_DEBUG)
 	m_gxObj->m_hasDiedAlready = false;
 #endif
@@ -248,8 +248,8 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 	m_gxObj->m_producerID = INVALID_ID;
 	m_gxObj->m_builderID = INVALID_ID;
 
-	m_gxObj->m_status = objectStatusMask;
-	m_gxObj->m_layer = LAYER_GROUND;
+	gxStatus() = objectStatusMask;
+	gxLayerRef() = LAYER_GROUND;
 
 	m_gxObj->m_group = nullptr;
 
@@ -768,7 +768,7 @@ void Object::onDestroy()
 Real Object::getBoundingCircleRadius() const
 {
 	const Int s = gxStoreSlot();
-	return s >= 0 ? TheGxUnitStore.radius[s] : m_gxObj->m_geometryInfo.getBoundingCircleRadius();
+	return s >= 0 ? TheGxUnitStore.radius[s] : gxGeom().getBoundingCircleRadius();
 }
 
 Int Object::gxPlayerIndex() const
@@ -782,8 +782,7 @@ Int Object::gxPlayerIndex() const
 
 void Object::setGeometryInfo(const GeometryInfo& geom)
 {
-	m_gxObj->m_geometryInfo = geom;
-	TheGxUnitStore.setHot(this);	// web port (round 5): hot fields written through to the store
+	gxGeom() = geom;
 	TheGxUnitStore.setRadius(this, geom.getBoundingCircleRadius());	// web port (round 4)
 	if( m_gxObj->m_partitionData )
 	{
@@ -803,8 +802,7 @@ void Object::setGeometryInfo(const GeometryInfo& geom)
 void Object::setGeometryInfoZ( Real newZ )
 {
 	// A Z change only does not need to un/register with the PartitionManager
-	m_gxObj->m_geometryInfo.setMaxHeightAbovePosition( newZ );
-	TheGxUnitStore.setHot(this);	// web port (round 5): hot fields written through to the store
+	gxGeom().setMaxHeightAbovePosition( newZ );
 	if (m_gxObj->m_partitionData)
 		m_gxObj->m_partitionData->gxRefreshPlace();	// web port: the bounding sphere may have grown
 
@@ -999,16 +997,15 @@ Bool Object::checkAndDetonateBoobyTrap(const Object *victim)
 //=============================================================================
 void Object::setStatus( ObjectStatusMaskType objectStatus, Bool set )
 {
-	ObjectStatusMaskType oldStatus = m_gxObj->m_status;
+	ObjectStatusMaskType oldStatus = gxStatus();
 
 	if (set)
-		m_gxObj->m_status.set( objectStatus );
+		gxStatus().set( objectStatus );
 	else
-		m_gxObj->m_status.clear( objectStatus );
+		gxStatus().clear( objectStatus );
 
-	if (m_gxObj->m_status != oldStatus)
+	if (gxStatus() != oldStatus)
 	{
-		TheGxUnitStore.setHot(this);	// web port (round 5): hot fields written through to the store
 		if( set && objectStatus.test( OBJECT_STATUS_REPULSOR ) && m_gxObj->m_repulsorHelper != nullptr )
 		{
 			// Damaged repulsable civilians scare (repulse) other civs, but only
@@ -1029,7 +1026,7 @@ void Object::setStatus( ObjectStatusMaskType objectStatus, Bool set )
 
 		// when an object's construction status changes, it needs to have its partition data updated,
 		// in order to maintain the shroud correctly.
-		if( m_gxObj->m_status.test( OBJECT_STATUS_UNDER_CONSTRUCTION ) != oldStatus.test( OBJECT_STATUS_UNDER_CONSTRUCTION ) )
+		if( gxStatus().test( OBJECT_STATUS_UNDER_CONSTRUCTION ) != oldStatus.test( OBJECT_STATUS_UNDER_CONSTRUCTION ) )
 		{
 
 			// CHECK FOR MINES, AND DETONATE THEM NOW
@@ -1853,7 +1850,6 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
 
 	if (!gxPosInStore())
 		TheGxUnitStore.setPos(this, *getPosition());	// web port (round 4): write-through without positionInStore
-	TheGxUnitStore.setXf(this);	// web port (round 5): angle and transform written through
 
 	// web port (switch searchCache): range searches keep a copy of where we are
 	if (m_gxObj->m_partitionData)
@@ -2197,8 +2193,7 @@ void Object::setDisabledUntil( DisabledType type, UnsignedInt frame )
 			pauseAllSpecialPowers( TRUE );
 
 		m_gxObj->m_disabledTillFrame[ type ] = frame;
-		m_gxObj->m_disabledMask.set( type, frame > TheGameLogic->getFrame() );
-		TheGxUnitStore.setHot(this);	// web port (round 5): hot fields written through to the store
+		gxDisabled().set( type, frame > TheGameLogic->getFrame() );
 		if( isDisabled() )
 			TheGameLogic->gxNoteDisabled( this );	// web port: keep the list of disabled objects (switch disabledList)
 
@@ -2298,14 +2293,14 @@ UnsignedInt Object::getDisabledUntil( DisabledType type ) const
 		//Iterate through each disabled type and return the one with the highest frame.
 		for( Int i = 0; i < DISABLED_COUNT; i++ )
 		{
-			if( m_gxObj->m_disabledMask.test( i ) && m_gxObj->m_disabledTillFrame[ i ] > highestFrame )
+			if( gxDisabled().test( i ) && m_gxObj->m_disabledTillFrame[ i ] > highestFrame )
 			{
 				highestFrame = m_gxObj->m_disabledTillFrame[ i ];
 			}
 		}
 		return highestFrame;
 	}
-	else if( m_gxObj->m_disabledMask.test( type ) )
+	else if( gxDisabled().test( type ) )
 	{
 		//Specific query.
 		return m_gxObj->m_disabledTillFrame[ type ];
@@ -2381,8 +2376,7 @@ Bool Object::clearDisabled( DisabledType type )
 	}
 
 	m_gxObj->m_disabledTillFrame[ type ] = NEVER;
-	m_gxObj->m_disabledMask.set( type, 0 );
-	TheGxUnitStore.setHot(this);	// web port (round 5): hot fields written through to the store
+	gxDisabled().set( type, 0 );
 
 	DisabledMaskType exceptions;
 	exceptions.set(DISABLED_HELD);
@@ -2428,8 +2422,7 @@ void Object::checkDisabledStatus()
 			if ( now >= m_gxObj->m_disabledTillFrame[ i ] )
 			{
 				clearDisabled( type ); // This will also DECREMENT m_pauseCount in all specialpowers
-				m_gxObj->m_disabledMask.set( type, 0 );
-				TheGxUnitStore.setHot(this);	// web port (round 5): hot fields written through to the store
+				gxDisabled().set( type, 0 );
 			}
 		}
 	}
@@ -2845,19 +2838,18 @@ void Object::prependToList(Object **pListHead)
 //-------------------------------------------------------------------------------------------------
 void Object::setLayer(PathfindLayerEnum layer)
 {
-	if (layer!=m_gxObj->m_layer) {
+	if (layer!=gxLayerRef()) {
 #define no_SET_LAYER_INTENSE_DEBUG
 #ifdef SET_LAYER_INTENSE_DEBUG
-		DEBUG_LOG(("Changing layer from %d to %d", m_gxObj->m_layer, layer));
-		if (m_gxObj->m_layer != LAYER_GROUND) {
-			if (TheTerrainLogic->objectInteractsWithBridgeLayer(this, m_gxObj->m_layer)) {
+		DEBUG_LOG(("Changing layer from %d to %d", gxLayerRef(), layer));
+		if (gxLayerRef() != LAYER_GROUND) {
+			if (TheTerrainLogic->objectInteractsWithBridgeLayer(this, gxLayerRef())) {
 				DEBUG_CRASH(("Probably shouldn't be changing layer. jba."));
 			}
 		}
 #endif
 		TheAI->pathfinder()->removePos(this);
-		m_gxObj->m_layer = layer;
-		TheGxUnitStore.setHot(this);	// web port (round 5): hot fields written through to the store
+		gxLayerRef() = layer;
 		TheAI->pathfinder()->updatePos(this, getPosition());
 	}
 }
@@ -2912,7 +2904,7 @@ void Object::setID( ObjectID id )
 Real Object::calculateHeightAboveTerrain() const
 {
 	const Coord3D* pos = getPosition();
-	Real terrainZ = TheTerrainLogic->getLayerHeight( pos->x, pos->y, m_gxObj->m_layer );
+	Real terrainZ = TheTerrainLogic->getLayerHeight( pos->x, pos->y, gxLayerRef() );
 	Real myZ = pos->z;
 	return myZ - terrainZ;
 }
@@ -4238,7 +4230,7 @@ void Object::xfer( Xfer *xfer )
 	// status
 	if( version >= 8 )
 	{
-		m_gxObj->m_status.xfer( xfer );
+		gxStatus().xfer( xfer );
 	}
 	else
 	{
@@ -4247,7 +4239,7 @@ void Object::xfer( Xfer *xfer )
 		xfer->xferUnsignedInt( &oldStatus );
 
 		//Clear our status
-		m_gxObj->m_status.clear();
+		gxStatus().clear();
 
 		for( int i = 0; i < 32; i++ )
 		{
@@ -4255,7 +4247,7 @@ void Object::xfer( Xfer *xfer )
 			if( oldStatus & bit )
 			{
 				ObjectStatusTypes status = (ObjectStatusTypes)(i+1);
-				m_gxObj->m_status.set( MAKE_OBJECT_STATUS_MASK( status ) );
+				gxStatus().set( MAKE_OBJECT_STATUS_MASK( status ) );
 			}
 		}
 	}
@@ -4280,7 +4272,7 @@ void Object::xfer( Xfer *xfer )
 	}
 
 	// geometry info
-	xfer->xferSnapshot( &m_gxObj->m_geometryInfo );
+	xfer->xferSnapshot( &gxGeom() );
 
 	// sighting info, last look - must be saved cause we save PartitionCell::m_shroudLevel
 	xfer->xferSnapshot( m_gxObj->m_partitionLastLook );
@@ -4315,7 +4307,7 @@ void Object::xfer( Xfer *xfer )
 	xfer->xferReal( &m_gxObj->m_shroudRange );
 
 	// disabled mask
-	m_gxObj->m_disabledMask.xfer( xfer );
+	gxDisabled().xfer( xfer );
 
 	//New var added for version 2. Determines if the single use command button has been used or not.
 	if( xfer->getXferMode() == XFER_SAVE || version >= 2 )
@@ -4413,7 +4405,7 @@ void Object::xfer( Xfer *xfer )
 		xfer->xferByte(&m_gxObj->m_triggerInfo[i].isInside);
 	}
 	// Layer object is pathing on.
-	xfer->xferUser(&m_gxObj->m_layer, sizeof(m_gxObj->m_layer));
+	xfer->xferUser(&gxLayerRef(), sizeof(gxLayerRef()));
 
 	// Layer of current path goal.
 	xfer->xferUser(&m_gxObj->m_destinationLayer, sizeof(m_gxObj->m_destinationLayer));
@@ -4589,8 +4581,6 @@ void Object::xfer( Xfer *xfer )
 //-------------------------------------------------------------------------------------------------
 void Object::loadPostProcess()
 {
-	TheGxUnitStore.setHot(this);	// web port (round 5): status, disabled, layer, geometry came from the save
-	TheGxUnitStore.setXf(this);
 	if( m_gxObj->m_xferContainedByID != INVALID_ID )
 		m_gxObj->m_containedBy = TheGameLogic->findObjectByID(m_gxObj->m_xferContainedByID);
 	else
@@ -6664,4 +6654,38 @@ ObjectID Object::calculateCountermeasureToDivertTo( const Object& victim )
 		}
 	}
 	return INVALID_ID;
+}
+
+//-------------------------------------------------------------------------------------------------
+// web port (round 5, switch hotInStore): move the hot fields into / out of the store columns. Moving
+// in leaves marks in the rows (verify mode checks nothing touched them while stored).
+void Object::gxSetHotInStore(Bool on)
+{
+	const Int s = gxStoreSlot();
+	if (on == m_gxHotInStore || s < 0)
+		return;
+	ObjectRow &row = *m_gxObj;
+	GxUnitStore &st = TheGxUnitStore;
+	if (on)
+	{
+		st.status[s] = row.m_status; st.disabled[s] = row.m_disabledMask;
+		st.layer[s] = row.m_layer; st.geom[s] = row.m_geometryInfo;
+		row.m_status = MAKE_OBJECT_STATUS_MASK(OBJECT_STATUS_DESTROYED);
+		row.m_disabledMask = DisabledMaskType(DisabledMaskType::kInitSetAll);
+		row.m_layer = LAYER_INVALID;
+		row.m_geometryInfo.setMajorRadius(-12345.0f);
+	}
+	else
+	{
+		row.m_status = st.status[s]; row.m_disabledMask = st.disabled[s];
+		row.m_layer = st.layer[s]; row.m_geometryInfo = st.geom[s];
+	}
+	gxSetThingHotInStore(on);	// angle and transform; sets m_gxHotInStore
+}
+
+Bool Object::gxHotRowsMarked() const
+{
+	const ObjectRow &row = *m_gxObj;
+	return row.m_status.test(OBJECT_STATUS_DESTROYED) && row.m_disabledMask == DisabledMaskType(DisabledMaskType::kInitSetAll)
+		&& row.m_layer == LAYER_INVALID && row.m_geometryInfo.getMajorRadius() == -12345.0f && gxThingRowMarked();
 }
