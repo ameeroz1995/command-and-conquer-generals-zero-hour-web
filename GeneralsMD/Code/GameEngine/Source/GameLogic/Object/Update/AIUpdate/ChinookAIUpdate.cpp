@@ -941,15 +941,17 @@ AIStateMachine* ChinookAIUpdate::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 ChinookAIUpdate::ChinookAIUpdate( Thing *thing, const ModuleData* moduleData ) : SupplyTruckAIUpdate( thing, moduleData )
 {
-	m_hasPendingCommand = false;
-	m_flightStatus = CHINOOK_FLYING;	// yep, that's right, even if we start "on ground"
-	m_airfieldForHealing = INVALID_ID;
-	m_originalPos.zero();
+	m_gxRow = TheGxChinookAIUpdateRows.alloc();
+	R().hasPendingCommand = false;
+	R().flightStatus = CHINOOK_FLYING;	// yep, that's right, even if we start "on ground"
+	R().airfieldForHealing = INVALID_ID;
+	R().originalPos.zero();
 }
 
 //-------------------------------------------------------------------------------------------------
 ChinookAIUpdate::~ChinookAIUpdate()
 {
+	TheGxChinookAIUpdateRows.release(m_gxRow);
 
 }
 
@@ -974,15 +976,15 @@ static ParkingPlaceBehaviorInterface* getPP(ObjectID id)
 void ChinookAIUpdate::setAirfieldForHealing(ObjectID id)
 {
 	// make sure we de-register with current one, if any
-	if (m_airfieldForHealing != INVALID_ID && m_airfieldForHealing != id)
+	if (R().airfieldForHealing != INVALID_ID && R().airfieldForHealing != id)
 	{
-		ParkingPlaceBehaviorInterface* pp = getPP(m_airfieldForHealing);
+		ParkingPlaceBehaviorInterface* pp = getPP(R().airfieldForHealing);
 		if (pp != nullptr)
 		{
 			pp->setHealee(getObject(), false);
 		}
 	}
-	m_airfieldForHealing = id;
+	R().airfieldForHealing = id;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -990,12 +992,12 @@ Bool ChinookAIUpdate::isIdle() const
 {
 	// we need to do this because we enter an idle state briefly between takeoff/landing in these cases,
 	// but scripting relies on us never claiming to be "idle"...
-	if (m_hasPendingCommand)
+	if (R().hasPendingCommand)
 		return false;
 
 	Bool result = SupplyTruckAIUpdate::isIdle();
 
-	if (result && m_flightStatus == CHINOOK_LANDED)
+	if (result && R().flightStatus == CHINOOK_LANDED)
 	{
 		// ditto: if we are waiting to disgorge some folks, we aren't 'idle'
 		ContainModuleInterface* contain = getObject()->getContain();
@@ -1028,7 +1030,7 @@ Bool ChinookAIUpdate::isAvailableForSupplying() const
 //-------------------------------------------------------------------------------------------------
 Bool ChinookAIUpdate::isAllowedToAdjustDestination() const
 {
-	if (m_flightStatus == CHINOOK_LANDED)
+	if (R().flightStatus == CHINOOK_LANDED)
 		return false;
 
 	if( getCurLocomotor()->isInvalidPositionAllowed() )
@@ -1056,10 +1058,10 @@ ObjectID ChinookAIUpdate::getBuildingToNotPathAround() const
 AIFreeToExitType ChinookAIUpdate::getAiFreeToExit(const Object* exiter) const
 {
 #if RETAIL_COMPATIBLE_CRC
-	 if (m_flightStatus == CHINOOK_LANDED
-				|| (m_flightStatus == CHINOOK_DOING_COMBAT_DROP && exiter->isKindOf(KINDOF_CAN_RAPPEL)))
+	 if (R().flightStatus == CHINOOK_LANDED
+				|| (R().flightStatus == CHINOOK_DOING_COMBAT_DROP && exiter->isKindOf(KINDOF_CAN_RAPPEL)))
 #else
-	if (m_flightStatus == CHINOOK_LANDED)
+	if (R().flightStatus == CHINOOK_LANDED)
 #endif
 		return FREE_TO_EXIT;
 
@@ -1069,7 +1071,7 @@ AIFreeToExitType ChinookAIUpdate::getAiFreeToExit(const Object* exiter) const
 //-------------------------------------------------------------------------------------------------
 Bool ChinookAIUpdate::chooseLocomotorSet(LocomotorSetType wst)
 {
-	if (m_flightStatus == CHINOOK_LANDED)
+	if (R().flightStatus == CHINOOK_LANDED)
 		wst = LOCOMOTORSET_TAXIING;
 	return SupplyTruckAIUpdate::chooseLocomotorSet(wst);
 }
@@ -1077,18 +1079,18 @@ Bool ChinookAIUpdate::chooseLocomotorSet(LocomotorSetType wst)
 //-------------------------------------------------------------------------------------------------
 UpdateSleepTime ChinookAIUpdate::update()
 {
-	ParkingPlaceBehaviorInterface* pp = getPP(m_airfieldForHealing);
+	ParkingPlaceBehaviorInterface* pp = getPP(R().airfieldForHealing);
 	const ContainModuleInterface* contain = getObject()->getContain();
 	const Bool waitingToEnterOrExit = contain && contain->hasObjectsWantingToEnterOrExit();
 
 	if (pp != nullptr)
 	{
-		if (m_flightStatus == CHINOOK_LANDED &&
+		if (R().flightStatus == CHINOOK_LANDED &&
 #if !RETAIL_COMPATIBLE_CRC
 				// TheSuperHackers @bugfix Stubbjax 03/11/2025 Prevent Chinooks from taking off while there are still units wanting to enter or exit.
 				!waitingToEnterOrExit &&
 #endif
-				!m_hasPendingCommand &&
+				!R().hasPendingCommand &&
 				getObject()->getBodyModule()->getHealth() == getObject()->getBodyModule()->getMaxHealth())
 		{
 			// we're completely healed, so take off again
@@ -1097,7 +1099,7 @@ UpdateSleepTime ChinookAIUpdate::update()
 		}
 		else
 		{
-			pp->setHealee(getObject(), m_flightStatus == CHINOOK_LANDED);
+			pp->setHealee(getObject(), R().flightStatus == CHINOOK_LANDED);
 		}
 	}
 	else
@@ -1113,18 +1115,18 @@ UpdateSleepTime ChinookAIUpdate::update()
 	{
 	  if (SupplyTruckAIUpdate::isIdle())
 		{
-			if (m_hasPendingCommand)
+			if (R().hasPendingCommand)
 			{
 				AICommandParms parms(AICMD_MOVE_TO_POSITION, CMD_FROM_AI);	// values don't matter, will be wiped by next line
-				m_pendingCommand.reconstitute(parms);
-				m_hasPendingCommand = false;
+				R().pendingCommand.reconstitute(parms);
+				R().hasPendingCommand = false;
 				aiDoCommand(&parms);
 			}
-			else if (waitingToEnterOrExit && m_flightStatus != CHINOOK_LANDED)
+			else if (waitingToEnterOrExit && R().flightStatus != CHINOOK_LANDED)
 			{
 				setMyState(LANDING, nullptr, nullptr, CMD_FROM_AI);
 			}
-			else if (!waitingToEnterOrExit && m_flightStatus == CHINOOK_LANDED && m_airfieldForHealing == INVALID_ID)
+			else if (!waitingToEnterOrExit && R().flightStatus == CHINOOK_LANDED && R().airfieldForHealing == INVALID_ID)
 			{
 				setMyState(TAKING_OFF, nullptr, nullptr, CMD_FROM_AI);
 			}
@@ -1175,7 +1177,7 @@ UpdateSleepTime ChinookAIUpdate::update()
 
   if ( getObject()->getShroudedStatus(playerIndex) == OBJECTSHROUD_CLEAR )
   {
-    if ( m_flightStatus == CHINOOK_LANDING || m_flightStatus == CHINOOK_TAKING_OFF || m_flightStatus == CHINOOK_LANDED )
+    if ( R().flightStatus == CHINOOK_LANDING || R().flightStatus == CHINOOK_TAKING_OFF || R().flightStatus == CHINOOK_LANDED )
     {
       Coord3D pos = *getObject()->getPosition();
       Real chopperElevation = pos.z;
@@ -1222,7 +1224,7 @@ void ChinookAIUpdate::setMyState( StateID cmd, Object* target, const Coord3D* po
 void ChinookAIUpdate::privateGetRepaired( Object *repairDepot, CommandSourceType cmdSource )
 {
 	// we are already landing. just ignore it.
-	if (m_flightStatus == CHINOOK_LANDING || m_flightStatus == CHINOOK_LANDED)
+	if (R().flightStatus == CHINOOK_LANDING || R().flightStatus == CHINOOK_LANDED)
 		return;
 
 	// sanity, if we can't get repaired from here get out of here
@@ -1289,13 +1291,13 @@ void ChinookAIUpdate::aiDoCommand(const AICommandParms* parms)
 	if (!isAllowedToRespondToAiCommands(parms))
 		return;
 
-	if (m_flightStatus == CHINOOK_TAKING_OFF ||
-				m_flightStatus == CHINOOK_LANDING ||
-				m_flightStatus == CHINOOK_DOING_COMBAT_DROP)
+	if (R().flightStatus == CHINOOK_TAKING_OFF ||
+				R().flightStatus == CHINOOK_LANDING ||
+				R().flightStatus == CHINOOK_DOING_COMBAT_DROP)
 	{
 		// have to wait for takeoff or landing (or rappel) to complete, just store the sucker.
-		m_pendingCommand.store(*parms);
-		m_hasPendingCommand = true;
+		R().pendingCommand.store(*parms);
+		R().hasPendingCommand = true;
 		return;
 	}
 
@@ -1325,11 +1327,11 @@ void ChinookAIUpdate::aiDoCommand(const AICommandParms* parms)
 #endif
 
 			if (calcDistSqr(*getObject()->getPosition(), parms->m_pos) > THRESH_SQR &&
-					m_flightStatus == CHINOOK_LANDED)
+					R().flightStatus == CHINOOK_LANDED)
 			{
 				// gotta take off first!
-				m_pendingCommand.store(*parms);
-				m_hasPendingCommand = true;
+				R().pendingCommand.store(*parms);
+				R().hasPendingCommand = true;
 
 				setMyState(TAKING_OFF, nullptr, nullptr, CMD_FROM_AI);
 				passItThru = false;
@@ -1348,11 +1350,11 @@ void ChinookAIUpdate::aiDoCommand(const AICommandParms* parms)
 		case AICMD_EXIT:
 		case AICMD_EVACUATE:
 		{
-			if (m_flightStatus != CHINOOK_LANDED)
+			if (R().flightStatus != CHINOOK_LANDED)
 			{
 				// gotta land first!
-				m_pendingCommand.store(*parms);
-				m_hasPendingCommand = true;
+				R().pendingCommand.store(*parms);
+				R().hasPendingCommand = true;
 
 				setMyState(LANDING, nullptr, nullptr, CMD_FROM_AI);
 				passItThru = false;
@@ -1362,11 +1364,11 @@ void ChinookAIUpdate::aiDoCommand(const AICommandParms* parms)
 
 		default:
 		{
-			if (m_flightStatus != CHINOOK_FLYING)
+			if (R().flightStatus != CHINOOK_FLYING)
 			{
 				// gotta take off first!
-				m_pendingCommand.store(*parms);
-				m_hasPendingCommand = true;
+				R().pendingCommand.store(*parms);
+				R().hasPendingCommand = true;
 
 				setMyState(TAKING_OFF, nullptr, nullptr, CMD_FROM_AI);
 				passItThru = false;
@@ -1377,7 +1379,7 @@ void ChinookAIUpdate::aiDoCommand(const AICommandParms* parms)
 
 	if (passItThru)
 	{
-		m_hasPendingCommand = false;
+		R().hasPendingCommand = false;
 		SupplyTruckAIUpdate::aiDoCommand(parms);
 	}
 }
@@ -1405,16 +1407,16 @@ void ChinookAIUpdate::xfer( Xfer *xfer )
 	// extend base class
 	SupplyTruckAIUpdate::xfer(xfer);
 
-	xfer->xferBool(&m_hasPendingCommand);
-	if (m_hasPendingCommand) {
-		m_pendingCommand.doXfer(xfer);
+	xfer->xferBool(&R().hasPendingCommand);
+	if (R().hasPendingCommand) {
+		R().pendingCommand.doXfer(xfer);
 	}
-	xfer->xferUser(&m_flightStatus, sizeof(m_flightStatus));
-	xfer->xferObjectID(&m_airfieldForHealing);
+	xfer->xferUser(&R().flightStatus, sizeof(R().flightStatus));
+	xfer->xferObjectID(&R().airfieldForHealing);
 
 	if( version >= 2 )
 	{
-		xfer->xferCoord3D( &m_originalPos );
+		xfer->xferCoord3D( &R().originalPos );
 	}
 
 }
@@ -1710,3 +1712,5 @@ Int ChinookAIUpdate::getUpgradedSupplyBoost() const
 	else
 		return 0;
 }
+
+GxComponentTable<ChinookAIUpdate::GxRow> TheGxChinookAIUpdateRows;

@@ -1439,6 +1439,7 @@ DozerAIUpdate::DozerAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 							 AIUpdateInterface( thing, moduleData )
 
 {
+	m_gxRow = TheGxDozerAIUpdateRows.alloc();
 	Int i, j;
 
 	for( i = 0; i < DOZER_NUM_TASKS; i++ )
@@ -1459,13 +1460,13 @@ DozerAIUpdate::DozerAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 	m_currentTask = DOZER_TASK_INVALID;
 	m_previousTask = DOZER_TASK_INVALID;
 
-	m_buildSubTask = DOZER_SELECT_BUILD_DOCK_LOCATION;  // irrelevant, but I want non-garbage value
+	R().buildSubTask = DOZER_SELECT_BUILD_DOCK_LOCATION;  // irrelevant, but I want non-garbage value
 
 	//
 	// initialize the dozer machine to nullptr, we want to do this and create it during the update
 	// implementation because at this point we don't have the object all setup
 	//
-	m_dozerMachine = nullptr;
+	R().dozerMachine = nullptr;
 
 	createMachines();
 }
@@ -1474,9 +1475,10 @@ DozerAIUpdate::DozerAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 //-------------------------------------------------------------------------------------------------
 DozerAIUpdate::~DozerAIUpdate()
 {
+	TheGxDozerAIUpdateRows.release(m_gxRow);
 
 	// delete our behavior state machine
-	deleteInstance(m_dozerMachine);
+	deleteInstance(R().dozerMachine);
 
 	// no orders
 	for( Int i = 0; i < DOZER_NUM_TASKS; i++ )
@@ -1495,11 +1497,11 @@ DozerAIUpdate::~DozerAIUpdate()
 void DozerAIUpdate::createMachines()
 {
 
-	if( m_dozerMachine == nullptr )
+	if( R().dozerMachine == nullptr )
 	{
 
-		m_dozerMachine = newInstance(DozerPrimaryStateMachine)( getObject() );
-		m_dozerMachine->initDefaultState();
+		R().dozerMachine = newInstance(DozerPrimaryStateMachine)( getObject() );
+		R().dozerMachine->initDefaultState();
 
 	}
 
@@ -1618,7 +1620,7 @@ UpdateSleepTime DozerAIUpdate::update()
 		getObject()->setWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL);//maybe go clear some mines, if I feel like it
 
 	// run our own state machine
-	m_dozerMachine->updateStateMachine();
+	R().dozerMachine->updateStateMachine();
 
 	return UPDATE_SLEEP_NONE;
 
@@ -1639,7 +1641,7 @@ Object *DozerAIUpdate::construct( const ThingTemplate *what,
 
 	// create our machines if they don't yet exist
 	///@todo make 'construct' a real AI command and you won't need a special case
-	m_isRebuild = isRebuild;
+	R().isRebuild = isRebuild;
 
 	createMachines();
 
@@ -2026,7 +2028,7 @@ void DozerAIUpdate::newTask( DozerTask task, Object *target )
 	m_task[ task ].m_taskOrderFrame = TheGameLogic->getFrame();
 
 	// reset the dozer behavior so that it can re-evaluate which task to continue working on
-	m_dozerMachine->resetToDefaultState();
+	R().dozerMachine->resetToDefaultState();
 
 }
 
@@ -2042,7 +2044,7 @@ void DozerAIUpdate::cancelTask( DozerTask task )
 	internalCancelTask( task );
 
 	// reset the machine to we can re-evaluate what we want to do
-	m_dozerMachine->resetToDefaultState();
+	R().dozerMachine->resetToDefaultState();
 
 }
 
@@ -2051,7 +2053,7 @@ void DozerAIUpdate::cancelAllTasks()
 	for (UnsignedInt task = DOZER_TASK_FIRST; task < DOZER_NUM_TASKS; ++task)
 		internalCancelTask((DozerTask)task);
 
-	m_dozerMachine->resetToDefaultState();
+	R().dozerMachine->resetToDefaultState();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2440,7 +2442,7 @@ void DozerAIUpdate::aiDoCommand(const AICommandParms* parms)
 
 			// when a player issues commands, this will cause the dozer to re-evaluate what it's doing
 			if( parms->m_cmdSource == CMD_FROM_PLAYER )
-				m_dozerMachine->resetToDefaultState();
+				R().dozerMachine->resetToDefaultState();
 			break;
 
 		}
@@ -2452,15 +2454,15 @@ void DozerAIUpdate::aiDoCommand(const AICommandParms* parms)
 //------------------------------------------------------------------------------------------------
 void DozerAIUpdate::startBuildingSound( const AudioEventRTS *sound, ObjectID constructionSiteID )
 {
-	m_buildingSound = *sound;
-	m_buildingSound.setObjectID( constructionSiteID );
-	m_buildingSound.setPlayingHandle( TheAudio->addAudioEvent( &m_buildingSound ) );
+	R().buildingSound = *sound;
+	R().buildingSound.setObjectID( constructionSiteID );
+	R().buildingSound.setPlayingHandle( TheAudio->addAudioEvent( &R().buildingSound ) );
 }
 
 //------------------------------------------------------------------------------------------------
 void DozerAIUpdate::finishBuildingSound()
 {
-	TheAudio->removeAudioEvent( m_buildingSound.getPlayingHandle() );
+	TheAudio->removeAudioEvent( R().buildingSound.getPlayingHandle() );
 }
 
 
@@ -2505,7 +2507,7 @@ void DozerAIUpdate::xfer( Xfer *xfer )
 		xfer->xferObjectID(&m_task[i].m_targetObjectID);
 		xfer->xferUnsignedInt(&m_task[i].m_taskOrderFrame);
 	}
-	xfer->xferSnapshot(m_dozerMachine);
+	xfer->xferSnapshot(R().dozerMachine);
 	xfer->xferUser(&m_currentTask, sizeof(m_currentTask));
 
 	if (currentVersion >= 2)
@@ -2526,7 +2528,7 @@ void DozerAIUpdate::xfer( Xfer *xfer )
 			xfer->xferCoord3D(&m_dockPoint[i][j].location);
 		}
 	}
-	xfer->xferUser(&m_buildSubTask, sizeof(m_buildSubTask));
+	xfer->xferUser(&R().buildSubTask, sizeof(R().buildSubTask));
 
 }
 
@@ -2539,4 +2541,4 @@ void DozerAIUpdate::loadPostProcess()
 	AIUpdateInterface::loadPostProcess();
 }
 
-
+GxComponentTable<DozerAIUpdate::GxRow> TheGxDozerAIUpdateRows;

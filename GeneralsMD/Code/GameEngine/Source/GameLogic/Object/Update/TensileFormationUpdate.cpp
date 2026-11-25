@@ -116,26 +116,27 @@ TensileFormationUpdateModuleData::TensileFormationUpdateModuleData()
 TensileFormationUpdate::TensileFormationUpdate( Thing *thing, const ModuleData *moduleData )
 						:UpdateModule( thing, moduleData )
 {
+	m_gxRow = TheGxTensileFormationUpdateRows.alloc();
 
 
 	const TensileFormationUpdateModuleData *modData = getTensileFormationUpdateModuleData();
 
 	// save our initial enabled status based on INI settings
-	m_enabled = ((TensileFormationUpdateModuleData *)moduleData)->m_enabled;
-	m_inertia.set(0,0,0);
-	m_linksInited = FALSE;
-	m_motionlessCounter = 0;
-	m_life = 0;
-	m_lowestSlideElevation = 255.0f;
+	R().enabled = ((TensileFormationUpdateModuleData *)moduleData)->m_enabled;
+	R().inertia.set(0,0,0);
+	R().linksInited = FALSE;
+	R().motionlessCounter = 0;
+	R().life = 0;
+	R().lowestSlideElevation = 255.0f;
 
 	for ( int t = 0; t < 4; ++t)
 	{
-		m_links[ t ].id = INVALID_ID;
-		m_links[ t ].tensor.set(0,0,0);
+		R().links[ t ].id = INVALID_ID;
+		R().links[ t ].tensor.set(0,0,0);
 	}
 
-	m_crackSound = modData->m_crackSound;
-	m_crackSound.setObjectID( getObject()->getID() ) ;
+	R().crackSound = modData->m_crackSound;
+	R().crackSound.setObjectID( getObject()->getID() ) ;
 
 	TheAI->pathfinder()->createAWallFromMyFootprint( getObject() ); // Temporarily treat this object as an obstacle.
 
@@ -155,6 +156,7 @@ TensileFormationUpdate::TensileFormationUpdate( Thing *thing, const ModuleData *
 // ------------------------------------------------------------------------------------------------
 TensileFormationUpdate::~TensileFormationUpdate()
 {
+	TheGxTensileFormationUpdateRows.release(m_gxRow);
 
 }
 
@@ -163,7 +165,7 @@ TensileFormationUpdate::~TensileFormationUpdate()
 void TensileFormationUpdate::initLinks()
 {
 
-	m_linksInited = TRUE;
+	R().linksInited = TRUE;
 
 	Object *obj = getObject();
 	if ( !obj )
@@ -191,10 +193,10 @@ void TensileFormationUpdate::initLinks()
 
 			//push a new link
 			for ( int t = 3; t > 0; --t )
-				m_links[ t ] = m_links[ t-1 ];
+				R().links[ t ] = R().links[ t-1 ];
 
-			m_links[ 0 ].id = other->getID();
-			m_links[ 0 ].tensor = delta;
+			R().links[ 0 ].id = other->getID();
+			R().links[ 0 ].tensor = delta;
 		}
 	}
 
@@ -217,12 +219,12 @@ void TensileFormationUpdate::initLinks()
 UpdateSleepTime TensileFormationUpdate::update()
 {
 
-	if ( ! m_linksInited )
+	if ( ! R().linksInited )
 		initLinks();
 
 
 
-	if( m_enabled == FALSE )
+	if( R().enabled == FALSE )
 	{
 	//We are all going to sit here idle and do not much of anything until one of us gets hurt
 		BodyModuleInterface *body = getObject()->getBodyModule();
@@ -238,8 +240,8 @@ UpdateSleepTime TensileFormationUpdate::update()
 
 
 			//ALert players of disaster happening
-			if ( ! m_crackSound.isCurrentlyPlaying())
-				m_crackSound.setPlayingHandle(TheAudio->addAudioEvent( &m_crackSound ));
+			if ( ! R().crackSound.isCurrentlyPlaying())
+				R().crackSound.setPlayingHandle(TheAudio->addAudioEvent( &R().crackSound ));
 
 		}
 		else
@@ -251,7 +253,7 @@ UpdateSleepTime TensileFormationUpdate::update()
 	if ( ! draw )
 		return UPDATE_SLEEP_NONE;
 
-	if (++m_life > 300)
+	if (++R().life > 300)
 	{
 		draw->clearModelConditionFlags(MAKE_MODELCONDITION_MASK(MODELCONDITION_MOVING));
 		draw->clearModelConditionFlags(MAKE_MODELCONDITION_MASK(MODELCONDITION_FREEFALL));
@@ -267,7 +269,7 @@ UpdateSleepTime TensileFormationUpdate::update()
 	}
 
 
-	if ( m_life%30 == 29 )
+	if ( R().life%30 == 29 )
 		propagateDislodgement( TRUE );
 
 
@@ -281,23 +283,23 @@ UpdateSleepTime TensileFormationUpdate::update()
 	Real steepness = 1.0f - normal.z;
 	slope.scale( 0.3f + steepness);
 
-	m_inertia.add( &slope );
+	R().inertia.add( &slope );
 
 	Real friction = 0.95f;
-	m_inertia.scale( friction );
+	R().inertia.scale( friction );
 
 
 
 	Coord3D newPos;
-	newPos.x = pos->x + m_inertia.x;//flow down the slope
-	newPos.y = pos->y + m_inertia.y;
+	newPos.x = pos->x + R().inertia.x;//flow down the slope
+	newPos.y = pos->y + R().inertia.y;
 	newPos.z = TheTerrainLogic->getGroundHeight(newPos.x, newPos.y);//rest on surface here
 
 
 
 	Object *tree = ThePartitionManager->getClosestObject( &newPos, getObject()->getGeometryInfo().getMajorRadius(), FROM_CENTER_2D );
 	if (tree->isKindOf( KINDOF_SHRUBBERY ))
-		tree->topple( &m_inertia, m_inertia.length(), 1 );//No Bounce
+		tree->topple( &R().inertia, R().inertia.length(), 1 );//No Bounce
 
 
 
@@ -305,21 +307,21 @@ UpdateSleepTime TensileFormationUpdate::update()
 	Coord3D tensorSum = { 0, 0, 0 };
 	for ( int t = 0; t < 4; ++t )
 	{
-		Object *other = TheGameLogic->findObjectByID( m_links[ t ].id );
+		Object *other = TheGameLogic->findObjectByID( R().links[ t ].id );
 
 		if ( other )
 		{
 			Coord3D desiredPos = *other->getPosition();
 
-			Coord3D tensor = m_links[ t ].tensor;
+			Coord3D tensor = R().links[ t ].tensor;
 
 			desiredPos.sub( &tensor );
 
-			//Coord3D desiredPos = { theirPos->x - m_links[ t ].tensor.x, theirPos->y - m_links[ t ].tensor.y, theirPos->z - m_links[ t ].tensor.z };
+			//Coord3D desiredPos = { theirPos->x - R().links[ t ].tensor.x, theirPos->y - R().links[ t ].tensor.y, theirPos->z - R().links[ t ].tensor.z };
 
 			newPos.x = newPos.x*0.93f + desiredPos.x*0.07f;
 			newPos.y = newPos.y*0.93f + desiredPos.y*0.07f;
-			newPos.z = MIN( m_lowestSlideElevation, TheTerrainLogic->getGroundHeight(newPos.x, newPos.y) );//rest on surface here
+			newPos.z = MIN( R().lowestSlideElevation, TheTerrainLogic->getGroundHeight(newPos.x, newPos.y) );//rest on surface here
 
 			tensor.normalize();
 			tensorSum.add( &tensor );
@@ -330,7 +332,7 @@ UpdateSleepTime TensileFormationUpdate::update()
 
 	tensorSum.normalize();
 
-	Coord3D inertiaNormal = m_inertia;
+	Coord3D inertiaNormal = R().inertia;
 	inertiaNormal.normalize();
 
 
@@ -343,12 +345,12 @@ UpdateSleepTime TensileFormationUpdate::update()
 
 	draw->setModelConditionFlags(MAKE_MODELCONDITION_MASK(MODELCONDITION_POST_COLLAPSE));
 
-	if ( m_life < 200 )
+	if ( R().life < 200 )
 		draw->setModelConditionFlags(MAKE_MODELCONDITION_MASK(MODELCONDITION_MOVING));
 	else
 		draw->clearModelConditionFlags(MAKE_MODELCONDITION_MASK(MODELCONDITION_MOVING));
 
-	if ( fabs( pos->z - newPos.z ) > 0.2f && m_life < 100)
+	if ( fabs( pos->z - newPos.z ) > 0.2f && R().life < 100)
 		draw->setModelConditionFlags(MAKE_MODELCONDITION_MASK(MODELCONDITION_FREEFALL));
 	else
 		draw->clearModelConditionFlags(MAKE_MODELCONDITION_MASK(MODELCONDITION_FREEFALL));
@@ -361,14 +363,14 @@ UpdateSleepTime TensileFormationUpdate::update()
 
 
 	//else
-		//m_motionlessCounter = 0;
+		//R().motionlessCounter = 0;
 
 
 	//if ( newPos.z > 80)
 	//	newPos.z = 80 + ( ( newPos.z - 80 ) * 2);
 
 
-	m_lowestSlideElevation = newPos.z;
+	R().lowestSlideElevation = newPos.z;
 	getObject()->setPosition( &newPos );
 
 
@@ -393,7 +395,7 @@ void TensileFormationUpdate::propagateDislodgement ( Bool enabled )
 	for (Object* other = iter->first(); other; other = iter->next())
 	{
 
-		//Object *other = TheGameLogic->findObjectByID( m_links[ t ].id );
+		//Object *other = TheGameLogic->findObjectByID( R().links[ t ].id );
 		if ( other )
 		{
 			BodyModuleInterface *body = other->getBodyModule();
@@ -413,7 +415,7 @@ void TensileFormationUpdate::propagateDislodgement ( Bool enabled )
 
 	for ( int t = 0; t < 4; ++t )
 	{
-		Object *other = TheGameLogic->findObjectByID( m_links[ t ].id );
+		Object *other = TheGameLogic->findObjectByID( R().links[ t ].id );
 		if ( other )
 		{
 			BodyModuleInterface *body = other->getBodyModule();
@@ -459,7 +461,7 @@ void TensileFormationUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// enabled
-	xfer->xferBool( &m_enabled );
+	xfer->xferBool( &R().enabled );
 
 }
 
@@ -473,3 +475,5 @@ void TensileFormationUpdate::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 }
+
+GxComponentTable<TensileFormationUpdate::GxRow> TheGxTensileFormationUpdateRows;

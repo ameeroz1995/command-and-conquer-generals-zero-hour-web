@@ -74,22 +74,24 @@ AIStateMachine* SupplyTruckAIUpdate::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 SupplyTruckAIUpdate::SupplyTruckAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_supplyTruckStateMachine = nullptr;
-	m_preferredDock = INVALID_ID;
-	m_numberBoxes = 0;
-	m_forcePending = FALSE;
-	m_forcedBusyPending = FALSE;
-	m_supplyTruckStateMachine = newInstance(SupplyTruckStateMachine)( getObject() );
-	m_supplyTruckStateMachine->initDefaultState();
+	m_gxRow = TheGxSupplyTruckAIUpdateRows.alloc();
+	R().supplyTruckStateMachine = nullptr;
+	R().preferredDock = INVALID_ID;
+	R().numberBoxes = 0;
+	R().forcePending = FALSE;
+	R().forcedBusyPending = FALSE;
+	R().supplyTruckStateMachine = newInstance(SupplyTruckStateMachine)( getObject() );
+	R().supplyTruckStateMachine->initDefaultState();
 
-	m_suppliesDepletedVoice = getSupplyTruckAIUpdateModuleData()->m_suppliesDepletedVoice;
+	R().suppliesDepletedVoice = getSupplyTruckAIUpdateModuleData()->m_suppliesDepletedVoice;
 
 }
 
 //-------------------------------------------------------------------------------------------------
 SupplyTruckAIUpdate::~SupplyTruckAIUpdate()
 {
-	deleteInstance(m_supplyTruckStateMachine);
+	TheGxSupplyTruckAIUpdateRows.release(m_gxRow);
+	deleteInstance(R().supplyTruckStateMachine);
 }
 
 
@@ -97,7 +99,7 @@ SupplyTruckAIUpdate::~SupplyTruckAIUpdate()
 UpdateSleepTime SupplyTruckAIUpdate::update()
 {
 
-	StateReturnType stRet = m_supplyTruckStateMachine->updateStateMachine();
+	StateReturnType stRet = R().supplyTruckStateMachine->updateStateMachine();
 
 	UpdateSleepTime mine = IS_STATE_SLEEP(stRet) ? UPDATE_SLEEP(GET_STATE_SLEEP_FRAMES(stRet)) : UPDATE_SLEEP_NONE;
 
@@ -109,9 +111,9 @@ UpdateSleepTime SupplyTruckAIUpdate::update()
 //-------------------------------------------------------------------------------------------------
 Bool SupplyTruckAIUpdate::isCurrentlyFerryingSupplies() const
 {
-	if (m_supplyTruckStateMachine)
+	if (R().supplyTruckStateMachine)
 	{
-		switch (m_supplyTruckStateMachine->getCurrentStateID())
+		switch (R().supplyTruckStateMachine->getCurrentStateID())
 		{
 			case ST_IDLE:
 			case ST_BUSY:
@@ -134,14 +136,14 @@ Bool SupplyTruckAIUpdate::isAvailableForSupplying() const
 //-------------------------------------------------------------------------------------------------
 Bool SupplyTruckAIUpdate::loseOneBox()
 {
-	if( m_numberBoxes == 0 )
+	if( R().numberBoxes == 0 )
 		return FALSE;
-	--m_numberBoxes;
+	--R().numberBoxes;
 
 	Drawable *draw = getObject()->getDrawable();
 	if( draw )
 	{
-		draw->updateDrawableSupplyStatus( getSupplyTruckAIUpdateModuleData()->m_maxBoxesData, m_numberBoxes );
+		draw->updateDrawableSupplyStatus( getSupplyTruckAIUpdateModuleData()->m_maxBoxesData, R().numberBoxes );
 	}
 
 	return TRUE;
@@ -150,9 +152,9 @@ Bool SupplyTruckAIUpdate::loseOneBox()
 //-------------------------------------------------------------------------------------------------
 Bool SupplyTruckAIUpdate::gainOneBox( Int remainingStock )
 {
-	if( getSupplyTruckAIUpdateModuleData() && m_numberBoxes >= getSupplyTruckAIUpdateModuleData()->m_maxBoxesData )
+	if( getSupplyTruckAIUpdateModuleData() && R().numberBoxes >= getSupplyTruckAIUpdateModuleData()->m_maxBoxesData )
 		return FALSE;
-	++m_numberBoxes;
+	++R().numberBoxes;
 
 
 	//if I just took the last box,
@@ -173,17 +175,17 @@ Bool SupplyTruckAIUpdate::gainOneBox( Int remainingStock )
 		else
 			playDepleted = TRUE;
 
-		if (playDepleted && m_suppliesDepletedVoice.getEventName().isEmpty() == false)
+		if (playDepleted && R().suppliesDepletedVoice.getEventName().isEmpty() == false)
 		{
-			m_suppliesDepletedVoice.setObjectID(getObject()->getID());
-			m_suppliesDepletedVoice.setPlayingHandle(TheAudio->addAudioEvent(&m_suppliesDepletedVoice));
+			R().suppliesDepletedVoice.setObjectID(getObject()->getID());
+			R().suppliesDepletedVoice.setPlayingHandle(TheAudio->addAudioEvent(&R().suppliesDepletedVoice));
 		}
 	}
 
 	Drawable *draw = getObject()->getDrawable();
 	if( draw )
 	{
-		draw->updateDrawableSupplyStatus( getSupplyTruckAIUpdateModuleData()->m_maxBoxesData, m_numberBoxes );
+		draw->updateDrawableSupplyStatus( getSupplyTruckAIUpdateModuleData()->m_maxBoxesData, R().numberBoxes );
 	}
 
 	return TRUE;
@@ -211,7 +213,7 @@ void SupplyTruckAIUpdate::privateDock( Object *dock, CommandSourceType cmdSource
 		// Please note, there is not a separate Warehouse and Center memory by Design.  Because
 		// we lack a UI way to click Warehouse and drag to center to set up a specific path, the
 		// practical realization has been made that you do not want separate memory.
-		m_preferredDock = dock->getID();
+		R().preferredDock = dock->getID();
 	}
 }
 
@@ -267,10 +269,10 @@ void SupplyTruckAIUpdate::xfer( Xfer *xfer )
  // extend base class
 	AIUpdateInterface::xfer(xfer);
 
-	xfer->xferSnapshot(m_supplyTruckStateMachine);
-	xfer->xferObjectID(&m_preferredDock);
-	xfer->xferInt(&m_numberBoxes);
-	xfer->xferBool(&m_forcePending);
+	xfer->xferSnapshot(R().supplyTruckStateMachine);
+	xfer->xferObjectID(&R().preferredDock);
+	xfer->xferInt(&R().numberBoxes);
+	xfer->xferBool(&R().forcePending);
 
 }
 
@@ -831,3 +833,4 @@ TheInGameUI->DEBUG_addFloatingText(tmp, owner->getPosition(), GameMakeColor(255,
 	return false;
 }
 
+GxComponentTable<SupplyTruckAIUpdate::GxRow> TheGxSupplyTruckAIUpdateRows;

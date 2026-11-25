@@ -30,6 +30,7 @@
 #pragma once
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponents.h"
 #include "GameLogic/Module/UpdateModule.h"
 
 enum PhysicsTurningType CPP_11(: Int);
@@ -77,6 +78,17 @@ public:
 
 protected:
 
-  ModelConditionFlagType m_currentTurnAnim;
-	UnsignedInt m_nextTransitionFrame;
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of TheGxAnimationSteeringUpdateRows;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxRow
+	{
+		ModelConditionFlagType currentTurnAnim;
+		UnsignedInt nextTransitionFrame;
+	};
+	GxRow &R() const;
+private:
+	int m_gxRow;
 };
+extern GxComponentTable<AnimationSteeringUpdate::GxRow> TheGxAnimationSteeringUpdateRows;
+inline AnimationSteeringUpdate::GxRow &AnimationSteeringUpdate::R() const { return TheGxAnimationSteeringUpdateRows.rows[m_gxRow]; }

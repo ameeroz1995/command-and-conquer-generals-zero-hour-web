@@ -29,6 +29,7 @@
 
 #pragma once
 
+#include "Common/GxComponents.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 
@@ -107,6 +108,17 @@ public:
 
 protected:
 
-	DeployStateTypes				m_state;
-	UnsignedInt							m_frameToWaitForDeploy;
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of TheGxDeployStyleAIUpdateRows;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxRow
+	{
+		DeployStateTypes state;
+		UnsignedInt frameToWaitForDeploy;
+	};
+	GxRow &R() const;
+private:
+	int m_gxRow;
 };
+extern GxComponentTable<DeployStyleAIUpdate::GxRow> TheGxDeployStyleAIUpdateRows;
+inline DeployStyleAIUpdate::GxRow &DeployStyleAIUpdate::R() const { return TheGxDeployStyleAIUpdateRows.rows[m_gxRow]; }

@@ -44,15 +44,17 @@
 //-------------------------------------------------------------------------------------------------
 DefaultProductionExitUpdate::DefaultProductionExitUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxRow = TheGxDefaultProductionExitUpdateRows.alloc();
 	// no rally point has been set
-	m_rallyPointExists = false;
-	m_rallyPoint.zero();
+	R().rallyPointExists = false;
+	R().rallyPoint.zero();
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
 
 //-------------------------------------------------------------------------------------------------
 DefaultProductionExitUpdate::~DefaultProductionExitUpdate()
 {
+	TheGxDefaultProductionExitUpdateRows.release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -100,9 +102,9 @@ void DefaultProductionExitUpdate::exitObjectViaDoor( Object *newObj, ExitDoorTyp
 		exitPath.push_back(tmp);
 
 		AIUpdateInterface  *ai = newObj->getAIUpdateInterface();
-		if (m_rallyPointExists)
+		if (R().rallyPointExists)
 		{
-			tmp = m_rallyPoint;
+			tmp = R().rallyPoint;
 			if (ai && ai->isDoingGroundMovement())
 			{
 				if (TheAI->pathfinder()->adjustDestination(newObj, ai->getLocomotorSet(), &tmp))
@@ -199,10 +201,10 @@ void DefaultProductionExitUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// rally point
-	xfer->xferCoord3D( &m_rallyPoint );
+	xfer->xferCoord3D( &R().rallyPoint );
 
 	// rally point exists
-	xfer->xferBool( &m_rallyPointExists );
+	xfer->xferBool( &R().rallyPointExists );
 
 }
 
@@ -216,3 +218,5 @@ void DefaultProductionExitUpdate::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 }
+
+GxComponentTable<DefaultProductionExitUpdate::GxRow> TheGxDefaultProductionExitUpdateRows;

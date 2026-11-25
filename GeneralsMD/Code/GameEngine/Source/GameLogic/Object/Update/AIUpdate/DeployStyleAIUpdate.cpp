@@ -54,13 +54,15 @@
 //-------------------------------------------------------------------------------------------------
 DeployStyleAIUpdate::DeployStyleAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_state = READY_TO_MOVE;
-	m_frameToWaitForDeploy = 0;
+	m_gxRow = TheGxDeployStyleAIUpdateRows.alloc();
+	R().state = READY_TO_MOVE;
+	R().frameToWaitForDeploy = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
 DeployStyleAIUpdate::~DeployStyleAIUpdate()
 {
+	TheGxDeployStyleAIUpdateRows.release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -130,9 +132,9 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 		}
 	}
 
-	if( m_frameToWaitForDeploy != 0 && now >= m_frameToWaitForDeploy)
+	if( R().frameToWaitForDeploy != 0 && now >= R().frameToWaitForDeploy)
 	{
-		switch( m_state )
+		switch( R().state )
 		{
 			case DEPLOY:
 				setMyState( READY_TO_ATTACK );
@@ -145,7 +147,7 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 
 	if( isInRange || isInGuardIdleState )
 	{
-		switch( m_state )
+		switch( R().state )
 		{
 			case READY_TO_MOVE:
 				//We're need to deploy before we can attack.
@@ -158,7 +160,7 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 				//We can't start attacking until we are fully deployed.
 				break;
 			case UNDEPLOY:
-				if( m_frameToWaitForDeploy != 0 )
+				if( R().frameToWaitForDeploy != 0 )
 				{
 					//Reverse the undeploy at it's current frame!
 					setMyState( DEPLOY, TRUE );
@@ -172,7 +174,7 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 	}
 	else if( isTryingToMove )
 	{
-		switch( m_state )
+		switch( R().state )
 		{
 			case READY_TO_MOVE:
 				//We're ready... ai will handle moving.
@@ -194,7 +196,7 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 				break;
 			}
 			case DEPLOY:
-				if( m_frameToWaitForDeploy != 0 )
+				if( R().frameToWaitForDeploy != 0 )
 				{
 					//Reverse the deploy at it's current frame!
 					setMyState( UNDEPLOY, TRUE );
@@ -218,7 +220,7 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 		}
 	}
 
-	switch( m_state )
+	switch( R().state )
 	{
 		case READY_TO_MOVE:
 			if( isTryingToMove )
@@ -234,7 +236,7 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 			if( data->m_manualDeployAnimations )
 			{
 				UnsignedInt totalFrames = getPackTime();
-				UnsignedInt framesLeft = m_frameToWaitForDeploy - now;
+				UnsignedInt framesLeft = R().frameToWaitForDeploy - now;
 				Drawable *draw = self->getDrawable();
 				if( draw )
 				{
@@ -247,7 +249,7 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 		case UNDEPLOY:
 			if( data->m_manualDeployAnimations )
 			{
-				UnsignedInt framesLeft = m_frameToWaitForDeploy - now;
+				UnsignedInt framesLeft = R().frameToWaitForDeploy - now;
 				Drawable *draw = self->getDrawable();
 				if( draw )
 				{
@@ -274,7 +276,7 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 //-------------------------------------------------------------------------------------------------
 void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDeploy )
 {
-	m_state = stateID;
+	R().state = stateID;
 	Object *self = getObject();
 	UnsignedInt now = TheGameLogic->getFrame();
 	const DeployStyleAIUpdateModuleData *data = getDeployStyleAIUpdateModuleData();
@@ -291,8 +293,8 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 			{
 				//This is a zero to max animation.
 				UnsignedInt totalFrames = getUnpackTime();
-				UnsignedInt framesLeft = m_frameToWaitForDeploy - now;
-				m_frameToWaitForDeploy = now + totalFrames - framesLeft;
+				UnsignedInt framesLeft = R().frameToWaitForDeploy - now;
+				R().frameToWaitForDeploy = now + totalFrames - framesLeft;
 				if( data->m_manualDeployAnimations )
 				{
 					Drawable *draw = self->getDrawable();
@@ -304,7 +306,7 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 			}
 			else
 			{
-				m_frameToWaitForDeploy = getUnpackTime() + now;
+				R().frameToWaitForDeploy = getUnpackTime() + now;
 			}
 
 			//Play deploy sound
@@ -334,8 +336,8 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 			{
 				//This is a max to zero animation.
 				UnsignedInt totalFrames = getUnpackTime();
-				UnsignedInt framesLeft = m_frameToWaitForDeploy - now;
-				m_frameToWaitForDeploy = now + totalFrames - framesLeft;
+				UnsignedInt framesLeft = R().frameToWaitForDeploy - now;
+				R().frameToWaitForDeploy = now + totalFrames - framesLeft;
 				if( data->m_manualDeployAnimations )
 				{
 					Drawable *draw = self->getDrawable();
@@ -347,7 +349,7 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 			}
 			else
 			{
-				m_frameToWaitForDeploy = getPackTime() + now;
+				R().frameToWaitForDeploy = getPackTime() + now;
 			}
 
 			if( doTurretsFunctionOnlyWhenDeployed() )
@@ -373,7 +375,7 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 		}
 		case READY_TO_MOVE:
 		{
-			m_frameToWaitForDeploy = 0;
+			R().frameToWaitForDeploy = 0;
 
 			self->clearModelConditionFlags( MAKE_MODELCONDITION_MASK( MODELCONDITION_PACKING ) );
 			break;
@@ -384,7 +386,7 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 			//twitching on deploy.
 			self->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_DEPLOYED ) );
 
-			m_frameToWaitForDeploy = 0;
+			R().frameToWaitForDeploy = 0;
 
 			self->clearAndSetModelConditionFlags( MAKE_MODELCONDITION_MASK( MODELCONDITION_UNPACKING ),
 																						 MAKE_MODELCONDITION_MASK( MODELCONDITION_DEPLOYED) );
@@ -402,7 +404,7 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 		}
 		case ALIGNING_TURRETS:
 		{
-			m_frameToWaitForDeploy = 0;
+			R().frameToWaitForDeploy = 0;
 			WhichTurretType tur = getWhichTurretForCurWeapon();
 			if( tur != TURRET_INVALID )
 			{
@@ -443,8 +445,8 @@ void DeployStyleAIUpdate::xfer( Xfer *xfer )
 
 	if( version >= 4 )
 	{
-		xfer->xferUser(&m_state, sizeof(m_state));
-		xfer->xferUnsignedInt(&m_frameToWaitForDeploy);
+		xfer->xferUser(&R().state, sizeof(R().state));
+		xfer->xferUnsignedInt(&R().frameToWaitForDeploy);
 	}
 	else if( xfer->getXferMode() == XFER_LOAD )
 	{
@@ -457,7 +459,7 @@ void DeployStyleAIUpdate::xfer( Xfer *xfer )
 
 		xfer->xferBool( &obsoleteBool );
 		xfer->xferUnsignedInt( &obsoleteUnsignedInt );
-		xfer->xferUser(&m_state, sizeof(m_state));
+		xfer->xferUser(&R().state, sizeof(R().state));
 
 		if( version >= 2 )
 		{
@@ -482,7 +484,7 @@ void DeployStyleAIUpdate::xfer( Xfer *xfer )
 		}
 
 		//Initialize unit to able to move.
-		m_state = READY_TO_MOVE;
+		R().state = READY_TO_MOVE;
 	}
 
 }
@@ -496,3 +498,4 @@ void DeployStyleAIUpdate::loadPostProcess()
 	AIUpdateInterface::loadPostProcess();
 }
 
+GxComponentTable<DeployStyleAIUpdate::GxRow> TheGxDeployStyleAIUpdateRows;

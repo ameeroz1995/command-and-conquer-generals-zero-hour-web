@@ -154,10 +154,11 @@ HordeUpdateModuleData::HordeUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 HordeUpdate::HordeUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_inHorde = FALSE;
-	m_hasFlag = FALSE;
-	m_lastHordeRefreshFrame = TheGameLogic->getFrame();
-	m_trueHordeMember = FALSE;
+	m_gxRow = TheGxHordeUpdateRows.alloc();
+	R().inHorde = FALSE;
+	R().hasFlag = FALSE;
+	R().lastHordeRefreshFrame = TheGameLogic->getFrame();
+	R().trueHordeMember = FALSE;
 
 	UnsignedInt delay = getHordeUpdateModuleData()->m_updateRate;
 	setWakeFrame(getObject(), UPDATE_SLEEP(GameLogicRandomValue(1, delay)));
@@ -166,6 +167,7 @@ HordeUpdate::HordeUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateM
 //-------------------------------------------------------------------------------------------------
 HordeUpdate::~HordeUpdate()
 {
+	TheGxHordeUpdateRows.release(m_gxRow);
 
 }
 
@@ -188,14 +190,14 @@ Bool HordeUpdate::isAllowedNationalism() const
 void HordeUpdate::joinOrLeaveHorde(SimpleObjectIterator *iter, Bool join)
 {
 	// give/remove bonus effects
-	if( m_inHorde != join )
+	if( R().inHorde != join )
 	{
-		m_inHorde = join;
+		R().inHorde = join;
 
 		if( AIUpdateInterface *ai = getObject()->getAIUpdateInterface() )
 		{
 			const HordeUpdateModuleData* md = getHordeUpdateModuleData();
-			ai->evaluateMoraleBonus(m_inHorde, md->m_allowedNationalism, md->m_action);
+			ai->evaluateMoraleBonus(R().inHorde, md->m_allowedNationalism, md->m_action);
 		}
 		else
 		{
@@ -229,7 +231,7 @@ void HordeUpdate::showHideFlag(Bool show)
 */
 void HordeUpdate::onDrawableBoundToObject()
 {
-	/////////////showHideFlag(m_hasFlag);
+	/////////////showHideFlag(R().hasFlag);
 	showHideFlag(FALSE);//hide the flag
 }
 
@@ -246,15 +248,15 @@ UpdateSleepTime HordeUpdate::update()
 
 	const HordeUpdateModuleData *md = getHordeUpdateModuleData();
 
-	Bool wasInHorde = m_inHorde;
+	Bool wasInHorde = R().inHorde;
 
 	// This is a sticky situation, where refreshing the model state (like from default to damaged, for example)
 	// will rebuild the terrain decal and set its size to the default size.... since Vehicles have a special size,
 	// we want to keep it fresh, here, but not do the hording test every frame...
 	Bool isInfantry = ( obj->isKindOf(KINDOF_INFANTRY) );
-	if ( isInfantry || (TheGameLogic->getFrame() > m_lastHordeRefreshFrame + md->m_updateRate) )
+	if ( isInfantry || (TheGameLogic->getFrame() > R().lastHordeRefreshFrame + md->m_updateRate) )
 	{
-		m_lastHordeRefreshFrame = TheGameLogic->getFrame();
+		R().lastHordeRefreshFrame = TheGameLogic->getFrame();
 
 		PartitionFilterHordeMember hmFilter(getObject(), md);
 		PartitionFilter *filters[] = { &hmFilter, nullptr };
@@ -263,13 +265,13 @@ UpdateSleepTime HordeUpdate::update()
 
 		if ((iter->getCount() >= md->m_minCount - 1) )//we really are in the thick part of the horde
 		{
-			m_inHorde = TRUE;
-			m_trueHordeMember = TRUE;
+			R().inHorde = TRUE;
+			R().trueHordeMember = TRUE;
 		}
 		else
 		{
-			m_inHorde = FALSE;
-			m_trueHordeMember = FALSE;/// unless...
+			R().inHorde = FALSE;
+			R().trueHordeMember = FALSE;/// unless...
 
 			Real rubOffRadiusSq = sqr(md->m_rubOffRadius);
 			for (Object* other = iter->first(); other; other = iter->next())
@@ -281,7 +283,7 @@ UpdateSleepTime HordeUpdate::update()
 
 					if (dist <= rubOffRadiusSq )
 					{
-						m_inHorde = TRUE;
+						R().inHorde = TRUE;
 						break;
 					}
 
@@ -291,7 +293,7 @@ UpdateSleepTime HordeUpdate::update()
 
 		AIUpdateInterface *ai = getObject()->getAIUpdateInterface();
 		if( ai )
-			ai->evaluateMoraleBonus(m_inHorde, md->m_allowedNationalism, md->m_action);
+			ai->evaluateMoraleBonus(R().inHorde, md->m_allowedNationalism, md->m_action);
 
 	}
 
@@ -313,7 +315,7 @@ UpdateSleepTime HordeUpdate::update()
 	{
 		if( TheGameLogic->getDrawIconUI() )
 		{
-			if(m_inHorde && !obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) )// this not is a ride-on for overlord
+			if(R().inHorde && !obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) )// this not is a ride-on for overlord
 			{
 
 				TerrainDecalType nuType;// uninitialized
@@ -361,9 +363,9 @@ UpdateSleepTime HordeUpdate::update()
 			draw->setTerrainDecal( TERRAIN_DECAL_NONE );
 		}
 
-		if ( ! wasInHorde && m_inHorde  )
+		if ( ! wasInHorde && R().inHorde  )
 				draw->setTerrainDecalFadeTarget(1.0f, 0.03f);
-		else if ( wasInHorde && ! m_inHorde )
+		else if ( wasInHorde && ! R().inHorde )
 				draw->setTerrainDecalFadeTarget(0.0f, -0.03f);
 	}
 
@@ -399,8 +401,8 @@ void HordeUpdate::xfer( Xfer *xfer )
 	// extend base class
 	UpdateModule::xfer( xfer );
 
-	xfer->xferBool( &m_inHorde );
-	xfer->xferBool( &m_hasFlag );
+	xfer->xferBool( &R().inHorde );
+	xfer->xferBool( &R().hasFlag );
 
 }
 
@@ -414,3 +416,5 @@ void HordeUpdate::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 }
+
+GxComponentTable<HordeUpdate::GxRow> TheGxHordeUpdateRows;

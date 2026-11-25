@@ -27,6 +27,7 @@
 
 #pragma once
 
+#include "Common/GxComponents.h"
 #include "GameLogic/AIStateMachine.h"
 #include "GameLogic/Module/SupplyTruckAIUpdate.h"
 
@@ -102,10 +103,10 @@ public:
 	virtual Bool isIdle() const;
 
 	const ChinookAIUpdateModuleData* friend_getData() const { return getChinookAIUpdateModuleData(); }
-	void friend_setFlightStatus(ChinookFlightStatus a) { m_flightStatus = a; }
+	void friend_setFlightStatus(ChinookFlightStatus a) { R().flightStatus = a; }
 
-	void recordOriginalPosition( const Coord3D &pos ) { m_originalPos.set( &pos ); }
-	const Coord3D* getOriginalPosition() const { return &m_originalPos; }
+	void recordOriginalPosition( const Coord3D &pos ) { R().originalPos.set( &pos ); }
+	const Coord3D* getOriginalPosition() const { return &R().originalPos; }
 
 	Int getUpgradedSupplyBoost() const;
 
@@ -131,9 +132,20 @@ private:
 	void setMyState( StateID cmd, Object* target, const Coord3D* pos, CommandSourceType cmdSource );
 	void setAirfieldForHealing(ObjectID id);
 
-	AICommandParmsStorage		m_pendingCommand;
-	ChinookFlightStatus			m_flightStatus;
-	ObjectID								m_airfieldForHealing;
-	Coord3D									m_originalPos;
-	Bool										m_hasPendingCommand;
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of TheGxChinookAIUpdateRows;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxRow
+	{
+		AICommandParmsStorage pendingCommand;
+		ChinookFlightStatus flightStatus;
+		ObjectID airfieldForHealing;
+		Coord3D originalPos;
+		Bool hasPendingCommand;
+	};
+	GxRow &R() const;
+private:
+	int m_gxRow;
 };
+extern GxComponentTable<ChinookAIUpdate::GxRow> TheGxChinookAIUpdateRows;
+inline ChinookAIUpdate::GxRow &ChinookAIUpdate::R() const { return TheGxChinookAIUpdateRows.rows[m_gxRow]; }

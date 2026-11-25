@@ -30,6 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponents.h"
 #include "Common/NameKeyGenerator.h"
 #include "Common/Override.h"
 #include "Common/Snapshot.h"
@@ -223,6 +224,30 @@ private:
 typedef OVERRIDE<LocomotorTemplate> LocomotorTemplateOverride;
 
 // ---------------------------------------------------------
+// web port (round 5, units are pure data): a locomotor's per-unit movement state is a row of
+// TheGxLocoRows; the Locomotor object is the facade (template, INI, xfer) holding its row handle.
+struct GxLocoRow
+{
+	Coord3D			maintainPos;
+	Real				brakingFactor;
+	Real				maxLift;
+	Real				maxSpeed;
+	Real				maxAccel;
+	Real				maxBraking;
+	Real				maxTurnRate;
+	Real				closeEnoughDist;
+#ifdef CIRCLE_FOR_LANDING
+	Real				circleThresh;
+#endif
+	UnsignedInt	flags;
+	Real				preferredHeight;
+	Real				preferredHeightDamping;
+	Real				angleOffset;
+	Real				offsetIncrement;
+	UnsignedInt donutTimer;				///< Frame time to keep units from doing the donut. jba.
+};
+extern GxComponentTable<GxLocoRow> TheGxLocoRows;
+
 class Locomotor : public MemoryPoolObject, public Snapshot
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(Locomotor, "Locomotor" )
@@ -250,9 +275,9 @@ public:
 	Real getMaxLift(BodyDamageType condition) const;  ///< get acceleration given condition
 	Real getBraking() const;  ///< get braking given condition
 
-	Real getPreferredHeight() const { return m_preferredHeight;} ///< Just return preferredheight, no damage consideration
-	void restorePreferredHeightFromTemplate() { m_preferredHeight = m_template->m_preferredHeight; };
-	Real getPreferredHeightDamping() const { return m_preferredHeightDamping;}
+	Real getPreferredHeight() const { return R().preferredHeight;} ///< Just return preferredheight, no damage consideration
+	void restorePreferredHeightFromTemplate() { R().preferredHeight = m_template->m_preferredHeight; };
+	Real getPreferredHeightDamping() const { return R().preferredHeightDamping;}
 	LocomotorAppearance getAppearance() const { return m_template->m_appearance; }
 	LocomotorPriority getMovePriority() const { return m_template->m_movePriority; }
 	LocomotorSurfaceTypeMask getLegalSurfaces() const { return m_template->m_surfaces; }
@@ -284,7 +309,7 @@ public:
 	Int getAirborneTargetingHeight() const { return m_template->m_airborneTargetingHeight; }
 	Bool getLocomotorWorksWhenDead() const { return m_template->m_locomotorWorksWhenDead; }
 	Bool getStickToGround() const { return m_template->m_stickToGround; }
-	Real getCloseEnoughDist() const { return m_closeEnoughDist; }
+	Real getCloseEnoughDist() const { return R().closeEnoughDist; }
 	Bool isCloseEnoughDist3D() const { return getFlag(IS_CLOSE_ENOUGH_DIST_3D); }
 	Bool hasSuspension() const {return m_template->m_hasSuspension;}
 	Bool canMoveBackwards() const {return m_template->m_canMoveBackward;}
@@ -305,28 +330,28 @@ public:
 	Real calcMinTurnRadius(BodyDamageType condition, Real* timeToTravelThatDist) const;
 
 	/// this is handy for doing things like forcing helicopters to crash realistically: cut their lift.
-	void setMaxLift(Real lift) { m_maxLift = lift; }
+	void setMaxLift(Real lift) { R().maxLift = lift; }
 	void setMaxSpeed(Real speed)
 	{
 		DEBUG_ASSERTCRASH(!(speed <= 0.0f && m_template->m_appearance == LOCO_THRUST), ("THRUST locos may not have zero speeds!"));
-		m_maxSpeed = speed;
+		R().maxSpeed = speed;
 	}
-	void setMaxAcceleration(Real accel) { m_maxAccel = accel; }
-	void setMaxBraking(Real braking) { m_maxBraking = braking; }
-	void setMaxTurnRate(Real turn) { m_maxTurnRate = turn; }
+	void setMaxAcceleration(Real accel) { R().maxAccel = accel; }
+	void setMaxBraking(Real braking) { R().maxBraking = braking; }
+	void setMaxTurnRate(Real turn) { R().maxTurnRate = turn; }
 	void setAllowInvalidPosition(Bool allow) { setFlag(ALLOW_INVALID_POSITION, allow); }
-	void setCloseEnoughDist( Real dist ) { m_closeEnoughDist = dist; }
+	void setCloseEnoughDist( Real dist ) { R().closeEnoughDist = dist; }
 	void setCloseEnoughDist3D( Bool setting ) { setFlag(IS_CLOSE_ENOUGH_DIST_3D, setting); }
 	Bool isInvalidPositionAllowed() const { return getFlag( ALLOW_INVALID_POSITION ); }
 
-	void setPreferredHeight( Real height ) { m_preferredHeight = height; }
+	void setPreferredHeight( Real height ) { R().preferredHeight = height; }
 
 #ifdef CIRCLE_FOR_LANDING
 	/**
 		if we are climbing/diving more than this, circle as needed rather
 		than just diving or climbing directly. (only useful for Winged things)
 	*/
-	inline void setAltitudeChangeThresholdForCircling(Real a) { m_circleThresh = a; }
+	inline void setAltitudeChangeThresholdForCircling(Real a) { R().circleThresh = a; }
 #endif
 
 	/**
@@ -437,28 +462,12 @@ private:
 		OFFSET_INCREASING
 	};
 
-	Bool getFlag(LocoFlag f) const { return (m_flags & (1 << f)) != 0; }
-	void setFlag(LocoFlag f, Bool b) { if (b) m_flags |= (1<<f); else m_flags &= ~(1<<f); }
+	Bool getFlag(LocoFlag f) const { return (R().flags & (1 << f)) != 0; }
+	void setFlag(LocoFlag f, Bool b) { if (b) R().flags |= (1<<f); else R().flags &= ~(1<<f); }
 
 	LocomotorTemplateOverride m_template;		///< the kind of Locomotor this is
-	Coord3D			m_maintainPos;
-	Real				m_brakingFactor;
-	Real				m_maxLift;
-	Real				m_maxSpeed;
-	Real				m_maxAccel;
-	Real				m_maxBraking;
-	Real				m_maxTurnRate;
-	Real				m_closeEnoughDist;
-#ifdef CIRCLE_FOR_LANDING
-	Real				m_circleThresh;
-#endif
-	UnsignedInt	m_flags;
-	Real				m_preferredHeight;
-	Real				m_preferredHeightDamping;
-
-	Real				m_angleOffset;
-	Real				m_offsetIncrement;
-	UnsignedInt m_donutTimer;				///< Frame time to keep units from doing the donut. jba.
+	int					m_gxRow;								///< web port (round 5): this locomotor's row in TheGxLocoRows
+	GxLocoRow &R() const { return TheGxLocoRows.rows[m_gxRow]; }
 
 
 };

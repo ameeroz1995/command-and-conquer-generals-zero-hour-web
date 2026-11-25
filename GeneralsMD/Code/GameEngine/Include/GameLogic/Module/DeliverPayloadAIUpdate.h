@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "Common/GxComponents.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameClient/RadiusDecal.h"
@@ -314,20 +315,20 @@ public:
 	virtual AIFreeToExitType getAiFreeToExit(const Object* exiter) const;
 
 	const Coord3D* getTargetPos() const { return &m_targetPos; }
-	const Coord3D* getMoveToPos() const { return &m_moveToPos; }
+	const Coord3D* getMoveToPos() const { return &R().moveToPos; }
 	UnsignedInt getDoorDelay() const { return getDeliverPayloadAIUpdateModuleData()->m_doorDelay; }
-	Bool isDeliveringPayload() const { return m_deliverPayloadStateMachine != nullptr; }
+	Bool isDeliveringPayload() const { return R().deliverPayloadStateMachine != nullptr; }
 	const ThingTemplate* getPutInContainerTemplateViaModuleData() const;
 
-	Real getAllowedDistanceToTarget() const { return m_data.m_distToTarget; }
-	Real getPreOpenDistance() const { return m_data.m_preOpenDistance; }
-	Int getMaxNumberAttempts() const { return m_data.m_maxAttempts; }
-	UnsignedInt getDropDelay() const { return m_data.m_dropDelay; }
-	const Coord3D& getDropOffset() const { return m_data.m_dropOffset; }
-	const Coord3D& getDropVariance() const { return m_data.m_dropVariance; }
-	Bool isFireWeapon() const { return m_data.m_fireWeapon; }
-	Int getVisibleItemsDelivered() const { return m_visibleItemsDelivered; }
-	void setVisibleItemsDelivered( Int num ) { m_visibleItemsDelivered = num; }
+	Real getAllowedDistanceToTarget() const { return R().data.m_distToTarget; }
+	Real getPreOpenDistance() const { return R().data.m_preOpenDistance; }
+	Int getMaxNumberAttempts() const { return R().data.m_maxAttempts; }
+	UnsignedInt getDropDelay() const { return R().data.m_dropDelay; }
+	const Coord3D& getDropOffset() const { return R().data.m_dropOffset; }
+	const Coord3D& getDropVariance() const { return R().data.m_dropVariance; }
+	Bool isFireWeapon() const { return R().data.m_fireWeapon; }
+	Int getVisibleItemsDelivered() const { return R().visibleItemsDelivered; }
+	void setVisibleItemsDelivered( Int num ) { R().visibleItemsDelivered = num; }
 
 	Bool isCloseEnoughToTarget();
 	Bool isOffMap() const;
@@ -336,29 +337,21 @@ public:
 	void deliverPayload( const Coord3D *moveToPos, const Coord3D *targetPos, const DeliverPayloadData *data );
 	void deliverPayloadViaModuleData( const Coord3D *moveToPos );
 
-	const DeliverPayloadData* getData() { return &m_data; }
+	const DeliverPayloadData* getData() { return &R().data; }
 
 	virtual UpdateSleepTime update();
 
 	void killDeliveryDecal();
 
-	void friend_setFreeToExit(Bool f) { m_freeToExit = f; }
-	void friend_setAcceptingCommands(Bool f) { m_acceptingCommands = f; }
+	void friend_setFreeToExit(Bool f) { R().freeToExit = f; }
+	void friend_setAcceptingCommands(Bool f) { R().acceptingCommands = f; }
 
 protected:
 
 	virtual AIStateMachine* makeStateMachine();
 	virtual Bool isAllowedToRespondToAiCommands(const AICommandParms* parms) const;
 
-	DeliverPayloadStateMachine*		m_deliverPayloadStateMachine;	///< Controls my special logic
 	Coord3D												m_targetPos;									///< Where I plan to deliver my little friends, if obj is null
-	Coord3D												m_moveToPos;									///< Where I am moving to.
-	DeliverPayloadData						m_data;
-	Int														m_visibleItemsDelivered;
-	RadiusDecal										m_deliveryDecal;
-	Real													m_previousDistanceSqr;
-	Bool													m_freeToExit;
-	Bool													m_acceptingCommands;
 
 	enum DiveState	// Stored in save file as int, don't renumber!  jba.
 	{
@@ -366,8 +359,27 @@ protected:
 		DIVESTATE_DIVING=1,
 		DIVESTATE_POSTDIVE=2,
 	};
-	DiveState											m_diveState;
 
 
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of TheGxDeliverPayloadAIUpdateRows;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxRow
+	{
+		DeliverPayloadStateMachine* deliverPayloadStateMachine; ///< Controls my special logic
+		Coord3D moveToPos; ///< Where I am moving to.
+		DeliverPayloadData data;
+		Int visibleItemsDelivered;
+		RadiusDecal deliveryDecal;
+		Real previousDistanceSqr;
+		Bool freeToExit;
+		Bool acceptingCommands;
+		DiveState diveState;
+	};
+	GxRow &R() const;
+private:
+	int m_gxRow;
 };
+extern GxComponentTable<DeliverPayloadAIUpdate::GxRow> TheGxDeliverPayloadAIUpdateRows;
+inline DeliverPayloadAIUpdate::GxRow &DeliverPayloadAIUpdate::R() const { return TheGxDeliverPayloadAIUpdateRows.rows[m_gxRow]; }

@@ -54,14 +54,16 @@ AnimationSteeringUpdateModuleData::AnimationSteeringUpdateModuleData()
 AnimationSteeringUpdate::AnimationSteeringUpdate( Thing *thing, const ModuleData *moduleData )
 												: UpdateModule( thing, moduleData )
 {
-	m_currentTurnAnim = MODELCONDITION_INVALID;
-	m_nextTransitionFrame = 0;
+	m_gxRow = TheGxAnimationSteeringUpdateRows.alloc();
+	R().currentTurnAnim = MODELCONDITION_INVALID;
+	R().nextTransitionFrame = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 AnimationSteeringUpdate::~AnimationSteeringUpdate()
 {
+	TheGxAnimationSteeringUpdateRows.release(m_gxRow);
 
 }
 
@@ -75,11 +77,11 @@ UpdateSleepTime AnimationSteeringUpdate::update()
 	Drawable *draw = getObject()->getDrawable();
 	UnsignedInt now = TheGameLogic->getFrame();
 
-	if( physics && draw && now >= m_nextTransitionFrame )
+	if( physics && draw && now >= R().nextTransitionFrame )
 	{
 		PhysicsTurningType currentTurn = physics->getTurning();
 
-		switch( m_currentTurnAnim )
+		switch( R().currentTurnAnim )
 		{
 			case MODELCONDITION_INVALID:
 				//We're currently going straight. Check if we want to turn.
@@ -87,15 +89,15 @@ UpdateSleepTime AnimationSteeringUpdate::update()
 				{
 					//Initiate a right turn
 					draw->setModelConditionState( MODELCONDITION_CENTER_TO_RIGHT );
-					m_nextTransitionFrame = now + data->m_transitionFrames;
-					m_currentTurnAnim = MODELCONDITION_CENTER_TO_RIGHT;
+					R().nextTransitionFrame = now + data->m_transitionFrames;
+					R().currentTurnAnim = MODELCONDITION_CENTER_TO_RIGHT;
 				}
 				else if( currentTurn == TURN_POSITIVE )
 				{
 					//Initiate a left turn
 					draw->setModelConditionState( MODELCONDITION_CENTER_TO_LEFT );
-					m_nextTransitionFrame = now + data->m_transitionFrames;
-					m_currentTurnAnim = MODELCONDITION_CENTER_TO_LEFT;
+					R().nextTransitionFrame = now + data->m_transitionFrames;
+					R().currentTurnAnim = MODELCONDITION_CENTER_TO_LEFT;
 				}
 				break;
 			case MODELCONDITION_CENTER_TO_RIGHT:
@@ -105,8 +107,8 @@ UpdateSleepTime AnimationSteeringUpdate::update()
 				{
 					//Recenter!
 					draw->clearAndSetModelConditionState( MODELCONDITION_CENTER_TO_RIGHT, MODELCONDITION_RIGHT_TO_CENTER );
-					m_nextTransitionFrame = now + data->m_transitionFrames;
-					m_currentTurnAnim = MODELCONDITION_RIGHT_TO_CENTER;
+					R().nextTransitionFrame = now + data->m_transitionFrames;
+					R().currentTurnAnim = MODELCONDITION_RIGHT_TO_CENTER;
 				}
 				break;
 			case MODELCONDITION_CENTER_TO_LEFT:
@@ -116,8 +118,8 @@ UpdateSleepTime AnimationSteeringUpdate::update()
 				{
 					//Recenter!
 					draw->clearAndSetModelConditionState( MODELCONDITION_CENTER_TO_LEFT, MODELCONDITION_LEFT_TO_CENTER );
-					m_nextTransitionFrame = now + data->m_transitionFrames;
-					m_currentTurnAnim = MODELCONDITION_LEFT_TO_CENTER;
+					R().nextTransitionFrame = now + data->m_transitionFrames;
+					R().currentTurnAnim = MODELCONDITION_LEFT_TO_CENTER;
 				}
 				break;
 			case MODELCONDITION_LEFT_TO_CENTER:
@@ -126,8 +128,8 @@ UpdateSleepTime AnimationSteeringUpdate::update()
 				{
 					//Finish the turn
 					draw->clearModelConditionFlags( MAKE_MODELCONDITION_MASK2( MODELCONDITION_LEFT_TO_CENTER, MODELCONDITION_RIGHT_TO_CENTER ) );
-					m_nextTransitionFrame = now;
-					m_currentTurnAnim = MODELCONDITION_INVALID;
+					R().nextTransitionFrame = now;
+					R().currentTurnAnim = MODELCONDITION_INVALID;
 				}
 				break;
 		}
@@ -175,3 +177,4 @@ void AnimationSteeringUpdate::loadPostProcess()
 
 }
 
+GxComponentTable<AnimationSteeringUpdate::GxRow> TheGxAnimationSteeringUpdateRows;

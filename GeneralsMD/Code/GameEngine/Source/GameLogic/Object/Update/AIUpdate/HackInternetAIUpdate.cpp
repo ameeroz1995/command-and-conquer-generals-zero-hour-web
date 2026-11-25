@@ -56,12 +56,14 @@ AIStateMachine* HackInternetAIUpdate::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 HackInternetAIUpdate::HackInternetAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_hasPendingCommand = false;
+	m_gxRow = TheGxHackInternetAIUpdateRows.alloc();
+	R().hasPendingCommand = false;
 }
 
 //-------------------------------------------------------------------------------------------------
 HackInternetAIUpdate::~HackInternetAIUpdate()
 {
+	TheGxHackInternetAIUpdateRows.release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -69,7 +71,7 @@ Bool HackInternetAIUpdate::isIdle() const
 {
 	// we need to do this because we enter an idle state briefly between takeoff/landing in these cases,
 	// but scripting relies on us never claiming to be "idle"...
-	if (m_hasPendingCommand)
+	if (R().hasPendingCommand)
 		return false;
 
 	return AIUpdateInterface::isIdle();
@@ -104,11 +106,11 @@ UpdateSleepTime HackInternetAIUpdate::update()
 	// when we have a pending command...
 	if( AIUpdateInterface::isIdle() )
 	{
-		if( m_hasPendingCommand )
+		if( R().hasPendingCommand )
 		{
 			AICommandParms parms( AICMD_MOVE_TO_POSITION, CMD_FROM_AI );	// values don't matter, will be wiped by next line
-			m_pendingCommand.reconstitute( parms );
-			m_hasPendingCommand = false;
+			R().pendingCommand.reconstitute( parms );
+			R().hasPendingCommand = false;
 
  			aiDoCommand(&parms);
 		}
@@ -142,8 +144,8 @@ void HackInternetAIUpdate::aiDoCommand(const AICommandParms* parms)
 	if( currentState == HACK_INTERNET || currentState == PACKING )
 	{
 		// nuke any existing pending cmd
-		m_pendingCommand.store(*parms);
-		m_hasPendingCommand = true;
+		R().pendingCommand.store(*parms);
+		R().hasPendingCommand = true;
 
 		if( currentState == HACK_INTERNET )
 		{
@@ -154,7 +156,7 @@ void HackInternetAIUpdate::aiDoCommand(const AICommandParms* parms)
 		return;
 	}
 
-	m_hasPendingCommand = false;
+	R().hasPendingCommand = false;
 	AIUpdateInterface::aiDoCommand(parms);
 }
 
@@ -223,9 +225,9 @@ void HackInternetAIUpdate::xfer( Xfer *xfer )
 
  // extend base class
 	AIUpdateInterface::xfer(xfer);
-	xfer->xferBool(&m_hasPendingCommand);
-	if (m_hasPendingCommand) {
-		m_pendingCommand.doXfer(xfer);
+	xfer->xferBool(&R().hasPendingCommand);
+	if (R().hasPendingCommand) {
+		R().pendingCommand.doXfer(xfer);
 	}
 }
 
@@ -590,3 +592,5 @@ void HackInternetState::onExit( StateExitType status )
 	Object *owner = getMachineOwner();
 	owner->clearModelConditionState( MODELCONDITION_FIRING_A );
 }
+
+GxComponentTable<HackInternetAIUpdate::GxRow> TheGxHackInternetAIUpdateRows;

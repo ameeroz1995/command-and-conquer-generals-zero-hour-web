@@ -35,6 +35,7 @@
 const Int SLAVED_UPDATE_RATE = LOGICFRAMES_PER_SECOND/4; ///< This is a low priority module that only needs to be called every this many frames
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponents.h"
 #include "Common/INI.h"
 #include "GameLogic/Module/UpdateModule.h"
 class DamageInfo;
@@ -146,7 +147,7 @@ public:
 
 	virtual SlavedUpdateInterface* getSlavedUpdateInterface() { return this; }
 
-	virtual ObjectID getSlaverID() const { return m_slaver; }
+	virtual ObjectID getSlaverID() const { return R().slaver; }
 	virtual void onEnslave( const Object *slaver );
 	virtual void onSlaverDie( const DamageInfo *info );
 	virtual void onSlaverDamage( const DamageInfo *info );
@@ -169,9 +170,20 @@ private:
 	void startSlavedEffects( const Object *slaver );	///< We have been marked as Slaved, so we can't be selected or move too far or other stuff
 	void stopSlavedEffects();		///< We are no longer slaved.
 
-	ObjectID m_slaver;			///< To whom we are enslaved
-	Coord3D m_guardPointOffset;	///< Where we should go when not busy and still enslaved
-	Int m_framesToWait;
-	RepairStates m_repairState;
-	Bool m_repairing;
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of TheGxSlavedUpdateRows;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxRow
+	{
+		ObjectID slaver; ///< To whom we are enslaved
+		Coord3D guardPointOffset; ///< Where we should go when not busy and still enslaved
+		Int framesToWait;
+		RepairStates repairState;
+		Bool repairing;
+	};
+	GxRow &R() const;
+private:
+	int m_gxRow;
 };
+extern GxComponentTable<SlavedUpdate::GxRow> TheGxSlavedUpdateRows;
+inline SlavedUpdate::GxRow &SlavedUpdate::R() const { return TheGxSlavedUpdateRows.rows[m_gxRow]; }

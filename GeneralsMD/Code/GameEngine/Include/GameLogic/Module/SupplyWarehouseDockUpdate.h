@@ -30,6 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponents.h"
 #include "Common/INI.h"
 #include "Common/GameMemory.h"
 #include "GameLogic/Module/DockUpdate.h"
@@ -64,7 +65,7 @@ public:
 	virtual void setDockCrippled( Bool setting ); ///< Game Logic can set me as inoperative.  I get to decide what that means.
 	virtual Bool action( Object* docker, Object *drone = nullptr );	///<For me, this means identifying who is docking and either taking Boxes away or giving them
 
-	Int getBoxesStored() const { return m_boxesStored; }
+	Int getBoxesStored() const { return R().boxesStored; }
 
 	void setCashValue( Int cashValue );
 
@@ -72,6 +73,17 @@ public:
 protected:
 
 
-	Int m_boxesStored;
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of TheGxSupplyWarehouseDockUpdateRows;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxRow
+	{
+		Int boxesStored;
+	};
+	GxRow &R() const;
+private:
+	int m_gxRow;
 };
+extern GxComponentTable<SupplyWarehouseDockUpdate::GxRow> TheGxSupplyWarehouseDockUpdateRows;
+inline SupplyWarehouseDockUpdate::GxRow &SupplyWarehouseDockUpdate::R() const { return TheGxSupplyWarehouseDockUpdateRows.rows[m_gxRow]; }

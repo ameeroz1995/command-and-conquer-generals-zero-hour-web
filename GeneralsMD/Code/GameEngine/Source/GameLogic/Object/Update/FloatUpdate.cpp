@@ -76,9 +76,10 @@ FloatUpdateModuleData::FloatUpdateModuleData()
 FloatUpdate::FloatUpdate( Thing *thing, const ModuleData *moduleData )
 						:UpdateModule( thing, moduleData )
 {
+	m_gxRow = TheGxFloatUpdateRows.alloc();
 
 	// save our initial enabled status based on INI settings
-	m_enabled = ((FloatUpdateModuleData *)moduleData)->m_enabled;
+	R().enabled = ((FloatUpdateModuleData *)moduleData)->m_enabled;
 
 }
 
@@ -86,6 +87,7 @@ FloatUpdate::FloatUpdate( Thing *thing, const ModuleData *moduleData )
 // ------------------------------------------------------------------------------------------------
 FloatUpdate::~FloatUpdate()
 {
+	TheGxFloatUpdateRows.release(m_gxRow);
 
 }
 
@@ -96,7 +98,7 @@ UpdateSleepTime FloatUpdate::update()
 /// @todo srj use SLEEPY_UPDATE here
 
 	// if we're not enabled, do nothing
-	if( m_enabled == TRUE )
+	if( R().enabled == TRUE )
 	{
 		// get object position
 		const Coord3D *pos = getObject()->getPosition();
@@ -164,7 +166,7 @@ void FloatUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// enabled
-	xfer->xferBool( &m_enabled );
+	xfer->xferBool( &R().enabled );
 
 }
 
@@ -178,3 +180,5 @@ void FloatUpdate::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 }
+
+GxComponentTable<FloatUpdate::GxRow> TheGxFloatUpdateRows;

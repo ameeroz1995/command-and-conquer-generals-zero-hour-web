@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "Common/GxComponents.h"
 #include "GameLogic/Module/UpdateModule.h"
 #include "Common/INI.h"
 #include "Lib/BaseType.h"
@@ -85,15 +86,26 @@ public:
 	virtual UpdateSleepTime update()										{ return UPDATE_SLEEP_FOREVER; }
 
 protected:
-	Bool m_bonesInitialized;													///< To prevent creation bugs, only init the World coords when first asked for one
-	Int m_spawnPointCount;														///< How many in the array are actually live and valid
 	Coord3D m_worldCoordSpawnPoints[MAX_SPAWN_POINTS];///< Where my little friends will be created
-	Real m_worldAngleSpawnPoints[MAX_SPAWN_POINTS];		///< And what direction they should face
-	ObjectID m_spawnPointOccupier[MAX_SPAWN_POINTS];	///< Who I think is in each spot.  I can validate their existence to see if I am free to exit something.
 
 	// Required func to fulfill Module requirement
 
 private:
 	void initializeBonePositions();	///< Look up the bone positions and store them in world space coords
 	void revalidateOccupiers();			///< Do a lookup on all our ID's and clear the dead ones.
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of TheGxSpawnPointProductionExitUpdateRows;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxRow
+	{
+		Bool bonesInitialized; ///< To prevent creation bugs, only init the World coords when first asked for one
+		Int spawnPointCount; ///< How many in the array are actually live and valid
+		Real worldAngleSpawnPoints[MAX_SPAWN_POINTS]; ///< And what direction they should face
+		ObjectID spawnPointOccupier[MAX_SPAWN_POINTS]; ///< Who I think is in each spot.  I can validate their existence to see if I am free to exit something.
+	};
+	GxRow &R() const;
+private:
+	int m_gxRow;
 };
+extern GxComponentTable<SpawnPointProductionExitUpdate::GxRow> TheGxSpawnPointProductionExitUpdateRows;
+inline SpawnPointProductionExitUpdate::GxRow &SpawnPointProductionExitUpdate::R() const { return TheGxSpawnPointProductionExitUpdateRows.rows[m_gxRow]; }

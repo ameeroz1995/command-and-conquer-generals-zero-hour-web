@@ -1072,10 +1072,79 @@ void AIUpdateInterface::gxMovementPassStep()
 #endif
 }
 
+// Route-following kernel (round 5 addendum). With match rule updatePasses, every MOVE unit's point on
+// its route is computed for the whole list before any unit moves, then the apply loop moves them in
+// object-ID order. Per slot, valid for this frame, used only if the unit's route and position are
+// still the ones the kernel saw (otherwise doLocomotor computes it again).
+struct GxCpopRow
+{
+	UnsignedInt frame;
+	const Path *path;
+	Coord3D pos;
+	ClosestPointOnPathInfo info;
+};
+static std::vector<GxCpopRow> s_gxCpop;	// by store slot
+
+// kernel over slots list[begin, end)
+// reads: store obj; per unit its AI goal type, route, locomotor set, position; the pathfinder grid
+//        (cells, obstacle and unit-goal marks: nobody moves during this phase)
+// writes: its own s_gxCpop row and its own route's point-on-path cache (Path::m_cpop*)
+// no allocation, events, RNG or object changes (cpopSegments, off, builds its segment list on first
+// use: that allocates, so it is the one exception)
+static void gxMoveKernel(const int *list, int begin, int end, UnsignedInt frame)
+{
+	for (int i = begin; i < end; ++i)
+	{
+		const int s = list[i];
+		Object *obj = TheGxUnitStore.obj[s];
+		if (!obj || obj->isDestroyed())
+			continue;
+		AIUpdateInterface *ai = obj->getAI();
+		if (ai)
+			ai->gxMoveKernelStep(s_gxCpop[s], frame);
+	}
+}
+
+void AIUpdateInterface::gxMoveKernelStep(GxCpopRow &row, UnsignedInt frame)
+{
+	// the same conditions under which doLocomotor follows a ground route
+	if (getObject()->isKindOf(KINDOF_IMMOBILE) || !m_curLocomotor || m_locomotorGoalType != POSITION_ON_PATH
+		|| !getPath() || (isAiInDeadState() && !m_curLocomotor->getLocomotorWorksWhenDead()) || !isDoingGroundMovement())
+		return;
+	row.pos = *getObject()->getPosition();
+	row.path = getPath();
+	getPath()->computePointOnPath(getObject(), m_locomotorSet, row.pos, row.info);
+	row.frame = frame;
+}
+
+Bool AIUpdateInterface::gxTakeKernelPoint(const Coord3D &pos, ClosestPointOnPathInfo &info) const
+{
+	const int s = getObject()->gxStoreSlot();
+	if (s < 0 || s >= (int)s_gxCpop.size())
+		return FALSE;
+	GxCpopRow &row = s_gxCpop[s];
+	if (row.frame != TheGameLogic->getFrame() || row.path != getPath() || row.pos.x != pos.x || row.pos.y != pos.y || row.pos.z != pos.z)
+		return FALSE;
+	row.frame = ~0u;	// used once
+	info = row.info;
+	return TRUE;
+}
+
 void gxRunMovementPass()
 {
 	static std::vector<int> s_list;	// copy: a step may change masks (the store rebuilds its list)
 	s_list = TheGxUnitStore.pass(GXB_MOVE);
+	extern bool gxMatchRule(unsigned int rule);
+	if (gxMatchRule(131072 /* GXRULE_UPDATE_PASSES */) && !s_list.empty())
+	{
+		if ((int)s_gxCpop.size() < TheGxUnitStore.size())
+		{
+			GxCpopRow none; none.frame = ~0u; none.path = nullptr; none.pos.zero();
+			s_gxCpop.resize(TheGxUnitStore.size() + 256, none);
+		}
+		gxMoveKernel(s_list.data(), 0, (int)s_list.size(), TheGameLogic->getFrame());
+	}
+	// apply, in object-ID order: locomotion, physics forces, positions, grid marks
 	for (size_t i = 0; i < s_list.size(); ++i)
 	{
 		Object *obj = TheGxUnitStore.obj[s_list[i]];
@@ -2356,7 +2425,8 @@ UpdateSleepTime AIUpdateInterface::doLocomotor()
 							ClosestPointOnPathInfo info;
 							CRCDEBUG_LOG(("AIUpdateInterface::doLocomotor() - calling computePointOnPath() for %s",
 								DebugDescribeObject(getObject()).str()));
-							getPath()->computePointOnPath(getObject(), m_locomotorSet, *getObject()->getPosition(), info);
+							if (!gxTakeKernelPoint(*getObject()->getPosition(), info))	// web port: the movement kernel's result
+								getPath()->computePointOnPath(getObject(), m_locomotorSet, *getObject()->getPosition(), info);
 							onPathDistToGoal = info.distAlongPath;
 							goalPos = info.posOnPath;
 							// layer is a possible bridge in the path.  Check & set the layer if applicable.

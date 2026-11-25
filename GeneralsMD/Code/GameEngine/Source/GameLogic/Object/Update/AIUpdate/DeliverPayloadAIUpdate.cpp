@@ -110,22 +110,24 @@ AIStateMachine* DeliverPayloadAIUpdate::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 DeliverPayloadAIUpdate::DeliverPayloadAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_deliverPayloadStateMachine = nullptr;
+	m_gxRow = TheGxDeliverPayloadAIUpdateRows.alloc();
+	R().deliverPayloadStateMachine = nullptr;
 	m_targetPos.zero();
-	m_moveToPos.zero();
-	m_visibleItemsDelivered = 0;
-	m_deliveryDecal.clear();
-	m_previousDistanceSqr = 0;
-	m_freeToExit = FALSE;
-	m_acceptingCommands = TRUE;
-	m_diveState = DIVESTATE_PREDIVE;
+	R().moveToPos.zero();
+	R().visibleItemsDelivered = 0;
+	R().deliveryDecal.clear();
+	R().previousDistanceSqr = 0;
+	R().freeToExit = FALSE;
+	R().acceptingCommands = TRUE;
+	R().diveState = DIVESTATE_PREDIVE;
 }
 
 //-------------------------------------------------------------------------------------------------
 DeliverPayloadAIUpdate::~DeliverPayloadAIUpdate()
 {
-	m_deliveryDecal.clear();
-	deleteInstance(m_deliverPayloadStateMachine);
+	TheGxDeliverPayloadAIUpdateRows.release(m_gxRow);
+	R().deliveryDecal.clear();
+	deleteInstance(R().deliverPayloadStateMachine);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -134,19 +136,19 @@ AIFreeToExitType DeliverPayloadAIUpdate::getAiFreeToExit(const Object* exiter) c
 	if( getObject()->isEffectivelyDead() )
 		return NOT_FREE_TO_EXIT;
 
-	return m_freeToExit ? FREE_TO_EXIT : NOT_FREE_TO_EXIT;
+	return R().freeToExit ? FREE_TO_EXIT : NOT_FREE_TO_EXIT;
 }
 
 //-------------------------------------------------------------------------------------------------
 void DeliverPayloadAIUpdate::killDeliveryDecal()
 {
-	m_deliveryDecal.clear();
+	R().deliveryDecal.clear();
 }
 
 //-------------------------------------------------------------------------------------------------
 Bool DeliverPayloadAIUpdate::isAllowedToRespondToAiCommands(const AICommandParms* parms) const
 {
-	if (!m_acceptingCommands)
+	if (!R().acceptingCommands)
 	{
 		return false;
 	}
@@ -157,22 +159,22 @@ Bool DeliverPayloadAIUpdate::isAllowedToRespondToAiCommands(const AICommandParms
 //-------------------------------------------------------------------------------------------------
 UpdateSleepTime DeliverPayloadAIUpdate::update()
 {
-	m_deliveryDecal.update();
+	R().deliveryDecal.update();
 
-	if(!(isAiInDeadState()) && m_deliverPayloadStateMachine)
-		m_deliverPayloadStateMachine->updateStateMachine();
+	if(!(isAiInDeadState()) && R().deliverPayloadStateMachine)
+		R().deliverPayloadStateMachine->updateStateMachine();
 
 	//Handling diving logic (regardless of state)
-	if( m_diveState != DIVESTATE_POSTDIVE )
+	if( R().diveState != DIVESTATE_POSTDIVE )
 	{
-		if( m_diveState == DIVESTATE_PREDIVE )
+		if( R().diveState == DIVESTATE_PREDIVE )
 		{
 			//Check to see if we are close enough to start diving.
 			Real startDiveDistanceSquared = sqr( getData()->m_diveStartDistance );
 			Real currentDistanceSquared  = ThePartitionManager->getDistanceSquared( getObject(), getTargetPos(), FROM_CENTER_2D );
 			if( currentDistanceSquared <= startDiveDistanceSquared )
 			{
-				m_diveState = DIVESTATE_DIVING;
+				R().diveState = DIVESTATE_DIVING;
 				getObject()->getAIUpdateInterface()->getCurLocomotor()->setUsePreciseZPos( true );
 
 				AudioEventRTS soundDive = *(getObject()->getTemplate()->getPerUnitSound("StartDive"));
@@ -190,11 +192,11 @@ UpdateSleepTime DeliverPayloadAIUpdate::update()
 			Real currentDistanceSquared  = ThePartitionManager->getDistanceSquared( getObject(), getTargetPos(), FROM_CENTER_3D );
 			if( currentDistanceSquared <= endDiveDistanceSquared )
 			{
-				m_diveState = DIVESTATE_POSTDIVE;
+				R().diveState = DIVESTATE_POSTDIVE;
 				getObject()->getAIUpdateInterface()->getCurLocomotor()->setUsePreciseZPos( false );
 			}
 
-			if( m_data.m_strafingWeaponSlot != -1 )
+			if( R().data.m_strafingWeaponSlot != -1 )
 			{
 				//SHOOT!!
 				const Coord3D *velocity = getObject()->getPhysics()->getVelocity();
@@ -222,9 +224,9 @@ UpdateSleepTime DeliverPayloadAIUpdate::update()
 					strafePoint.z = TheTerrainLogic->getGroundHeight( strafePoint.x, strafePoint.y );
 
 					// lock it just till the weapon is empty or the attack is "done"
-					getObject()->setWeaponLock( m_data.m_strafingWeaponSlot, LOCKED_TEMPORARILY );
+					getObject()->setWeaponLock( R().data.m_strafingWeaponSlot, LOCKED_TEMPORARILY );
 					getObject()->fireCurrentWeapon( &strafePoint );
-					FXList::doFXPos( m_data.m_strafeFX, &strafePoint );
+					FXList::doFXPos( R().data.m_strafeFX, &strafePoint );
 				}
 			}
 		}
@@ -247,40 +249,40 @@ void DeliverPayloadAIUpdate::deliverPayload(
 	//THIS GETS CALLED VIA OBJECT CREATION LISTS ONLY!!!
 	//****************************************************
 
-	deleteInstance(m_deliverPayloadStateMachine);
-	m_deliverPayloadStateMachine = nullptr;
+	deleteInstance(R().deliverPayloadStateMachine);
+	R().deliverPayloadStateMachine = nullptr;
 
-	m_moveToPos = *moveToPos;
+	R().moveToPos = *moveToPos;
 	m_targetPos = *targetPos;
-	m_data			= *data;
+	R().data			= *data;
 
-	m_deliveryDecal.clear();
-	m_data.m_deliveryDecalTemplate.createRadiusDecal(*targetPos,
-		m_data.m_deliveryDecalRadius, getObject()->getControllingPlayer(), m_deliveryDecal);
+	R().deliveryDecal.clear();
+	R().data.m_deliveryDecalTemplate.createRadiusDecal(*targetPos,
+		R().data.m_deliveryDecalRadius, getObject()->getControllingPlayer(), R().deliveryDecal);
 
-	if( m_data.m_diveStartDistance <= 0.0f )
+	if( R().data.m_diveStartDistance <= 0.0f )
 	{
 		//We can't dive, so setting it to post-dive will prevent
 		//dive logic from being processed.
-		m_diveState = DIVESTATE_POSTDIVE;
+		R().diveState = DIVESTATE_POSTDIVE;
 	}
 	else
 	{
-		m_diveState = DIVESTATE_PREDIVE;
+		R().diveState = DIVESTATE_PREDIVE;
 	}
 
-	m_visibleItemsDelivered = 0;
+	R().visibleItemsDelivered = 0;
 
 	//If we have visible bones, then show each of those subobjects.
 	Drawable *draw = getObject()->getDrawable();
 	if( draw )
 	{
-		for( int i = 1; i <= m_data.m_visibleNumBones; i++ )
+		for( int i = 1; i <= R().data.m_visibleNumBones; i++ )
 		{
-			if( m_data.m_visibleSubObjectName.isNotEmpty() )
+			if( R().data.m_visibleSubObjectName.isNotEmpty() )
 			{
 				AsciiString name;
-				name.format( "%s%02d", m_data.m_visibleSubObjectName.str(), i );
+				name.format( "%s%02d", R().data.m_visibleSubObjectName.str(), i );
 				draw->showSubObject( name, true );
 			}
 		}
@@ -288,10 +290,10 @@ void DeliverPayloadAIUpdate::deliverPayload(
 
 
 	// must make the state machine AFTER initing the other stuff, since it may inquire of its values...
-	m_deliverPayloadStateMachine = newInstance(DeliverPayloadStateMachine)( getObject() );
-	m_deliverPayloadStateMachine->initDefaultState();
+	R().deliverPayloadStateMachine = newInstance(DeliverPayloadStateMachine)( getObject() );
+	R().deliverPayloadStateMachine->initDefaultState();
 #ifdef RTS_DEBUG
-	m_deliverPayloadStateMachine->setName("DeliverPayloadSpecificAI");
+	R().deliverPayloadStateMachine->setName("DeliverPayloadSpecificAI");
 #endif
 }
 
@@ -362,8 +364,8 @@ Bool DeliverPayloadAIUpdate::isCloseEnoughToTarget()
 
 	Real allowedDistanceSqr = sqr( getAllowedDistanceToTarget() );
 	Real currentDistanceSqr = ThePartitionManager->getDistanceSquared( getObject(), getTargetPos(), FROM_CENTER_2D );
-	Bool inBound = m_previousDistanceSqr > currentDistanceSqr;
-	m_previousDistanceSqr = currentDistanceSqr;// for the next test
+	Bool inBound = R().previousDistanceSqr > currentDistanceSqr;
+	R().previousDistanceSqr = currentDistanceSqr;// for the next test
 
 	if ( inBound )
 		allowedDistanceSqr = sqr(getAllowedDistanceToTarget() + getPreOpenDistance());
@@ -417,11 +419,11 @@ void DeliverPayloadAIUpdate::xfer( Xfer *xfer )
 	AIUpdateInterface::xfer(xfer);
 
 	xfer->xferCoord3D(&m_targetPos);
-	xfer->xferCoord3D(&m_moveToPos);
-	xfer->xferInt(&m_visibleItemsDelivered);
-	xfer->xferUser(&m_diveState, sizeof(m_diveState));
+	xfer->xferCoord3D(&R().moveToPos);
+	xfer->xferInt(&R().visibleItemsDelivered);
+	xfer->xferUser(&R().diveState, sizeof(R().diveState));
 
-	DeliverPayloadData data = m_data;
+	DeliverPayloadData data = R().data;
 
 	xfer->xferAsciiString(&data.m_visibleDropBoneName);
 	xfer->xferAsciiString(&data.m_visibleSubObjectName);
@@ -457,32 +459,32 @@ void DeliverPayloadAIUpdate::xfer( Xfer *xfer )
 	}
 	data.m_deliveryDecalTemplate.xferRadiusDecalTemplate(xfer);
 	xfer->xferReal(&data.m_deliveryDecalRadius);
-	 *((DeliverPayloadData*)&m_data) = data;
+	 *((DeliverPayloadData*)&R().data) = data;
 
-	Bool hasStateMachine = m_deliverPayloadStateMachine!=nullptr;
+	Bool hasStateMachine = R().deliverPayloadStateMachine!=nullptr;
 	xfer->xferBool(&hasStateMachine);
-	if (hasStateMachine && m_deliverPayloadStateMachine==nullptr)
+	if (hasStateMachine && R().deliverPayloadStateMachine==nullptr)
 	{
-		m_deliverPayloadStateMachine = newInstance(DeliverPayloadStateMachine)( getObject() );
+		R().deliverPayloadStateMachine = newInstance(DeliverPayloadStateMachine)( getObject() );
 	}
-	if (m_deliverPayloadStateMachine && version >= 2)
+	if (R().deliverPayloadStateMachine && version >= 2)
 	{
-		xfer->xferSnapshot(m_deliverPayloadStateMachine);
+		xfer->xferSnapshot(R().deliverPayloadStateMachine);
 	}
 
-	m_deliveryDecal.xferRadiusDecal(xfer);
+	R().deliveryDecal.xferRadiusDecal(xfer);
 
 	if (version >= 2)
 	{
-		xfer->xferBool(&m_freeToExit);
+		xfer->xferBool(&R().freeToExit);
 	}
 	if (version >= 3)
 	{
-		xfer->xferBool(&m_acceptingCommands);
+		xfer->xferBool(&R().acceptingCommands);
 	}
 	if (version >= 4)
 	{
-		xfer->xferReal(&m_previousDistanceSqr);
+		xfer->xferReal(&R().previousDistanceSqr);
 	}
 
 
@@ -1229,3 +1231,4 @@ StateReturnType CleanUpState::onEnter() // Delete my successful butt
 	return STATE_CONTINUE;
 }
 
+GxComponentTable<DeliverPayloadAIUpdate::GxRow> TheGxDeliverPayloadAIUpdateRows;

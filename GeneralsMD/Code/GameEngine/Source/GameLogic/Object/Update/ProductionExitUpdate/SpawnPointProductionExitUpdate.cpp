@@ -44,13 +44,14 @@
 //-------------------------------------------------------------------------------------------------
 SpawnPointProductionExitUpdate::SpawnPointProductionExitUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_bonesInitialized = FALSE;
-	m_spawnPointCount = 0;
+	m_gxRow = TheGxSpawnPointProductionExitUpdateRows.alloc();
+	R().bonesInitialized = FALSE;
+	R().spawnPointCount = 0;
 	for( Int positionIndex = 0; positionIndex < MAX_SPAWN_POINTS; positionIndex++ )
 	{
 		m_worldCoordSpawnPoints[positionIndex].zero();
-		m_worldAngleSpawnPoints[positionIndex] = 0.0f;
-		m_spawnPointOccupier[positionIndex] = INVALID_ID;
+		R().worldAngleSpawnPoints[positionIndex] = 0.0f;
+		R().spawnPointOccupier[positionIndex] = INVALID_ID;
 	}
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
@@ -58,6 +59,7 @@ SpawnPointProductionExitUpdate::SpawnPointProductionExitUpdate( Thing *thing, co
 //-------------------------------------------------------------------------------------------------
 SpawnPointProductionExitUpdate::~SpawnPointProductionExitUpdate()
 {
+	TheGxSpawnPointProductionExitUpdateRows.release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -65,19 +67,19 @@ void SpawnPointProductionExitUpdate::exitObjectViaDoor( Object *newObj, ExitDoor
 {
 	DEBUG_ASSERTCRASH(exitDoor == DOOR_1, ("multiple exit doors not supported here"));
 
-	if( !m_bonesInitialized )
+	if( !R().bonesInitialized )
 		initializeBonePositions();
 
 	Object *creationObject = getObject();
 	if (creationObject)
 	{
 		Int positionIndex = 0;
-		for( ; positionIndex < m_spawnPointCount; positionIndex++ )
+		for( ; positionIndex < R().spawnPointCount; positionIndex++ )
 		{
-			if( m_spawnPointOccupier[positionIndex] == INVALID_ID )
+			if( R().spawnPointOccupier[positionIndex] == INVALID_ID )
 				break;
 		}
-		if( positionIndex == m_spawnPointCount )
+		if( positionIndex == R().spawnPointCount )
 		{
 			DEBUG_CRASH( ("A SpawnPoint exit thought it had room but then failed") );
 			return;
@@ -93,10 +95,10 @@ void SpawnPointProductionExitUpdate::exitObjectViaDoor( Object *newObj, ExitDoor
 		createPoint.z = TheTerrainLogic ? TheTerrainLogic->getLayerHeight( createPoint.x, createPoint.y, creationObject->getLayer()) : 0.0f;
 
 		// get the angle
-		createAngle = m_worldAngleSpawnPoints[positionIndex];
+		createAngle = R().worldAngleSpawnPoints[positionIndex];
 
 		// record him as taking this spot
-		m_spawnPointOccupier[positionIndex] = newObj->getID();
+		R().spawnPointOccupier[positionIndex] = newObj->getID();
 
 		// put him there
 		newObj->setPosition( &createPoint );
@@ -116,17 +118,17 @@ void SpawnPointProductionExitUpdate::exitObjectViaDoor( Object *newObj, ExitDoor
 //-------------------------------------------------------------------------------------------------
 ExitDoorType SpawnPointProductionExitUpdate::reserveDoorForExit( const ThingTemplate* objType, Object *specificObject )
 {
-	if( !m_bonesInitialized )
+	if( !R().bonesInitialized )
 		initializeBonePositions();
 
-	if( !m_bonesInitialized )
+	if( !R().bonesInitialized )
 		return DOOR_NONE_AVAILABLE; // Init failure
 
 	revalidateOccupiers();
 
-	for( Int positionIndex = 0; positionIndex < m_spawnPointCount; positionIndex++ )
+	for( Int positionIndex = 0; positionIndex < R().spawnPointCount; positionIndex++ )
 	{
-		if( m_spawnPointOccupier[positionIndex] == INVALID_ID )
+		if( R().spawnPointOccupier[positionIndex] == INVALID_ID )
 			return DOOR_1;
 	}
 
@@ -156,9 +158,9 @@ void SpawnPointProductionExitUpdate::initializeBonePositions()
 
 	// Get all the bones of the right name
 	const SpawnPointProductionExitUpdateModuleData* md = getSpawnPointProductionExitUpdateModuleData();
-	m_spawnPointCount = myDrawable->getPristineBonePositions( md->m_spawnPointBoneNameData.str(), 1, nullptr, boneTransforms, MAX_SPAWN_POINTS );
+	R().spawnPointCount = myDrawable->getPristineBonePositions( md->m_spawnPointBoneNameData.str(), 1, nullptr, boneTransforms, MAX_SPAWN_POINTS );
 
-	for( matrixIndex = 0; matrixIndex < m_spawnPointCount; matrixIndex++ )
+	for( matrixIndex = 0; matrixIndex < R().spawnPointCount; matrixIndex++ )
 	{
 		Matrix3D *currentTransform = &(boneTransforms[matrixIndex]);
 		// Convert their matrix one by one
@@ -169,22 +171,22 @@ void SpawnPointProductionExitUpdate::initializeBonePositions()
 		m_worldCoordSpawnPoints[matrixIndex].y = currentTransform->Get_Y_Translation();
 		m_worldCoordSpawnPoints[matrixIndex].z = 0; //set at creation time
 
-		m_worldAngleSpawnPoints[matrixIndex] = currentTransform->Get_Z_Rotation();
+		R().worldAngleSpawnPoints[matrixIndex] = currentTransform->Get_Z_Rotation();
 	}
 
-	m_bonesInitialized = TRUE;
+	R().bonesInitialized = TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
 void SpawnPointProductionExitUpdate::revalidateOccupiers()
 {
-	for( Int positionIndex = 0; positionIndex < m_spawnPointCount; positionIndex++ )
+	for( Int positionIndex = 0; positionIndex < R().spawnPointCount; positionIndex++ )
 	{
-		if( m_spawnPointOccupier[positionIndex] == INVALID_ID )
+		if( R().spawnPointOccupier[positionIndex] == INVALID_ID )
 			continue;
 
-		if( TheGameLogic->findObjectByID( m_spawnPointOccupier[positionIndex] ) == nullptr )
-			m_spawnPointOccupier[positionIndex] = INVALID_ID;
+		if( TheGameLogic->findObjectByID( R().spawnPointOccupier[positionIndex] ) == nullptr )
+			R().spawnPointOccupier[positionIndex] = INVALID_ID;
 	}
 }
 
@@ -219,13 +221,13 @@ void SpawnPointProductionExitUpdate::xfer( Xfer *xfer )
 	// we can ignore all the data with the bone position arrays and spawn point counts
 	// because this module will load them lazily
 	//
-	//	Bool m_bonesInitialized;													///< To prevent creation bugs, only init the World coords when first asked for one
-	//	Int m_spawnPointCount;														///< How many in the array are actually live and valid
+	//	Bool R().bonesInitialized;													///< To prevent creation bugs, only init the World coords when first asked for one
+	//	Int R().spawnPointCount;														///< How many in the array are actually live and valid
 	//	Coord3D m_worldCoordSpawnPoints[MAX_SPAWN_POINTS];///< Where my little friends will be created
-	//	Real m_worldAngleSpawnPoints[MAX_SPAWN_POINTS];		///< And what direction they should face
+	//	Real R().worldAngleSpawnPoints[MAX_SPAWN_POINTS];		///< And what direction they should face
 
 	// spawn point occupants
-	xfer->xferUser( &m_spawnPointOccupier, sizeof( ObjectID ) * MAX_SPAWN_POINTS );
+	xfer->xferUser( &R().spawnPointOccupier, sizeof( ObjectID ) * MAX_SPAWN_POINTS );
 
 }
 
@@ -239,3 +241,5 @@ void SpawnPointProductionExitUpdate::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 }
+
+GxComponentTable<SpawnPointProductionExitUpdate::GxRow> TheGxSpawnPointProductionExitUpdateRows;

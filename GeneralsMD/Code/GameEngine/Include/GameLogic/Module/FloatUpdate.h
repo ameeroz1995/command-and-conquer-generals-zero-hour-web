@@ -30,6 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponents.h"
 #include "GameLogic/Module/UpdateModule.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
@@ -61,13 +62,24 @@ public:
 	FloatUpdate( Thing *thing, const ModuleData* moduleData );
 	// virtual destructor prototype provided by memory pool declaration
 
-	void setEnabled( Bool enabled ) { m_enabled = enabled; }  ///< enable/disable floating
+	void setEnabled( Bool enabled ) { R().enabled = enabled; }  ///< enable/disable floating
 
 	virtual UpdateSleepTime update();	///< Deciding whether or not to make new guys
 
 protected:
 
 
-	Bool m_enabled;			///< enabled
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of TheGxFloatUpdateRows;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxRow
+	{
+		Bool enabled; ///< enabled
+	};
+	GxRow &R() const;
+private:
+	int m_gxRow;
 };
+extern GxComponentTable<FloatUpdate::GxRow> TheGxFloatUpdateRows;
+inline FloatUpdate::GxRow &FloatUpdate::R() const { return TheGxFloatUpdateRows.rows[m_gxRow]; }

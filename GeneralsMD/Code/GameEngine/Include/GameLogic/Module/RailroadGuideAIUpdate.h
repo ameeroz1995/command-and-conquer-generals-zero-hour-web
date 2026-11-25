@@ -30,6 +30,7 @@
 #pragma once
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponents.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/PhysicsUpdate.h"
 
@@ -230,9 +231,9 @@ public:
 	void hitchNewCarriagebyTemplate( ObjectID parentID, const TemplateNameVector& list, TemplateNameIterator& iter, TrainTrack *trackPointList );
 	void hitchNewCarriagebyProximity( ObjectID parentID, TrainTrack *trackPointList );
 	void disembark();
-	Bool hasEverBeenHitched() { return m_hasEverBeenHitched; };
+	Bool hasEverBeenHitched() { return R().hasEverBeenHitched; };
 
-  void setHeld( Bool held ) {m_held = held;};
+  void setHeld( Bool held ) {R().held = held;};
 
   void makeAWallOutOfThisTrain( Bool on );
 
@@ -262,40 +263,51 @@ protected:
 	void FindPosByPathDistance( Coord3D *pos, const Real dist, const Real length, Bool setState = FALSE );
 	void playImpactSound(Object *victim, const Coord3D *impactPosition);
 
-	StationTask m_nextStationTask;
-	ObjectID m_trailerID; ///< the ID of the object I am directly pulling
 	PullInfo conductorPullInfo;
-	PullInfo m_pullInfo;
 
-	AudioEventRTS			m_whistleSound;
-	AudioEventRTS			m_clicketyClackSound;
-	AudioEventRTS			m_runningSound;
-	AudioHandle				m_runningSoundHandle;
 
-	TrainTrack *m_track;
 
-	Int m_currentPointHandle;
-	Int m_waitAtStationTimer;
 
 	//Flags
-	Bool m_carriagesCreated; ///< TRUE once we have made all the cars in the train
-	Bool m_hasEverBeenHitched; /// has somebody ever hitched me? Remains true, even after puller dies.
-	Bool m_trackDataLoaded; ///< have I TRIED to load track data, yet? I only try once!
-	Bool m_waitingInWings; /// I have not entered the real track yet, so leave me alone
-	Bool m_endOfLine;				/// I have reached the end of a non looping track
-	Bool m_isLocomotive; ///< Am I a locomotive,
-	Bool m_isLeadCarriage; ///< Am the carraige in front,
-	Int m_wantsToBeLeadCarriage; ///< Am the carraige in front,
-	Bool m_disembark; ///< If I wait at a station, I should also evacuate everybody when I get there
-	Bool m_inTunnel; ///< Am I in a tunnel, so I wil not snap to ground height, until the next waypoint,
-												//  i.e. do I provide the movement and scheduling AI for m_trailerID
+												//  i.e. do I provide the movement and scheduling AI for R().trailerID
 												//  And therefore for his and his and his..........
 
-  Bool m_held;   ///< This will prevent a loco from departing a station
-
-	ConductorState m_conductorState;
-
-	WaypointID m_anchorWaypointID;
 
 
+
+
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of TheGxRailroadBehaviorRows;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxRow
+	{
+		StationTask nextStationTask;
+		ObjectID trailerID; ///< the ID of the object I am directly pulling
+		PullInfo pullInfo;
+		AudioEventRTS whistleSound;
+		AudioEventRTS clicketyClackSound;
+		AudioEventRTS runningSound;
+		AudioHandle runningSoundHandle;
+		TrainTrack * track;
+		Int currentPointHandle;
+		Int waitAtStationTimer;
+		Bool carriagesCreated; ///< TRUE once we have made all the cars in the train
+		Bool hasEverBeenHitched; /// has somebody ever hitched me? Remains true, even after puller dies.
+		Bool trackDataLoaded; ///< have I TRIED to load track data, yet? I only try once!
+		Bool waitingInWings; /// I have not entered the real track yet, so leave me alone
+		Bool endOfLine; /// I have reached the end of a non looping track
+		Bool isLocomotive; ///< Am I a locomotive,
+		Bool isLeadCarriage; ///< Am the carraige in front,
+		Int wantsToBeLeadCarriage; ///< Am the carraige in front,
+		Bool disembark; ///< If I wait at a station, I should also evacuate everybody when I get there
+		Bool inTunnel; ///< Am I in a tunnel, so I wil not snap to ground height, until the next waypoint,
+		Bool held; ///< This will prevent a loco from departing a station
+		ConductorState conductorState;
+		WaypointID anchorWaypointID;
+	};
+	GxRow &R() const;
+private:
+	int m_gxRow;
 };
+extern GxComponentTable<RailroadBehavior::GxRow> TheGxRailroadBehaviorRows;
+inline RailroadBehavior::GxRow &RailroadBehavior::R() const { return TheGxRailroadBehaviorRows.rows[m_gxRow]; }

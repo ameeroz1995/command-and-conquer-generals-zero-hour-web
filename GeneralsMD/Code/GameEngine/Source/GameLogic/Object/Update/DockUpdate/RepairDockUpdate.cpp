@@ -70,9 +70,10 @@ RepairDockUpdateModuleData::RepairDockUpdateModuleData()
 RepairDockUpdate::RepairDockUpdate( Thing *thing, const ModuleData* moduleData )
 								: DockUpdate( thing, moduleData )
 {
+	m_gxRow = TheGxRepairDockUpdateRows.alloc();
 
-  m_lastRepair = INVALID_ID;
-	m_healthToAddPerFrame = 0.0f;
+  R().lastRepair = INVALID_ID;
+	R().healthToAddPerFrame = 0.0f;
 
 }
 
@@ -80,6 +81,7 @@ RepairDockUpdate::RepairDockUpdate( Thing *thing, const ModuleData* moduleData )
 // ------------------------------------------------------------------------------------------------
 RepairDockUpdate::~RepairDockUpdate()
 {
+	TheGxRepairDockUpdateRows.release(m_gxRow);
 
 }
 
@@ -108,17 +110,17 @@ Bool RepairDockUpdate::action( Object *docker, Object *drone )
 	// to this docked object each frame so that it is fully healed after the correct amount
 	// of time has passed
 	//
-	if( m_lastRepair == 0 )
+	if( R().lastRepair == 0 )
 	{
 
 		// save ID of this docker as the last docker
-		m_lastRepair = docker->getID();
+		R().lastRepair = docker->getID();
 
 		//
 		// figure out how much health we need to add each frame to this object so that it's
 		// fully healed at the right time
 		//
-		m_healthToAddPerFrame = (body->getMaxHealth() - body->getHealth()) / modData->m_framesForFullHeal;
+		R().healthToAddPerFrame = (body->getMaxHealth() - body->getHealth()) / modData->m_framesForFullHeal;
 
 	}
 
@@ -127,7 +129,7 @@ Bool RepairDockUpdate::action( Object *docker, Object *drone )
 	{
 
 		// repair is complete, clear our last docker
-		m_lastRepair = INVALID_ID;
+		R().lastRepair = INVALID_ID;
 
 		// returning false will complete the docking process
 		return FALSE;
@@ -136,7 +138,7 @@ Bool RepairDockUpdate::action( Object *docker, Object *drone )
 
 	// give us some health buddy
 	DamageInfo healingInfo;
-	healingInfo.in.m_amount = m_healthToAddPerFrame;
+	healingInfo.in.m_amount = R().healthToAddPerFrame;
 	healingInfo.in.m_sourceID = getObject()->getID();
 	healingInfo.in.m_damageType = DAMAGE_HEALING;
 	healingInfo.in.m_deathType = DEATH_NONE;
@@ -181,10 +183,10 @@ void RepairDockUpdate::xfer( Xfer *xfer )
 	DockUpdate::xfer( xfer );
 
 	// last repair
-	xfer->xferObjectID( &m_lastRepair );
+	xfer->xferObjectID( &R().lastRepair );
 
 	// health to add per frame
-	xfer->xferReal( &m_healthToAddPerFrame );
+	xfer->xferReal( &R().healthToAddPerFrame );
 
 }
 
@@ -198,3 +200,5 @@ void RepairDockUpdate::loadPostProcess()
 	DockUpdate::loadPostProcess();
 
 }
+
+GxComponentTable<RepairDockUpdate::GxRow> TheGxRepairDockUpdateRows;

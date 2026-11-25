@@ -85,16 +85,16 @@ enum JetAIStateType CPP_11(: Int)
 //-------------------------------------------------------------------------------------------------
 Bool JetAIUpdate::getFlag( FlagType f ) const
 {
-	return (m_flags & (1<<f)) != 0;
+	return (R().flags & (1<<f)) != 0;
 }
 
 //-------------------------------------------------------------------------------------------------
 void JetAIUpdate::setFlag( FlagType f, Bool v)
 {
 	if (v)
-		m_flags |= (1<<f);
+		R().flags |= (1<<f);
 	else
-		m_flags &= ~(1<<f);
+		R().flags &= ~(1<<f);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1847,27 +1847,29 @@ AIStateMachine* JetAIUpdate::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 JetAIUpdate::JetAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_flags = 0;
-	m_afterburnerSound = *(getObject()->getTemplate()->getPerUnitSound("Afterburner"));
-	m_afterburnerSound.setObjectID(getObject()->getID());
-	m_attackLocoExpireFrame = 0;
-	m_attackersMissExpireFrame = 0;
-	m_untargetableExpireFrame = 0;
-	m_returnToBaseFrame = 0;
-	m_lockonDrawable = nullptr;
-	m_landingPosForHelipadStuff.zero();
+	m_gxRow = TheGxJetAIUpdateRows.alloc();
+	R().flags = 0;
+	R().afterburnerSound = *(getObject()->getTemplate()->getPerUnitSound("Afterburner"));
+	R().afterburnerSound.setObjectID(getObject()->getID());
+	R().attackLocoExpireFrame = 0;
+	R().attackersMissExpireFrame = 0;
+	R().untargetableExpireFrame = 0;
+	R().returnToBaseFrame = 0;
+	R().lockonDrawable = nullptr;
+	R().landingPosForHelipadStuff.zero();
 
-	m_producerLocation.zero();
-	m_enginesOn = TRUE;
+	R().producerLocation.zero();
+	R().enginesOn = TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
 JetAIUpdate::~JetAIUpdate()
 {
-	if (m_lockonDrawable)
+	TheGxJetAIUpdateRows.release(m_gxRow);
+	if (R().lockonDrawable)
 	{
-		TheGameClient->destroyDrawable(m_lockonDrawable);
-		m_lockonDrawable = nullptr;
+		TheGameClient->destroyDrawable(R().lockonDrawable);
+		R().lockonDrawable = nullptr;
 	}
 }
 
@@ -1938,9 +1940,9 @@ void JetAIUpdate::getProducerLocation()
 	Object* jet = getObject();
 	Object* airfield = TheGameLogic->findObjectByID( jet->getProducerID() );
 	if (airfield == nullptr)
-		m_producerLocation = *jet->getPosition();
+		R().producerLocation = *jet->getPosition();
 	else
-		m_producerLocation = *airfield->getPosition();
+		R().producerLocation = *airfield->getPosition();
 
 	/*
 		if we aren't allowed to fly, then we should be parked (or at least taxiing),
@@ -2008,7 +2010,7 @@ UpdateSleepTime JetAIUpdate::update()
 		// note that we might still have weapons with ammo, but still be forced to return to reload.
 		if (isOutOfSpecialReloadAmmo() && getFlag(ALLOW_AIR_LOCO))
 		{
-			m_returnToBaseFrame = 0;
+			R().returnToBaseFrame = 0;
 
 			// this is really a "just-in-case" to ensure the targeter list doesn't spin out of control (srj)
 			pruneDeadTargeters();
@@ -2021,25 +2023,25 @@ UpdateSleepTime JetAIUpdate::update()
 			// srj sez: if we are reloading ammo, wait will we are done before processing the pending command.
 			&& getStateMachine()->getCurrentStateID() != RELOAD_AMMO)
 		{
-			m_returnToBaseFrame = 0;
+			R().returnToBaseFrame = 0;
 
 			AICommandParms parms(AICMD_MOVE_TO_POSITION, CMD_FROM_AI);	// values don't matter, will be wiped by next line
-			m_mostRecentCommand.reconstitute(parms);
+			R().mostRecentCommand.reconstitute(parms);
 			setFlag(HAS_PENDING_COMMAND, false);
 
  			aiDoCommand(&parms);
 		}
-		else if (m_returnToBaseFrame != 0 && now >= m_returnToBaseFrame && getFlag(ALLOW_AIR_LOCO))
+		else if (R().returnToBaseFrame != 0 && now >= R().returnToBaseFrame && getFlag(ALLOW_AIR_LOCO))
 		{
-			m_returnToBaseFrame = 0;
+			R().returnToBaseFrame = 0;
 			DEBUG_ASSERTCRASH(isOutOfSpecialReloadAmmo() == false, ("Hmm, this seems unlikely -- isOutOfSpecialReloadAmmo()==false"));
 			setFlag(USE_SPECIAL_RETURN_LOCO, false);
 			setLastCommandSource( CMD_FROM_AI );
 			getStateMachine()->setState(RETURNING_FOR_LANDING);
 		}
-		else if (m_returnToBaseFrame  == 0 && d->m_returnToBaseIdleTime > 0 && getFlag(ALLOW_AIR_LOCO))
+		else if (R().returnToBaseFrame  == 0 && d->m_returnToBaseIdleTime > 0 && getFlag(ALLOW_AIR_LOCO))
 		{
-			m_returnToBaseFrame = now + d->m_returnToBaseIdleTime;
+			R().returnToBaseFrame = now + d->m_returnToBaseIdleTime;
 		}
 	}
 	else
@@ -2048,7 +2050,7 @@ UpdateSleepTime JetAIUpdate::update()
 		{
 			pp->setHealee(getObject(), false);
 		}
-		m_returnToBaseFrame = 0;
+		R().returnToBaseFrame = 0;
 		if (getFlag(ALLOW_INTERRUPT_AND_RESUME_OF_CUR_STATE_FOR_RELOAD) &&
 						isOutOfSpecialReloadAmmo() && getFlag(ALLOW_AIR_LOCO))
 		{
@@ -2101,34 +2103,34 @@ UpdateSleepTime JetAIUpdate::update()
 
 	if (jet->testStatus(OBJECT_STATUS_IS_ATTACKING))
 	{
-		m_attackLocoExpireFrame = now + d->m_attackLocoPersistTime;
-		m_attackersMissExpireFrame = now + d->m_attackersMissPersistTime;
+		R().attackLocoExpireFrame = now + d->m_attackLocoPersistTime;
+		R().attackersMissExpireFrame = now + d->m_attackersMissPersistTime;
 	}
 	else
 	{
-		if (m_attackLocoExpireFrame != 0 && now >= m_attackLocoExpireFrame)
+		if (R().attackLocoExpireFrame != 0 && now >= R().attackLocoExpireFrame)
 		{
-			m_attackLocoExpireFrame = 0;
+			R().attackLocoExpireFrame = 0;
 #if !RETAIL_COMPATIBLE_CRC
 			// TheSuperHackers @bugfix arcticdolphin 04/03/2026 Reset locomotor when attack locomotor timer expires.
 			// Relevant for the Supersonic Mode of the USA Aurora.
 			chooseLocomotorSet(LOCOMOTORSET_NORMAL);
 #endif
 		}
-		if (m_attackersMissExpireFrame != 0 && now >= m_attackersMissExpireFrame)
+		if (R().attackersMissExpireFrame != 0 && now >= R().attackersMissExpireFrame)
 		{
-			m_attackersMissExpireFrame = 0;
+			R().attackersMissExpireFrame = 0;
 		}
 	}
 
-	if (m_untargetableExpireFrame != 0 && now >= m_untargetableExpireFrame)
+	if (R().untargetableExpireFrame != 0 && now >= R().untargetableExpireFrame)
 	{
-		m_untargetableExpireFrame = 0;
+		R().untargetableExpireFrame = 0;
 	}
 
 	positionLockon();
 
-	if (m_attackLocoExpireFrame != 0)
+	if (R().attackLocoExpireFrame != 0)
 	{
 		chooseLocomotorSet(d->m_attackingLoco);
 	}
@@ -2149,18 +2151,18 @@ UpdateSleepTime JetAIUpdate::update()
 					|| isMoving()
 					|| isWaitingForPath() )
 			{
-				if( !m_enginesOn )
+				if( !R().enginesOn )
 				{
 					//We just started moving, therefore turn on the engines!
 					draw->enableAmbientSound( TRUE );
-					m_enginesOn = TRUE;
+					R().enginesOn = TRUE;
 				}
 			}
-			else if( m_enginesOn )
+			else if( R().enginesOn )
 			{
 				//We're no longer moving, so turn off the engines!
 				draw->enableAmbientSound( FALSE );
-				m_enginesOn = FALSE;
+				R().enginesOn = FALSE;
 			}
 		}
 	}
@@ -2180,7 +2182,7 @@ Bool JetAIUpdate::chooseLocomotorSet(LocomotorSetType wst)
 	{
 		wst = LOCOMOTORSET_TAXIING;
 	}
-	else if (m_attackLocoExpireFrame != 0)
+	else if (R().attackLocoExpireFrame != 0)
 	{
 		wst = d->m_attackingLoco;
 	}
@@ -2213,7 +2215,7 @@ void JetAIUpdate::setLocomotorGoalNone()
 //----------------------------------------------------------------------------------------
 Bool JetAIUpdate::getSneakyTargetingOffset(Coord3D* offset) const
 {
-	if (m_attackersMissExpireFrame != 0 && TheGameLogic->getFrame() < m_attackersMissExpireFrame)
+	if (R().attackersMissExpireFrame != 0 && TheGameLogic->getFrame() < R().attackersMissExpireFrame)
 	{
 		if (offset)
 		{
@@ -2254,19 +2256,19 @@ void JetAIUpdate::pruneDeadTargeters()
 //----------------------------------------------------------------------------------------
 void JetAIUpdate::positionLockon()
 {
-	if (!m_lockonDrawable)
+	if (!R().lockonDrawable)
 		return;
 
-	if (m_untargetableExpireFrame == 0)
+	if (R().untargetableExpireFrame == 0)
 	{
-		TheGameClient->destroyDrawable(m_lockonDrawable);
-		m_lockonDrawable = nullptr;
+		TheGameClient->destroyDrawable(R().lockonDrawable);
+		R().lockonDrawable = nullptr;
 		return;
 	}
 
 	const JetAIUpdateModuleData* d = getJetAIUpdateModuleData();
 	UnsignedInt now = TheGameLogic->getFrame();
-	UnsignedInt remaining = m_untargetableExpireFrame - now;
+	UnsignedInt remaining = R().untargetableExpireFrame - now;
 	UnsignedInt elapsed = d->m_lockonTime - remaining;
 
 	Coord3D pos = *getObject()->getPosition();
@@ -2279,11 +2281,11 @@ void JetAIUpdate::positionLockon()
 	pos.y += Sin(angle) * dist;
 	// pos.z is untouched
 
-	m_lockonDrawable->setPosition(&pos);
+	R().lockonDrawable->setPosition(&pos);
 	Real dx = getObject()->getPosition()->x - pos.x;
 	Real dy = getObject()->getPosition()->y - pos.y;
 	if (dx || dy)
-		m_lockonDrawable->setOrientation(atan2(dy, dx));
+		R().lockonDrawable->setOrientation(atan2(dy, dx));
 
 	// the Gaussian sum, to avoid keeping a running total:
 	//
@@ -2301,28 +2303,28 @@ void JetAIUpdate::positionLockon()
 		lockonSound.setObjectID(getObject()->getID());
 		TheAudio->addAudioEvent(&lockonSound);
 		if (d->m_lockonBlinky)
-			m_lockonDrawable->setDrawableHidden(false);
+			R().lockonDrawable->setDrawableHidden(false);
 	}
 	else
 	{
 		if (d->m_lockonBlinky)
-			m_lockonDrawable->setDrawableHidden(true);
+			R().lockonDrawable->setDrawableHidden(true);
 	}
 }
 
 //----------------------------------------------------------------------------------------
 void JetAIUpdate::buildLockonDrawableIfNecessary()
 {
-	if (m_untargetableExpireFrame == 0)
+	if (R().untargetableExpireFrame == 0)
 		return;
 
 	const JetAIUpdateModuleData* d = getJetAIUpdateModuleData();
-	if (d->m_lockonCursor.isNotEmpty() && m_lockonDrawable == nullptr)
+	if (d->m_lockonCursor.isNotEmpty() && R().lockonDrawable == nullptr)
 	{
 		const ThingTemplate* tt = TheThingFactory->findTemplate(d->m_lockonCursor);
 		if (tt)
 		{
-			m_lockonDrawable = TheThingFactory->newDrawable(tt);
+			R().lockonDrawable = TheThingFactory->newDrawable(tt);
 		}
 	}
 	positionLockon();
@@ -2341,9 +2343,9 @@ void JetAIUpdate::addTargeter(ObjectID id, Bool add)
 			if (it == m_targetedBy.end())
 			{
 				m_targetedBy.push_back(id);
-				if (m_untargetableExpireFrame == 0 && m_targetedBy.size() == 1)
+				if (R().untargetableExpireFrame == 0 && m_targetedBy.size() == 1)
 				{
-					m_untargetableExpireFrame = TheGameLogic->getFrame() + lockonTime;
+					R().untargetableExpireFrame = TheGameLogic->getFrame() + lockonTime;
 					buildLockonDrawableIfNecessary();
 				}
 			}
@@ -2355,7 +2357,7 @@ void JetAIUpdate::addTargeter(ObjectID id, Bool add)
 				m_targetedBy.erase(it);
 				if (m_targetedBy.empty())
 				{
-					m_untargetableExpireFrame = 0;
+					R().untargetableExpireFrame = 0;
 				}
 			}
 		}
@@ -2365,7 +2367,7 @@ void JetAIUpdate::addTargeter(ObjectID id, Bool add)
 //----------------------------------------------------------------------------------------
 Bool JetAIUpdate::isTemporarilyPreventingAimSuccess() const
 {
-	return m_untargetableExpireFrame != 0 && (TheGameLogic->getFrame() < m_untargetableExpireFrame);
+	return R().untargetableExpireFrame != 0 && (TheGameLogic->getFrame() < R().untargetableExpireFrame);
 }
 
 //----------------------------------------------------------------------------------------
@@ -2435,13 +2437,13 @@ void JetAIUpdate::doLandingCommand(Object *airfield, CommandSourceType cmdSource
 {
 	if (getObject()->isKindOf(KINDOF_PRODUCED_AT_HELIPAD))
 	{
-		m_landingPosForHelipadStuff = *airfield->getPosition();
+		R().landingPosForHelipadStuff = *airfield->getPosition();
 
 		Coord3D tmp;
 		FindPositionOptions options;
 		options.maxRadius = airfield->getBoundingCircleRadius() * 10.0f;
-		if (ThePartitionManager->findPositionAround(&m_landingPosForHelipadStuff, &options, &tmp))
-			m_landingPosForHelipadStuff = tmp;
+		if (ThePartitionManager->findPositionAround(&R().landingPosForHelipadStuff, &options, &tmp))
+			R().landingPosForHelipadStuff = tmp;
 	}
 
 	for (BehaviorModule** i = airfield->getBehaviorModules(); *i; ++i)
@@ -2475,7 +2477,7 @@ void JetAIUpdate::doLandingCommand(Object *airfield, CommandSourceType cmdSource
 void JetAIUpdate::notifyVictimIsDead()
 {
 	if (getJetAIUpdateModuleData()->m_needsRunway)
-		m_returnToBaseFrame = TheGameLogic->getFrame();
+		R().returnToBaseFrame = TheGameLogic->getFrame();
 }
 
 //----------------------------------------------------------------------------------------
@@ -2543,7 +2545,7 @@ void JetAIUpdate::aiDoCommand(const AICommandParms* parms)
 		return;
 
 	// note that we always store this, even if nothing will be "pending".
-	m_mostRecentCommand.store(*parms);
+	R().mostRecentCommand.store(*parms);
 
 	if (getFlag(TAKEOFF_IN_PROGRESS) || getFlag(LANDING_IN_PROGRESS))
 	{
@@ -2610,7 +2612,7 @@ void JetAIUpdate::aiDoCommand(const AICommandParms* parms)
 			default:
 			{
 				// nuke any existing pending cmd
-				m_mostRecentCommand.store(*parms);
+				R().mostRecentCommand.store(*parms);
 				setFlag(HAS_PENDING_COMMAND, true);
 
 				getStateMachine()->clear();
@@ -2653,18 +2655,18 @@ void JetAIUpdate::friend_enableAfterburners(Bool v)
 	if (v)
 	{
 		jet->setModelConditionState(MODELCONDITION_JETAFTERBURNER);
-		if (!m_afterburnerSound.isCurrentlyPlaying())
+		if (!R().afterburnerSound.isCurrentlyPlaying())
 		{
-			m_afterburnerSound.setObjectID(jet->getID());
-			m_afterburnerSound.setPlayingHandle(TheAudio->addAudioEvent(&m_afterburnerSound));
+			R().afterburnerSound.setObjectID(jet->getID());
+			R().afterburnerSound.setPlayingHandle(TheAudio->addAudioEvent(&R().afterburnerSound));
 		}
 	}
 	else
 	{
 		jet->clearModelConditionState(MODELCONDITION_JETAFTERBURNER);
-		if (m_afterburnerSound.isCurrentlyPlaying())
+		if (R().afterburnerSound.isCurrentlyPlaying())
 		{
-			TheAudio->removeAudioEvent(m_afterburnerSound.getPlayingHandle());
+			TheAudio->removeAudioEvent(R().afterburnerSound.getPlayingHandle());
 		}
 	}
 }
@@ -2680,7 +2682,7 @@ AICommandType JetAIUpdate::friend_getPendingCommandType() const
 {
 	if( getFlag( HAS_PENDING_COMMAND ) )
 	{
-		return m_mostRecentCommand.getCommandType();
+		return R().mostRecentCommand.getCommandType();
 	}
 	return AICMD_NO_COMMAND;
 }
@@ -2717,47 +2719,47 @@ void JetAIUpdate::xfer( Xfer *xfer )
 	AIUpdateInterface::xfer(xfer);
 
 
-	xfer->xferCoord3D(&m_producerLocation);
-	m_mostRecentCommand.doXfer(xfer);
-	xfer->xferUnsignedInt(&m_attackLocoExpireFrame);
-	xfer->xferUnsignedInt(&m_attackersMissExpireFrame);
-	xfer->xferUnsignedInt(&m_returnToBaseFrame);
+	xfer->xferCoord3D(&R().producerLocation);
+	R().mostRecentCommand.doXfer(xfer);
+	xfer->xferUnsignedInt(&R().attackLocoExpireFrame);
+	xfer->xferUnsignedInt(&R().attackersMissExpireFrame);
+	xfer->xferUnsignedInt(&R().returnToBaseFrame);
 	xfer->xferSTLObjectIDList(&m_targetedBy);
 
-	xfer->xferUnsignedInt(&m_untargetableExpireFrame);
+	xfer->xferUnsignedInt(&R().untargetableExpireFrame);
 
 	// Set on create.
-	//AudioEventRTS						m_afterburnerSound;		///< Sound when afterburners on
+	//AudioEventRTS						R().afterburnerSound;		///< Sound when afterburners on
 
 	AsciiString drawName;
-	if (m_lockonDrawable) {
-		drawName = m_lockonDrawable->getTemplate()->getName();
+	if (R().lockonDrawable) {
+		drawName = R().lockonDrawable->getTemplate()->getName();
 	}
 	xfer->xferAsciiString(&drawName);
-	if (drawName.isNotEmpty() && m_lockonDrawable==nullptr)
+	if (drawName.isNotEmpty() && R().lockonDrawable==nullptr)
 	{
 		const ThingTemplate* tt = TheThingFactory->findTemplate(drawName);
 		if (tt)
 		{
-			m_lockonDrawable = TheThingFactory->newDrawable(tt);
+			R().lockonDrawable = TheThingFactory->newDrawable(tt);
 		}
 	}
-	xfer->xferInt(&m_flags);
+	xfer->xferInt(&R().flags);
 
 	if( version >= 2 )
 	{
-		xfer->xferBool( &m_enginesOn );
+		xfer->xferBool( &R().enginesOn );
 	}
 	else
 	{
 		//We don't have to be accurate -- this is a patch.
 		if( getFlag(TAKEOFF_IN_PROGRESS) || getFlag(LANDING_IN_PROGRESS) || getObject()->isSignificantlyAboveTerrain() || getObject()->isKindOf( KINDOF_PRODUCED_AT_HELIPAD ) )
 		{
-			m_enginesOn = TRUE;
+			R().enginesOn = TRUE;
 		}
 		else
 		{
-			m_enginesOn = FALSE;
+			R().enginesOn = FALSE;
 		}
 	}
 
@@ -2770,7 +2772,7 @@ void JetAIUpdate::loadPostProcess()
 {
 	//When drawables are created, so are their ambient sounds. After loading, only turn off the
 	//ambient sound if the engine is off.
-	if( !m_enginesOn )
+	if( !R().enginesOn )
 	{
 		Drawable *draw = getObject()->getDrawable();
 		if( draw )
@@ -2782,3 +2784,5 @@ void JetAIUpdate::loadPostProcess()
 	// extend base class
 	AIUpdateInterface::loadPostProcess();
 }
+
+GxComponentTable<JetAIUpdate::GxRow> TheGxJetAIUpdateRows;

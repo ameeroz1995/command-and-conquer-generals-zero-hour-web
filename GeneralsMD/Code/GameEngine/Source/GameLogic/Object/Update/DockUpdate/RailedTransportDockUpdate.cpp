@@ -84,12 +84,13 @@ RailedTransportDockUpdateModuleData::RailedTransportDockUpdateModuleData()
 RailedTransportDockUpdate::RailedTransportDockUpdate( Thing *thing, const ModuleData *moduleData )
 												 : DockUpdate( thing, moduleData )
 {
+	m_gxRow = TheGxRailedTransportDockUpdateRows.alloc();
 
-	m_dockingObjectID = INVALID_ID;
-	m_pullInsideDistancePerFrame = 0.0f;
-	m_unloadingObjectID = INVALID_ID;
-	m_pushOutsideDistancePerFrame = 0.0f;
-	m_unloadCount = UNLOAD_ALL;
+	R().dockingObjectID = INVALID_ID;
+	R().pullInsideDistancePerFrame = 0.0f;
+	R().unloadingObjectID = INVALID_ID;
+	R().pushOutsideDistancePerFrame = 0.0f;
+	R().unloadCount = UNLOAD_ALL;
 
 }
 
@@ -97,6 +98,7 @@ RailedTransportDockUpdate::RailedTransportDockUpdate( Thing *thing, const Module
 // ------------------------------------------------------------------------------------------------
 RailedTransportDockUpdate::~RailedTransportDockUpdate()
 {
+	TheGxRailedTransportDockUpdateRows.release(m_gxRow);
 
 }
 
@@ -131,7 +133,7 @@ Bool RailedTransportDockUpdate::action( Object *docker, Object *drone )
 		return FALSE;
 
 	// set this object as docking with us if not already done so
-	if( m_dockingObjectID != docker->getID() )
+	if( R().dockingObjectID != docker->getID() )
 	{
 		//
 		// given the amount of time we want it to take to "pull" the object inside, figure out
@@ -151,7 +153,7 @@ Bool RailedTransportDockUpdate::action( Object *docker, Object *drone )
 		//Are we close enough to even be able to get sucked in?
 		if( mag <= modData->m_toleranceDistance )
 		{
-			m_dockingObjectID = docker->getID();
+			R().dockingObjectID = docker->getID();
 
 			// don't let the user interact with this object anymore
 			TheGameLogic->deselectObject(docker, PLAYERMASK_ALL, TRUE);
@@ -162,7 +164,7 @@ Bool RailedTransportDockUpdate::action( Object *docker, Object *drone )
 
 
 			// now that we know how far we must go, now much distance should we travel every frame
-			m_pullInsideDistancePerFrame = mag / modData->m_pullInsideDurationInFrames;
+			R().pullInsideDistancePerFrame = mag / modData->m_pullInsideDurationInFrames;
 
 			// orient docker so its facing toward the transport
 			Coord2D angleVector;
@@ -204,7 +206,7 @@ Bool RailedTransportDockUpdate::isClearToEnter( Object const *docker ) const
 Bool RailedTransportDockUpdate::isLoadingOrUnloading()
 {
 
-	if( m_unloadingObjectID != INVALID_ID || m_dockingObjectID != INVALID_ID )
+	if( R().unloadingObjectID != INVALID_ID || R().dockingObjectID != INVALID_ID )
 		return TRUE;
 
 	return FALSE;
@@ -218,11 +220,11 @@ void RailedTransportDockUpdate::unloadAll()
 {
 
 	// sanity, if we're already unloading, ignore this command and just allow us to finish
-	if( m_unloadingObjectID != INVALID_ID )
+	if( R().unloadingObjectID != INVALID_ID )
 		return;
 
 	// start our first object unloading and continue through them all
-	m_unloadCount = UNLOAD_ALL;
+	R().unloadCount = UNLOAD_ALL;
 	unloadNext();
 
 }
@@ -234,7 +236,7 @@ void RailedTransportDockUpdate::unloadSingleObject( Object *obj )
 {
 
 	// start the unload process of a single object
-	m_unloadCount = 1;
+	R().unloadCount = 1;
 	unloadNext();
 
 }
@@ -255,14 +257,14 @@ void RailedTransportDockUpdate::doPullInDocking()
 	// railed transport can "pull" objects inside it because typically those objects can only drive
 	// on land and have a hard time driving "inside" the railed transport ... so we fake it!
 	//
-	if( m_dockingObjectID != INVALID_ID )
+	if( R().dockingObjectID != INVALID_ID )
 	{
 		Object *us = getObject();
-		Object *docker = TheGameLogic->findObjectByID( m_dockingObjectID );
+		Object *docker = TheGameLogic->findObjectByID( R().dockingObjectID );
 
 		// check for docker gone
 		if( docker == nullptr )
-			m_dockingObjectID = INVALID_ID;
+			R().dockingObjectID = INVALID_ID;
 
 		// pull it
 		if( docker )
@@ -278,8 +280,8 @@ void RailedTransportDockUpdate::doPullInDocking()
 			v.normalize();
 
 			// apply "movement" to the vector
-			v.x *= m_pullInsideDistancePerFrame;
-			v.y *= m_pullInsideDistancePerFrame;
+			v.x *= R().pullInsideDistancePerFrame;
+			v.y *= R().pullInsideDistancePerFrame;
 
 			// apply current position of the docker to the vector
 			v.x += dockerPos->x;
@@ -321,7 +323,7 @@ void RailedTransportDockUpdate::doPullInDocking()
 				}
 
 				// no object is docking now
-				m_dockingObjectID = INVALID_ID;
+				R().dockingObjectID = INVALID_ID;
 
 			}
 
@@ -337,9 +339,9 @@ void RailedTransportDockUpdate::doPullInDocking()
 void RailedTransportDockUpdate::doPushOutDocking()
 {
 
-	if( m_unloadingObjectID )
+	if( R().unloadingObjectID )
 	{
-		Object *unloader = TheGameLogic->findObjectByID( m_unloadingObjectID );
+		Object *unloader = TheGameLogic->findObjectByID( R().unloadingObjectID );
 
 		// if unloader is not found (like they got destroyed) unload the next object inside
 		if( unloader == nullptr )
@@ -368,8 +370,8 @@ void RailedTransportDockUpdate::doPushOutDocking()
 			v.normalize();
 
 			// apply "movement" to that vector
-			v.x *= m_pushOutsideDistancePerFrame;
-			v.y *= m_pushOutsideDistancePerFrame;
+			v.x *= R().pushOutsideDistancePerFrame;
+			v.y *= R().pushOutsideDistancePerFrame;
 
 			// apply current position of the unloader to the vector
 			v.x += unloaderPos->x;
@@ -454,13 +456,13 @@ void RailedTransportDockUpdate::unloadNext()
 	Object *us = getObject();
 
 	// by default, setup our unloading process to be done with no objects being considered
-	m_unloadingObjectID = INVALID_ID;
+	R().unloadingObjectID = INVALID_ID;
 
 	//
 	// if our unload count is zero we can't unload any more until we receive a command to
 	// unload another one or everything we've got
 	//
-	if( m_unloadCount == 0 )
+	if( R().unloadCount == 0 )
 		return;
 
 	// better be an open container
@@ -506,14 +508,14 @@ void RailedTransportDockUpdate::unloadNext()
 
 		// now that we know how far we must go, now much distance should we travel every frame
 		const RailedTransportDockUpdateModuleData *modData = getRailedTransportDockUpdateModuleData();
-		m_pushOutsideDistancePerFrame = mag / modData->m_pushOutsideDurationInFrames;
+		R().pushOutsideDistancePerFrame = mag / modData->m_pushOutsideDurationInFrames;
 
 		// set this as our current unloader
-		m_unloadingObjectID = unloader->getID();
+		R().unloadingObjectID = unloader->getID();
 
 		// we've now used an unload (if we're keeping count for single exits)
-		if( m_unloadCount != UNLOAD_ALL )
-			--m_unloadCount;
+		if( R().unloadCount != UNLOAD_ALL )
+			--R().unloadCount;
 
 	}
 
@@ -547,19 +549,19 @@ void RailedTransportDockUpdate::xfer( Xfer *xfer )
 	DockUpdate::xfer( xfer );
 
 	// docking object id
-	xfer->xferObjectID( &m_dockingObjectID );
+	xfer->xferObjectID( &R().dockingObjectID );
 
 	// pull inside distance per frame
-	xfer->xferReal( &m_pullInsideDistancePerFrame );
+	xfer->xferReal( &R().pullInsideDistancePerFrame );
 
 	// unloading object id
-	xfer->xferObjectID( &m_unloadingObjectID );
+	xfer->xferObjectID( &R().unloadingObjectID );
 
 	// push outside distance per frame
-	xfer->xferReal( &m_pushOutsideDistancePerFrame );
+	xfer->xferReal( &R().pushOutsideDistancePerFrame );
 
 	// unload count
-	xfer->xferInt( &m_unloadCount );
+	xfer->xferInt( &R().unloadCount );
 
 }
 
@@ -573,3 +575,5 @@ void RailedTransportDockUpdate::loadPostProcess()
 	DockUpdate::loadPostProcess();
 
 }
+
+GxComponentTable<RailedTransportDockUpdate::GxRow> TheGxRailedTransportDockUpdateRows;

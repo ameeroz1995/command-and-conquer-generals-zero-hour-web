@@ -44,23 +44,25 @@
 //-------------------------------------------------------------------------------------------------
 QueueProductionExitUpdate::QueueProductionExitUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_currentDelay = 0;
+	m_gxRow = TheGxQueueProductionExitUpdateRows.alloc();
+	R().currentDelay = 0;
 
-	m_creationClearDistance = 0;
-	m_rallyPoint.zero();
+	R().creationClearDistance = 0;
+	R().rallyPoint.zero();
 	// no rally point has been set
-	m_rallyPointExists = false;
-	m_currentBurstCount = 0;
+	R().rallyPointExists = false;
+	R().currentBurstCount = 0;
 	const QueueProductionExitUpdateModuleData* md = getQueueProductionExitUpdateModuleData();
 	if (md) //sanity
 	{
-		m_currentBurstCount = md->m_initialBurst;
+		R().currentBurstCount = md->m_initialBurst;
 	}
 }
 
 //-------------------------------------------------------------------------------------------------
 QueueProductionExitUpdate::~QueueProductionExitUpdate()
 {
+	TheGxQueueProductionExitUpdateRows.release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -137,9 +139,9 @@ void QueueProductionExitUpdate::exitObjectViaDoor( Object *newObj, ExitDoorType 
 		exitPath.push_back(tmp);
 
 		AIUpdateInterface  *ai = newObj->getAIUpdateInterface();
-		if (m_rallyPointExists)
+		if (R().rallyPointExists)
 		{
-			tmp = m_rallyPoint;
+			tmp = R().rallyPoint;
 			if (ai && ai->isDoingGroundMovement())
 			{
 				if (TheAI->pathfinder()->adjustDestination(newObj, ai->getLocomotorSet(), &tmp))
@@ -153,10 +155,10 @@ void QueueProductionExitUpdate::exitObjectViaDoor( Object *newObj, ExitDoorType 
 		if (ai) {
 			ai->aiFollowExitProductionPath( &exitPath, creationObject, CMD_FROM_AI );
 		}
-		m_currentDelay = md->m_exitDelayData;
+		R().currentDelay = md->m_exitDelayData;
 
-		if (m_currentBurstCount)
-			m_currentBurstCount--; // fewer and fewer units to burst
+		if (R().currentBurstCount)
+			R().currentBurstCount--; // fewer and fewer units to burst
 
 	}
 
@@ -201,8 +203,8 @@ void QueueProductionExitUpdate::unreserveDoorForExit( ExitDoorType exitDoor )
 //-------------------------------------------------------------------------------------------------
 Bool QueueProductionExitUpdate::isFreeToExit() const
 {
-	Bool stillBursting = (m_currentBurstCount > 0);
-	Bool stillDelaying = (m_currentDelay != 0);
+	Bool stillBursting = (R().currentBurstCount > 0);
+	Bool stillDelaying = (R().currentDelay != 0);
 
 	if ( stillBursting )
 	{
@@ -218,11 +220,11 @@ UpdateSleepTime QueueProductionExitUpdate::update()
 	// This update needs to decide when we are again free to exit something
 	if (isFreeToExit())
 	{
-		m_currentDelay = 0;
+		R().currentDelay = 0;
 		return UPDATE_SLEEP_NONE;
 	}
 
-	m_currentDelay--;
+	R().currentDelay--;
 	return UPDATE_SLEEP_NONE;
 }
 
@@ -254,10 +256,10 @@ void QueueProductionExitUpdate::exitObjectByBudding( Object *newObj, Object *bud
 	}
 
 	const QueueProductionExitUpdateModuleData* data = getQueueProductionExitUpdateModuleData();
-	m_currentDelay = data->m_exitDelayData;
+	R().currentDelay = data->m_exitDelayData;
 
-	if (m_currentBurstCount)
-		m_currentBurstCount--; // fewer and fewer units to burst
+	if (R().currentBurstCount)
+		R().currentBurstCount--; // fewer and fewer units to burst
 
 }
 
@@ -321,19 +323,19 @@ void QueueProductionExitUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// current delay
-	xfer->xferUnsignedInt( &m_currentDelay );
+	xfer->xferUnsignedInt( &R().currentDelay );
 
 	// rally point
-	xfer->xferCoord3D( &m_rallyPoint );
+	xfer->xferCoord3D( &R().rallyPoint );
 
 	// rally point exists
-	xfer->xferBool( &m_rallyPointExists );
+	xfer->xferBool( &R().rallyPointExists );
 
 	// creation clear distance
-	xfer->xferReal( &m_creationClearDistance );
+	xfer->xferReal( &R().creationClearDistance );
 
 	// current burst count
-	xfer->xferUnsignedInt( &m_currentBurstCount );
+	xfer->xferUnsignedInt( &R().currentBurstCount );
 
 }
 
@@ -347,3 +349,5 @@ void QueueProductionExitUpdate::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 }
+
+GxComponentTable<QueueProductionExitUpdate::GxRow> TheGxQueueProductionExitUpdateRows;

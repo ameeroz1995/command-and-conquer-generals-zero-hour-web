@@ -30,6 +30,7 @@
 #pragma once
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponents.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/DozerAIUpdate.h"
@@ -153,7 +154,7 @@ public:
 	virtual DozerTask getCurrentTask() const { return m_currentTask; }	///< return the current task we're doing
 	virtual void setCurrentTask( DozerTask task ) { m_currentTask = task; }		///< set the current task of the dozer
 
-	virtual Bool getIsRebuild() { return m_isRebuild; } ///< get whether or not our task is a rebuild.
+	virtual Bool getIsRebuild() { return R().isRebuild; } ///< get whether or not our task is a rebuild.
 
 	// task actions
 	virtual void newTask( DozerTask task, Object* target );	///< set a desire to do the requested task
@@ -170,8 +171,8 @@ public:
 	if no point has been set for the combination of task and point */
 	virtual const Coord3D* getDockPoint( DozerTask task, DozerDockPoint point );
 
-	virtual void setBuildSubTask( DozerBuildSubTask subTask ) { m_buildSubTask = subTask; };
-	virtual DozerBuildSubTask getBuildSubTask() { return m_buildSubTask; }
+	virtual void setBuildSubTask( DozerBuildSubTask subTask ) { R().buildSubTask = subTask; };
+	virtual DozerBuildSubTask getBuildSubTask() { return R().buildSubTask; }
 	//
 	// the following methods must be overridden so that if a player issues a command the dozer
 	// can exit the internal state machine and do whatever the player says
@@ -179,7 +180,7 @@ public:
 	virtual void aiDoCommand(const AICommandParms* parms);
 
 // Supply truck stuff
-	virtual Int getNumberBoxes() const { return m_numberBoxes; }
+	virtual Int getNumberBoxes() const { return R().numberBoxes; }
 	virtual Bool loseOneBox();
 	virtual Bool gainOneBox( Int remainingStock );
 
@@ -187,12 +188,12 @@ public:
 	virtual Bool isCurrentlyFerryingSupplies() const;
 	virtual Real getWarehouseScanDistance() const; ///< How far can I look for a warehouse?
 
-	virtual void setForceBusyState(Bool v) { m_forcedBusyPending = v; }
-	virtual Bool isForcedIntoBusyState() const { return m_forcedBusyPending; }
+	virtual void setForceBusyState(Bool v) { R().forcedBusyPending = v; }
+	virtual Bool isForcedIntoBusyState() const { return R().forcedBusyPending; }
 
-	virtual void setForceWantingState(Bool v){ m_forcePending = v; }
-	virtual Bool isForcedIntoWantingState() const { return m_forcePending; }
-	virtual ObjectID getPreferredDockID() const { return m_preferredDock; }
+	virtual void setForceWantingState(Bool v){ R().forcePending = v; }
+	virtual Bool isForcedIntoWantingState() const { return R().forcePending; }
+	virtual ObjectID getPreferredDockID() const { return R().preferredDock; }
 	virtual UnsignedInt getActionDelayForDock( Object *dock );
 
 // worker specific
@@ -244,24 +245,14 @@ protected:
 		Coord3D location;			///< WORLD location
 	} m_dockPoint[ DOZER_NUM_TASKS ][ DOZER_NUM_DOCK_POINTS ];
 
-	DozerBuildSubTask m_buildSubTask;		///< for building and actually docking for the build
 
 // Supply Truck data
-	Int m_numberBoxes;
-	ObjectID									m_preferredDock;			///< Instead of searching, try this one first
-	Bool m_forcePending; // To prevent a function from doing a setState, forceWanting will latch into here until serviced.
-	Bool m_isRebuild;	// is our current construction task a rebuild?
-	Bool m_forcedBusyPending;	// A supply truck can't tell the difference between Idle since
 														// I'm between docking states, or a Stop command without help.
 
 
-	WorkerStateMachine *m_workerMachine;
 	// The two state machines are not in Worker's machine because I need to be able to accept
 	// Dozer like commands while acting as a Supply Truck - that's how I switch.
-	DozerPrimaryStateMachine *m_dozerMachine;  ///< the custom state machine for Dozer behavior
-	SupplyTruckStateMachine *m_supplyTruckStateMachine;
 
-	AudioEventRTS	m_buildingSound;			///< sound is pulled from the object we are building!
 
 protected:
 	virtual void privateRepair( Object *obj, CommandSourceType cmdSource );	///< repair the target
@@ -272,6 +263,27 @@ protected:
 private:
 
 	void createMachines();		///< create our behavior machines we need
- 	AudioEventRTS m_suppliesDepletedVoice;						///< Sound played when I take the last box.
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of TheGxWorkerAIUpdateRows;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxRow
+	{
+		DozerBuildSubTask buildSubTask; ///< for building and actually docking for the build
+		Int numberBoxes;
+		ObjectID preferredDock; ///< Instead of searching, try this one first
+		Bool forcePending; // To prevent a function from doing a setState, forceWanting will latch into here until serviced.
+		Bool isRebuild; // is our current construction task a rebuild?
+		Bool forcedBusyPending; // A supply truck can't tell the difference between Idle since
+		WorkerStateMachine * workerMachine;
+		DozerPrimaryStateMachine * dozerMachine; ///< the custom state machine for Dozer behavior
+		SupplyTruckStateMachine * supplyTruckStateMachine;
+		AudioEventRTS buildingSound; ///< sound is pulled from the object we are building!
+		AudioEventRTS suppliesDepletedVoice; ///< Sound played when I take the last box.
+	};
+	GxRow &R() const;
+private:
+	int m_gxRow;
 };
+extern GxComponentTable<WorkerAIUpdate::GxRow> TheGxWorkerAIUpdateRows;
+inline WorkerAIUpdate::GxRow &WorkerAIUpdate::R() const { return TheGxWorkerAIUpdateRows.rows[m_gxRow]; }

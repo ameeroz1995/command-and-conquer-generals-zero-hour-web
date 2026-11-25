@@ -83,12 +83,13 @@ WorkerAIUpdate::WorkerAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 							 AIUpdateInterface( thing, moduleData )
 
 {
+	m_gxRow = TheGxWorkerAIUpdateRows.alloc();
 
 	//
 	// initialize the dozer machine to nullptr, we want to do this and create it during the update
 	// implementation because at this point we don't have the object all setup
-	m_isRebuild = FALSE;
-	m_dozerMachine = nullptr;
+	R().isRebuild = FALSE;
+	R().dozerMachine = nullptr;
 	for( Int i = 0; i < DOZER_NUM_TASKS; i++ )
 	{
 		m_task[ i ].m_targetObjectID = INVALID_ID;
@@ -101,16 +102,16 @@ WorkerAIUpdate::WorkerAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 	}
 	m_currentTask = DOZER_TASK_INVALID;
 	m_previousTask = DOZER_TASK_INVALID;
-	m_buildSubTask = DOZER_SELECT_BUILD_DOCK_LOCATION;  // irrelevant, but I want non-garbage value
+	R().buildSubTask = DOZER_SELECT_BUILD_DOCK_LOCATION;  // irrelevant, but I want non-garbage value
 
-	m_supplyTruckStateMachine = nullptr;
-	m_numberBoxes = 0;
-	m_forcePending = FALSE;
-	m_forcedBusyPending = FALSE;
+	R().supplyTruckStateMachine = nullptr;
+	R().numberBoxes = 0;
+	R().forcePending = FALSE;
+	R().forcedBusyPending = FALSE;
 
-	m_workerMachine = nullptr;
+	R().workerMachine = nullptr;
 
- 	m_suppliesDepletedVoice = getWorkerAIUpdateModuleData()->m_suppliesDepletedVoice;
+ 	R().suppliesDepletedVoice = getWorkerAIUpdateModuleData()->m_suppliesDepletedVoice;
 
 	createMachines();
 
@@ -120,20 +121,21 @@ WorkerAIUpdate::WorkerAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 //-------------------------------------------------------------------------------------------------
 WorkerAIUpdate::~WorkerAIUpdate()
 {
+	TheGxWorkerAIUpdateRows.release(m_gxRow);
 
 	// delete our behavior state machine
-	deleteInstance(m_dozerMachine);
-	deleteInstance(m_supplyTruckStateMachine);
-	deleteInstance(m_workerMachine);
+	deleteInstance(R().dozerMachine);
+	deleteInstance(R().supplyTruckStateMachine);
+	deleteInstance(R().workerMachine);
 
 }
 
 //-------------------------------------------------------------------------------------------------
 Bool WorkerAIUpdate::isCurrentlyFerryingSupplies() const
 {
-	if (m_supplyTruckStateMachine)
+	if (R().supplyTruckStateMachine)
 	{
-		switch (m_supplyTruckStateMachine->getCurrentStateID())
+		switch (R().supplyTruckStateMachine->getCurrentStateID())
 		{
 			case ST_IDLE:
 			case ST_BUSY:
@@ -173,29 +175,29 @@ Real WorkerAIUpdate::getBoredRange() const
 void WorkerAIUpdate::createMachines()
 {
 
-	if( m_workerMachine == nullptr )
+	if( R().workerMachine == nullptr )
 	{
-		m_workerMachine = newInstance(WorkerStateMachine)( getObject() );
+		R().workerMachine = newInstance(WorkerStateMachine)( getObject() );
 
-		if( m_dozerMachine == nullptr )
+		if( R().dozerMachine == nullptr )
 		{
-			m_dozerMachine = newInstance(DozerPrimaryStateMachine)( getObject() );
-			m_dozerMachine->initDefaultState();
+			R().dozerMachine = newInstance(DozerPrimaryStateMachine)( getObject() );
+			R().dozerMachine->initDefaultState();
 		}
 
-		if( m_supplyTruckStateMachine == nullptr )
+		if( R().supplyTruckStateMachine == nullptr )
 		{
-			m_supplyTruckStateMachine = newInstance(SupplyTruckStateMachine)( getObject() );
-			m_supplyTruckStateMachine->initDefaultState();
+			R().supplyTruckStateMachine = newInstance(SupplyTruckStateMachine)( getObject() );
+			R().supplyTruckStateMachine->initDefaultState();
 		}
 
-		m_workerMachine->initDefaultState();// this has to wait until all three are in place since
+		R().workerMachine->initDefaultState();// this has to wait until all three are in place since
 		// an immediate transition check will ask questions of the machines.
 
 //#ifdef RTS_DEBUG
-//		m_workerMachine->setDebugOutput(TRUE);
-//		m_dozerMachine->setDebugOutput(TRUE);
-//		m_supplyTruckStateMachine->setDebugOutput(TRUE);
+//		R().workerMachine->setDebugOutput(TRUE);
+//		R().dozerMachine->setDebugOutput(TRUE);
+//		R().supplyTruckStateMachine->setDebugOutput(TRUE);
 //#endif
 	}
 
@@ -262,9 +264,9 @@ UpdateSleepTime WorkerAIUpdate::update()
 		return UPDATE_SLEEP_NONE;
 
 	// run our own state machine, and the appropriate sub machine
-	m_workerMachine->updateStateMachine();
+	R().workerMachine->updateStateMachine();
 
-	if( m_workerMachine->getCurrentStateID() == AS_DOZER )
+	if( R().workerMachine->getCurrentStateID() == AS_DOZER )
 	{
 
 		// get and validate our current task
@@ -292,12 +294,12 @@ UpdateSleepTime WorkerAIUpdate::update()
 		}
 
 		// update dozer behavior
-		m_dozerMachine->updateStateMachine();
+		R().dozerMachine->updateStateMachine();
 
 	}
 	else
 	{
-		m_supplyTruckStateMachine->updateStateMachine();
+		R().supplyTruckStateMachine->updateStateMachine();
 		// If we are harvesting, we can be diverted to clear mines.  jba.
 		getObject()->setWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL);//maybe go clear some mines, if I feel like it
 	}
@@ -333,7 +335,7 @@ Object *WorkerAIUpdate::construct( const ThingTemplate *what,
 	// create our machines if they don't yet exist
 	///@todo make 'construct' a real AI command and you won't need a special case
 
-	m_isRebuild = isRebuild;
+	R().isRebuild = isRebuild;
 
 	createMachines();
 
@@ -454,7 +456,7 @@ Object *WorkerAIUpdate::construct( const ThingTemplate *what,
 // ------------------------------------------------------------------------------------------------
 void WorkerAIUpdate::exitingSupplyTruckState()
 {
-	if( m_workerMachine->getCurrentStateID() == AS_SUPPLY_TRUCK )
+	if( R().workerMachine->getCurrentStateID() == AS_SUPPLY_TRUCK )
 	{
  		// We've been given a Dozer specific order that the Supply Truck machine doesn't recognize
  		// as BUSY (because this command also recognizes its own busy and is likewise waiting).
@@ -463,7 +465,7 @@ void WorkerAIUpdate::exitingSupplyTruckState()
  		{
  			getObject()->getAIUpdateInterface()->aiIdle(CMD_FROM_AI);
  		}
- 		m_workerMachine->setState( AS_DOZER );
+ 		R().workerMachine->setState( AS_DOZER );
  		// To clarify, I leave supply truck mode when I notice I am doing something not supply
  		// truck related.  When given a construct command, I wait to do anything until I notice
  		// I'm not busy.  Both states are being polite, so I must force the switch.
@@ -552,7 +554,7 @@ void WorkerAIUpdate::privateDock( Object *dock, CommandSourceType cmdSource )
 		// Please note, there is not a separate Warehouse and Center memory by Design.  Because
 		// we lack a UI way to click Warehouse and drag to center to set up a specific path, the
 		// practical realization has been made that you do not want separate memory.
-		m_preferredDock = dock->getID();
+		R().preferredDock = dock->getID();
 	}
 }
 
@@ -614,7 +616,7 @@ void WorkerAIUpdate::newTask( DozerTask task, Object* target )
 	if( target == nullptr )
 		return;
 
-	m_preferredDock = INVALID_ID; // If we are dozing, we don't want any supply truck stuff going on. jba.
+	R().preferredDock = INVALID_ID; // If we are dozing, we don't want any supply truck stuff going on. jba.
 
 	//
 	// special check for the build task, we should never be given more than one of them ...
@@ -660,10 +662,10 @@ void WorkerAIUpdate::newTask( DozerTask task, Object* target )
 	m_task[ task ].m_taskOrderFrame = TheGameLogic->getFrame();
 
 	// reset the dozer behavior so that it can re-evaluate which task to continue working on
-	m_dozerMachine->resetToDefaultState();
+	R().dozerMachine->resetToDefaultState();
 
 	// reset the workermachine, if we've been acting like a supply truck
-	if( m_workerMachine->getCurrentStateID() == AS_SUPPLY_TRUCK )
+	if( R().workerMachine->getCurrentStateID() == AS_SUPPLY_TRUCK )
 	{
 		// We've been given a Dozer specific order that the Supply Truck machine doesn't recognize
 		// as BUSY (because this command also recognizes its own busy and is likewise waiting).
@@ -672,7 +674,7 @@ void WorkerAIUpdate::newTask( DozerTask task, Object* target )
 		{
 			getObject()->getAIUpdateInterface()->aiIdle(CMD_FROM_AI);
 		}
-		m_workerMachine->setState( AS_DOZER );
+		R().workerMachine->setState( AS_DOZER );
 		// To clarify, I leave supply truck mode when I notice I am doing something not supply
 		// truck related.  When given a construct command, I wait to do anything until I notice
 		// I'm not busy.  Both states are being polite, so I must force the switch.
@@ -692,7 +694,7 @@ void WorkerAIUpdate::cancelTask( DozerTask task )
 	internalCancelTask( task );
 
 	// reset the machine to we can re-evaluate what we want to do
-	m_dozerMachine->resetToDefaultState();
+	R().dozerMachine->resetToDefaultState();
 
 }
 
@@ -701,7 +703,7 @@ void WorkerAIUpdate::cancelAllTasks()
 	for (UnsignedInt task = DOZER_TASK_FIRST; task < DOZER_NUM_TASKS; ++task)
 		internalCancelTask((DozerTask)task);
 
-	m_dozerMachine->resetToDefaultState();
+	R().dozerMachine->resetToDefaultState();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1037,21 +1039,21 @@ void WorkerAIUpdate::aiDoCommand(const AICommandParms* parms)
 
 			// when a player issues commands, this will cause the dozer to re-evaluate what it's doing
 			if( parms->m_cmdSource == CMD_FROM_PLAYER )
-				m_dozerMachine->resetToDefaultState();
+				R().dozerMachine->resetToDefaultState();
 			break;
 
 		}
 
 	}
 
-	if (isClearingMines() && m_numberBoxes > 0 )
+	if (isClearingMines() && R().numberBoxes > 0 )
 	{
 		// if clearing mines, we drop any boxes we were carrying
-		m_numberBoxes = 0;
+		R().numberBoxes = 0;
 		Drawable *draw = getObject()->getDrawable();
 		if( draw )
 		{
-			draw->updateDrawableSupplyStatus( getWorkerAIUpdateModuleData()->m_maxBoxesData, m_numberBoxes );
+			draw->updateDrawableSupplyStatus( getWorkerAIUpdateModuleData()->m_maxBoxesData, R().numberBoxes );
 		}
 	}
 
@@ -1070,15 +1072,15 @@ void WorkerAIUpdate::aiDoCommand(const AICommandParms* parms)
 // ------------------------------------------------------------------------------------------------
 Bool WorkerAIUpdate::loseOneBox()
 {
-	if( m_numberBoxes == 0 )
+	if( R().numberBoxes == 0 )
 		return FALSE;
 
-	m_numberBoxes--;
+	R().numberBoxes--;
 
 	Drawable *draw = getObject()->getDrawable();
 	if( draw )
 	{
-		draw->updateDrawableSupplyStatus( getWorkerAIUpdateModuleData()->m_maxBoxesData, m_numberBoxes );
+		draw->updateDrawableSupplyStatus( getWorkerAIUpdateModuleData()->m_maxBoxesData, R().numberBoxes );
 	}
 
 	return TRUE;
@@ -1088,10 +1090,10 @@ Bool WorkerAIUpdate::loseOneBox()
 // ------------------------------------------------------------------------------------------------
 Bool WorkerAIUpdate::gainOneBox( Int remainingStock )
 {
-	if( getWorkerAIUpdateModuleData() && m_numberBoxes >= getWorkerAIUpdateModuleData()->m_maxBoxesData )
+	if( getWorkerAIUpdateModuleData() && R().numberBoxes >= getWorkerAIUpdateModuleData()->m_maxBoxesData )
 		return FALSE;
 
-	++m_numberBoxes;
+	++R().numberBoxes;
 
 	//if I just took the last box,
 	//i will announce that this supply source is now empty
@@ -1111,10 +1113,10 @@ Bool WorkerAIUpdate::gainOneBox( Int remainingStock )
 		else
 			playDepleted = TRUE;
 
-		if (playDepleted && m_suppliesDepletedVoice.getEventName().isEmpty() == false)
+		if (playDepleted && R().suppliesDepletedVoice.getEventName().isEmpty() == false)
 		{
-			m_suppliesDepletedVoice.setObjectID(getObject()->getID());
-			m_suppliesDepletedVoice.setPlayingHandle(TheAudio->addAudioEvent(&m_suppliesDepletedVoice));
+			R().suppliesDepletedVoice.setObjectID(getObject()->getID());
+			R().suppliesDepletedVoice.setPlayingHandle(TheAudio->addAudioEvent(&R().suppliesDepletedVoice));
 		}
 	}
 
@@ -1122,7 +1124,7 @@ Bool WorkerAIUpdate::gainOneBox( Int remainingStock )
 	Drawable *draw = getObject()->getDrawable();
 	if( draw )
 	{
-		draw->updateDrawableSupplyStatus( getWorkerAIUpdateModuleData()->m_maxBoxesData, m_numberBoxes );
+		draw->updateDrawableSupplyStatus( getWorkerAIUpdateModuleData()->m_maxBoxesData, R().numberBoxes );
 	}
 
 	return TRUE;
@@ -1132,22 +1134,22 @@ Bool WorkerAIUpdate::gainOneBox( Int remainingStock )
 // ------------------------------------------------------------------------------------------------
 Bool WorkerAIUpdate::isSupplyTruckBrainActiveAndBusy()
 {
-	return (m_workerMachine->getCurrentStateID() == AS_SUPPLY_TRUCK)
-				&& (m_supplyTruckStateMachine->getCurrentStateID() == ST_BUSY);
+	return (R().workerMachine->getCurrentStateID() == AS_SUPPLY_TRUCK)
+				&& (R().supplyTruckStateMachine->getCurrentStateID() == ST_BUSY);
 }
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 void WorkerAIUpdate::resetSupplyTruckBrain()
 {
-	m_supplyTruckStateMachine->resetToDefaultState();
+	R().supplyTruckStateMachine->resetToDefaultState();
 }
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 void WorkerAIUpdate::resetDozerBrain()
 {
-	m_dozerMachine->resetToDefaultState();
+	R().dozerMachine->resetToDefaultState();
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1403,15 +1405,15 @@ void WorkerAIUpdate::removeBridgeScaffolding( Object *bridgeTower )
 //------------------------------------------------------------------------------------------------
 void WorkerAIUpdate::startBuildingSound( const AudioEventRTS *sound, ObjectID constructionSiteID )
 {
-	m_buildingSound = *sound;
-	m_buildingSound.setObjectID( constructionSiteID );
-	m_buildingSound.setPlayingHandle( TheAudio->addAudioEvent( &m_buildingSound ) );
+	R().buildingSound = *sound;
+	R().buildingSound.setObjectID( constructionSiteID );
+	R().buildingSound.setPlayingHandle( TheAudio->addAudioEvent( &R().buildingSound ) );
 }
 
 //------------------------------------------------------------------------------------------------
 void WorkerAIUpdate::finishBuildingSound()
 {
-	TheAudio->removeAudioEvent( m_buildingSound.getPlayingHandle() );
+	TheAudio->removeAudioEvent( R().buildingSound.getPlayingHandle() );
 }
 
 //------------------------------------------------------------------------------------------------
@@ -1470,7 +1472,7 @@ void WorkerAIUpdate::xfer( Xfer *xfer )
 		xfer->xferObjectID(&m_task[i].m_targetObjectID);
 		xfer->xferUnsignedInt(&m_task[i].m_taskOrderFrame);
 	}
-	xfer->xferSnapshot(m_dozerMachine);
+	xfer->xferSnapshot(R().dozerMachine);
 	xfer->xferUser(&m_currentTask, sizeof(m_currentTask));
 
 	if (currentVersion >= 2)
@@ -1491,17 +1493,17 @@ void WorkerAIUpdate::xfer( Xfer *xfer )
 			xfer->xferCoord3D(&m_dockPoint[i][j].location);
 		}
 	}
-	xfer->xferUser(&m_buildSubTask, sizeof(m_buildSubTask));
+	xfer->xferUser(&R().buildSubTask, sizeof(R().buildSubTask));
 
 
 	//------------------------- xfer Supply Truck info
-	xfer->xferSnapshot(m_supplyTruckStateMachine);
-	xfer->xferObjectID(&m_preferredDock);
-	xfer->xferInt(&m_numberBoxes);
-	xfer->xferBool(&m_forcePending);
+	xfer->xferSnapshot(R().supplyTruckStateMachine);
+	xfer->xferObjectID(&R().preferredDock);
+	xfer->xferInt(&R().numberBoxes);
+	xfer->xferBool(&R().forcePending);
 
 	//-------------------------- xfer Worker info
-	xfer->xferSnapshot(m_workerMachine);
+	xfer->xferSnapshot(R().workerMachine);
 
 }
 
@@ -1513,3 +1515,5 @@ void WorkerAIUpdate::loadPostProcess()
  // extend base class
 	AIUpdateInterface::loadPostProcess();
 }
+
+GxComponentTable<WorkerAIUpdate::GxRow> TheGxWorkerAIUpdateRows;

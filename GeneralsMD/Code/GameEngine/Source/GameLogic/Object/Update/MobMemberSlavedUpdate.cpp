@@ -62,24 +62,25 @@ const Real CLOSE_ENOUGH_SQR = (CLOSE_ENOUGH * CLOSE_ENOUGH);
 //-------------------------------------------------------------------------------------------------
 MobMemberSlavedUpdate::MobMemberSlavedUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxRow = TheGxMobMemberSlavedUpdateRows.alloc();
 
-	m_slaver = INVALID_ID;
-	m_framesToWait = GameLogicRandomValue(0,20);
+	R().slaver = INVALID_ID;
+	R().framesToWait = GameLogicRandomValue(0,20);
 
 	// MDC: moving to GameLogicRandomValue.  This does not need to be synced, but having it so makes searches *so* much nicer.
-	m_personalColor.red = GameLogicRandomValueReal( 0.2f, 0.4f );
-	m_personalColor.green = GameLogicRandomValueReal( 0.2f, 0.4f );
-	m_personalColor.blue = GameLogicRandomValueReal( 0.2f, 0.4f );
+	R().personalColor.red = GameLogicRandomValueReal( 0.2f, 0.4f );
+	R().personalColor.green = GameLogicRandomValueReal( 0.2f, 0.4f );
+	R().personalColor.blue = GameLogicRandomValueReal( 0.2f, 0.4f );
 
 //	Drawable *myDraw = getObject()->getDrawable();
 //	if ( myDraw )
-//		myDraw->colorTint( &m_personalColor );
+//		myDraw->colorTint( &R().personalColor );
 
-	m_mobState = MOB_STATE_NONE;
-	m_primaryVictimID = INVALID_ID;
-	m_squirrellinessRatio = 0;
-	m_isSelfTasking = FALSE;
-	m_catchUpCrisisTimer = 0;
+	R().mobState = MOB_STATE_NONE;
+	R().primaryVictimID = INVALID_ID;
+	R().squirrellinessRatio = 0;
+	R().isSelfTasking = FALSE;
+	R().catchUpCrisisTimer = 0;
 
 	// MDC: moving to GameLogicRandomValue.  This does not need to be synced, but having it so makes searches *so* much nicer.
 	//getObject()->getDrawable()->setInstanceScale(GameLogicRandomValueReal( 5.0f, 1.5f ));
@@ -89,6 +90,7 @@ MobMemberSlavedUpdate::MobMemberSlavedUpdate( Thing *thing, const ModuleData* mo
 //-------------------------------------------------------------------------------------------------
 MobMemberSlavedUpdate::~MobMemberSlavedUpdate()
 {
+	TheGxMobMemberSlavedUpdateRows.release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -96,7 +98,7 @@ void MobMemberSlavedUpdate::onObjectCreated()
 {
 
 	const MobMemberSlavedUpdateModuleData* data = getMobMemberSlavedUpdateModuleData();
-	m_squirrellinessRatio = MIN(MAX_SQUIRRELLINESS, MAX(0, data->m_squirrellinessRatio));
+	R().squirrellinessRatio = MIN(MAX_SQUIRRELLINESS, MAX(0, data->m_squirrellinessRatio));
 
 }
 
@@ -134,7 +136,7 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 		return UPDATE_SLEEP_NONE;
 	}
 
-	Object *master = TheGameLogic->findObjectByID( m_slaver );
+	Object *master = TheGameLogic->findObjectByID( R().slaver );
 	if( master == nullptr )
 	{
 		stopSlavedEffects();
@@ -158,7 +160,7 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 		return UPDATE_SLEEP_NONE;
 	}
 
-//	myDraw->colorTint( &m_personalColor );
+//	myDraw->colorTint( &R().personalColor );
 
 
 	const ModelConditionFlags flags = myDraw->getModelConditionFlags();
@@ -176,10 +178,10 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 
 
 
-	if ( ++m_framesToWait < 16)
+	if ( ++R().framesToWait < 16)
 		return UPDATE_SLEEP_NONE;
 
-	m_framesToWait = 0;
+	R().framesToWait = 0;
 
 
 	Locomotor *locomotor = myAI->getCurLocomotor();
@@ -193,10 +195,10 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 
 	if (masterVictim)
 	{
-		m_primaryVictimID = masterVictim->getID();
+		R().primaryVictimID = masterVictim->getID();
 	}
 
-	Object *primaryVictim = TheGameLogic->findObjectByID(m_primaryVictimID);
+	Object *primaryVictim = TheGameLogic->findObjectByID(R().primaryVictimID);
 
 
 	//now, we don't know if master is standing still or going somewhere, so
@@ -246,9 +248,9 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 
 		if (catchUpRadiusSquared > sqr( data->m_mustCatchUpRadius * 3))// I am critically far, now!
 		{
-			++ m_catchUpCrisisTimer; // I'm way too far from the nexus this frame
+			++ R().catchUpCrisisTimer; // I'm way too far from the nexus this frame
 
-			if ( m_catchUpCrisisTimer > data->m_catchUpCrisisBailTime)
+			if ( R().catchUpCrisisTimer > data->m_catchUpCrisisBailTime)
 			{
 				me->kill();
 				return UPDATE_SLEEP_NONE;
@@ -262,9 +264,9 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 //				{
 //					masterAI->aiMoveToPosition( &masterPosition, CMD_FROM_AI );
 //				}
-//				m_catchUpCrisisTimer = 0;
+//				R().catchUpCrisisTimer = 0;
 			}
-			else if ( m_catchUpCrisisTimer > data->m_catchUpCrisisBailTime/3 )
+			else if ( R().catchUpCrisisTimer > data->m_catchUpCrisisBailTime/3 )
 			{
 				myAI->aiMoveToPosition( master->getPosition(), CMD_FROM_AI ); // NASTY BEEHIVE EFFECT
 			}
@@ -275,7 +277,7 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 	else if ( myAI->isMoving() ) // we're all on a trip, together
 	{
 
-		m_catchUpCrisisTimer = 0; // I'm not too far from the nexus this frame
+		R().catchUpCrisisTimer = 0; // I'm not too far from the nexus this frame
 
 		Int seed = GameLogicRandomValue( 0, 10 );
 		if ( seed == 1 )
@@ -294,7 +296,7 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 	}
 	else // give me something to do while I'm standing here...
 	{
-		m_catchUpCrisisTimer = 0; // I'm not too far from the nexus this frame
+		R().catchUpCrisisTimer = 0; // I'm not too far from the nexus this frame
 
 		SpawnBehaviorInterface *spawnerBehavior = master->getSpawnBehaviorInterface();
 
@@ -305,11 +307,11 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 			{
 				myAI->aiIdle(CMD_FROM_AI);
 				primaryVictim = nullptr;
-				m_primaryVictimID = INVALID_ID;
+				R().primaryVictimID = INVALID_ID;
 				return UPDATE_SLEEP_NONE;
 			}
 
-			if ( spawnerBehavior->maySpawnSelfTaskAI( m_squirrellinessRatio ) ) // if mommy says it is okay
+			if ( spawnerBehavior->maySpawnSelfTaskAI( R().squirrellinessRatio ) ) // if mommy says it is okay
 			{
 				if ( myAI->getLastCommandSource() != CMD_FROM_AI ) // I may have been told to attack directly more recently
 				{
@@ -318,7 +320,7 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 					{
 						victim = newTarget;
 						myAI->aiAttackObject( newTarget, 999, CMD_FROM_AI ); // go ahead and do it
-						m_isSelfTasking = TRUE;
+						R().isSelfTasking = TRUE;
 					}
 				}
 
@@ -334,7 +336,7 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 				{
 			///		myAI->aiIdle( CMD_FROM_AI );// auto acquire mode
 				}
-				m_isSelfTasking = FALSE;
+				R().isSelfTasking = FALSE;
 			}
 		}
 		else
@@ -381,7 +383,7 @@ void MobMemberSlavedUpdate::startSlavedEffects( const Object *slaver )
 	if( slaver == nullptr )
 		return;
 
-	m_slaver = slaver->getID();
+	R().slaver = slaver->getID();
 
 	// mark selves as not selectable
 	//getObject()->setStatus( OBJECT_STATUS_UNSELECTABLE );
@@ -391,7 +393,7 @@ void MobMemberSlavedUpdate::startSlavedEffects( const Object *slaver )
 //-------------------------------------------------------------------------------------------------
 void MobMemberSlavedUpdate::stopSlavedEffects()
 {
-	m_slaver = INVALID_ID;
+	R().slaver = INVALID_ID;
 
 	/// @todo Just a thought.  Our Status bits on objects really need to be reference counts so you don't clear someone else's flag
 	getObject()->clearStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_UNSELECTABLE ) );
@@ -426,28 +428,28 @@ void MobMemberSlavedUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// slaves
-	xfer->xferObjectID( &m_slaver );
+	xfer->xferObjectID( &R().slaver );
 
 	// frames to wait
-	xfer->xferInt( &m_framesToWait );
+	xfer->xferInt( &R().framesToWait );
 
 	// mob state
-	xfer->xferUser( &m_mobState, sizeof( MobStates ) );
+	xfer->xferUser( &R().mobState, sizeof( MobStates ) );
 
 	// personal color
-	xfer->xferRGBColor( &m_personalColor );
+	xfer->xferRGBColor( &R().personalColor );
 
 	// primary victim
-	xfer->xferObjectID( &m_primaryVictimID );
+	xfer->xferObjectID( &R().primaryVictimID );
 
 	// squirrelliness ration
-	xfer->xferReal( &m_squirrellinessRatio );
+	xfer->xferReal( &R().squirrellinessRatio );
 
 	// is self tasking
-	xfer->xferBool( &m_isSelfTasking );
+	xfer->xferBool( &R().isSelfTasking );
 
 	// catch up crisis timer
-  xfer->xferUnsignedInt( &m_catchUpCrisisTimer );
+  xfer->xferUnsignedInt( &R().catchUpCrisisTimer );
 
 }
 
@@ -461,3 +463,5 @@ void MobMemberSlavedUpdate::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 }
+
+GxComponentTable<MobMemberSlavedUpdate::GxRow> TheGxMobMemberSlavedUpdateRows;
