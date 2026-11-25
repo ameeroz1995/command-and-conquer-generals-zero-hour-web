@@ -100,7 +100,7 @@ RailroadBehaviorModuleData::RailroadBehaviorModuleData()
 RailroadBehavior::RailroadBehavior( Thing *thing, const ModuleData *moduleData )
 											 : PhysicsBehavior( thing, moduleData )
 {
-	m_gxRow = TheGxRailroadBehaviorRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	const RailroadBehaviorModuleData *modData = getRailroadBehaviorModuleData();
 
 	R().nextStationTask = DO_NOTHING;
@@ -169,7 +169,7 @@ RailroadBehavior::RailroadBehavior( Thing *thing, const ModuleData *moduleData )
 //-------------------------------------------------------------------------------------------------
 RailroadBehavior::~RailroadBehavior()
 {
-	TheGxRailroadBehaviorRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 	TheAudio->removeAudioEvent( R().runningSound.getPlayingHandle() );// no more chugchug when I'm dead
 
@@ -1644,4 +1644,3 @@ void RailroadBehavior::loadPostProcess()
 
 }
 
-GxComponentTable<RailroadBehavior::GxRow> TheGxRailroadBehaviorRows;

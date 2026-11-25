@@ -28,7 +28,7 @@
 
 #pragma once
 
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameClient/RadiusDecal.h"
@@ -363,9 +363,9 @@ protected:
 
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxDeliverPayloadAIUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		DeliverPayloadStateMachine* deliverPayloadStateMachine; ///< Controls my special logic
 		Coord3D moveToPos; ///< Where I am moving to.
@@ -377,9 +377,8 @@ public:
 		Bool acceptingCommands;
 		DiveState diveState;
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<DeliverPayloadAIUpdate::GxRow> TheGxDeliverPayloadAIUpdateRows;
-inline DeliverPayloadAIUpdate::GxRow &DeliverPayloadAIUpdate::R() const { return TheGxDeliverPayloadAIUpdateRows.rows[m_gxRow]; }
+inline DeliverPayloadAIUpdate::GxState &DeliverPayloadAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

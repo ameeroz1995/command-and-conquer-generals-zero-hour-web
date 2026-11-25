@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/UpdateModule.h"
 #include "Common/INI.h"
 #include "Lib/BaseType.h"
@@ -105,9 +105,9 @@ protected:
 
 	Bool isFreeToExit() const;
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxQueueProductionExitUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		UnsignedInt currentDelay; ///< When this hits zero, I can exit again
 		Coord3D rallyPoint; ///< Where units should move to after they have reached the "natural" rally point
@@ -115,12 +115,11 @@ public:
 		Real creationClearDistance; ///< I can think of myself as ready when the previous guy is this far away.
 		UnsignedInt currentBurstCount; ///< how many times must I still override the delay timer
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<QueueProductionExitUpdate::GxRow> TheGxQueueProductionExitUpdateRows;
-inline QueueProductionExitUpdate::GxRow &QueueProductionExitUpdate::R() const { return TheGxQueueProductionExitUpdateRows.rows[m_gxRow]; }
+inline QueueProductionExitUpdate::GxState &QueueProductionExitUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
 
 inline void QueueProductionExitUpdate::setRallyPoint( const Coord3D *pos )
 {

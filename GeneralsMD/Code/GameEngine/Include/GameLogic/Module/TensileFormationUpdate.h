@@ -30,7 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/UpdateModule.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
@@ -80,9 +80,9 @@ protected:
 
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxTensileFormationUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		TensileLink links[4]; //standard textile algorithm
 		Coord3D inertia;
@@ -93,9 +93,8 @@ public:
 		Real lowestSlideElevation;
 		AudioEventRTS crackSound;
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<TensileFormationUpdate::GxRow> TheGxTensileFormationUpdateRows;
-inline TensileFormationUpdate::GxRow &TensileFormationUpdate::R() const { return TheGxTensileFormationUpdateRows.rows[m_gxRow]; }
+inline TensileFormationUpdate::GxState &TensileFormationUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

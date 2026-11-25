@@ -30,7 +30,7 @@
 #pragma once
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/DozerAIUpdate.h"
@@ -265,9 +265,9 @@ private:
 	void createMachines();		///< create our behavior machines we need
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxWorkerAIUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		DozerBuildSubTask buildSubTask; ///< for building and actually docking for the build
 		Int numberBoxes;
@@ -281,9 +281,8 @@ public:
 		AudioEventRTS buildingSound; ///< sound is pulled from the object we are building!
 		AudioEventRTS suppliesDepletedVoice; ///< Sound played when I take the last box.
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<WorkerAIUpdate::GxRow> TheGxWorkerAIUpdateRows;
-inline WorkerAIUpdate::GxRow &WorkerAIUpdate::R() const { return TheGxWorkerAIUpdateRows.rows[m_gxRow]; }
+inline WorkerAIUpdate::GxState &WorkerAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

@@ -154,7 +154,7 @@ HordeUpdateModuleData::HordeUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 HordeUpdate::HordeUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = TheGxHordeUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().inHorde = FALSE;
 	R().hasFlag = FALSE;
 	R().lastHordeRefreshFrame = TheGameLogic->getFrame();
@@ -167,7 +167,7 @@ HordeUpdate::HordeUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateM
 //-------------------------------------------------------------------------------------------------
 HordeUpdate::~HordeUpdate()
 {
-	TheGxHordeUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
 
@@ -417,4 +417,3 @@ void HordeUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<HordeUpdate::GxRow> TheGxHordeUpdateRows;

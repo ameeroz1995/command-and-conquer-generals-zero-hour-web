@@ -30,7 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/UpdateModule.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
@@ -71,15 +71,14 @@ protected:
 
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxFloatUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		Bool enabled; ///< enabled
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<FloatUpdate::GxRow> TheGxFloatUpdateRows;
-inline FloatUpdate::GxRow &FloatUpdate::R() const { return TheGxFloatUpdateRows.rows[m_gxRow]; }
+inline FloatUpdate::GxState &FloatUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

@@ -28,7 +28,7 @@
 
 #pragma once
 
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 
@@ -218,16 +218,15 @@ protected:
 	virtual AIStateMachine* makeStateMachine();
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxHackInternetAIUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		AICommandParmsStorage pendingCommand;
 		Bool hasPendingCommand;
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<HackInternetAIUpdate::GxRow> TheGxHackInternetAIUpdateRows;
-inline HackInternetAIUpdate::GxRow &HackInternetAIUpdate::R() const { return TheGxHackInternetAIUpdateRows.rows[m_gxRow]; }
+inline HackInternetAIUpdate::GxState &HackInternetAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

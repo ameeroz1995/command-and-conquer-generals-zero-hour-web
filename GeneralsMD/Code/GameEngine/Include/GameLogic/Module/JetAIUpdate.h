@@ -27,7 +27,7 @@
 
 #pragma once
 
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "Common/STLTypedefs.h"
 #include "Common/GameMemory.h"
 #include "GameLogic/AIStateMachine.h"
@@ -166,9 +166,9 @@ private:
 	Bool getFlag(FlagType f) const;
 	void setFlag(FlagType f, Bool v);
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxJetAIUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		Coord3D producerLocation; ///< remember this, so that if our producer dies, we have a place to circle aimlessly
 		AICommandParmsStorage mostRecentCommand;
@@ -182,9 +182,8 @@ public:
 		Coord3D landingPosForHelipadStuff;
 		Bool enginesOn; ///<
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<JetAIUpdate::GxRow> TheGxJetAIUpdateRows;
-inline JetAIUpdate::GxRow &JetAIUpdate::R() const { return TheGxJetAIUpdateRows.rows[m_gxRow]; }
+inline JetAIUpdate::GxState &JetAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

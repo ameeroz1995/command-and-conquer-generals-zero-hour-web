@@ -30,7 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/DockUpdate.h"
 
 // ------------------------------------------------------------------------------------------------
@@ -105,9 +105,9 @@ protected:
 
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxRailedTransportDockUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		ObjectID dockingObjectID; ///< object docking with us
 		Real pullInsideDistancePerFrame; ///< when docking, pull object inside this much each frame
@@ -115,9 +115,8 @@ public:
 		Real pushOutsideDistancePerFrame; ///< when unloading, push object outside this much frame
 		Int unloadCount; ///< count used to govern unloading 1 or all objects
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<RailedTransportDockUpdate::GxRow> TheGxRailedTransportDockUpdateRows;
-inline RailedTransportDockUpdate::GxRow &RailedTransportDockUpdate::R() const { return TheGxRailedTransportDockUpdateRows.rows[m_gxRow]; }
+inline RailedTransportDockUpdate::GxState &RailedTransportDockUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

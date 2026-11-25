@@ -65,7 +65,7 @@ DockUpdateModuleData::DockUpdateModuleData()
 
 DockUpdate::DockUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = TheGxDockUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
 	R().dockOpen = TRUE;
 
@@ -108,7 +108,7 @@ DockUpdate::DockUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateMod
 
 DockUpdate::~DockUpdate()
 {
-	TheGxDockUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 Bool DockUpdate::isClearToApproach( Object const* docker ) const
@@ -646,4 +646,3 @@ void DockUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<DockUpdate::GxRow> TheGxDockUpdateRows;

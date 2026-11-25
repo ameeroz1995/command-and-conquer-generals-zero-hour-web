@@ -30,7 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "Common/INI.h"
 #include "Common/GameMemory.h"
 #include "Common/STLTypedefs.h"
@@ -141,9 +141,9 @@ protected:
 	void loadDockPositions();  ///< load all the dock positions
 	Coord3D computeApproachPosition( Int positionIndex, Object *forWhom ); ///< Do a smart lookup of this bone position
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxDockUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		Coord3D enterPosition;
 		Coord3D dockPosition;
@@ -159,9 +159,8 @@ public:
 		Bool dockCrippled; ///< Has game logic set me as crippled?
 		Bool dockOpen; ///< Is the dock open for dockers
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<DockUpdate::GxRow> TheGxDockUpdateRows;
-inline DockUpdate::GxRow &DockUpdate::R() const { return TheGxDockUpdateRows.rows[m_gxRow]; }
+inline DockUpdate::GxState &DockUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

@@ -1439,7 +1439,7 @@ DozerAIUpdate::DozerAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 							 AIUpdateInterface( thing, moduleData )
 
 {
-	m_gxRow = TheGxDozerAIUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	Int i, j;
 
 	for( i = 0; i < DOZER_NUM_TASKS; i++ )
@@ -1475,7 +1475,7 @@ DozerAIUpdate::DozerAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 //-------------------------------------------------------------------------------------------------
 DozerAIUpdate::~DozerAIUpdate()
 {
-	TheGxDozerAIUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 	// delete our behavior state machine
 	deleteInstance(R().dozerMachine);
@@ -2541,4 +2541,3 @@ void DozerAIUpdate::loadPostProcess()
 	AIUpdateInterface::loadPostProcess();
 }
 
-GxComponentTable<DozerAIUpdate::GxRow> TheGxDozerAIUpdateRows;

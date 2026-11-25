@@ -51,7 +51,7 @@
 //-------------------------------------------------------------------------------------------------
 AssaultTransportAIUpdate::AssaultTransportAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_gxRow = TheGxAssaultTransportAIUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().currentMembers = MAX_TRANSPORT_SLOTS; //First time, max it out, to ensure clearing arrays in reset.
 	reset();
 }
@@ -78,7 +78,7 @@ void AssaultTransportAIUpdate::reset()
 //-------------------------------------------------------------------------------------------------
 AssaultTransportAIUpdate::~AssaultTransportAIUpdate()
 {
-	TheGxAssaultTransportAIUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -536,4 +536,3 @@ void AssaultTransportAIUpdate::loadPostProcess()
 	AIUpdateInterface::loadPostProcess();
 }
 
-GxComponentTable<AssaultTransportAIUpdate::GxRow> TheGxAssaultTransportAIUpdateRows;

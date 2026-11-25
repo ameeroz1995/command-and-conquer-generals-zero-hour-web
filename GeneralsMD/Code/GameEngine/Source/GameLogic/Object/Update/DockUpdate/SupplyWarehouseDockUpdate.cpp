@@ -69,13 +69,13 @@ SupplyWarehouseDockUpdateModuleData::SupplyWarehouseDockUpdateModuleData()
 // ------------------------------------------------------------------------------------------------
 SupplyWarehouseDockUpdate::SupplyWarehouseDockUpdate( Thing *thing, const ModuleData* moduleData ) : DockUpdate( thing, moduleData )
 {
-	m_gxRow = TheGxSupplyWarehouseDockUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().boxesStored = getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData;
 }
 
 SupplyWarehouseDockUpdate::~SupplyWarehouseDockUpdate()
 {
-	TheGxSupplyWarehouseDockUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 void SupplyWarehouseDockUpdate::onObjectCreated()
@@ -230,4 +230,3 @@ void SupplyWarehouseDockUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<SupplyWarehouseDockUpdate::GxRow> TheGxSupplyWarehouseDockUpdateRows;

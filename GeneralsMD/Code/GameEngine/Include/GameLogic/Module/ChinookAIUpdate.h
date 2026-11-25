@@ -27,7 +27,7 @@
 
 #pragma once
 
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "GameLogic/AIStateMachine.h"
 #include "GameLogic/Module/SupplyTruckAIUpdate.h"
 
@@ -133,9 +133,9 @@ private:
 	void setAirfieldForHealing(ObjectID id);
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxChinookAIUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		AICommandParmsStorage pendingCommand;
 		ChinookFlightStatus flightStatus;
@@ -143,9 +143,8 @@ public:
 		Coord3D originalPos;
 		Bool hasPendingCommand;
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<ChinookAIUpdate::GxRow> TheGxChinookAIUpdateRows;
-inline ChinookAIUpdate::GxRow &ChinookAIUpdate::R() const { return TheGxChinookAIUpdateRows.rows[m_gxRow]; }
+inline ChinookAIUpdate::GxState &ChinookAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/UpdateModule.h"
 #include "Common/INI.h"
 #include "Lib/BaseType.h"
@@ -94,18 +94,17 @@ private:
 	void initializeBonePositions();	///< Look up the bone positions and store them in world space coords
 	void revalidateOccupiers();			///< Do a lookup on all our ID's and clear the dead ones.
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxSpawnPointProductionExitUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		Bool bonesInitialized; ///< To prevent creation bugs, only init the World coords when first asked for one
 		Int spawnPointCount; ///< How many in the array are actually live and valid
 		Real worldAngleSpawnPoints[MAX_SPAWN_POINTS]; ///< And what direction they should face
 		ObjectID spawnPointOccupier[MAX_SPAWN_POINTS]; ///< Who I think is in each spot.  I can validate their existence to see if I am free to exit something.
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<SpawnPointProductionExitUpdate::GxRow> TheGxSpawnPointProductionExitUpdateRows;
-inline SpawnPointProductionExitUpdate::GxRow &SpawnPointProductionExitUpdate::R() const { return TheGxSpawnPointProductionExitUpdateRows.rows[m_gxRow]; }
+inline SpawnPointProductionExitUpdate::GxState &SpawnPointProductionExitUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

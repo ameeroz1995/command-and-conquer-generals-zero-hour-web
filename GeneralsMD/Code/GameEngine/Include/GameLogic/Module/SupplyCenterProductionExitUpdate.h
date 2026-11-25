@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/UpdateModule.h"
 
 class Object;
@@ -96,19 +96,18 @@ protected:
 
 	// Required func to fulfill Module requirement
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxSupplyCenterProductionExitUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		Coord3D rallyPoint; ///< Where units should move to after they have reached the "natural" rally point
 		Bool rallyPointExists; ///< Only move to the rally point if this is true
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<SupplyCenterProductionExitUpdate::GxRow> TheGxSupplyCenterProductionExitUpdateRows;
-inline SupplyCenterProductionExitUpdate::GxRow &SupplyCenterProductionExitUpdate::R() const { return TheGxSupplyCenterProductionExitUpdateRows.rows[m_gxRow]; }
+inline SupplyCenterProductionExitUpdate::GxState &SupplyCenterProductionExitUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
 
 inline void SupplyCenterProductionExitUpdate::setRallyPoint( const Coord3D *pos )
 {

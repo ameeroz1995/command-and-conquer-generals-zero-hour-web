@@ -1847,7 +1847,7 @@ AIStateMachine* JetAIUpdate::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 JetAIUpdate::JetAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_gxRow = TheGxJetAIUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().flags = 0;
 	R().afterburnerSound = *(getObject()->getTemplate()->getPerUnitSound("Afterburner"));
 	R().afterburnerSound.setObjectID(getObject()->getID());
@@ -1865,7 +1865,7 @@ JetAIUpdate::JetAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdat
 //-------------------------------------------------------------------------------------------------
 JetAIUpdate::~JetAIUpdate()
 {
-	TheGxJetAIUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 	if (R().lockonDrawable)
 	{
 		TheGameClient->destroyDrawable(R().lockonDrawable);
@@ -2785,4 +2785,3 @@ void JetAIUpdate::loadPostProcess()
 	AIUpdateInterface::loadPostProcess();
 }
 
-GxComponentTable<JetAIUpdate::GxRow> TheGxJetAIUpdateRows;

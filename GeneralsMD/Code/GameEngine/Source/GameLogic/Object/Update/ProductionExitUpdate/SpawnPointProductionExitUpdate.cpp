@@ -44,7 +44,7 @@
 //-------------------------------------------------------------------------------------------------
 SpawnPointProductionExitUpdate::SpawnPointProductionExitUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = TheGxSpawnPointProductionExitUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().bonesInitialized = FALSE;
 	R().spawnPointCount = 0;
 	for( Int positionIndex = 0; positionIndex < MAX_SPAWN_POINTS; positionIndex++ )
@@ -59,7 +59,7 @@ SpawnPointProductionExitUpdate::SpawnPointProductionExitUpdate( Thing *thing, co
 //-------------------------------------------------------------------------------------------------
 SpawnPointProductionExitUpdate::~SpawnPointProductionExitUpdate()
 {
-	TheGxSpawnPointProductionExitUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -242,4 +242,3 @@ void SpawnPointProductionExitUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<SpawnPointProductionExitUpdate::GxRow> TheGxSpawnPointProductionExitUpdateRows;

@@ -29,7 +29,7 @@
 
 #pragma once
 
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 
@@ -109,16 +109,15 @@ public:
 protected:
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxDeployStyleAIUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		DeployStateTypes state;
 		UnsignedInt frameToWaitForDeploy;
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<DeployStyleAIUpdate::GxRow> TheGxDeployStyleAIUpdateRows;
-inline DeployStyleAIUpdate::GxRow &DeployStyleAIUpdate::R() const { return TheGxDeployStyleAIUpdateRows.rows[m_gxRow]; }
+inline DeployStyleAIUpdate::GxState &DeployStyleAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

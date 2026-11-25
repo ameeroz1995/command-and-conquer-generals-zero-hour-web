@@ -30,7 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/UpdateModule.h"
 #include "Common/KindOf.h"
 
@@ -142,18 +142,17 @@ protected:
 private:
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxHordeUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		UnsignedInt lastHordeRefreshFrame; //Just like it sounds
 		Bool inHorde; //I may be a true member, or I may merely inherit hordehood from a neighbor who is
 		Bool trueHordeMember; //meaning, I have enough hordesmen near me to qualify
 		Bool hasFlag;
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<HordeUpdate::GxRow> TheGxHordeUpdateRows;
-inline HordeUpdate::GxRow &HordeUpdate::R() const { return TheGxHordeUpdateRows.rows[m_gxRow]; }
+inline HordeUpdate::GxState &HordeUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

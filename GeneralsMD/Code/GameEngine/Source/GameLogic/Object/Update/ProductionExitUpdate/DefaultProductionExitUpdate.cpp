@@ -44,7 +44,7 @@
 //-------------------------------------------------------------------------------------------------
 DefaultProductionExitUpdate::DefaultProductionExitUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = TheGxDefaultProductionExitUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	// no rally point has been set
 	R().rallyPointExists = false;
 	R().rallyPoint.zero();
@@ -54,7 +54,7 @@ DefaultProductionExitUpdate::DefaultProductionExitUpdate( Thing *thing, const Mo
 //-------------------------------------------------------------------------------------------------
 DefaultProductionExitUpdate::~DefaultProductionExitUpdate()
 {
-	TheGxDefaultProductionExitUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -219,4 +219,3 @@ void DefaultProductionExitUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<DefaultProductionExitUpdate::GxRow> TheGxDefaultProductionExitUpdateRows;

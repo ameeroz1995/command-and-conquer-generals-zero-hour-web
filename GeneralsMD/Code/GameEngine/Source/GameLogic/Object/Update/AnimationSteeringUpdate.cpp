@@ -54,7 +54,7 @@ AnimationSteeringUpdateModuleData::AnimationSteeringUpdateModuleData()
 AnimationSteeringUpdate::AnimationSteeringUpdate( Thing *thing, const ModuleData *moduleData )
 												: UpdateModule( thing, moduleData )
 {
-	m_gxRow = TheGxAnimationSteeringUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().currentTurnAnim = MODELCONDITION_INVALID;
 	R().nextTransitionFrame = 0;
 }
@@ -63,7 +63,7 @@ AnimationSteeringUpdate::AnimationSteeringUpdate( Thing *thing, const ModuleData
 //-------------------------------------------------------------------------------------------------
 AnimationSteeringUpdate::~AnimationSteeringUpdate()
 {
-	TheGxAnimationSteeringUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
 
@@ -177,4 +177,3 @@ void AnimationSteeringUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<AnimationSteeringUpdate::GxRow> TheGxAnimationSteeringUpdateRows;

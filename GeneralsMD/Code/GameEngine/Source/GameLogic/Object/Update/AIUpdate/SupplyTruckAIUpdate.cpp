@@ -74,7 +74,7 @@ AIStateMachine* SupplyTruckAIUpdate::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 SupplyTruckAIUpdate::SupplyTruckAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_gxRow = TheGxSupplyTruckAIUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().supplyTruckStateMachine = nullptr;
 	R().preferredDock = INVALID_ID;
 	R().numberBoxes = 0;
@@ -90,7 +90,7 @@ SupplyTruckAIUpdate::SupplyTruckAIUpdate( Thing *thing, const ModuleData* module
 //-------------------------------------------------------------------------------------------------
 SupplyTruckAIUpdate::~SupplyTruckAIUpdate()
 {
-	TheGxSupplyTruckAIUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 	deleteInstance(R().supplyTruckStateMachine);
 }
 
@@ -833,4 +833,3 @@ TheInGameUI->DEBUG_addFloatingText(tmp, owner->getPosition(), GameMakeColor(255,
 	return false;
 }
 
-GxComponentTable<SupplyTruckAIUpdate::GxRow> TheGxSupplyTruckAIUpdateRows;

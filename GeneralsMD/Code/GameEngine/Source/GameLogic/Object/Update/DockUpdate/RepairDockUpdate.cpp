@@ -70,7 +70,7 @@ RepairDockUpdateModuleData::RepairDockUpdateModuleData()
 RepairDockUpdate::RepairDockUpdate( Thing *thing, const ModuleData* moduleData )
 								: DockUpdate( thing, moduleData )
 {
-	m_gxRow = TheGxRepairDockUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
   R().lastRepair = INVALID_ID;
 	R().healthToAddPerFrame = 0.0f;
@@ -81,7 +81,7 @@ RepairDockUpdate::RepairDockUpdate( Thing *thing, const ModuleData* moduleData )
 // ------------------------------------------------------------------------------------------------
 RepairDockUpdate::~RepairDockUpdate()
 {
-	TheGxRepairDockUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
 
@@ -201,4 +201,3 @@ void RepairDockUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<RepairDockUpdate::GxRow> TheGxRepairDockUpdateRows;

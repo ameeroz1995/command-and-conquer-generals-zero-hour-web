@@ -46,7 +46,7 @@
 //-------------------------------------------------------------------------------------------------
 SupplyCenterProductionExitUpdate::SupplyCenterProductionExitUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = TheGxSupplyCenterProductionExitUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	// no rally point has been set
 	R().rallyPointExists = false;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
@@ -55,7 +55,7 @@ SupplyCenterProductionExitUpdate::SupplyCenterProductionExitUpdate( Thing *thing
 //-------------------------------------------------------------------------------------------------
 SupplyCenterProductionExitUpdate::~SupplyCenterProductionExitUpdate()
 {
-	TheGxSupplyCenterProductionExitUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -249,4 +249,3 @@ void SupplyCenterProductionExitUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<SupplyCenterProductionExitUpdate::GxRow> TheGxSupplyCenterProductionExitUpdateRows;

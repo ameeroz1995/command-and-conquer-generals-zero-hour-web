@@ -30,7 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "Common/NameKeyGenerator.h"
 #include "Common/Override.h"
 #include "Common/Snapshot.h"
@@ -225,8 +225,8 @@ typedef OVERRIDE<LocomotorTemplate> LocomotorTemplateOverride;
 
 // ---------------------------------------------------------
 // web port (round 5, units are pure data): a locomotor's per-unit movement state is a row of
-// TheGxLocoRows; the Locomotor object is the facade (template, INI, xfer) holding its row handle.
-struct GxLocoRow
+// GxComponentPool<GxLocoState>; the Locomotor object is the facade (template, INI, xfer) holding its row handle.
+struct GxLocoState
 {
 	Coord3D			maintainPos;
 	Real				brakingFactor;
@@ -246,7 +246,6 @@ struct GxLocoRow
 	Real				offsetIncrement;
 	UnsignedInt donutTimer;				///< Frame time to keep units from doing the donut. jba.
 };
-extern GxComponentTable<GxLocoRow> TheGxLocoRows;
 
 class Locomotor : public MemoryPoolObject, public Snapshot
 {
@@ -466,8 +465,8 @@ private:
 	void setFlag(LocoFlag f, Bool b) { if (b) R().flags |= (1<<f); else R().flags &= ~(1<<f); }
 
 	LocomotorTemplateOverride m_template;		///< the kind of Locomotor this is
-	int					m_gxRow;								///< web port (round 5): this locomotor's row in TheGxLocoRows
-	GxLocoRow &R() const { return TheGxLocoRows.rows[m_gxRow]; }
+	int					m_gxRow;								///< web port (round 5): this locomotor's row in GxComponentPool<GxLocoState>
+	GxLocoState &R() const { return GxComponentPool<GxLocoState>::the()[m_gxRow]; }
 
 
 };

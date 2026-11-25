@@ -28,7 +28,7 @@
 
 #pragma once
 
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "Common/GameType.h"
 #include "Common/GlobalData.h"
 #include "GameLogic/Module/AIUpdate.h"
@@ -131,9 +131,9 @@ private:
 
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxMissileAIUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		MissileStateType state; ///< the behavior state of the missile
 		UnsignedInt stateTimestamp; ///< time of state change
@@ -150,9 +150,8 @@ public:
 		Bool isArmed; ///< if true, missile will explode on contact
 		Bool isJammed; ///< No target, just shooting at a scattered position
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<MissileAIUpdate::GxRow> TheGxMissileAIUpdateRows;
-inline MissileAIUpdate::GxRow &MissileAIUpdate::R() const { return TheGxMissileAIUpdateRows.rows[m_gxRow]; }
+inline MissileAIUpdate::GxState &MissileAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

@@ -56,14 +56,14 @@ AIStateMachine* HackInternetAIUpdate::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 HackInternetAIUpdate::HackInternetAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_gxRow = TheGxHackInternetAIUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().hasPendingCommand = false;
 }
 
 //-------------------------------------------------------------------------------------------------
 HackInternetAIUpdate::~HackInternetAIUpdate()
 {
-	TheGxHackInternetAIUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -593,4 +593,3 @@ void HackInternetState::onExit( StateExitType status )
 	owner->clearModelConditionState( MODELCONDITION_FIRING_A );
 }
 
-GxComponentTable<HackInternetAIUpdate::GxRow> TheGxHackInternetAIUpdateRows;

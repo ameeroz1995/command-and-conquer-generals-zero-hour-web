@@ -941,7 +941,7 @@ AIStateMachine* ChinookAIUpdate::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 ChinookAIUpdate::ChinookAIUpdate( Thing *thing, const ModuleData* moduleData ) : SupplyTruckAIUpdate( thing, moduleData )
 {
-	m_gxRow = TheGxChinookAIUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().hasPendingCommand = false;
 	R().flightStatus = CHINOOK_FLYING;	// yep, that's right, even if we start "on ground"
 	R().airfieldForHealing = INVALID_ID;
@@ -951,7 +951,7 @@ ChinookAIUpdate::ChinookAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 //-------------------------------------------------------------------------------------------------
 ChinookAIUpdate::~ChinookAIUpdate()
 {
-	TheGxChinookAIUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
 
@@ -1713,4 +1713,3 @@ Int ChinookAIUpdate::getUpgradedSupplyBoost() const
 		return 0;
 }
 
-GxComponentTable<ChinookAIUpdate::GxRow> TheGxChinookAIUpdateRows;

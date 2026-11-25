@@ -28,7 +28,7 @@
 
 #pragma once
 
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 
@@ -230,9 +230,9 @@ private:
 																									// I'm between docking states, or a Stop command without help.
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxSupplyTruckAIUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		SupplyTruckStateMachine* supplyTruckStateMachine;
 		ObjectID preferredDock; ///< Instead of searching, try this one first
@@ -241,9 +241,8 @@ public:
 		Bool forcedBusyPending; // A supply truck can't tell the difference between Idle since
 		AudioEventRTS suppliesDepletedVoice; ///< Sound played when I take the last box.
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<SupplyTruckAIUpdate::GxRow> TheGxSupplyTruckAIUpdateRows;
-inline SupplyTruckAIUpdate::GxRow &SupplyTruckAIUpdate::R() const { return TheGxSupplyTruckAIUpdateRows.rows[m_gxRow]; }
+inline SupplyTruckAIUpdate::GxState &SupplyTruckAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

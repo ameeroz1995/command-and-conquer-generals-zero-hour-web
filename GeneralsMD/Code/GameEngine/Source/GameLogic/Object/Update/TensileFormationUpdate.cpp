@@ -116,7 +116,7 @@ TensileFormationUpdateModuleData::TensileFormationUpdateModuleData()
 TensileFormationUpdate::TensileFormationUpdate( Thing *thing, const ModuleData *moduleData )
 						:UpdateModule( thing, moduleData )
 {
-	m_gxRow = TheGxTensileFormationUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
 
 	const TensileFormationUpdateModuleData *modData = getTensileFormationUpdateModuleData();
@@ -156,7 +156,7 @@ TensileFormationUpdate::TensileFormationUpdate( Thing *thing, const ModuleData *
 // ------------------------------------------------------------------------------------------------
 TensileFormationUpdate::~TensileFormationUpdate()
 {
-	TheGxTensileFormationUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
 
@@ -476,4 +476,3 @@ void TensileFormationUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<TensileFormationUpdate::GxRow> TheGxTensileFormationUpdateRows;

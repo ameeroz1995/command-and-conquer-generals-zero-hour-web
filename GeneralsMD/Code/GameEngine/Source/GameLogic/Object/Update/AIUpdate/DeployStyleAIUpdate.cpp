@@ -54,7 +54,7 @@
 //-------------------------------------------------------------------------------------------------
 DeployStyleAIUpdate::DeployStyleAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_gxRow = TheGxDeployStyleAIUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().state = READY_TO_MOVE;
 	R().frameToWaitForDeploy = 0;
 }
@@ -62,7 +62,7 @@ DeployStyleAIUpdate::DeployStyleAIUpdate( Thing *thing, const ModuleData* module
 //-------------------------------------------------------------------------------------------------
 DeployStyleAIUpdate::~DeployStyleAIUpdate()
 {
-	TheGxDeployStyleAIUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -498,4 +498,3 @@ void DeployStyleAIUpdate::loadPostProcess()
 	AIUpdateInterface::loadPostProcess();
 }
 
-GxComponentTable<DeployStyleAIUpdate::GxRow> TheGxDeployStyleAIUpdateRows;

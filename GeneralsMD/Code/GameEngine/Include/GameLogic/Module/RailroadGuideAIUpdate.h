@@ -30,7 +30,7 @@
 #pragma once
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/PhysicsUpdate.h"
 
@@ -277,9 +277,9 @@ protected:
 
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxRailroadBehaviorRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		StationTask nextStationTask;
 		ObjectID trailerID; ///< the ID of the object I am directly pulling
@@ -305,9 +305,8 @@ public:
 		ConductorState conductorState;
 		WaypointID anchorWaypointID;
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<RailroadBehavior::GxRow> TheGxRailroadBehaviorRows;
-inline RailroadBehavior::GxRow &RailroadBehavior::R() const { return TheGxRailroadBehaviorRows.rows[m_gxRow]; }
+inline RailroadBehavior::GxState &RailroadBehavior::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

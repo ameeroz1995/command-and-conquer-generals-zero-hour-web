@@ -115,7 +115,7 @@ void MissileAIUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 MissileAIUpdate::MissileAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_gxRow = TheGxMissileAIUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	const MissileAIUpdateModuleData* d = getMissileAIUpdateModuleData();
 
 	R().state = PRELAUNCH;
@@ -142,7 +142,7 @@ MissileAIUpdate::MissileAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 //-------------------------------------------------------------------------------------------------
 MissileAIUpdate::~MissileAIUpdate()
 {
-	TheGxMissileAIUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 	tossExhaust();
 }
 
@@ -924,4 +924,3 @@ void MissileAIUpdate::loadPostProcess()
 	AIUpdateInterface::loadPostProcess();
 }
 
-GxComponentTable<MissileAIUpdate::GxRow> TheGxMissileAIUpdateRows;

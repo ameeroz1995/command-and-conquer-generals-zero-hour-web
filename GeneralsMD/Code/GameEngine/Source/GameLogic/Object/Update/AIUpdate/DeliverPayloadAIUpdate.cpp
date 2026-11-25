@@ -110,7 +110,7 @@ AIStateMachine* DeliverPayloadAIUpdate::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 DeliverPayloadAIUpdate::DeliverPayloadAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_gxRow = TheGxDeliverPayloadAIUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().deliverPayloadStateMachine = nullptr;
 	m_targetPos.zero();
 	R().moveToPos.zero();
@@ -125,7 +125,7 @@ DeliverPayloadAIUpdate::DeliverPayloadAIUpdate( Thing *thing, const ModuleData* 
 //-------------------------------------------------------------------------------------------------
 DeliverPayloadAIUpdate::~DeliverPayloadAIUpdate()
 {
-	TheGxDeliverPayloadAIUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 	R().deliveryDecal.clear();
 	deleteInstance(R().deliverPayloadStateMachine);
 }
@@ -1231,4 +1231,3 @@ StateReturnType CleanUpState::onEnter() // Delete my successful butt
 	return STATE_CONTINUE;
 }
 
-GxComponentTable<DeliverPayloadAIUpdate::GxRow> TheGxDeliverPayloadAIUpdateRows;

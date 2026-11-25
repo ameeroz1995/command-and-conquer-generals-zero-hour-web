@@ -37,7 +37,7 @@
 #define DEFAULT_NO_NEED_TO_CATCH_UP_RADIUS (CATCH_UP_RADIUS_MIN)
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "Common/INI.h"
 #include "GameLogic/Module/UpdateModule.h"
 class DamageInfo;
@@ -123,9 +123,9 @@ private:
 	// thus causing the mob to become invincible, since they will continue to bud around the nexus
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxMobMemberSlavedUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		ObjectID slaver; ///< To whom we are enslaved
 		Int framesToWait;
@@ -136,9 +136,8 @@ public:
 		Bool isSelfTasking;
 		UnsignedInt catchUpCrisisTimer; // how many consecutive frames have I remained outside the catchup radius
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<MobMemberSlavedUpdate::GxRow> TheGxMobMemberSlavedUpdateRows;
-inline MobMemberSlavedUpdate::GxRow &MobMemberSlavedUpdate::R() const { return TheGxMobMemberSlavedUpdateRows.rows[m_gxRow]; }
+inline MobMemberSlavedUpdate::GxState &MobMemberSlavedUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

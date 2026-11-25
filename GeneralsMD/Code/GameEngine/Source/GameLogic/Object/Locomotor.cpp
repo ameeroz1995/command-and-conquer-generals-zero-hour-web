@@ -645,12 +645,11 @@ LocomotorTemplate *LocomotorStore::newOverride( LocomotorTemplate *locoTemplate 
 //-------------------------------------------------------------------------------------------------
 
 //-------------------------------------------------------------------------------------------------
-GxComponentTable<GxLocoRow> TheGxLocoRows;
 
 //-------------------------------------------------------------------------------------------------
 Locomotor::Locomotor(const LocomotorTemplate* tmpl)
 {
-	m_gxRow = TheGxLocoRows.alloc();
+	m_gxRow = GxComponentPool<GxLocoState>::the().alloc();
 	m_template = tmpl;
 	R().brakingFactor = 1.0f;
 	R().maxLift = BIGNUM;
@@ -676,7 +675,7 @@ Locomotor::Locomotor(const LocomotorTemplate* tmpl)
 //-------------------------------------------------------------------------------------------------
 Locomotor::Locomotor(const Locomotor& that)
 {
-	m_gxRow = TheGxLocoRows.alloc();
+	m_gxRow = GxComponentPool<GxLocoState>::the().alloc();
 	R().angleOffset = 0.0f;
 	R().maintainPos.zero();
 	m_template = that.m_template;
@@ -723,7 +722,7 @@ Locomotor& Locomotor::operator=(const Locomotor& that)
 //-------------------------------------------------------------------------------------------------
 Locomotor::~Locomotor()
 {
-	TheGxLocoRows.release(m_gxRow);
+	GxComponentPool<GxLocoState>::the().release(m_gxRow);
 }
 
 // ------------------------------------------------------------------------------------------------

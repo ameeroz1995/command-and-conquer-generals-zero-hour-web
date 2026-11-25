@@ -68,7 +68,7 @@ void RailedTransportAIUpdateModuleData::buildFieldParse( MultiIniFieldParse &p )
 RailedTransportAIUpdate::RailedTransportAIUpdate( Thing *thing, const ModuleData *moduleData )
 											 : AIUpdateInterface( thing, moduleData )
 {
-	m_gxRow = TheGxRailedTransportAIUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
 	R().inTransit = FALSE;
 	for( Int i = 0; i < MAX_WAYPOINT_PATHS; ++i )
@@ -88,7 +88,7 @@ RailedTransportAIUpdate::RailedTransportAIUpdate( Thing *thing, const ModuleData
 //-------------------------------------------------------------------------------------------------
 RailedTransportAIUpdate::~RailedTransportAIUpdate()
 {
-	TheGxRailedTransportAIUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
 
@@ -417,4 +417,3 @@ void RailedTransportAIUpdate::loadPostProcess()
 	AIUpdateInterface::loadPostProcess();
 }
 
-GxComponentTable<RailedTransportAIUpdate::GxRow> TheGxRailedTransportAIUpdateRows;

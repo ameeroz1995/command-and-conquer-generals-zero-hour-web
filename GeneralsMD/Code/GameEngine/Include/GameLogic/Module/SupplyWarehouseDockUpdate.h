@@ -30,7 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "Common/INI.h"
 #include "Common/GameMemory.h"
 #include "GameLogic/Module/DockUpdate.h"
@@ -75,15 +75,14 @@ protected:
 
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxSupplyWarehouseDockUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		Int boxesStored;
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<SupplyWarehouseDockUpdate::GxRow> TheGxSupplyWarehouseDockUpdateRows;
-inline SupplyWarehouseDockUpdate::GxRow &SupplyWarehouseDockUpdate::R() const { return TheGxSupplyWarehouseDockUpdateRows.rows[m_gxRow]; }
+inline SupplyWarehouseDockUpdate::GxState &SupplyWarehouseDockUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

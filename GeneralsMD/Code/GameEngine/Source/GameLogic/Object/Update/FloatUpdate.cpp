@@ -76,7 +76,7 @@ FloatUpdateModuleData::FloatUpdateModuleData()
 FloatUpdate::FloatUpdate( Thing *thing, const ModuleData *moduleData )
 						:UpdateModule( thing, moduleData )
 {
-	m_gxRow = TheGxFloatUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
 	// save our initial enabled status based on INI settings
 	R().enabled = ((FloatUpdateModuleData *)moduleData)->m_enabled;
@@ -87,7 +87,7 @@ FloatUpdate::FloatUpdate( Thing *thing, const ModuleData *moduleData )
 // ------------------------------------------------------------------------------------------------
 FloatUpdate::~FloatUpdate()
 {
-	TheGxFloatUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
 
@@ -181,4 +181,3 @@ void FloatUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<FloatUpdate::GxRow> TheGxFloatUpdateRows;

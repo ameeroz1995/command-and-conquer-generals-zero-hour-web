@@ -30,7 +30,7 @@
 #pragma once
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/AIUpdate.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
@@ -89,9 +89,9 @@ protected:
 
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxRailedTransportAIUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		Bool inTransit; ///< in transit
 		WaypointPathInfo path[ MAX_WAYPOINT_PATHS ]; ///< transit paths we can use
@@ -99,9 +99,8 @@ public:
 		Int currentPath; ///< index into m_path for our current path
 		Bool waypointDataLoaded; ///< TRUE once we've searched the map to load m_path
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<RailedTransportAIUpdate::GxRow> TheGxRailedTransportAIUpdateRows;
-inline RailedTransportAIUpdate::GxRow &RailedTransportAIUpdate::R() const { return TheGxRailedTransportAIUpdateRows.rows[m_gxRow]; }
+inline RailedTransportAIUpdate::GxState &RailedTransportAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

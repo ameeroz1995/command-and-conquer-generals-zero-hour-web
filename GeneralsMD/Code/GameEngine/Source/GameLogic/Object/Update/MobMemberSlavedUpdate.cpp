@@ -62,7 +62,7 @@ const Real CLOSE_ENOUGH_SQR = (CLOSE_ENOUGH * CLOSE_ENOUGH);
 //-------------------------------------------------------------------------------------------------
 MobMemberSlavedUpdate::MobMemberSlavedUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = TheGxMobMemberSlavedUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
 	R().slaver = INVALID_ID;
 	R().framesToWait = GameLogicRandomValue(0,20);
@@ -90,7 +90,7 @@ MobMemberSlavedUpdate::MobMemberSlavedUpdate( Thing *thing, const ModuleData* mo
 //-------------------------------------------------------------------------------------------------
 MobMemberSlavedUpdate::~MobMemberSlavedUpdate()
 {
-	TheGxMobMemberSlavedUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -464,4 +464,3 @@ void MobMemberSlavedUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<MobMemberSlavedUpdate::GxRow> TheGxMobMemberSlavedUpdateRows;

@@ -44,7 +44,7 @@
 //-------------------------------------------------------------------------------------------------
 QueueProductionExitUpdate::QueueProductionExitUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = TheGxQueueProductionExitUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().currentDelay = 0;
 
 	R().creationClearDistance = 0;
@@ -62,7 +62,7 @@ QueueProductionExitUpdate::QueueProductionExitUpdate( Thing *thing, const Module
 //-------------------------------------------------------------------------------------------------
 QueueProductionExitUpdate::~QueueProductionExitUpdate()
 {
-	TheGxQueueProductionExitUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -350,4 +350,3 @@ void QueueProductionExitUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<QueueProductionExitUpdate::GxRow> TheGxQueueProductionExitUpdateRows;

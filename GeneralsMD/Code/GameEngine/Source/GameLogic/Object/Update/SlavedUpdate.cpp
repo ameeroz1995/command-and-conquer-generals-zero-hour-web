@@ -58,7 +58,7 @@ const Real CLOSE_ENOUGH_SQR = (CLOSE_ENOUGH * CLOSE_ENOUGH);
 //-------------------------------------------------------------------------------------------------
 SlavedUpdate::SlavedUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = TheGxSlavedUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 //	const SlavedUpdateModuleData* data = getSlavedUpdateModuleData();
 
 	R().slaver = INVALID_ID;
@@ -71,7 +71,7 @@ SlavedUpdate::SlavedUpdate( Thing *thing, const ModuleData* moduleData ) : Updat
 //-------------------------------------------------------------------------------------------------
 SlavedUpdate::~SlavedUpdate()
 {
-	TheGxSlavedUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -802,4 +802,3 @@ void SlavedUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<SlavedUpdate::GxRow> TheGxSlavedUpdateRows;

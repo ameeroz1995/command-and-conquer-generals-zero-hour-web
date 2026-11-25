@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include "Common/GxComponents.h"
+#include "Common/GxComponentPool.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 
@@ -110,9 +110,9 @@ public:
 protected:
 
 public:
-	// web port (round 5, units are pure data): the per-unit state is a row of TheGxAssaultTransportAIUpdateRows;
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
-	struct GxRow
+	struct GxState
 	{
 		ObjectID memberIDs[ MAX_TRANSPORT_SLOTS ];
 		Bool memberHealing[ MAX_TRANSPORT_SLOTS ];
@@ -126,9 +126,8 @@ public:
 		Bool isAttackObject;
 		Bool newOccupantsAreNewMembers;
 	};
-	GxRow &R() const;
+	GxState &R() const;
 private:
 	int m_gxRow;
 };
-extern GxComponentTable<AssaultTransportAIUpdate::GxRow> TheGxAssaultTransportAIUpdateRows;
-inline AssaultTransportAIUpdate::GxRow &AssaultTransportAIUpdate::R() const { return TheGxAssaultTransportAIUpdateRows.rows[m_gxRow]; }
+inline AssaultTransportAIUpdate::GxState &AssaultTransportAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

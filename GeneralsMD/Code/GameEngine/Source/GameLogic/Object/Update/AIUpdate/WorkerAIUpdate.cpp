@@ -83,7 +83,7 @@ WorkerAIUpdate::WorkerAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 							 AIUpdateInterface( thing, moduleData )
 
 {
-	m_gxRow = TheGxWorkerAIUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
 	//
 	// initialize the dozer machine to nullptr, we want to do this and create it during the update
@@ -121,7 +121,7 @@ WorkerAIUpdate::WorkerAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 //-------------------------------------------------------------------------------------------------
 WorkerAIUpdate::~WorkerAIUpdate()
 {
-	TheGxWorkerAIUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 	// delete our behavior state machine
 	deleteInstance(R().dozerMachine);
@@ -1516,4 +1516,3 @@ void WorkerAIUpdate::loadPostProcess()
 	AIUpdateInterface::loadPostProcess();
 }
 
-GxComponentTable<WorkerAIUpdate::GxRow> TheGxWorkerAIUpdateRows;

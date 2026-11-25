@@ -84,7 +84,7 @@ RailedTransportDockUpdateModuleData::RailedTransportDockUpdateModuleData()
 RailedTransportDockUpdate::RailedTransportDockUpdate( Thing *thing, const ModuleData *moduleData )
 												 : DockUpdate( thing, moduleData )
 {
-	m_gxRow = TheGxRailedTransportDockUpdateRows.alloc();
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
 	R().dockingObjectID = INVALID_ID;
 	R().pullInsideDistancePerFrame = 0.0f;
@@ -98,7 +98,7 @@ RailedTransportDockUpdate::RailedTransportDockUpdate( Thing *thing, const Module
 // ------------------------------------------------------------------------------------------------
 RailedTransportDockUpdate::~RailedTransportDockUpdate()
 {
-	TheGxRailedTransportDockUpdateRows.release(m_gxRow);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
 
@@ -576,4 +576,3 @@ void RailedTransportDockUpdate::loadPostProcess()
 
 }
 
-GxComponentTable<RailedTransportDockUpdate::GxRow> TheGxRailedTransportDockUpdateRows;
