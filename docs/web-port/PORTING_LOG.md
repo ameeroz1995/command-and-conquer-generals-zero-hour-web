@@ -3657,5 +3657,9 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
   match with it off. paths-28 (after merging collide's store-owned position, radius and player)
   matches the referee and that recording. paths-24 (look-ahead): referee matches; a recording with
   groupRoute + routeCache + flowCover + routeRefine + routeQueue on matches with them off.
-- Timing: the first paths-23/24 pairs ran while load climbed from 12 to 18–34, so they don't count.
-  The pairs are being rerun one at a time under timing.lock at load < 8.
+- Timing (pairs under timing.lock, load 5–10; strikes phase fps / 1% low / frames over 100 ms):
+  - Look-ahead, paths-23 vs paths-24 with all five route rules on: 14.4 → 16.0 / 6.9 → 7.0 / 20 → 10
+    and 15.0 → 15.9 / 7.7 → 6.9 / 13 → 16. Kept (it rides on routeQueue + routeCache).
+  - moveAfterTick off vs on (paths-28): 14.9 → 14.5 / 7.0 → 6.5 / 34 → 35 and 14.7 → 12.3 /
+    6.0 → 5.9 / 21 → 115 (that half ran at load 8.6–9.8). Not faster: kept behind its rule,
+    default off, as the round-4 bar asks.
