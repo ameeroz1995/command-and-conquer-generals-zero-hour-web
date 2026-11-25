@@ -3198,3 +3198,5 @@ Built per the user's round-3 decision (small gains meant to add up). Two parts:
 - Referee replay matches (9,000 frames) on col-2 and col-3.
 - physBulk pair rerun (phys-6t, load 6-10): off 30.6 / 22.8 ms, on 26.2 / 27.0 ms: same as before,
   no gain, not slower.
+- crushFirst pair rerun at load 5-7 (col-3t, the first pair started at load 12): crush-check time
+  off 10.25 / 9.95 ms, on 10.77 / 9.33 ms: inside noise, not slower (kept on: same game).
