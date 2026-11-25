@@ -842,8 +842,8 @@ static Bool distCalcProc_BoundaryAndBoundary_2D(
 
 	Real shrinkFactor = 1.0f;
 	Real shrunkenDistSqr = actualDistSqr;
-	Real totalRad = (objA ? objA->getGeometryInfo().getBoundingCircleRadius() : 0.0f) +
-							(objB ? objB->getGeometryInfo().getBoundingCircleRadius() : 0.0f);
+	Real totalRad = (objA ? objA->getBoundingCircleRadius() : 0.0f) +
+							(objB ? objB->getBoundingCircleRadius() : 0.0f);
 
 	if (totalRad > 0.0f)
 	{
@@ -3018,8 +3018,8 @@ void PartitionContactList::gxProcessPair(PartitionData*& a, PartitionData*& b)
 					++gx_verify_mismatch;
 					printf("GXVERIFY pair place mismatch: %u and %u touch; kept %.1f,%.1f r%.1f / %.1f,%.1f r%.1f; real %.1f,%.1f r%.1f type %d / %.1f,%.1f r%.1f type %d; %s / %s\n", o1->getID(), o2->getID(),
 						a->gxX(), a->gxY(), a->gxR(), b->gxX(), b->gxY(), b->gxR(),
-						o1->getPosition()->x, o1->getPosition()->y, o1->getGeometryInfo().getBoundingCircleRadius(), (int)o1->getGeometryInfo().getGeomType(),
-						o2->getPosition()->x, o2->getPosition()->y, o2->getGeometryInfo().getBoundingCircleRadius(), (int)o2->getGeometryInfo().getGeomType(),
+						o1->getPosition()->x, o1->getPosition()->y, o1->getBoundingCircleRadius(), (int)o1->getGeometryInfo().getGeomType(),
+						o2->getPosition()->x, o2->getPosition()->y, o2->getBoundingCircleRadius(), (int)o2->getGeometryInfo().getGeomType(),
 						o1->getTemplate()->getName().str(), o2->getTemplate()->getName().str());
 				}
 				if (gx_verify_checked % 50000 == 0)
@@ -4184,7 +4184,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 	const Bool gxBoundary = dc == FROM_BOUNDINGSPHERE_2D || dc == FROM_BOUNDINGSPHERE_3D;
 	Real gxMyR = 0.0f;
 	if (gxBoundary && objToUse)
-		gxMyR = max(objToUse->getGeometryInfo().getBoundingCircleRadius(), objToUse->getGeometryInfo().getBoundingSphereRadius());
+		gxMyR = max(objToUse->getBoundingCircleRadius(), objToUse->getGeometryInfo().getBoundingSphereRadius());
 	Real gxLimit = gxCache ? sqrtf(closestDistSqr) + gxMyR + 1.0f : 0.0f;
 	const Real px = objPos->x, py = objPos->y;
 

@@ -254,7 +254,7 @@ UpdateSleepTime StealthDetectorUpdate::update()
 					{
  						// audio msg
  						static AudioEventRTS discoveredSound = TheAudio->getMiscAudio()->m_stealthDiscoveredSound;
- 						discoveredSound.setPlayerIndex( self->getControllingPlayer()->getPlayerIndex() );
+ 						discoveredSound.setPlayerIndex( self->gxPlayerIndex() );
  						TheAudio->addAudioEvent( &discoveredSound );
  						// ui msg
  						TheInGameUI->message( TheGameText->fetch( "MESSAGE:StealthDiscovered" ) );
@@ -290,7 +290,7 @@ UpdateSleepTime StealthDetectorUpdate::update()
 
  						// audio msg
  						static AudioEventRTS neutralizedSound = TheAudio->getMiscAudio()->m_stealthNeutralizedSound;
- 						neutralizedSound.setPlayerIndex( them->getControllingPlayer()->getPlayerIndex() );
+ 						neutralizedSound.setPlayerIndex( them->gxPlayerIndex() );
  						TheAudio->addAudioEvent( &neutralizedSound );
  						// ui msg
  						TheInGameUI->message( TheGameText->fetch( "MESSAGE:StealthNeutralized" ) );

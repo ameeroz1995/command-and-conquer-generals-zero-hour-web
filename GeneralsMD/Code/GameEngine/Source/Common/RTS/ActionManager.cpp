@@ -110,7 +110,7 @@ static Bool isObjectShroudedForAction ( const Object *source, const Object *targ
 	{
 		if( source->getControllingPlayer()->getPlayerType() == PLAYER_HUMAN
 			&& commandSource != CMD_FROM_SCRIPT
-			&& target->getShroudedStatus( source->getControllingPlayer()->getPlayerIndex() ) >= OBJECTSHROUD_FOGGED
+			&& target->getShroudedStatus( source->gxPlayerIndex() ) >= OBJECTSHROUD_FOGGED
 			)
 		{
 			return TRUE;
@@ -1555,7 +1555,7 @@ Bool ActionManager::canDoSpecialPowerAtLocation( const Object *obj, const Coord3
 			case SPECIAL_SNEAK_ATTACK:
 			case SPECIAL_BATTLESHIP_BOMBARDMENT:
 				//Don't allow "damaging" special powers in shrouded areas, but Fogged are okay.
-				return ThePartitionManager->getShroudStatusForPlayer( obj->getControllingPlayer()->getPlayerIndex(), loc ) != CELLSHROUD_SHROUDED;
+				return ThePartitionManager->getShroudStatusForPlayer( obj->gxPlayerIndex(), loc ) != CELLSHROUD_SHROUDED;
 
 			case SPECIAL_SPY_SATELLITE:
 			case SPECIAL_RADAR_VAN_SCAN:
@@ -2100,7 +2100,7 @@ Bool ActionManager::canOverrideSpecialPowerDestination( const Object *obj, const
 	if( spuInterface )
 	{
 		//But so long as it's not in the black areas of the map.
-		return ThePartitionManager->getShroudStatusForPlayer( obj->getControllingPlayer()->getPlayerIndex(), loc ) != CELLSHROUD_SHROUDED;
+		return ThePartitionManager->getShroudStatusForPlayer( obj->gxPlayerIndex(), loc ) != CELLSHROUD_SHROUDED;
 	}
 	return false;
 }

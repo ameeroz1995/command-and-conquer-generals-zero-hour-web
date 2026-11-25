@@ -528,7 +528,7 @@ Team *team;
 for( prototypeIt = m_prototypes.begin(); prototypeIt != m_prototypes.end(); ++prototypeIt )
 {
 	prototype = prototypeIt->second;
-fprintf( fp, "Prototype '%s' for player index '%d'\n", prototype->getName().str(), prototype->getControllingPlayer()->getPlayerIndex() );
+fprintf( fp, "Prototype '%s' for player index '%d'\n", prototype->getName().str(), prototype->gxPlayerIndex() );
 	for( DLINK_ITERATOR<Team> teamIt = prototype->iterate_TeamInstanceList(); !teamIt.done(); teamIt.advance() )
 	{
 		team = teamIt.cur();
@@ -592,7 +592,7 @@ Object *obj;
 for( prototypeIt = m_prototypes.begin(); prototypeIt != m_prototypes.end(); ++prototypeIt )
 {
 	prototype = prototypeIt->second;
-fprintf( fp, "Prototype '%s' for player index '%d'\n", prototype->getName().str(), prototype->getControllingPlayer()->getPlayerIndex() );
+fprintf( fp, "Prototype '%s' for player index '%d'\n", prototype->getName().str(), prototype->gxPlayerIndex() );
 	for( DLINK_ITERATOR<Team> teamIt = prototype->iterate_TeamInstanceList(); !teamIt.done(); teamIt.advance() )
 	{
 		team = teamIt.cur();

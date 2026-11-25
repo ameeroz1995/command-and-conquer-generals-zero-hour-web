@@ -180,7 +180,7 @@ UpdateSleepTime HeightDieUpdate::update()
 			// scan all objects in the radius of our extent and find the tallest height among them
 			PartitionFilterAcceptByKindOf filter1( MAKE_KINDOF_MASK( KINDOF_STRUCTURE ),KINDOFMASK_NONE );
 			PartitionFilter *filters[] = { &filter1, nullptr };
-			Real range = getObject()->getGeometryInfo().getBoundingCircleRadius();
+			Real range = getObject()->getBoundingCircleRadius();
 			ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( getObject(),
 																																				 range,
 																																				 FROM_BOUNDINGSPHERE_3D,

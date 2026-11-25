@@ -517,7 +517,7 @@ UpdateSleepTime SpectreGunshipUpdate::update()
 	          PartitionFilterLiveMapEnemies filterObvious( gunship );
 	          PartitionFilterStealthedAndUndetected filterStealth( gunship, false );
 	          PartitionFilterPossibleToAttack filterAttack(ATTACK_NEW_TARGET, gunship, CMD_FROM_AI);
-	          PartitionFilterFreeOfFog filterFogged( gunship->getControllingPlayer()->getPlayerIndex() );
+	          PartitionFilterFreeOfFog filterFogged( gunship->gxPlayerIndex() );
 	          PartitionFilter *filters[6];
 	          Int numFilters = 0;
 	          filters[numFilters++] = &filterObvious;
