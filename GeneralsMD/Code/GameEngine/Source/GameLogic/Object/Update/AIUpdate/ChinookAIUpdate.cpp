@@ -1077,21 +1077,43 @@ Bool ChinookAIUpdate::chooseLocomotorSet(LocomotorSetType wst)
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the chinook kernels. Pure: read their arguments and the row
+// (flightStatus, hasPendingCommand, airfieldForHealing); write nothing.
+// Healed: landed on a pad, nothing pending, fully healed (and no passengers waiting): take off.
+static Bool gxChinookHealedKernel(const ChinookAIUpdate::GxState &r, Bool blockedByPassengers, Bool healed)
+{
+	return r.flightStatus == CHINOOK_LANDED && !blockedByPassengers && !r.hasPendingCommand && healed;
+}
+
+// Idle: run the pending command, land for passengers, or take off when nobody is waiting.
+enum GxChinookOp { GXCHINOOK_NONE, GXCHINOOK_PENDING, GXCHINOOK_LAND, GXCHINOOK_TAKE_OFF };
+static GxChinookOp gxChinookIdleKernel(const ChinookAIUpdate::GxState &r, Bool waitingToEnterOrExit)
+{
+	if (r.hasPendingCommand)
+		return GXCHINOOK_PENDING;
+	if (waitingToEnterOrExit && r.flightStatus != CHINOOK_LANDED)
+		return GXCHINOOK_LAND;
+	if (!waitingToEnterOrExit && r.flightStatus == CHINOOK_LANDED && r.airfieldForHealing == INVALID_ID)
+		return GXCHINOOK_TAKE_OFF;
+	return GXCHINOOK_NONE;
+}
+
 UpdateSleepTime ChinookAIUpdate::update()
 {
 	ParkingPlaceBehaviorInterface* pp = getPP(R().airfieldForHealing);
 	const ContainModuleInterface* contain = getObject()->getContain();
 	const Bool waitingToEnterOrExit = contain && contain->hasObjectsWantingToEnterOrExit();
 
+	// web port (round 5 addendum): gather, the kernel decides, apply (healing pad, flight state)
 	if (pp != nullptr)
 	{
-		if (R().flightStatus == CHINOOK_LANDED &&
+		const Bool healed = getObject()->getBodyModule()->getHealth() == getObject()->getBodyModule()->getMaxHealth();
+		Bool blockedByPassengers = FALSE;
 #if !RETAIL_COMPATIBLE_CRC
-				// TheSuperHackers @bugfix Stubbjax 03/11/2025 Prevent Chinooks from taking off while there are still units wanting to enter or exit.
-				!waitingToEnterOrExit &&
+		// TheSuperHackers @bugfix Stubbjax 03/11/2025 Prevent Chinooks from taking off while there are still units wanting to enter or exit.
+		blockedByPassengers = waitingToEnterOrExit;
 #endif
-				!R().hasPendingCommand &&
-				getObject()->getBodyModule()->getHealth() == getObject()->getBodyModule()->getMaxHealth())
+		if (gxChinookHealedKernel(R(), blockedByPassengers, healed))
 		{
 			// we're completely healed, so take off again
 			pp->setHealee(getObject(), false);
@@ -1115,20 +1137,19 @@ UpdateSleepTime ChinookAIUpdate::update()
 	{
 	  if (SupplyTruckAIUpdate::isIdle())
 		{
-			if (R().hasPendingCommand)
+			switch (gxChinookIdleKernel(R(), waitingToEnterOrExit))
 			{
-				AICommandParms parms(AICMD_MOVE_TO_POSITION, CMD_FROM_AI);	// values don't matter, will be wiped by next line
-				R().pendingCommand.reconstitute(parms);
-				R().hasPendingCommand = false;
-				aiDoCommand(&parms);
-			}
-			else if (waitingToEnterOrExit && R().flightStatus != CHINOOK_LANDED)
-			{
-				setMyState(LANDING, nullptr, nullptr, CMD_FROM_AI);
-			}
-			else if (!waitingToEnterOrExit && R().flightStatus == CHINOOK_LANDED && R().airfieldForHealing == INVALID_ID)
-			{
-				setMyState(TAKING_OFF, nullptr, nullptr, CMD_FROM_AI);
+				case GXCHINOOK_PENDING:
+				{
+					AICommandParms parms(AICMD_MOVE_TO_POSITION, CMD_FROM_AI);	// values don't matter, will be wiped by next line
+					R().pendingCommand.reconstitute(parms);
+					R().hasPendingCommand = false;
+					aiDoCommand(&parms);
+					break;
+				}
+				case GXCHINOOK_LAND: setMyState(LANDING, nullptr, nullptr, CMD_FROM_AI); break;
+				case GXCHINOOK_TAKE_OFF: setMyState(TAKING_OFF, nullptr, nullptr, CMD_FROM_AI); break;
+				default: break;
 			}
 		}
 

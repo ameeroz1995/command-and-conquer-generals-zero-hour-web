@@ -157,6 +157,54 @@ Bool DeliverPayloadAIUpdate::isAllowedToRespondToAiCommands(const AICommandParms
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the dive kernel. Pure: from the gathered distance to the target, the
+// dive state; while diving with a strafing weapon and not climbing, the strafe point (x, y; the apply
+// step puts it on the ground). reads its arguments; reads/writes its row (diveState) only.
+enum { GXDIVE_START = 1, GXDIVE_END = 2, GXDIVE_STRAFE = 4 };
+Int DeliverPayloadAIUpdate::gxDiveKernel(GxState &r, Real currentDistanceSquared, Real diveStartDistance, Real diveEndDistance,
+	Bool strafing, const Coord3D &vel, const Coord3D &targetPos, Coord3D &strafePoint)
+{
+	Int op = 0;
+	if( r.diveState == DIVESTATE_PREDIVE )
+	{
+		//Check to see if we are close enough to start diving.
+		if( currentDistanceSquared <= sqr( diveStartDistance ) )
+		{
+			r.diveState = DIVESTATE_DIVING;
+			op |= GXDIVE_START;
+		}
+		return op;
+	}
+	//Check to see when we shall end diving
+	Real endDiveDistanceSquared = sqr( diveEndDistance );
+	if( currentDistanceSquared <= endDiveDistanceSquared )
+	{
+		r.diveState = DIVESTATE_POSTDIVE;
+		op |= GXDIVE_END;
+	}
+	if( strafing && vel.z < 5.0f )
+	{
+		//Calc strafe ratio
+		Real endDiveDistance = sqrt( endDiveDistanceSquared );
+		Real currentDistance = sqrt( currentDistanceSquared );
+		Real diveRatio = (diveStartDistance - currentDistance) / (diveStartDistance - endDiveDistance);
+
+		Coord3D velocity = vel;
+		velocity.z = 0.0f;
+		velocity.normalize();
+		velocity.scale( diveRatio * 100.0f );
+
+		Coord3D backwards = velocity;
+		backwards.scale( 0.33f );
+
+		strafePoint = targetPos;
+		strafePoint.sub( &backwards );
+		strafePoint.add( &velocity );
+		op |= GXDIVE_STRAFE;
+	}
+	return op;
+}
+
 UpdateSleepTime DeliverPayloadAIUpdate::update()
 {
 	R().deliveryDecal.update();
@@ -165,70 +213,40 @@ UpdateSleepTime DeliverPayloadAIUpdate::update()
 		R().deliverPayloadStateMachine->updateStateMachine();
 
 	//Handling diving logic (regardless of state)
+	// web port (round 5 addendum): gather the distance to the target, the dive kernel moves the dive
+	// state and works out the strafe point, apply: locomotor precision, sound, the strafe shot
 	if( R().diveState != DIVESTATE_POSTDIVE )
 	{
-		if( R().diveState == DIVESTATE_PREDIVE )
+		const Bool pre = R().diveState == DIVESTATE_PREDIVE;
+		const Real currentDistanceSquared = ThePartitionManager->getDistanceSquared( getObject(), getTargetPos(), pre ? FROM_CENTER_2D : FROM_CENTER_3D );
+		const Bool strafing = !pre && R().data.m_strafingWeaponSlot != -1;
+		Coord3D velocity; velocity.zero();
+		if( strafing )
+			velocity = *getObject()->getPhysics()->getVelocity();
+		Coord3D strafePoint;
+		const Int op = gxDiveKernel( R(), currentDistanceSquared, getData()->m_diveStartDistance, getData()->m_diveEndDistance,
+			strafing, velocity, *getTargetPos(), strafePoint );
+		if( op & GXDIVE_START )
 		{
-			//Check to see if we are close enough to start diving.
-			Real startDiveDistanceSquared = sqr( getData()->m_diveStartDistance );
-			Real currentDistanceSquared  = ThePartitionManager->getDistanceSquared( getObject(), getTargetPos(), FROM_CENTER_2D );
-			if( currentDistanceSquared <= startDiveDistanceSquared )
-			{
-				R().diveState = DIVESTATE_DIVING;
-				getObject()->getAIUpdateInterface()->getCurLocomotor()->setUsePreciseZPos( true );
+			getObject()->getAIUpdateInterface()->getCurLocomotor()->setUsePreciseZPos( true );
 
-				AudioEventRTS soundDive = *(getObject()->getTemplate()->getPerUnitSound("StartDive"));
-				if( soundDive.getEventName().isNotEmpty() )
-				{
-					soundDive.setPosition( getObject()->getPosition() );
-					TheAudio->addAudioEvent( &soundDive );
-				}
+			AudioEventRTS soundDive = *(getObject()->getTemplate()->getPerUnitSound("StartDive"));
+			if( soundDive.getEventName().isNotEmpty() )
+			{
+				soundDive.setPosition( getObject()->getPosition() );
+				TheAudio->addAudioEvent( &soundDive );
 			}
 		}
-		else
+		if( op & GXDIVE_END )
+			getObject()->getAIUpdateInterface()->getCurLocomotor()->setUsePreciseZPos( false );
+		if( op & GXDIVE_STRAFE )
 		{
-			//Check to see when we shall end diving
-			Real endDiveDistanceSquared = sqr( getData()->m_diveEndDistance );
-			Real currentDistanceSquared  = ThePartitionManager->getDistanceSquared( getObject(), getTargetPos(), FROM_CENTER_3D );
-			if( currentDistanceSquared <= endDiveDistanceSquared )
-			{
-				R().diveState = DIVESTATE_POSTDIVE;
-				getObject()->getAIUpdateInterface()->getCurLocomotor()->setUsePreciseZPos( false );
-			}
+			strafePoint.z = TheTerrainLogic->getGroundHeight( strafePoint.x, strafePoint.y );
 
-			if( R().data.m_strafingWeaponSlot != -1 )
-			{
-				//SHOOT!!
-				const Coord3D *velocity = getObject()->getPhysics()->getVelocity();
-				if( velocity->z < 5.0f )
-				{
-					//Calc strafe ratio
-					Real startDiveDistance = getData()->m_diveStartDistance;
-					Real endDiveDistance = sqrt( endDiveDistanceSquared );
-					Real currentDistance = sqrt( currentDistanceSquared );
-
-					Real diveRatio = (startDiveDistance - currentDistance) / (startDiveDistance - endDiveDistance);
-
-					Coord3D velocity = *getObject()->getPhysics()->getVelocity();
-					velocity.z = 0.0f;
-					velocity.normalize();
-					velocity.scale( diveRatio * 100.0f );
-
-					Coord3D backwards = velocity;
-					backwards.scale( 0.33f );
-
-					Coord3D strafePoint = *getTargetPos();
-					strafePoint.sub( &backwards );
-
-					strafePoint.add( &velocity );
-					strafePoint.z = TheTerrainLogic->getGroundHeight( strafePoint.x, strafePoint.y );
-
-					// lock it just till the weapon is empty or the attack is "done"
-					getObject()->setWeaponLock( R().data.m_strafingWeaponSlot, LOCKED_TEMPORARILY );
-					getObject()->fireCurrentWeapon( &strafePoint );
-					FXList::doFXPos( R().data.m_strafeFX, &strafePoint );
-				}
-			}
+			// lock it just till the weapon is empty or the attack is "done"
+			getObject()->setWeaponLock( R().data.m_strafingWeaponSlot, LOCKED_TEMPORARILY );
+			getObject()->fireCurrentWeapon( &strafePoint );
+			FXList::doFXPos( R().data.m_strafeFX, &strafePoint );
 		}
 	}
 

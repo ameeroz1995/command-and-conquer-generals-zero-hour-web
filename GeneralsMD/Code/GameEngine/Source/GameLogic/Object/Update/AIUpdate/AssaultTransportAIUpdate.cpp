@@ -144,6 +144,63 @@ UpdateSleepTime calcSleepTime()
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the member-list kernels. Pure, row only.
+// Drop: removes members whose gathered drop flag (by their index when the frame began) is set, with
+// the old loop's order (the last member moves into a freed slot and is looked at next frame).
+// reads: drop[]; reads/writes its row (memberIDs, memberHealing, newMember, currentMembers).
+// Writes the original indices of the dropped members to dropped[] and returns how many.
+static Int gxAssaultDropKernel(AssaultTransportAIUpdate::GxState &r, const Bool *drop, Int *dropped)
+{
+	Int slotOf[ MAX_TRANSPORT_SLOTS ];	// original index of the member now in each slot
+	for( int i = 0; i < r.currentMembers; i++ )
+		slotOf[ i ] = i;
+	Int n = 0;
+	for( int i = 0; i < r.currentMembers; i++ )
+	{
+		if( !drop[ slotOf[ i ] ] )
+			continue;
+		dropped[ n++ ] = slotOf[ i ];
+		if( r.currentMembers - 1 > i )
+		{
+			//Move the last slot to this slot to keep array contiguous.
+			r.memberIDs[ i ]			= r.memberIDs[ r.currentMembers - 1 ];
+			r.memberHealing[ i ]	= r.memberHealing[ r.currentMembers - 1 ];
+			r.newMember[ i ]			= r.newMember[ r.currentMembers - 1 ];
+			slotOf[ i ]					= slotOf[ r.currentMembers - 1 ];
+		}
+		else
+		{
+			//Just clean out last slot.
+			r.memberIDs[ i ]			= INVALID_ID;
+			r.memberHealing[ i ]	= FALSE;
+			r.newMember[ i ]			= FALSE;
+		}
+		r.currentMembers--;
+	}
+	return n;
+}
+
+// Add: a passenger not yet in the list joins it if there is room. reads: his id and whether he is
+// wounded; reads/writes its row. True when he joined.
+static Bool gxAssaultAddKernel(AssaultTransportAIUpdate::GxState &r, ObjectID id, Bool wounded)
+{
+	for( int i = 0; i < r.currentMembers; i++ )
+		if( id == r.memberIDs[ i ] )
+			return FALSE;	//He is in the list... so skip him.
+	//It's possible to add members manually -- but if we already have 10 members, then wait!
+	if( r.currentMembers >= MAX_TRANSPORT_SLOTS )
+		return FALSE;
+	r.memberIDs[ r.currentMembers ] = id;
+	//Check if the passenger is wounded below threshold (if so make sure we heal him before ordering him to fight!)
+	if( wounded )
+		r.memberHealing[ r.currentMembers ] = TRUE;
+	//New members won't eject out until a new attack order is issued.
+	if( r.newOccupantsAreNewMembers )
+		r.newMember[ r.currentMembers ] = TRUE;
+	r.currentMembers++;
+	return TRUE;
+}
+
 UpdateSleepTime AssaultTransportAIUpdate::update()
 {
 	Object *transport = getObject();
@@ -155,39 +212,30 @@ UpdateSleepTime AssaultTransportAIUpdate::update()
 		return UPDATE_SLEEP_FOREVER;
 	}
 
+	// web port (round 5 addendum): gather each member's and passenger's facts, the kernels update the
+	// member list (row only), apply sets who may chase.
 	//First removing dead members or members that have been ordered to do something outside of this AI.
 	if( R().currentMembers )
 	{
-		for( int i = 0; i < R().currentMembers; i++ )
+		Bool drop[ MAX_TRANSPORT_SLOTS ];
+		AIUpdateInterface *dropAI[ MAX_TRANSPORT_SLOTS ];
+		const Int n = R().currentMembers;
+		for( int i = 0; i < n; i++ )
 		{
 			Object *member = TheGameLogic->findObjectByID( R().memberIDs[ i ] );
 			AIUpdateInterface *ai = member ? member->getAI() : nullptr;
-			if( !member || member->isEffectivelyDead() || ai->getLastCommandSource() != CMD_FROM_AI )
-			{
-				//Member is toast -- so remove him from our list!
-				if( R().currentMembers - 1 > i )
-				{
-					//Move the last slot to this slot to keep array contiguous.
-					R().memberIDs[ i ]			= R().memberIDs[ R().currentMembers - 1 ];
-					R().memberHealing[ i ]	= R().memberHealing[ R().currentMembers - 1 ];
-					R().newMember[ i ]			= R().newMember[ R().currentMembers - 1 ];
-				}
-				else
-				{
-					//Just clean out last slot.
-					R().memberIDs[ i ]			= INVALID_ID;
-					R().memberHealing[ i ]	= FALSE;
-					R().newMember[ i ]			= FALSE;
-				}
-				if( ai )
-				{
-					//Important! Members of our assault transport must be allowed to chase down designated enemies.
-					//Generally only player commands allow this, so this flag allows AI commands to do the same.
-					//We need to turn this off though, because this ex-member is no longer under transport control.
-					ai->setAllowedToChase( FALSE );
-				}
-				R().currentMembers--;
-			}
+			drop[ i ] = !member || member->isEffectivelyDead() || ai->getLastCommandSource() != CMD_FROM_AI;
+			dropAI[ i ] = ai;
+		}
+		Int dropped[ MAX_TRANSPORT_SLOTS ];
+		const Int nDropped = gxAssaultDropKernel( R(), drop, dropped );
+		for( Int k = 0; k < nDropped; ++k )
+		{
+			//Important! Members of our assault transport must be allowed to chase down designated enemies.
+			//Generally only player commands allow this, so this flag allows AI commands to do the same.
+			//We need to turn this off though, because this ex-member is no longer under transport control.
+			if( dropAI[ dropped[ k ] ] )
+				dropAI[ dropped[ k ] ]->setAllowedToChase( FALSE );
 		}
 	}
 
@@ -196,56 +244,12 @@ UpdateSleepTime AssaultTransportAIUpdate::update()
 	if( contain )
 	{
 		const ContainedItemsList *passengerList = contain->getContainedItemsList();
-		ContainedItemsList::const_iterator passengerIterator;
-		passengerIterator = passengerList->begin();
-		while( passengerIterator != passengerList->end() )
+		for( ContainedItemsList::const_iterator it = passengerList->begin(); it != passengerList->end(); ++it )
 		{
-			Object *passenger = *passengerIterator;
-			//Advance to the next iterator
-			passengerIterator++;
-
-			//Make sure it isn't in our list already.
-			Bool found = FALSE;
-			for( int i = 0; i < R().currentMembers; i++ )
-			{
-				if( passenger->getID() == R().memberIDs[ i ] )
-				{
-					//He is in the list... so skip him.
-					found = TRUE;
-					break;
-				}
-			}
-			if( found )
-			{
-				//Get next passenger.
-				continue;
-			}
-
-			//It's possible to add members manually -- but if we already have 10 members, then wait!
-			if( R().currentMembers < MAX_TRANSPORT_SLOTS )
-			{
-				//Not in list, so add him!
-				R().memberIDs[ R().currentMembers ] = passenger->getID();
-				if( passenger->getAI() )
-				{
-					//Important! Members of our assault transport must be allowed to chase down designated enemies.
-					//Generally only player commands allow this, so this flag allows AI commands to do the same.
-					passenger->getAI()->setAllowedToChase( TRUE );
-				}
-
-				//Check if the passenger is wounded below threshold (if so make sure we heal him before ordering him to fight!)
-				if( isMemberWounded( passenger ) )
-				{
-					R().memberHealing[ R().currentMembers ] = TRUE;
-				}
-				if( R().newOccupantsAreNewMembers )
-				{
-					//New members won't eject out until a new attack order is issued.
-					R().newMember[ R().currentMembers ] = TRUE;
-				}
-
-				R().currentMembers++;
-			}
+			Object *passenger = *it;
+			// the kernel takes him if he is new and there is room; apply: he may chase
+			if( gxAssaultAddKernel( R(), passenger->getID(), isMemberWounded( passenger ) ) && passenger->getAI() )
+				passenger->getAI()->setAllowedToChase( TRUE );
 		}
 		R().newOccupantsAreNewMembers = TRUE;
 	}

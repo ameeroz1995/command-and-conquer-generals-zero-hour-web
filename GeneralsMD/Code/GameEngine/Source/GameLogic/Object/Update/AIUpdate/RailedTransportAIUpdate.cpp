@@ -189,6 +189,13 @@ void RailedTransportAIUpdate::pickAndMoveToInitialLocation()
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the arrival kernel. Pure: reads the distance to the target waypoint
+// and whether the AI is idle; writes nothing.
+static Bool gxRailedArrivedKernel(Real dist, Bool idle)
+{
+	return dist <= 5.0f || idle;
+}
+
 UpdateSleepTime RailedTransportAIUpdate::update()
 {
 	Object *us = getObject();
@@ -240,8 +247,8 @@ UpdateSleepTime RailedTransportAIUpdate::update()
 			v.x = end->x - start->x;
 			v.y = end->y - start->y;
 			v.z = end->z - start->z;
-			Real dist = v.length();
-			if( dist <= 5.0f || isIdle() )
+			// web port (round 5 addendum): kernel = arrived?, apply = setInTransit (opens the dock)
+			if( gxRailedArrivedKernel( v.length(), isIdle() ) )
 			{
 
 				// we are no longer in transit

@@ -249,6 +249,23 @@ void RailedTransportDockUpdate::unloadSingleObject( Object *obj )
 /** If we have an object recorded as currently docking with us, pull that object inside
 	* and when it is inside, contain it */
 // ------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the scoot kernel. Pure: one step of `step` from `from` toward `to`
+// (direction in 3D, movement in XY), at height z. reads its arguments; writes nothing.
+static Coord3D gxScootKernel(const Coord3D &from, const Coord3D &to, Real step, Real z)
+{
+	Coord3D v;
+	v.x = to.x - from.x;
+	v.y = to.y - from.y;
+	v.z = to.z - from.z;
+	v.normalize();
+	v.x *= step;
+	v.y *= step;
+	v.x += from.x;
+	v.y += from.y;
+	v.z  = z;
+	return v;
+}
+
 void RailedTransportDockUpdate::doPullInDocking()
 {
 
@@ -272,21 +289,9 @@ void RailedTransportDockUpdate::doPullInDocking()
 			const Coord3D *dockerPos = docker->getPosition();
 			const Coord3D *dockPos = us->getPosition();
 
-			// get the vector from the docker to the dock pos
-			Coord3D v;
-			v.x = dockPos->x - dockerPos->x;
-			v.y = dockPos->y - dockerPos->y;
-			v.z = dockPos->z - dockerPos->z;
-			v.normalize();
-
-			// apply "movement" to the vector
-			v.x *= R().pullInsideDistancePerFrame;
-			v.y *= R().pullInsideDistancePerFrame;
-
-			// apply current position of the docker to the vector
-			v.x += dockerPos->x;
-			v.y += dockerPos->y;
-			v.z  = dockerPos->z;  // keep Z height the same and just scoot along the ground
+			// web port (round 5 addendum): the kernel moves the docker one step toward the dock pos
+			// (keeping its Z height: it scoots along the ground); apply sets it
+			Coord3D v = gxScootKernel( *dockerPos, *dockPos, R().pullInsideDistancePerFrame, dockerPos->z );
 
 			// set the new position
 			docker->setPosition( &v );
@@ -362,21 +367,9 @@ void RailedTransportDockUpdate::doPushOutDocking()
 			getExitPosition( unloader, &destPos );
 			destPos.z = TheTerrainLogic->getGroundHeight( destPos.x, destPos.y );
 
-			// get the vector from the unloader to the destination point
-			Coord3D v;
-			v.x = destPos.x - unloaderPos->x;
-			v.y = destPos.y - unloaderPos->y;
-			v.z = destPos.z - unloaderPos->z;
-			v.normalize();
-
-			// apply "movement" to that vector
-			v.x *= R().pushOutsideDistancePerFrame;
-			v.y *= R().pushOutsideDistancePerFrame;
-
-			// apply current position of the unloader to the vector
-			v.x += unloaderPos->x;
-			v.y += unloaderPos->y;
-			v.z  = destPos.z;  // keep Z height the same and just scoot along the ground
+			// web port (round 5 addendum): the kernel moves the unloader one step toward the exit
+			// (at the exit's ground height); apply sets it
+			Coord3D v = gxScootKernel( *unloaderPos, destPos, R().pushOutsideDistancePerFrame, destPos.z );
 
 			// set the new position
 			unloader->setPosition( &v );

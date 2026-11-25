@@ -1561,6 +1561,21 @@ void DozerAIUpdate::removeBridgeScaffolding( Object *bridgeTower )
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the task-validity kernel. Pure: reads the task, whether it may still
+// repair the target (gathered for repair tasks only) and whether the target exists; writes nothing.
+// Apply: cancelTask.
+static Bool gxDozerTaskInvalidKernel(DozerTask task, Bool canRepair, Bool targetExists)
+{
+	// TheSuperHackers @bugfix Stubbjax 16/11/2025 Invalidate the task when the build scaffold is destroyed.
+	if( task == DOZER_TASK_REPAIR )
+		return !canRepair;
+#if !RETAIL_COMPATIBLE_CRC
+	if( task == DOZER_TASK_BUILD && !targetExists )
+		return TRUE;
+#endif
+	return FALSE;
+}
+
 UpdateSleepTime DozerAIUpdate::update()
 {
 
@@ -1599,17 +1614,10 @@ UpdateSleepTime DozerAIUpdate::update()
 
 		ObjectID taskTarget = getTaskTarget( currentTask );
 		Object *targetObject = TheGameLogic->findObjectByID( taskTarget );
-		Bool invalidTask = FALSE;
-
-		// validate the task and the target
-		// TheSuperHackers @bugfix Stubbjax 16/11/2025 Invalidate the task when the build scaffold is destroyed.
-		if( currentTask == DOZER_TASK_REPAIR &&
-				TheActionManager->canRepairObject( getObject(), targetObject, getLastCommandSource() ) == FALSE )
-			invalidTask = TRUE;
-#if !RETAIL_COMPATIBLE_CRC
-		else if (currentTask == DOZER_TASK_BUILD && targetObject == nullptr)
-			invalidTask = TRUE;
-#endif
+		// validate the task and the target (gather, then the kernel)
+		const Bool canRepair = currentTask == DOZER_TASK_REPAIR &&
+			TheActionManager->canRepairObject( getObject(), targetObject, getLastCommandSource() ) != FALSE;
+		Bool invalidTask = gxDozerTaskInvalidKernel( currentTask, canRepair, targetObject != nullptr );
 
 		// cancel the task if it's now invalid
 		if( invalidTask == TRUE )

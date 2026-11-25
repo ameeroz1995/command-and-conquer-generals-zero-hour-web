@@ -100,13 +100,19 @@ Bool HackInternetAIUpdate::isHackingPackingOrUnpacking() const
 }
 
 //-------------------------------------------------------------------------------------------------
+static Bool gxPendingCommandKernel(Bool hasPendingCommand, Bool idle)
+{
+	return idle && hasPendingCommand;
+}
+
 UpdateSleepTime HackInternetAIUpdate::update()
 {
 	// have to call our parent's isIdle, because we override it to never return true
 	// when we have a pending command...
-	if( AIUpdateInterface::isIdle() )
+	// web port (round 5 addendum): kernel = run the pending command now? (idle, one pending: reads its
+	// row's hasPendingCommand); apply = rebuild and issue it
+	if( gxPendingCommandKernel( R().hasPendingCommand, AIUpdateInterface::isIdle() ) )
 	{
-		if( R().hasPendingCommand )
 		{
 			AICommandParms parms( AICMD_MOVE_TO_POSITION, CMD_FROM_AI );	// values don't matter, will be wiped by next line
 			R().pendingCommand.reconstitute( parms );

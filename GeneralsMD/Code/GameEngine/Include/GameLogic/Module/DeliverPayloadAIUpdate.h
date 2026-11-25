@@ -377,6 +377,8 @@ public:
 		Bool acceptingCommands;
 		DiveState diveState;
 	};
+	static Int gxDiveKernel(GxState &r, Real currentDistanceSquared, Real diveStartDistance, Real diveEndDistance,
+		Bool strafing, const Coord3D &vel, const Coord3D &targetPos, Coord3D &strafePoint);	///< web port: dive kernel
 	GxState &R() const;
 private:
 	int m_gxRow;
