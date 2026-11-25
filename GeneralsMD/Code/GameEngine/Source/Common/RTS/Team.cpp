@@ -29,6 +29,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxUnitStore.h"
 #include "Common/GameState.h"
 #include "Common/Team.h"
 #include "Common/ThingFactory.h"
@@ -891,6 +892,12 @@ void TeamPrototype::setControllingPlayer(Player *newController)
 
 	// impossible to get here with a nullptr pointer.
 	m_owningPlayer->addTeamToList(this);
+
+	// web port (round 4): every member's player index in the unit store follows its new owner
+	for (DLINK_ITERATOR<Team> ti = iterate_TeamInstanceList(); !ti.done(); ti.advance())
+		for (DLINK_ITERATOR<Object> oi = ti.cur()->iterate_TeamMemberList(); !oi.done(); oi.advance())
+			if (oi.cur())
+				TheGxUnitStore.setPlayer(oi.cur(), newController->getPlayerIndex());
 }
 
 // ------------------------------------------------------------------------

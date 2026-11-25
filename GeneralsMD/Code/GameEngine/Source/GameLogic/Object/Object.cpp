@@ -802,6 +802,24 @@ void Object::onDestroy()
 
 //=============================================================================
 //=============================================================================
+// web port (round 4): the unit store holds the radius and the player index; the GeometryInfo and
+// the Team pointer are the cold data they are set from (setGeometryInfo, setOrRestoreTeam,
+// TeamPrototype::setControllingPlayer)
+Real Object::getBoundingCircleRadius() const
+{
+	const Int s = gxStoreSlot();
+	return s >= 0 ? TheGxUnitStore.radius[s] : m_geometryInfo.getBoundingCircleRadius();
+}
+
+Int Object::gxPlayerIndex() const
+{
+	const Int s = gxStoreSlot();
+	if (s >= 0)
+		return TheGxUnitStore.player[s];
+	const Player *p = getControllingPlayer();
+	return p ? p->getPlayerIndex() : -1;
+}
+
 void Object::setGeometryInfo(const GeometryInfo& geom)
 {
 	m_geometryInfo = geom;

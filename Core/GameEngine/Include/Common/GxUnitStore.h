@@ -23,8 +23,10 @@
 //   it. Without the switch it is a write-through copy (Object::reactToTransformChange).
 // - vel: the truth for every unit with physics (PhysicsBehavior reads and writes it here; one
 //   Coord3D per slot rather than three arrays, because getVelocity() hands out a Coord3D pointer).
-// - radius: write-through from Object::setGeometryInfo (bounding circle radius).
-// - player, playerBit: write-through from Object::setOrRestoreTeam (controlling player index).
+// - radius: the truth for the object's bounding circle radius (Object::getBoundingCircleRadius()
+//   reads it); set by Object::setGeometryInfo. The GeometryInfo keeps its own value for shape tests.
+// - player, playerBit: the truth for the controlling-player index (Object::gxPlayerIndex() reads it);
+//   set by Object::setOrRestoreTeam and TeamPrototype::setControllingPlayer (whole-team owner change).
 // - cell: the partition cell (cy * cellCountX + cx) under the unit's centre, written by
 //   PartitionData::updateCellsTouched when it changes (-1 off the map or before that).
 // - mask: set when a unit's behaviour set changes (setMask); never re-tested per tick.

@@ -3623,3 +3623,9 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
 - Still write-through (store holds a copy): radius (truth is the GeometryInfo, a value type shared
   with templates), player (truth is the Team pointer; the store holds the derived index). The cell is
   written by the partition (query); mask and velocity have no other copy.
+- Radius and player in the store (build store-5, same game): Object::getBoundingCircleRadius() and
+  Object::gxPlayerIndex() read the store; the store's radius is set by setGeometryInfo (the
+  GeometryInfo keeps its own copy for shape tests, it is a value type shared with templates), the
+  player index by setOrRestoreTeam and by TeamPrototype::setControllingPlayer for every member of
+  every instance of a team that changes owner. PhysicsBehavior::onCollide reads the radius from the
+  store. Referee replay matches with verify (contact array 90,600 checks, 0 mismatches).
