@@ -3606,3 +3606,19 @@ module back into the heap. The one gate is gxMatchRule(GXRULE_UPDATE_PASSES).
   measured, no consistent gain (armies 72.2/54.1, strikes 94.1/88.3 vs passes 59.3/54.4, 99.4/84.2);
   removed.
 Default off (it changes the order of same-frame updates); for the main chat's combined measurement.
+## 2026-11-25 — Round 4: GxUnitStore, first version (shared by all logic agents)
+
+- Core/GameEngine/Include/Common/GxUnitStore.h + GameLogic/Object/GxUnitStore.cpp: one slot per
+  live Object in dense arrays (id, Object*, x/y/z, vel, radius, player, playerBit, cell, 64-bit
+  behaviour mask), in ascending object-ID order. pass(bit) returns the dense slot list of a mask bit,
+  rebuilt only when a mask changes or units come and go. Holes from removed objects are closed at
+  most once per logic frame, at the first pass(), so slots never move inside a frame once a pass ran;
+  epoch() changes whenever a slot may have moved or been freed (cache slots against it).
+- Hooked into Object: setID adds (creation and load; a load can bring IDs out of order, the next
+  compaction sorts), ~Object removes, reactToTransformChange writes x/y/z, setGeometryInfo the
+  radius, setOrRestoreTeam the player; default mask bits PHYS / AI / COLLIDE set when the modules
+  exist. cell is -1 until the partition writes it.
+- Source of truth: the store holds PhysicsBehavior's velocity (the member is gone; getVelocity()
+  returns the store's Coord3D, arrays reserved for 16k units so the pointer stays put within a frame).
+  Position stays in the Object's matrix with write-through (x/y/z), likewise radius and player.
+- Same game: referee replay matches (9,000 frames, build store-1).
