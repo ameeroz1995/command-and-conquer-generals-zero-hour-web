@@ -1904,10 +1904,12 @@ const ParticleInfo *ParticleSystem::generateParticleInfo( Int particleNum, Int p
 // queued systems' particles in that window; the main thread takes systems too when it reaches the
 // join, then deletes the particles that died (memory pools are main-thread only).
 #include <atomic>
+#include <chrono>
 #include <vector>
 static std::vector<ParticleSystem *> s_gxPartQueue;
 static std::atomic<size_t> s_gxPartNext(0);
 static bool s_gxPartStarted = false;
+static bool s_gxPartThisFrame = false;	// switch on and frames are long (ParticleSystemManager::update)
 extern void gxWorkerStart(int slot, void (*task)());
 extern bool gxWorkerJoin(int slot);
 
@@ -2175,9 +2177,7 @@ Bool ParticleSystem::update( Int localPlayerIndex  )
 	Int gxSteps = 1;
 	if (GLES3_Page_Switches2() & 1073741824)
 		gxSteps = ((TheGameLogic->getFrame() + (UnsignedInt)m_systemID) & 1) ? 0 : 2;
-	extern int GLES3_Page_Switches3();
-	extern bool gxWorkersAvailable();
-	if (gxSteps && (GLES3_Page_Switches3() & 16777216) && gxWorkersAvailable())
+	if (gxSteps && s_gxPartThisFrame)
 	{
 		// particleWorker (third switch word bit 24): the worker moves them during the draw
 		m_gxSteps = gxSteps;
@@ -3082,6 +3082,20 @@ void ParticleSystemManager::update()
 		return;
 	}
 	ParticleSystem::gxParticleJoin();	// particleWorker: last frame's moves are in
+	{
+		// Only worth it when frames are long (weak machines, big battles): the hand-off costs about
+		// the same every frame. Frame time averaged over ~8 frames; on above 40 ms, off below 32 ms.
+		extern int GLES3_Page_Switches3();
+		extern bool gxWorkersAvailable();
+		static double s_last = 0.0, s_avgMs = 0.0;
+		static bool s_long = false;
+		const double now = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+		if (s_last > 0.0)
+			s_avgMs += ((now - s_last) - s_avgMs) / 8.0;
+		s_last = now;
+		s_long = s_long ? s_avgMs > 32.0 : s_avgMs > 40.0;
+		s_gxPartThisFrame = s_long && (GLES3_Page_Switches3() & 16777216) && gxWorkersAvailable();
+	}
 
 	// update the last logic frame.
 	m_lastLogicFrameUpdate = TheGameLogic->getFrame();

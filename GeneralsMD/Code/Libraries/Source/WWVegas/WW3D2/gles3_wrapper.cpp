@@ -56,7 +56,7 @@ static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 335544
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
-static int g_PageSwitches3 = 0;
+static int g_PageSwitches3 = 16777216;	// particleWorker (bit 24) on
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -468,7 +468,7 @@ void GLES3_Begin_Scene() {
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
                  | (o.weaponPass === true ? 65536 : 0)    // bit 16: match rule weaponPass, armed units' weapon status in one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
                  | (o.boneWorker === true ? 131072 : 0)   // bit 17: boneWorker, mt build: visible units' bones computed on a worker thread while the terrain draws (animobj.cpp, W3DScene.cpp)
-                 | (o.particleWorker === true ? 16777216 : 0)  // bit 24: particleWorker, mt build: existing particles move on a worker during the draw (ParticleSys.cpp)
+                 | (o.particleWorker === false ? 0 : 16777216)  // bit 24: particleWorker (on), mt build: existing particles move on a worker during the draw when frames are long (ParticleSys.cpp)
                  | (o.boneAhead === true ? 8388608 : 0);  // bit 23: boneAhead, mt build: drawn units' next poses decoded on a worker while the game logic runs (animobj.cpp, W3DScene.cpp)
         });
         g_PageSwitches = EM_ASM_INT({

@@ -3224,3 +3224,10 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   - particleWorker: 21.5/15.4/28.4 → 21.5/16.2/27.5, 20.1/15.5/27.8 → 21.5/15.9/27.4 (strikes +3-5%,
     armies 0/+7%, aftermath −1 to −3%)
 - Both off: boneAhead gains nothing; particleWorker is slower in the aftermath in both pairs.
+- particleWorker threshold: live particles sit at the particle cap (~500, MaxParticleCount from the
+  LOD) in every bench phase, so a particle-count threshold cannot tell heavy frames from light ones.
+  Instead the worker is used only while frames are long: frame time averaged over ~8 frames, on above
+  40 ms, off below 32 ms (the hand-off costs the same every frame; weak machines are the target).
+  combat-13 mt, load 2-5, fps armies / strikes / aftermath off → on: 21.0/15.9/28.7 → 21.2/15.9/30.4,
+  20.4/15.9/28.9 → 20.7/15.7/28.9. Replay matches. Nothing slower: **particleWorker on by default**
+  (no effect on the single-thread build). boneAhead and boneWorker stay off.
