@@ -3570,3 +3570,14 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
     - p2: 18.3→20.2 / 14.2→16.0 / 27.0→25.8, aftermath 1% low 9.4→15.3.
 - Read: defaults give strikes +4–7% and aftermath +4–6%, armies flat. The match rules add armies +10%,
   strikes +13–17%, and aftermath 1% lows +60%; aftermath average fps is 2–4% lower with the rules on.
+
+## 2026-11-25 — Round 4 (range searches as a manager): measured before building
+
+- Repeats within a tick (counters per frame on searcher, range, distance type and filter classes;
+  load 64-75, counts only): per 150 frames 17,662 searches, 967 (5.5%) repeated in the same frame.
+  Enemy-target scans (findClosestEnemy chains, ~5,000) repeat 0 times: every unit scans from its own
+  place with its own line-of-sight / attack filters. The repeats are point-defense lasers rescanning
+  after a target dies (~15% of laser scans) and one player-affiliation scan (~25%).
+- After rounds 1-3 range searches are ~1.5-2% of the frame (paired timing: 0.17 of the plain walk),
+  so a per-tick result cache can save well under 0.1% of the frame. A one-pass batch of every unit's
+  scans would need the AI callers to submit requests instead of calling (ai agent's code).
