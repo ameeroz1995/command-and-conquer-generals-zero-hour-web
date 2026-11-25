@@ -33,6 +33,7 @@
 // ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h" // This must go first in EVERY cpp file in the GameEngine
 #include "Common/GxMatchRules.h"
+#include "Common/GxUnitStore.h"
 #include <algorithm>
 #include <vector>
 
@@ -1959,6 +1960,13 @@ Weapon::Weapon(const Weapon &that) {
 }
 
 //-------------------------------------------------------------------------------------------------
+// weaponSkip (combat): every change to this weapon's reload, ammo, status, pre-attack or last shot
+// zeroes its unit's weaponReady in the store, so the weapon-status pass looks at that unit this frame.
+void Weapon::gxTouch() const {
+  if (m_gxOwner != INVALID_ID)
+    TheGxUnitStore.weaponTouch((int)m_gxOwner);
+}
+
 Weapon &Weapon::operator=(const Weapon &that) {
   if (this != &that) {
     // Weapons lose all ammo when copied.
@@ -1969,6 +1977,7 @@ Weapon &Weapon::operator=(const Weapon &that) {
     this->m_whenPreAttackFinished = 0;
     this->m_whenLastReloadStarted = 0;
     this->m_whenWeCanFireAgain = 0;
+    gxTouch();
     this->m_leechWeaponRangeActive = false;
     this->m_pitchLimited = (m_template->getMinTargetPitch() > -PI ||
                             m_template->getMaxTargetPitch() < PI);
@@ -2045,6 +2054,7 @@ void Weapon::setClipPercentFull(Real percent, Bool allowReduction) {
     // in clip is %d)", m_status, m_ammoInClip));
     m_whenLastReloadStarted = TheGameLogic->getFrame();
     m_whenWeCanFireAgain = m_whenLastReloadStarted;
+    gxTouch();
     // CRCDEBUG_LOG(("Just set m_whenWeCanFireAgain to %d in
     // Weapon::setClipPercentFull", m_whenWeCanFireAgain));
     rebuildScatterTargets();
@@ -2078,6 +2088,7 @@ void Weapon::reloadWithBonus(const Object *sourceObj, const WeaponBonus &bonus,
   Real reloadTime = loadInstantly ? 0 : m_template->getClipReloadTime(bonus);
   m_whenLastReloadStarted = TheGameLogic->getFrame();
   m_whenWeCanFireAgain = m_whenLastReloadStarted + reloadTime;
+  gxTouch();
   // CRCDEBUG_LOG(("Just set m_whenWeCanFireAgain to %d in
   // Weapon::reloadWithBonus 1", m_whenWeCanFireAgain));
 
@@ -2140,6 +2151,7 @@ void Weapon::onWeaponBonusChange(const Object *source) {
   if (needUpdate) {
     m_whenLastReloadStarted = TheGameLogic->getFrame();
     m_whenWeCanFireAgain = m_whenLastReloadStarted + newDelay;
+    gxTouch();
 
     if (source->isReloadTimeShared()) {
       for (Int wt = 0; wt < WEAPONSLOT_COUNT; wt++) {
@@ -2803,6 +2815,7 @@ Bool Weapon::privateFireWeapon(const Object *sourceObj, Object *victimObj,
     }
 
     m_lastFireFrame = now;
+    gxTouch();
     --m_ammoInClip;
     --m_maxShotCount;
     --m_numShotsForCurBarrel;
@@ -3337,6 +3350,7 @@ void Weapon::transferNextShotStatsFrom(const Weapon &weapon) {
   m_whenWeCanFireAgain = weapon.getPossibleNextShotFrame();
   m_whenLastReloadStarted = weapon.getLastReloadStartedFrame();
   m_status = weapon.getStatus();
+  gxTouch();
 }
 
 // ------------------------------------------------------------------------------------------------

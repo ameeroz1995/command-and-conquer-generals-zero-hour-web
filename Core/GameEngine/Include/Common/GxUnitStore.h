@@ -68,6 +68,8 @@ public:
 	std::vector<unsigned int>			weaponReady;	///< frame a weapon's reload / pre-attack ends (weapon-status pass); 0 = look now
 	std::vector<unsigned int>			weaponSig;		///< weapon-status pass: ammo/status signature last shown on the drawable
 	void setTarget(const Object *o, int victimId);
+	/// a weapon of this unit changed (fired, reloaded, ammo, pre-attack, slot): the pass looks at it now
+	void weaponTouch(int objectId) { const int s = slotOfId(objectId); if (s >= 0) weaponReady[s] = 0; }
 	// ---- end combat block ----
 
 	int size() const { return (int)obj.size(); }

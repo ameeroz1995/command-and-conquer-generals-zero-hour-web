@@ -72,6 +72,7 @@ void gxWeaponStatusPass()
 	// weaponSkip (third word bit 19, same game): skip the units for which the update changes nothing
 	extern int GLES3_Page_Switches3();
 	const bool skip = (GLES3_Page_Switches3() & 524288) != 0;
+	const UnsignedInt now = TheGameLogic->getFrame();
 	for (size_t i = 0; i < list.size(); ++i)
 	{
 		const int s = list[i];
@@ -79,8 +80,15 @@ void gxWeaponStatusPass()
 		// as the update queue would: a disabled object's helper does not run
 		if (!obj || obj->isDisabled())
 			continue;
-		if (skip && obj->gxWeaponStatusQuiet(st.target[s], st.weaponReady[s], st.weaponSig[s]))
-			continue;
+		if (skip)
+		{
+			// cooldown column: no target, quiet last time, nothing touched its weapons, no reload or
+			// pre-attack ending yet: skip outright
+			if (st.target[s] == 0 && st.weaponReady[s] > now && st.weaponSig[s] != ~0u && obj->gxWeaponStillQuiet())
+				continue;
+			if (obj->gxWeaponStatusQuiet(st.target[s], st.weaponReady[s], st.weaponSig[s]))
+				continue;
+		}
 		obj->adjustModelConditionForWeaponStatus();
 	}
 }
