@@ -3960,9 +3960,21 @@ void GameLogic::gxRegisterKindKernel( NameKeyType kind, GxKindKernelFn kernel, G
 	GxKindKernelEntry e = { kind, kernel, apply };
 	gxKindKernels().push_back(e);
 }
+// Whether kernels run changes the game (they compute before the units' turns), so it follows the
+// match rule updatePasses (host / replay header decide); the kindKernels setting can only turn them
+// off in a local single-player game.
+static Bool gxKernelsOn()
+{
+	extern bool gxMatchRule(unsigned int rule);
+	if (!gxMatchRule(131072)) return FALSE;
+	if (!(GLES3_Page_Switches4() & 128) && TheGameLogic && !TheGameLogic->isInMultiplayerGame()
+			&& !(TheRecorder && TheRecorder->isPlaybackMode()))
+		return FALSE;
+	return TRUE;
+}
 static const GxKindKernelEntry *gxKindKernelOf( NameKeyType kind )
 {
-	if (!(GLES3_Page_Switches4() & 128)) return nullptr;	// kindKernels switch
+	if (!gxKernelsOn()) return nullptr;
 	for (const GxKindKernelEntry &e : gxKindKernels())
 		if (e.kind == kind) return &e;
 	return nullptr;
@@ -4259,7 +4271,7 @@ void GameLogic::update()
 				static std::vector<int> miscSlots;
 				static std::vector<UpdateModulePtr> mods;
 				miscSlots = TheGxUnitStore.pass(GX_MISC_BIT0 + ph);
-				if (GLES3_Page_Switches4() & 128)
+				if (gxKernelsOn())
 				{
 					// per-kind batch hook for kinds without a bit of their own: their modules among the misc lists
 					for (const GxKindKernelEntry &ke : gxKindKernels())
@@ -4622,6 +4634,7 @@ void GameLogic::gxRegisterKernel( Int storeBit, Int phase, GxKernelFn kernel, Gx
 }
 static void gxRunKernels( Int phase )
 {
+	if (!gxKernelsOn()) return;	// same rule as the per-kind hook
 	static std::vector<int> slots;
 	for (const GxKernelEntry &e : gxKernels())
 	{

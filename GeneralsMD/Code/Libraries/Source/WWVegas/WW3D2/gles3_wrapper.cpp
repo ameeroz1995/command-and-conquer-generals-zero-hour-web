@@ -475,7 +475,7 @@ void GLES3_Begin_Scene() {
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
                  | (o.dataBehaviors === false ? 0 : 64)   // bit 6: behaviours as data: lookups made per frame by name done once (Behavior/*.cpp; same game)
-                 | (o.kindKernels === false ? 0 : 128)   // bit 7: per-kind batch kernels (GameLogic::gxRegisterKindKernel) run before each kind's module updates in the updatePasses dispatch (GameLogic.cpp)
+                 | (o.kindKernels === false ? 0 : 128)   // bit 7: kernels follow match rule updatePasses; off here turns them off in local single player only (GameLogic.cpp)
                  | (o.rowKernels === false ? 0 : 4096)   // bit 12: scan countdowns of EnemyNear/AutoFindHealing/PointDefenseLaser run as one kernel per table (GxComponentTable.h; same game)
                  | (o.simdSearch === false ? 0 : 8192)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.fogStamps === false ? 0 : 16384)   // bit 14: sight circles from precomputed stamps, 8 cells at a time with wasm SIMD over dense shroud counters (PartitionManager.cpp; same game)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
