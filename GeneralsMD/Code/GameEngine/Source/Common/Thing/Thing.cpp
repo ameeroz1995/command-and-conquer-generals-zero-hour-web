@@ -407,8 +407,8 @@ void Thing::gxSetPosInStore(Bool on)
 	if (on == m_gxPosInStore || m_gxSlot < 0)
 		return;
 	if (on)
-		TheGxUnitStore.pos[m_gxSlot] = m_cachedPos;
+		{ TheGxUnitStore.x[m_gxSlot] = m_cachedPos.x; TheGxUnitStore.y[m_gxSlot] = m_cachedPos.y; TheGxUnitStore.z[m_gxSlot] = m_cachedPos.z; }
 	else
-		m_cachedPos = TheGxUnitStore.pos[m_gxSlot];
+		m_cachedPos = TheGxUnitStore.posOf(m_gxSlot);
 	m_gxPosInStore = on;
 }
