@@ -432,7 +432,7 @@ void GLES3_Precompile_Programs();
 void GLES3_Begin_Scene() {
     g_CanvasSizeStale = true;
     static bool precompiled = false; // the programs the last sessions needed (item 21)
-    if (GXW_On()) { precompiled = true; g_PageSwitches &= ~(1 | 8 | 128 | 4096 | 16384); }
+    if (GXW_On()) { precompiled = true; g_PageSwitches &= ~(1 | 8 | 128); }
     if (!precompiled) {
         precompiled = true;
         if (MAIN_THREAD_EM_ASM_INT({ var o = typeof window !== 'undefined' && window.GeneralsX && window.GeneralsX.opt; return o && o.precompile === false ? 0 : 1; }))
@@ -476,10 +476,10 @@ void GLES3_Begin_Scene() {
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
-                 | (o.multiDraw === true ? 1073741824 : 0)   // bit 30: different rigid parts of one material in one multi-draw call (dx8renderer.cpp)
-                 | (o.multiLights === true ? 536870912 : 0)   // bit 29: ... each with its own lights, so parts in different light join too
-                 | (o.uiMerge === true ? 268435456 : 0)       // bit 28: consecutive interface pictures with one texture drawn together (render2d.cpp)
-                 | (o.sortMaterials === true ? 134217728 : 0); // bit 27: see-through draws with equal materials merge (sortingrenderer.cpp)
+                 | (o.multiDraw === false ? 0 : 1073741824)   // bit 30: different rigid parts of one material in one multi-draw call (dx8renderer.cpp)
+                 | (o.multiLights === false ? 0 : 536870912)   // bit 29: ... each with its own lights, so parts in different light join too
+                 | (o.uiMerge === false ? 0 : 268435456)       // bit 28: consecutive interface pictures with one texture drawn together (render2d.cpp)
+                 | (o.sortMaterials === false ? 0 : 134217728); // bit 27: see-through draws with equal materials merge (sortingrenderer.cpp)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
@@ -539,7 +539,7 @@ void GLES3_Begin_Scene() {
             }
         }
         // Not on WebGPU yet: shroud fold, ground cache, pan cache, unit batching, GPU skinning.
-        if (GXW_On()) g_PageSwitches &= ~(1 | 8 | 128 | 4096 | 16384);
+        if (GXW_On()) g_PageSwitches &= ~(1 | 8 | 128);
 #ifdef __EMSCRIPTEN_PTHREADS__
         // Worker build: the canvas belongs to this thread, so the page can't resize it.
         static double last_canvas_scale = 0;
@@ -1775,6 +1775,7 @@ void GLES3_Draw_Triangles(unsigned int prim_type,
 
 // GPU skinning. One buffer of bone numbers (one unsigned short per vertex) per skinned model.
 GLuint GLES3_Skin_Bone_Buffer(const unsigned short* bones, unsigned int count) {
+    if (GXW_On()) return GXW_Bone_Buffer(bones, count);
     GLuint b = 0;
     glGenBuffers(1, &b);
     GLES3_Bind_Array_Buffer(b);
@@ -1943,9 +1944,14 @@ bool GLES3_Draw_Triangles_Multi(const int* index_counts, const int* byte_offsets
     Apply_Pipeline_State();
     g_State.multi_draw = 0;
     if (g_ActiveSlot < 1024 || g_SlotKey[g_ActiveSlot].mdraw != (light_rows ? 2 : 1)) return false; // no specialised slot left: one by one
-    static GLuint texs[2] = {}; static int ths[2] = {};
-    GLuint& tex = texs[light_rows ? 1 : 0]; // one texture per row width
-    int& th = ths[light_rows ? 1 : 0];
+    // A ring of textures per row width: a call never rewrites the rows that an earlier call of the
+    // frame may still be reading (an in-place rewrite showed stray polygons under machine load).
+    enum { RING = 8 };
+    static GLuint texs[2][RING] = {}; static int ths[2][RING] = {}; static unsigned ring[2] = {};
+    const int wi = light_rows ? 1 : 0;
+    const unsigned ri = ring[wi]++ % RING;
+    GLuint& tex = texs[wi][ri];
+    int& th = ths[wi][ri];
     static std::vector<float> rows;
     const size_t rf = (size_t)W * 4; // floats per row
     rows.resize((size_t)count * rf);

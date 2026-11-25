@@ -42,6 +42,13 @@ void GXW_Draw_UP(unsigned prim, unsigned prim_count, unsigned fvf, unsigned stri
                  const void *vertices, unsigned num_vertices,
                  const void *indices, bool index32);
 
+// Batched units: the next GXW_Draw_Indexed draws n instances, each with its own world matrix (D3D
+// row-major) and stage 0 offset, or (skinned) its own bones*3 rows of `palette` with the bone number
+// of each vertex in bone_buffer (GXW_Bone_Buffer).
+void GXW_Set_Instances(unsigned n, const float* world_row_major, const float* uv, const float* palette,
+                       unsigned bones, unsigned bone_buffer);
+unsigned GXW_Bone_Buffer(const unsigned short* bones, unsigned count);
+
 void GXW_Clear(bool color, bool zs, float r, float g, float b, float a, float z, unsigned stencil);
 void GXW_Viewport(int x, int y, int w, int h, float min_z, float max_z); // top-left origin, pixels
 void GXW_Present(); // end of frame: submit everything recorded

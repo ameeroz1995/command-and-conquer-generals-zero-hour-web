@@ -38,7 +38,7 @@ EM_JS(int, gxw_js_init, (), {
     bgs: [null], pipes: [null], mods: new Map(), depth: null, depthView: null, dw: 0, dh: 0, uniSize: 0, uni: null, bg0: null,
     streamSize: 0, stream: null, cur: null, curView: null, errors: 0, vp: null,
     clr: { c: 0, z: 0, r: 0, g: 0, b: 0, a: 1, d: 1, s: 0 }, offs: new Uint32Array(3), frames: 0 };
-  W.bgl0 = dev.createBindGroupLayout({ entries: [0, 1, 2].map(function (b) {
+  W.bgl0 = dev.createBindGroupLayout({ entries: [0, 1, 2, 3].map(function (b) {
     return { binding: b, visibility: S.VERTEX | S.FRAGMENT, buffer: { type: 'read-only-storage' } }; }) });
   var e1 = [];
   for (var b = 0; b < 4; b++) e1.push({ binding: b, visibility: S.FRAGMENT, texture: {} });
@@ -143,7 +143,8 @@ EM_JS(int, gxw_js_pipeline, (const char* wgsl, const int* d), {
                     : { compare: 'always', failOp: 'keep', depthFailOp: 'keep', passOp: 'keep' };
   var desc = {
     layout: W.layout,
-    vertex: { module: mod, entryPoint: 'vs_main', buffers: [{ arrayStride: I[q], attributes: attrs }] },
+    vertex: { module: mod, entryPoint: 'vs_main', buffers: [{ arrayStride: I[q], attributes: attrs }].concat(
+      I[o + 17] ? [{ arrayStride: 4, attributes: [{ shaderLocation: 13, format: 'uint32', offset: 0 }] }] : []) },
     fragment: { module: mod, entryPoint: 'fs_main', targets: [target] },
     primitive: { topology: topo, frontFace: 'cw', cullMode: ['none', 'front', 'back'][I[o + 2]] },
     depthStencil: { format: 'depth24plus-stencil8', depthWriteEnabled: !!I[o + 7], depthCompare: I[o + 6] ? (cmp[I[o + 8]] || 'less-equal') : 'always',
@@ -158,9 +159,9 @@ EM_JS(int, gxw_js_pipeline, (const char* wgsl, const int* d), {
 
 // Replays records: 1 viewport (8 ints), 2 clear (8 ints), 3 draw (16 ints). Then submits.
 // uni: scenes, draws and extras one after the other at 256-aligned offsets (lens in bytes, each > 0).
-EM_JS(void, gxw_js_flush, (const int* cmd, int n, const void* uni, int sLen, int dLen, int xLen, const void* str, int strLen, int present), {
+EM_JS(void, gxw_js_flush, (const int* cmd, int n, const void* uni, int sLen, int dLen, int xLen, int bLen, const void* str, int strLen, int present), {
   var W = Module.gxw, dev = W.dev, q = dev.queue, U = GPUBufferUsage;
-  var dOff = (sLen + 255) & ~255, xOff = (dOff + dLen + 255) & ~255, uniLen = xOff + xLen;
+  var dOff = (sLen + 255) & ~255, xOff = (dOff + dLen + 255) & ~255, bOff = (xOff + xLen + 255) & ~255, uniLen = bOff + bLen;
   if (uniLen > W.uniSize || !W.uni) {
     var sz = Math.max(uniLen, W.uniSize * 2, 1 << 20);
     if (W.uni) W.uni.destroy();
@@ -170,7 +171,8 @@ EM_JS(void, gxw_js_flush, (const int* cmd, int n, const void* uni, int sLen, int
   W.bg0 = dev.createBindGroup({ layout: W.bgl0, entries: [
     { binding: 0, resource: { buffer: W.uni, offset: 0, size: sLen } },
     { binding: 1, resource: { buffer: W.uni, offset: dOff, size: dLen } },
-    { binding: 2, resource: { buffer: W.uni, offset: xOff, size: xLen } }] });
+    { binding: 2, resource: { buffer: W.uni, offset: xOff, size: xLen } },
+    { binding: 3, resource: { buffer: W.uni, offset: bOff, size: bLen } }] });
   if (strLen > W.streamSize || !W.stream) {
     var sz2 = Math.max(strLen, W.streamSize * 2, 1 << 20);
     if (W.stream) W.stream.destroy();
@@ -222,12 +224,16 @@ EM_JS(void, gxw_js_flush, (const int* cmd, int n, const void* uni, int sLen, int
         if (x >= 0) {
           var xo = I[i + 6], xf = I[i + 7];
           if (x !== ib || xo !== ibo || xf !== ibf) { pass.setIndexBuffer(x ? W.bufs[x] : W.stream, xf === 2 ? 'uint32' : 'uint16', xo); ib = x; ibo = xo; ibf = xf; }
-          pass.drawIndexed(I[i + 8], 1, I[i + 9], I[i + 10], I[i + 11]);
+          pass.drawIndexed(I[i + 8], I[i + 15] || 1, I[i + 9], I[i + 10], I[i + 11]);
         } else {
           pass.draw(I[i + 8], 1, I[i + 9], I[i + 11]);
         }
       }
       i += 16;
+    } else if (t === 4) { // the bone numbers of a skinned draw (vertex buffer 1), right before it
+      if (!pass) begin();
+      pass.setVertexBuffer(1, W.bufs[I[i + 1]]);
+      i += 8;
     } else if (t === 1) {
       W.vp = [F[i + 1], F[i + 2], F[i + 3], F[i + 4], F[i + 5], F[i + 6]];
       if (pass) setVp();
@@ -260,6 +266,7 @@ static std::vector<std::vector<uint64_t>> g_TexGroups(1); // bind-group keys usi
 static std::vector<int32_t> g_Cmd;
 static std::vector<uint8_t> g_Uni, g_Stream; // g_Uni: scenes | draws | extras, packed at flush
 static std::vector<uint8_t> g_Scenes, g_Draws, g_Extras;
+static std::vector<float> g_Bones; // BN: bone rows (vec4) of skinned instances
 int gxw_flushes = 0, gxw_hazard_flushes = 0, gxw_draws = 0, gxw_pipelines = 0, gxw_skipped = 0; // log counters
 
 static void Flush(bool present) {
@@ -268,15 +275,18 @@ static void Flush(bool present) {
         if (g_Scenes.empty()) g_Scenes.resize(592, 0);
         if (g_Draws.empty()) g_Draws.resize(160, 0);
         if (g_Extras.empty()) g_Extras.resize(448, 0);
+        if (g_Bones.empty()) g_Bones.resize(4, 0.0f);
         const size_t d_off = (g_Scenes.size() + 255) & ~(size_t)255, x_off = (d_off + g_Draws.size() + 255) & ~(size_t)255;
-        g_Uni.assign(x_off + g_Extras.size(), 0);
+        const size_t b_off = (x_off + g_Extras.size() + 255) & ~(size_t)255, b_len = g_Bones.size() * sizeof(float);
+        g_Uni.assign(b_off + b_len, 0);
+        memcpy(g_Uni.data() + b_off, g_Bones.data(), b_len);
         memcpy(g_Uni.data(), g_Scenes.data(), g_Scenes.size());
         memcpy(g_Uni.data() + d_off, g_Draws.data(), g_Draws.size());
         memcpy(g_Uni.data() + x_off, g_Extras.data(), g_Extras.size());
         gxw_js_flush(g_Cmd.data(), (int)g_Cmd.size(), g_Uni.data(), (int)g_Scenes.size(), (int)g_Draws.size(), (int)g_Extras.size(),
-                     g_Stream.data(), (int)g_Stream.size(), present ? 1 : 0);
+                     (int)b_len, g_Stream.data(), (int)g_Stream.size(), present ? 1 : 0);
     }
-    g_Cmd.clear(); g_Stream.clear(); g_Scenes.clear(); g_Draws.clear(); g_Extras.clear();
+    g_Cmd.clear(); g_Stream.clear(); g_Scenes.clear(); g_Draws.clear(); g_Extras.clear(); g_Bones.clear();
     g_Epoch++;
     gxw_flushes++;
 }
@@ -479,6 +489,7 @@ struct GXW_SKey {
     uint8_t stages, ps, afunc, bound;
     uint8_t op[4][2], arg[4][6], vtex[4], lights, cvert;
     uint8_t posw, normal, color, spec, tcn[4]; // vertex inputs (tcn: float count, 0 absent)
+    uint8_t skin; // GPU skinning: world matrix from the vertex's bone (BN rows from D.idx.z)
 };
 struct GXW_PKey {
     GXW_SKey s;
@@ -501,6 +512,7 @@ static const char* WGSL_COMMON =
     "@group(0) @binding(0) var<storage, read> SC: array<Scene>;\n"
     "@group(0) @binding(1) var<storage, read> DR: array<Draw>;\n"
     "@group(0) @binding(2) var<storage, read> XS: array<Extra>;\n"
+    "@group(0) @binding(3) var<storage, read> BN: array<vec4f>;\n" // bone rows of skinned instances (3 per bone)
     "@group(1) @binding(0) var t0: texture_2d<f32>;\n@group(1) @binding(1) var t1: texture_2d<f32>;\n"
     "@group(1) @binding(2) var t2: texture_2d<f32>;\n@group(1) @binding(3) var t3: texture_2d<f32>;\n"
     "@group(1) @binding(4) var s0: sampler;\n@group(1) @binding(5) var s1: sampler;\n"
@@ -558,6 +570,7 @@ static std::string Make_WGSL(const GXW_SKey& k) {
     for (int t = 0; t < 4; t++) if (k.tcn[t])
         s += "  @location(" + std::to_string(3 + t) + ") tc" + N(t) + ": " + (k.tcn[t] == 1 ? "f32" : "vec" + N(k.tcn[t]) + "f") + ",\n";
     if (k.spec) s += "  @location(11) spc: vec4f,\n";
+    if (k.skin) s += "  @location(13) bone: u32,\n";
     s += "};\n@vertex fn vs_main(i: VIn, @builtin(instance_index) di: u32) -> VOut {\n  var o: VOut;\n  o.di = di;\n"
          "  let si = DR[di].idx.x;\n  let xi = DR[di].idx.y;\n";
     s += std::string("  let aPos = vec4f(i.pos.xyz, ") + (k.posw ? "i.pos.w" : "1.0") + ");\n";
@@ -573,8 +586,11 @@ static std::string Make_WGSL(const GXW_SKey& k) {
              "  o.pos = vec4f(p.x * 2.0 - 1.0, 1.0 - p.y * 2.0, aPos.z, 1.0) * w;\n"
              "  o.tc0 = vec3f(a0, 1.0); o.tc1 = vec3f(a1, 1.0); o.tc2 = vec3f(a2, 1.0); o.tc3 = vec3f(a3, 1.0);\n";
     } else {
-        s += "  let worldPos = D.world * vec4f(aPos.xyz, 1.0);\n  let viewPos = S.view * worldPos;\n  o.pos = S.proj * viewPos;\n"
-             "  let wm3 = mat3x3f(D.world[0].xyz, D.world[1].xyz, D.world[2].xyz);\n"
+        s += "  var world = D.world;\n";
+        if (k.skin) s += "  {\n    let b = D.idx.z + i.bone * 3u;\n    let r0 = BN[b]; let r1 = BN[b + 1u]; let r2 = BN[b + 2u];\n"
+                         "    world = mat4x4f(vec4f(r0.x, r1.x, r2.x, 0.0), vec4f(r0.y, r1.y, r2.y, 0.0), vec4f(r0.z, r1.z, r2.z, 0.0), vec4f(r0.w, r1.w, r2.w, 1.0));\n  }\n";
+        s += "  let worldPos = world * vec4f(aPos.xyz, 1.0);\n  let viewPos = S.view * worldPos;\n  o.pos = S.proj * viewPos;\n"
+             "  let wm3 = mat3x3f(world[0].xyz, world[1].xyz, world[2].xyz);\n"
              "  let vm3 = mat3x3f(S.view[0].xyz, S.view[1].xyz, S.view[2].xyz);\n"
              "  let eyeNormal = normalize(vm3 * (wm3 * aNormal));\n";
         for (int t = 0; t < 4; t++) {
@@ -593,6 +609,7 @@ static std::string Make_WGSL(const GXW_SKey& k) {
             }
             s += "  }\n";
         }
+        s += "  o.tc0 = vec3f(o.tc0.xy + D.misc.zw, o.tc0.z);\n"; // batched instances: own stage 0 offset (treads)
         if (light) {
             const int cv = k.cvert;
             s += std::string("  var totalDiffuse = ") + ((cv & 4) ? "vc" : "D.matEmissive") + ";\n";
@@ -837,7 +854,7 @@ static uint32_t Pipeline(const GXW_SKey& sk, unsigned fvf, unsigned stride, unsi
         int* o = d + 26;
         o[0] = k.topo; o[1] = k.stripfmt; o[2] = k.cull; o[3] = k.blend; o[4] = k.src; o[5] = k.dst;
         o[6] = k.ztest; o[7] = k.zwrite; o[8] = k.zfunc; o[9] = k.sten; o[10] = k.sfunc; o[11] = k.sfail;
-        o[12] = k.szfail; o[13] = k.spass; o[14] = k.sread; o[15] = k.swrite; o[16] = k.bias;
+        o[12] = k.szfail; o[13] = k.spass; o[14] = k.sread; o[15] = k.swrite; o[16] = k.bias; o[17] = k.s.skin;
         id = (uint32_t)gxw_js_pipeline(sit->second.c_str(), d);
         g_Pipes.emplace(k, id);
         gxw_pipelines++;
@@ -960,10 +977,10 @@ static unsigned Count(unsigned prim, unsigned n) {
 }
 
 static void Record(uint32_t pipe, uint32_t bg, unsigned vb, uint32_t vbo, int ib, uint32_t ibo, int ibf,
-                   unsigned count, unsigned first, int base, uint32_t o0, uint32_t o1, uint32_t o2) {
+                   unsigned count, unsigned first, int base, uint32_t o0, uint32_t o1, uint32_t o2, unsigned instances = 1) {
     const int32_t r[16] = { 3, (int32_t)pipe, (int32_t)bg, (int32_t)vb, (int32_t)vbo, ib, (int32_t)ibo, ibf,
                             (int32_t)count, (int32_t)first, base, (int32_t)o1, (int32_t)o0, (int32_t)o2,
-                            (int32_t)(GLES3_Get_State()->render_states[GLES3_RS_STENCILREF] & 255), 0 };
+                            (int32_t)(GLES3_Get_State()->render_states[GLES3_RS_STENCILREF] & 255), (int32_t)instances };
     g_Cmd.insert(g_Cmd.end(), r, r + 16);
     gxw_draws++;
 }
@@ -977,6 +994,16 @@ static uint32_t Fan_Indices(unsigned prim_count, const uint8_t* idx, bool i32, u
     count = (unsigned)out.size();
     fmt = 2;
     return Stream(out.data(), out.size() * 4);
+}
+
+// Batched units (DX8Wrapper::Draw_Triangles_Instanced / _Skinned): the next GXW_Draw_Indexed draws
+// n instances. Each gets its own draw block (instance_index picks it): its world matrix and stage 0
+// offset, or for skinned meshes the first of its bone rows in BN.
+static unsigned g_InstN = 0, g_InstBones = 0, g_InstBoneBuf = 0;
+static const float *g_InstMats = nullptr, *g_InstUV = nullptr, *g_InstPal = nullptr;
+void GXW_Set_Instances(unsigned n, const float* world_row_major, const float* uv, const float* palette,
+                       unsigned bones, unsigned bone_buffer) {
+    g_InstN = n; g_InstMats = world_row_major; g_InstUV = uv; g_InstPal = palette; g_InstBones = bones; g_InstBoneBuf = bone_buffer;
 }
 
 void GXW_Draw_Indexed(unsigned prim, unsigned prim_count, unsigned fvf, unsigned stride,
@@ -994,12 +1021,44 @@ void GXW_Draw_Indexed(unsigned prim, unsigned prim_count, unsigned fvf, unsigned
     size_t lo = (size_t)(base_vertex + min_vertex) * stride, hi = (size_t)(base_vertex + min_vertex + num_vertices) * stride;
     if (hi > vb_size) hi = vb_size;
     Use_Buffer(vb, lo, hi);
+    const unsigned n = g_InstN;
+    const bool skin = n && g_InstPal && g_InstBones && g_InstBoneBuf;
+    g_InstN = 0;
     GXW_SKey sk;
     Shader_Key(*GLES3_Get_State(), fvf, sk);
+    sk.skin = skin && !(sk.flags & 8);
     const uint32_t pipe = Pipeline(sk, fvf, stride, prim == 6 ? 0 : Topo(prim), (prim == 5 || prim == 3) ? 1 : 0);
     uint32_t o0, o1, o2;
     Uniforms(sk, o0, o1, o2);
-    Record(pipe, Bind_Group(), vb, 0, ibid, ibo, ibf, count, first, (int)base_vertex, o0, o1, o2);
+    if (!n) { Record(pipe, Bind_Group(), vb, 0, ibid, ibo, ibf, count, first, (int)base_vertex, o0, o1, o2); return; }
+    GXW_DrawBlock base;
+    memcpy(&base, g_Draws.data() + (size_t)o1 * sizeof(GXW_DrawBlock), sizeof(base));
+    const uint32_t first_block = (uint32_t)(g_Draws.size() / sizeof(GXW_DrawBlock));
+    g_Draws.resize(g_Draws.size() + (size_t)n * sizeof(GXW_DrawBlock));
+    GXW_DrawBlock* out = (GXW_DrawBlock*)(g_Draws.data() + (size_t)first_block * sizeof(GXW_DrawBlock));
+    const size_t rows = (size_t)g_InstBones * 3;
+    const uint32_t bone0 = (uint32_t)(g_Bones.size() / 4);
+    if (sk.skin) g_Bones.insert(g_Bones.end(), g_InstPal, g_InstPal + (size_t)n * rows * 4);
+    for (unsigned i = 0; i < n; i++) {
+        GXW_DrawBlock b = base;
+        if (sk.skin) b.idx[2] = bone0 + (uint32_t)(i * rows);
+        else if (g_InstMats) GLES3_Helpers::Matrix4x4_To_GL(g_InstMats + (size_t)i * 16, b.world);
+        if (g_InstUV && !sk.skin) { b.misc[2] = g_InstUV[i * 2]; b.misc[3] = g_InstUV[i * 2 + 1]; }
+        out[i] = b;
+    }
+    const uint32_t bg = Bind_Group();
+    if (sk.skin) { // bone numbers: vertex buffer 1, indexed like the mesh's own vertices, so no base vertex
+        const int32_t r[8] = { 4, (int32_t)g_InstBoneBuf, 0, 0, 0, 0, 0, 0 };
+        g_Cmd.insert(g_Cmd.end(), r, r + 8);
+        Record(pipe, bg, vb, (uint32_t)(base_vertex * stride), ibid, ibo, ibf, count, first, 0, o0, first_block, o2, n);
+    } else Record(pipe, bg, vb, 0, ibid, ibo, ibf, count, first, (int)base_vertex, o0, first_block, o2, n);
+}
+
+unsigned GXW_Bone_Buffer(const unsigned short* bones, unsigned count) {
+    std::vector<uint32_t> v(bones, bones + count);
+    const unsigned id = GXW_Buffer_Create(v.size() * 4 + 4, false);
+    GXW_Buffer_Write(id, 0, v.size() * 4, (const uint8_t*)v.data());
+    return id;
 }
 
 void GXW_Draw_Arrays(unsigned prim, unsigned prim_count, unsigned fvf, unsigned stride, unsigned vb, unsigned start_vertex) {

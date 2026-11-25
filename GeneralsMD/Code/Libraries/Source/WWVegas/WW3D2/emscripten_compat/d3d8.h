@@ -1320,6 +1320,9 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
         if (GXW_On()) {
             current_vb->Upload_And_Bind();
             current_ib->Upload();
+            if (gx_instance_count) // DX8Wrapper::Draw_Triangles_Instanced / _Skinned
+                GXW_Set_Instances(gx_instance_count, gx_skin_palette ? nullptr : gx_instance_matrices, gx_skin_palette ? nullptr : gx_instance_uv,
+                                  gx_skin_palette, gx_skin_palette ? gx_skin_bones : 0, gx_skin_palette ? gx_skin_bone_buffer : 0);
             GXW_Draw_Indexed((unsigned)PrimType, PrimCount, current_fvf, _stride(0), current_vb->buf.gxw, current_vb->buf.data.size(),
                              base_vtx_index, MinIndex, NumVertices, current_ib->buf.gxw, StartIndex,
                              current_ib->buf.data.data(), current_ib->buf.data.size());
