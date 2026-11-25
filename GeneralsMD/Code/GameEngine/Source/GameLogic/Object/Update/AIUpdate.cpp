@@ -1072,6 +1072,58 @@ void AIUpdateInterface::gxMovementPassStep()
 #endif
 }
 
+// web port (round 5 measuring): per-tick time and work counters for the paths systems, printed as
+// GXTIME lines every 1000 logic frames (cumulative). On with setting gxPathsTiming (GeneralsX.settings).
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+static double gxNowMs() { return emscripten_get_now(); }
+static bool gxPathsTimingOn()
+{
+	static int on = -1;
+	if (on < 0) on = EM_ASM_INT({ var s = typeof window !== 'undefined' && window.GeneralsX && window.GeneralsX.settings; return s && s.gxPathsTiming ? 1 : 0; });
+	return on != 0;
+}
+#else
+static double gxNowMs() { return 0.0; }
+static bool gxPathsTimingOn() { return false; }
+#endif
+struct GxPathsStats
+{
+	double logicMs, moveMs, kernelMs;
+	unsigned ticks, over100, visited, kernelPts, taken, cpopApply;
+	unsigned hist[1001];	// tick ms in 0.5 ms buckets, last = 500 ms and over
+};
+static GxPathsStats s_gxStats;
+unsigned g_gxHordeSearches = 0;	// HordeUpdate range searches (load-independent work)
+
+void gxPathsTick(bool begin)
+{
+	static double t0;
+	static UnsignedInt f0;
+	if (!gxPathsTimingOn())
+		return;
+	if (begin) { t0 = gxNowMs(); f0 = TheGameLogic->getFrame(); return; }
+	const UnsignedInt f = TheGameLogic->getFrame();
+	if (f == f0)
+		return;	// no logic tick this call
+	const double ms = gxNowMs() - t0;
+	GxPathsStats &st = s_gxStats;
+	st.logicMs += ms; ++st.ticks;
+	if (ms > 100.0) ++st.over100;
+	int b = (int)(ms * 2.0); if (b > 1000) b = 1000; if (b < 0) b = 0;
+	++st.hist[b];
+	if (f % 1000 == 0)
+	{
+		unsigned need = (unsigned)(st.ticks * 0.99), acc = 0; int p99 = 0;
+		for (int i = 0; i <= 1000; ++i) { acc += st.hist[i]; if (acc >= need) { p99 = i; break; } }
+		printf("GXTIME paths f%u: ticks %u, logic %.3f ms/tick (p99 %.1f ms, over 100 ms %u), movement pass %.3f ms/tick "
+			"(kernel %.3f), units visited %u, kernel points %u (taken %u), route points in apply %u, horde searches %u, "
+			"locomotor rows %d\n",
+			f, st.ticks, st.logicMs / st.ticks, p99 * 0.5, st.over100, st.moveMs / st.ticks, st.kernelMs / st.ticks,
+			st.visited, st.kernelPts, st.taken, st.cpopApply, g_gxHordeSearches, GxComponentPool<GxLocoState>::the().liveCount());
+	}
+}
+
 // Route-following kernel (round 5 addendum). With match rule updatePasses, every MOVE unit's point on
 // its route is computed for the whole list before any unit moves, then the apply loop moves them in
 // object-ID order. Per slot, valid for this frame, used only if the unit's route and position are
@@ -1115,6 +1167,7 @@ void AIUpdateInterface::gxMoveKernelStep(GxCpopRow &row, UnsignedInt frame)
 	row.path = getPath();
 	getPath()->computePointOnPath(getObject(), m_locomotorSet, row.pos, row.info);
 	row.frame = frame;
+	++s_gxStats.kernelPts;
 }
 
 Bool AIUpdateInterface::gxTakeKernelPoint(const Coord3D &pos, ClosestPointOnPathInfo &info) const
@@ -1127,13 +1180,17 @@ Bool AIUpdateInterface::gxTakeKernelPoint(const Coord3D &pos, ClosestPointOnPath
 		return FALSE;
 	row.frame = ~0u;	// used once
 	info = row.info;
+	++s_gxStats.taken;
 	return TRUE;
 }
 
 void gxRunMovementPass()
 {
 	static std::vector<int> s_list;	// copy: a step may change masks (the store rebuilds its list)
+	const bool timing = gxPathsTimingOn();
+	const double t0 = timing ? gxNowMs() : 0.0;
 	s_list = TheGxUnitStore.pass(GXB_MOVE);
+	s_gxStats.visited += (unsigned)s_list.size();
 	extern bool gxMatchRule(unsigned int rule);
 	if (gxMatchRule(131072 /* GXRULE_UPDATE_PASSES */) && !s_list.empty())
 	{
@@ -1142,8 +1199,11 @@ void gxRunMovementPass()
 			GxCpopRow none; none.frame = ~0u; none.path = nullptr; none.pos.zero();
 			s_gxCpop.resize(TheGxUnitStore.size() + 256, none);
 		}
+		const double tk = timing ? gxNowMs() : 0.0;
 		gxMoveKernel(s_list.data(), 0, (int)s_list.size(), TheGameLogic->getFrame());
+		if (timing) s_gxStats.kernelMs += gxNowMs() - tk;
 	}
+	struct GxMoveTimer { bool on; double t0; ~GxMoveTimer() { if (on) s_gxStats.moveMs += gxNowMs() - t0; } } gxMoveTimer = { timing, t0 };
 	// apply, in object-ID order: locomotion, physics forces, positions, grid marks
 	for (size_t i = 0; i < s_list.size(); ++i)
 	{
@@ -2426,7 +2486,10 @@ UpdateSleepTime AIUpdateInterface::doLocomotor()
 							CRCDEBUG_LOG(("AIUpdateInterface::doLocomotor() - calling computePointOnPath() for %s",
 								DebugDescribeObject(getObject()).str()));
 							if (!gxTakeKernelPoint(*getObject()->getPosition(), info))	// web port: the movement kernel's result
+							{
 								getPath()->computePointOnPath(getObject(), m_locomotorSet, *getObject()->getPosition(), info);
+								++s_gxStats.cpopApply;
+							}
 							onPathDistToGoal = info.distAlongPath;
 							goalPos = info.posOnPath;
 							// layer is a possible bridge in the path.  Check & set the layer if applicable.

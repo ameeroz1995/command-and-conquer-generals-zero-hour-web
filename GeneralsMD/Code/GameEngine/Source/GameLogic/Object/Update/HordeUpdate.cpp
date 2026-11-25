@@ -270,6 +270,7 @@ UpdateSleepTime HordeUpdate::update()
 		// whether a true horde member is close enough to rub off on us
 		PartitionFilterHordeMember hmFilter(getObject(), md);
 		PartitionFilter *filters[] = { &hmFilter, nullptr };
+		extern unsigned g_gxHordeSearches; ++g_gxHordeSearches;	// web port: work counter (GXTIME)
 		SimpleObjectIterator *iter = ThePartitionManager->iterateObjectsInRange(getObject(), md->m_minDist, FROM_BOUNDINGSPHERE_3D, filters);
 		MemoryPoolObjectHolder hold(iter);
 		const Int count = iter->getCount();
