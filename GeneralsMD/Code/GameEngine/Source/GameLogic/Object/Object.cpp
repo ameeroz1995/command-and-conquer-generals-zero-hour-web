@@ -30,6 +30,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #define DEFINE_WEAPONCONDITIONMAP
+#include "Common/GxUnitStore.h"
 #include "Common/BitFlagsIO.h"
 #include "Common/BuildAssistant.h"
 #include "Common/Dict.h"
@@ -159,14 +160,14 @@ AsciiString DebugDescribeObject(const Object *obj)
 	{
 		ret.format("Object %d (%s) [%s, owned by player %d (%ls)]",
 			obj->getID(), obj->getName().str(), obj->getTemplate()->getName().str(),
-			obj->getControllingPlayer()->getPlayerIndex(),
+			obj->gxPlayerIndex(),
 			obj->getControllingPlayer()->getPlayerDisplayName().str());
 	}
 	else
 	{
 		ret.format("Object %d [%s, owned by player %d (%ls)]",
 			obj->getID(), obj->getTemplate()->getName().str(),
-			obj->getControllingPlayer()->getPlayerIndex(),
+			obj->gxPlayerIndex(),
 			obj->getControllingPlayer()->getPlayerDisplayName().str());
 	}
 
@@ -497,6 +498,16 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 	//Modules have now been completely created!
 	m_modulesReady = true;
 
+	// web port (round 4): the unit store's behaviour bits for what this object has
+	{
+		GxBehaviourMask m = 0;
+		if (getPhysics())	m |= GXB_BIT(GXB_PHYS);
+		if (getAI())		m |= GXB_BIT(GXB_AI);
+		for (BehaviorModule** b = m_behaviors; *b; ++b)
+			if ((*b)->getCollide()) { m |= GXB_BIT(GXB_COLLIDE); break; }
+		TheGxUnitStore.setMask(this, m);
+	}
+
 	TheRadar->addObject( this );
 
 	// register the object with the GameLogic
@@ -606,6 +617,7 @@ void Object::initObject()
 //-------------------------------------------------------------------------------------------------
 Object::~Object()
 {
+	TheGxUnitStore.remove(this);	// web port (round 4)
 
 	// tell the AI the building is gone
 	/// @todo Generalize the notion of objects entering and leaving the world, so we don't have to special case this
@@ -790,9 +802,28 @@ void Object::onDestroy()
 
 //=============================================================================
 //=============================================================================
+// web port (round 4): the unit store holds the radius and the player index; the GeometryInfo and
+// the Team pointer are the cold data they are set from (setGeometryInfo, setOrRestoreTeam,
+// TeamPrototype::setControllingPlayer)
+Real Object::getBoundingCircleRadius() const
+{
+	const Int s = gxStoreSlot();
+	return s >= 0 ? TheGxUnitStore.radius[s] : m_geometryInfo.getBoundingCircleRadius();
+}
+
+Int Object::gxPlayerIndex() const
+{
+	const Int s = gxStoreSlot();
+	if (s >= 0)
+		return TheGxUnitStore.player[s];
+	const Player *p = getControllingPlayer();
+	return p ? p->getPlayerIndex() : -1;
+}
+
 void Object::setGeometryInfo(const GeometryInfo& geom)
 {
 	m_geometryInfo = geom;
+	TheGxUnitStore.setRadius(this, geom.getBoundingCircleRadius());	// web port (round 4)
 	if( m_partitionData )
 	{
 		// if our geometry changes, we unregister and re-register with the partitionmgr
@@ -893,6 +924,8 @@ void Object::setOrRestoreTeam( Team* team, Bool restoring )
 
 	// Switch //////////////////////////
 	m_team = team;
+	// web port (round 4): the store's player index (the truth for it) follows right away
+	TheGxUnitStore.setPlayer(this, m_team ? m_team->getControllingPlayer()->getPlayerIndex() : -1);
 	if (m_partitionData)
 		m_partitionData->gxTeamChanged();	// web port: per-cell player counts follow the owner
 
@@ -970,7 +1003,7 @@ Bool Object::checkAndDetonateBoobyTrap(const Object *victim)
 	filters[1] = &filterMapStatus;
 	filters[2] = nullptr;
 
-	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( getPosition(), BOOBY_TRAP_SCAN_RANGE + getGeometryInfo().getBoundingCircleRadius(),
+	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( getPosition(), BOOBY_TRAP_SCAN_RANGE + getBoundingCircleRadius(),
 		FROM_CENTER_2D, filters, ITER_SORTED_NEAR_TO_FAR );
 	MemoryPoolObjectHolder hold(iter);// This is the magic thing that frees the dynamically made iter in its destructor
 
@@ -1854,6 +1887,9 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
 	{
   	m_drawable->setTransformMatrix( this->getTransformMatrix() );
 	}
+
+	if (!gxPosInStore())
+		TheGxUnitStore.setPos(this, *getPosition());	// web port (round 4): write-through without positionInStore
 
 	// web port (switch searchCache): range searches keep a copy of where we are
 	if (m_partitionData)
@@ -2883,11 +2919,23 @@ void Object::setID( ObjectID id )
 	// remove this objects previous id from the lookup table
 	TheGameLogic->removeObjectFromLookupTable( this );
 
+	// web port (round 4): the unit store keys slots by ID; keep the mask across the change
+	const int gxOld = TheGxUnitStore.slotOf(this);
+	const GxBehaviourMask gxMask = gxOld >= 0 ? TheGxUnitStore.mask[gxOld] : 0;
+	Coord3D gxVel; gxVel.zero();
+	if (gxOld >= 0) gxVel = TheGxUnitStore.vel[gxOld];
+	TheGxUnitStore.remove(this);
+
 	// assign new id
 	m_id = id;
 
 	// add new id to lookup table
 	TheGameLogic->addObjectToLookupTable( this );
+
+	TheGxUnitStore.add(this);
+	TheGxUnitStore.setMask(this, gxMask);
+	if (TheGxUnitStore.slotOf(this) >= 0) TheGxUnitStore.vel[TheGxUnitStore.slotOf(this)] = gxVel;
+	TheGxUnitStore.bumpEpoch();	// the slot changed
 
 }
 
@@ -4031,7 +4079,7 @@ void Object::crc( Xfer *xfer )
 	Bool doLogging = g_logObjectCRCs /* && getControllingPlayer()->getPlayerType() == PLAYER_HUMAN */;
 	if (doLogging)
 	{
-		tmp.format("CRC of Object %d (%s), owned by player %d, team: %d, ", m_id, getTemplate()->getName().str(), getControllingPlayer()->getPlayerIndex(), this->getTeam() ? this->getTeam()->getID() : TEAM_ID_INVALID);
+		tmp.format("CRC of Object %d (%s), owned by player %d, team: %d, ", m_id, getTemplate()->getName().str(), gxPlayerIndex(), this->getTeam() ? this->getTeam()->getID() : TEAM_ID_INVALID);
 		logString.concat(tmp);
 	}
 #endif // DEBUG_CRC
@@ -4777,7 +4825,7 @@ void Object::onDie( DamageInfo *damageInfo )
 	//Kris: Added nullptr check to prevent crash with combat bikes & their riders getting deleted on exit.
 	if( getControllingPlayer() )
 	{
-		TheInGameUI->removeIdleWorker( this, getControllingPlayer()->getPlayerIndex() );
+		TheInGameUI->removeIdleWorker( this, gxPlayerIndex() );
 	}
 
 	//When a GLA hole is in the process of rebuilding, and that rebuild is lost, we need to
@@ -5168,7 +5216,7 @@ void Object::look()
 				if( !stealthedAndNotDetected )
 				{
 					Coord3D pos = *getPosition();
-					PlayerMaskType thePlayersMask = ThePlayerList->getPlayersWithRelationship( getControllingPlayer()->getPlayerIndex(), ALLOW_ENEMIES | ALLOW_NEUTRAL );
+					PlayerMaskType thePlayersMask = ThePlayerList->getPlayersWithRelationship( gxPlayerIndex(), ALLOW_ENEMIES | ALLOW_NEUTRAL );
 					ThePartitionManager->doShroudReveal( pos.x, pos.y, shroudRevealToAllRange, thePlayersMask );
 					m_partitionRevealAllLastLook->m_where = pos;
 					m_partitionRevealAllLastLook->m_forWhom = thePlayersMask;
@@ -5309,7 +5357,7 @@ Real Object::getShroudClearingRange() const
 	{
 		//structures under construction have limited vision range.  For now, base it
 		//on the geometry extents so the structure can only see itself.
-		shroudClearingRange = getGeometryInfo().getBoundingCircleRadius();
+		shroudClearingRange = getBoundingCircleRadius();
 	}
 
 #if defined(RTS_DEBUG)

@@ -632,7 +632,7 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 	PartitionFilterInsignificantBuildings filterInsignificant(true, false);
 
 	// (optional) only stuff clear of fog
-	PartitionFilterFreeOfFog filterFogged(me->getControllingPlayer()->getPlayerIndex());
+	PartitionFilterFreeOfFog filterFogged(me->gxPlayerIndex());
 
 	PartitionFilter *filters[16];
 	Int numFilters = 0;

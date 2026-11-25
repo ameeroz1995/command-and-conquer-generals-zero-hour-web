@@ -2174,8 +2174,8 @@ Bool Weapon::computeApproachTarget(const Object *source, const Object *target,
     Real attackRange = (getAttackRange(source) + minAttackRange) / 2.0f;
 #ifdef ATTACK_RANGE_IS_2D
     if (target)
-      attackRange += target->getGeometryInfo().getBoundingCircleRadius();
-    attackRange += source->getGeometryInfo().getBoundingCircleRadius();
+      attackRange += target->getBoundingCircleRadius();
+    attackRange += source->getBoundingCircleRadius();
 #else
     if (target)
       attackRange += target->getGeometryInfo().getBoundingSphereRadius();
@@ -2466,7 +2466,7 @@ Real Weapon::getAttackRange(const Object *source) const {
   // const Object *container = source->getContainedBy();
   // if( container )
   //{
-  //	attackRange += container->getGeometryInfo().getBoundingCircleRadius();
+  //	attackRange += container->getBoundingCircleRadius();
   // }
   // return attackRange;
 }
@@ -2478,8 +2478,8 @@ Real Weapon::getAttackDistance(const Object *source, const Object *victimObj,
 
   if (victimObj != nullptr) {
 #ifdef ATTACK_RANGE_IS_2D
-    range += source->getGeometryInfo().getBoundingCircleRadius();
-    range += victimObj->getGeometryInfo().getBoundingCircleRadius();
+    range += source->getBoundingCircleRadius();
+    range += victimObj->getBoundingCircleRadius();
 #else
     range += source->getGeometryInfo().getBoundingSphereRadius();
     range += victimObj->getGeometryInfo().getBoundingSphereRadius();

@@ -2136,7 +2136,7 @@ PhysicsTurningType Locomotor::rotateObjAroundLocoPivot(Object* obj, const Coord3
 	//Rotating about pivot moves the object, and can make us miss our goal, so it is disabled.  jba.
 	if (offset != 0.0f)
 	{
-		Real radius = obj->getGeometryInfo().getBoundingCircleRadius();
+		Real radius = obj->getBoundingCircleRadius();
 		Real turnPointOffset = offset * radius;
 
 		Coord3D turnPos = *obj->getPosition();

@@ -136,7 +136,7 @@ SpecialPowerModule::SpecialPowerModule( Thing *thing, const ModuleData *moduleDa
 			getObject()->getControllingPlayer() &&
 			getObject()->isKindOf( KINDOF_STRUCTURE ) )
 	{
-		TheInGameUI->addSuperweapon( getObject()->getControllingPlayer()->getPlayerIndex(),
+		TheInGameUI->addSuperweapon( getObject()->gxPlayerIndex(),
 																 getPowerName(),
 																 getObject()->getID(),
 																 getSpecialPowerModuleData()->m_specialPowerTemplate );
@@ -158,7 +158,7 @@ SpecialPowerModule::~SpecialPowerModule()
 
  	if( getSpecialPowerModuleData()->m_specialPowerTemplate->hasPublicTimer() == TRUE &&
 			getObject()->getControllingPlayer() )
- 		TheInGameUI->removeSuperweapon( getObject()->getControllingPlayer()->getPlayerIndex(),
+ 		TheInGameUI->removeSuperweapon( getObject()->gxPlayerIndex(),
 																		getPowerName(),
 																		getObject()->getID(),
 																		getSpecialPowerModuleData()->m_specialPowerTemplate );
@@ -189,7 +189,7 @@ void SpecialPowerModule::resolveSpecialPower()
 	{
 		//KM: The KINDOF_STRUCTURE check was made to prevent scripted bombers from registering their
 		//    special powers as public timers.
-		TheInGameUI->addSuperweapon( getObject()->getControllingPlayer()->getPlayerIndex(),
+		TheInGameUI->addSuperweapon( getObject()->gxPlayerIndex(),
 																 getPowerName(),
 																 getObject()->getID(),
 																 getSpecialPowerModuleData()->m_specialPowerTemplate );
@@ -229,7 +229,7 @@ void SpecialPowerModule::onSpecialPowerCreation()
 			getObject()->getControllingPlayer() &&
 			getObject()->isKindOf( KINDOF_STRUCTURE ) )
 	{
-		TheInGameUI->addSuperweapon( getObject()->getControllingPlayer()->getPlayerIndex(),
+		TheInGameUI->addSuperweapon( getObject()->gxPlayerIndex(),
 																 getPowerName(),
 																 getObject()->getID(),
 																 getSpecialPowerModuleData()->m_specialPowerTemplate );
@@ -544,7 +544,7 @@ void SpecialPowerModule::aboutToDoSpecialPower( const Coord3D *location )
 {
 	// Tell the scripting engine!
 	TheScriptEngine->notifyOfTriggeredSpecialPower(
-		getObject()->getControllingPlayer()->getPlayerIndex(),
+		getObject()->gxPlayerIndex(),
 		getSpecialPowerModuleData()->m_specialPowerTemplate->getName(),
 		getObject()->getID());
 
@@ -658,7 +658,7 @@ void SpecialPowerModule::aboutToDoSpecialPower( const Coord3D *location )
 
 		AudioEventRTS soundAtLocation = *modData->m_specialPowerTemplate->getInitiateAtTargetSound();
 		soundAtLocation.setPosition( location );
-		soundAtLocation.setPlayerIndex(getObject()->getControllingPlayer()->getPlayerIndex());
+		soundAtLocation.setPlayerIndex(getObject()->gxPlayerIndex());
 		TheAudio->addAudioEvent( &soundAtLocation );
 
 	}
@@ -879,7 +879,7 @@ void SpecialPowerModule::loadPostProcess()
 			getObject()->getControllingPlayer() &&
 			getObject()->isKindOf( KINDOF_STRUCTURE ) )
 	{
-		TheInGameUI->addSuperweapon( getObject()->getControllingPlayer()->getPlayerIndex(),
+		TheInGameUI->addSuperweapon( getObject()->gxPlayerIndex(),
 																 getPowerName(),
 																 getObject()->getID(),
 																 getSpecialPowerModuleData()->m_specialPowerTemplate );

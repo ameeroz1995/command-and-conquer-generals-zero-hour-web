@@ -3570,3 +3570,92 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
     - p2: 18.3→20.2 / 14.2→16.0 / 27.0→25.8, aftermath 1% low 9.4→15.3.
 - Read: defaults give strikes +4–7% and aftermath +4–6%, armies flat. The match rules add armies +10%,
   strikes +13–17%, and aftermath 1% lows +60%; aftermath average fps is 2–4% lower with the rules on.
+
+## 2026-11-25 — Round 4: GxUnitStore, first version (shared by all logic agents)
+
+- Core/GameEngine/Include/Common/GxUnitStore.h + GameLogic/Object/GxUnitStore.cpp: one slot per
+  live Object in dense arrays (id, Object*, x/y/z, vel, radius, player, playerBit, cell, 64-bit
+  behaviour mask), in ascending object-ID order. pass(bit) returns the dense slot list of a mask bit,
+  rebuilt only when a mask changes or units come and go. Holes from removed objects are closed at
+  most once per logic frame, at the first pass(), so slots never move inside a frame once a pass ran;
+  epoch() changes whenever a slot may have moved or been freed (cache slots against it).
+- Hooked into Object: setID adds (creation and load; a load can bring IDs out of order, the next
+  compaction sorts), ~Object removes, reactToTransformChange writes x/y/z, setGeometryInfo the
+  radius, setOrRestoreTeam the player; default mask bits PHYS / AI / COLLIDE set when the modules
+  exist. cell is -1 until the partition writes it.
+- Source of truth: the store holds PhysicsBehavior's velocity (the member is gone; getVelocity()
+  returns the store's Coord3D, arrays reserved for 16k units so the pointer stays put within a frame).
+  Position stays in the Object's matrix with write-through (x/y/z), likewise radius and player.
+- Same game: referee replay matches (9,000 frames, build store-1).
+- Physics on the store (build store-2): physBulk's pass now walks the store's PHYS list (object-ID
+  order) and reads/writes the store's velocities; its own behaviour list is gone. The store's cell is
+  now write-through with x/y (partition cell under the centre, cy * cellCountX + cx).
+  Referee replay matches; a skirmish recorded with physBulk on (header rules 0x822) replays to a match.
+- Collision broad phase over store cells: not built. The pair test already reads kept places
+  (pairPlace, query agent), and the pair-list build measured ~0.6 ms per frame at the peak (round 2
+  timers) against ~2/3 of collision time in the reactions (onCollide + AI processCollision), so a
+  drifting store-cell broad phase can win at most that 0.6 ms.
+
+## 2026-11-25 — Round 4, 100% adoption: positions in the store, physics pass, store broad phase
+
+- positionInStore (third word bit 7, on; same game): an Object's position lives in the unit store
+  (pos[slot], one Coord3D per slot). Thing::getPosition() returns it, Thing's setters write it, and
+  getTransformMatrix() refreshes the matrix translation from it on every read. Fixed per object when
+  it enters the store (so switching it mid-game only affects new objects); when an object leaves the
+  store the position is copied back. Without the switch the store keeps a write-through copy. Every
+  Object knows its slot (gxStoreSlot(), kept by the store at add and compaction); physics velocity
+  reads by that slot (no epoch check any more). Store API change: x/y/z are now pos[s].x/y/z.
+- physBulk (match rule 2048) is now the whole physics step: at the first physics update of a frame,
+  every unit whose physics is due steps in one pass over the store's PHYS list (object-ID order);
+  each unit's own heap call returns the sleep time its step gave. Units woken later in the phase step
+  on their own call as before.
+- storePairs (match rule 65536, third word bit 6, off): collision broad phase over the store. All
+  units the partition holds go in a grid by the store's cell index (units larger than half a cell in
+  every cell under their bounding square); each unit due a collision check (object-ID order) is
+  offered every unit in reach, with pairPlace's distance cut; pairs go to the flat contact arrays.
+- collideStagger's tie-break between two waiting units now compares object IDs (it compared
+  partition-data addresses, which can differ between machines now that the stagger is a match rule).
+- Checks: referee replay matches on store-3 (positionInStore) and store-4 (all of it, verify mode:
+  contact array checked 90,600, mismatches 0); the verify battle on store-3 printed 1,870 GXVERIFY
+  lines, none with a mismatch. A skirmish recorded with physBulk + storePairs on (header rules
+  0x10822) replays to a match. Screenshot with both rules on (store4-rules_battle3-5): normal
+  crowded fight, nothing stuck or piled up.
+- Still write-through (store holds a copy): radius (truth is the GeometryInfo, a value type shared
+  with templates), player (truth is the Team pointer; the store holds the derived index). The cell is
+  written by the partition (query); mask and velocity have no other copy.
+- Radius and player in the store (build store-5, same game): Object::getBoundingCircleRadius() and
+  Object::gxPlayerIndex() read the store; the store's radius is set by setGeometryInfo (the
+  GeometryInfo keeps its own copy for shape tests, it is a value type shared with templates), the
+  player index by setOrRestoreTeam and by TeamPrototype::setControllingPlayer for every member of
+  every instance of a team that changes owner. PhysicsBehavior::onCollide reads the radius from the
+  store. Referee replay matches with verify (contact array 90,600 checks, 0 mismatches).
+- Engine-wide switch to the store getters (build store-6, one mechanical commit, same game): every
+  `obj->getGeometryInfo().getBoundingCircleRadius()` (37 sites + 2 inside Object) now calls
+  `getBoundingCircleRadius()`, every Object `->getControllingPlayer()->getPlayerIndex()` (36 sites +
+  3 inside Object) calls `gxPlayerIndex()`. Left as they were: shape tests and local GeometryInfo
+  variables, template geometry (getTemplateGeometryInfo), Team receivers (2 in setOrRestoreTeam), and
+  the partition's kept place (max of circle and sphere radius, query's code). The store's player index
+  is now written right after m_team changes, before anything in setOrRestoreTeam can read it.
+  Referee replay matches with verify (contact array 90,600 checks, 0 mismatches); the verify battle
+  printed 3,076 GXVERIFY lines, none with a mismatch.
+
+### Round 4: store timing (lane 4, store-6t at 1f29afe, locked pairs)
+
+Six pairs under `flock ~/generals-bench/timing.lock`, load < 8 checked inside the lock (start/end
+load logged; posC's run saw a spike to 20). Logic / collide ms per logic frame, summed over the 12
+battle windows (the first 6 windows are the pre-battle shell and are left out):
+
+| pair | A | B | change |
+|---|---|---|---|
+| positionInStore off / on | 402 / 416 | | +3.5% |
+| positionInStore on / off | 472 / 403 | | +17% |
+| on / physBulk | 384 / 371 | | -3.4% |
+| physBulk / on | 462 / 437 | | +5.6% |
+| storePairs / on | 447 / 480 (load spike) | collide build 57 / 37 | |
+| on / storePairs | 472 / 499 | collide build 35 / 62 | +6%, build ~1.8x |
+
+- positionInStore: slower in both orders (3-17%), so its default is now **off** (third word bit 7;
+  page switch `positionInStore: true` turns it on). The code path stays (line 1 is reachable).
+- physBulk: no measurable change either way (-3% / +6%); stays off.
+- storePairs: collide build ~1.8x slower in both orders (re-bucketing every unit each frame
+  instead of reusing the partition's cells); stays off.
