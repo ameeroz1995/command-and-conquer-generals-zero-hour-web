@@ -525,8 +525,8 @@ void AIGroup::computeIndividualDestination( Coord3D *dest, const Coord3D *groupD
 		v.y = pos->y - center->y;
 	}
 	Real length = v.length();
-	if (length > 6*obj->getGeometryInfo().getBoundingCircleRadius()) {
-		length = 6*obj->getGeometryInfo().getBoundingCircleRadius();
+	if (length > 6*obj->getBoundingCircleRadius()) {
+		length = 6*obj->getBoundingCircleRadius();
 	}
 	v.normalize();
 	v.x *= length;
@@ -1854,8 +1854,8 @@ void AIGroup::groupScatter( CommandSourceType cmdSource )
 		delta.x = unitPos.x - center.x;
 		delta.y = unitPos.y - center.y;
 		delta.normalize();
-		dest.x += delta.x*4*theUnit->getGeometryInfo().getBoundingCircleRadius();
-		dest.y += delta.y*4*theUnit->getGeometryInfo().getBoundingCircleRadius();
+		dest.x += delta.x*4*theUnit->getBoundingCircleRadius();
+		dest.y += delta.y*4*theUnit->getBoundingCircleRadius();
 		ai->aiMoveToPosition( &dest, cmdSource );
 	}
 }

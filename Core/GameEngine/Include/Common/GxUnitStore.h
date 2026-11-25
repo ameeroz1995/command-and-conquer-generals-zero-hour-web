@@ -17,13 +17,18 @@
 //   keep a pointer into them across code that can create objects.
 //
 // Who writes what (source of truth vs write-through):
-// - x, y, z: write-through from Thing::setTransformMatrix (Object::reactToTransformChange); the
-//   Object's matrix stays the truth for position and orientation.
+// - pos: one Coord3D per slot (Thing::getPosition() returns a pointer to it). With the switch
+//   positionInStore (fixed per object when it enters the store) it is the truth: Thing's getters
+//   read it and its setters write it, and getTransformMatrix() refreshes the matrix translation from
+//   it. Without the switch it is a write-through copy (Object::reactToTransformChange).
 // - vel: the truth for every unit with physics (PhysicsBehavior reads and writes it here; one
 //   Coord3D per slot rather than three arrays, because getVelocity() hands out a Coord3D pointer).
-// - radius: write-through from Object::setGeometryInfo (bounding circle radius).
-// - player, playerBit: write-through from Object::setOrRestoreTeam (controlling player index).
-// - cell: the partition cell index of the unit's centre, written by its owner (-1 until then).
+// - radius: the truth for the object's bounding circle radius (Object::getBoundingCircleRadius()
+//   reads it); set by Object::setGeometryInfo. The GeometryInfo keeps its own value for shape tests.
+// - player, playerBit: the truth for the controlling-player index (Object::gxPlayerIndex() reads it);
+//   set by Object::setOrRestoreTeam and TeamPrototype::setControllingPlayer (whole-team owner change).
+// - cell: the partition cell (cy * cellCountX + cx) under the unit's centre, written by
+//   PartitionData::updateCellsTouched when it changes (-1 off the map or before that).
 // - mask: set when a unit's behaviour set changes (setMask); never re-tested per tick.
 #pragma once
 
@@ -45,6 +50,9 @@ enum GxBehaviour
 	GXB_AI      = 5,	///< has an AIUpdateInterface (ai)
 	GXB_ANIM    = 6,	///< animation / pose (combat)
 	GXB_DAMAGE  = 7,	///< has a body that takes damage (combat)
+	// 8-31: free for other passes. 32-63: reserved for ai, one bit per every-frame update-module kind
+	// (the update loop's dispatch table, GameLogic.cpp, match rule 131072).
+	GXB_AI_FIRST = 32,
 	GXB_COUNT   = 64
 };
 #define GXB_BIT(b) (1ull << (b))
@@ -55,7 +63,7 @@ public:
 	// ---- the data: index by slot, 0 .. size()-1 ----
 	std::vector<int>							id;				///< ObjectID (0 in a hole)
 	std::vector<Object*>					obj;			///< nullptr in a hole
-	std::vector<float>						x, y, z;		///< position (write-through)
+	std::vector<Coord3D>					pos;			///< position (truth with positionInStore, else write-through)
 	std::vector<Coord3D>					vel;			///< velocity (truth for physics units)
 	std::vector<float>						radius;			///< bounding circle radius
 	std::vector<signed char>			player;			///< controlling player index, -1 for none
@@ -68,7 +76,7 @@ public:
 	unsigned int epoch() const { return m_epoch; }
 	int liveCount() const { return (int)obj.size() - m_holes; }
 
-	/// slot of an object / id, -1 if not stored
+	/// slot of an object / id, -1 if not stored (an Object also knows its own: gxStoreSlot())
 	int slotOf(const Object *o) const;
 	int slotOfId(int objectId) const { return (objectId > 0 && objectId < (int)m_slotById.size()) ? m_slotById[objectId] : -1; }
 
@@ -84,6 +92,7 @@ public:
 	void setPlayer(const Object *o, int playerIndex);
 	void setCell(const Object *o, int cellIndex);
 	void compact();									///< close holes (pass() calls it once per frame)
+	void bumpEpoch() { ++m_epoch; }
 
 private:
 	std::vector<int>							m_slotById;		///< ObjectID -> slot, -1 if none

@@ -278,7 +278,7 @@ void AIPlayer::queueSupplyTruck()
 				}
 				// Make sure we have a supplies near it.
 				Coord3D center = *supplyCenter->getPosition();
-				Real radius = SUPPLY_CENTER_CLOSE_DIST + supplyCenter->getGeometryInfo().getBoundingCircleRadius();
+				Real radius = SUPPLY_CENTER_CLOSE_DIST + supplyCenter->getBoundingCircleRadius();
 
 				PartitionFilterAcceptByKindOf f1(MAKE_KINDOF_MASK(KINDOF_SUPPLY_SOURCE), KINDOFMASK_NONE);
 				PartitionFilterPlayer f2(m_player, false);	// Only find other.
@@ -915,7 +915,7 @@ void AIPlayer::guardSupplyCenter( Team *team, Int minSupplies )
 		offset.x = location.x - (bounds.lo.x+bounds.hi.x)*0.5f;
 		offset.y = location.y - (bounds.lo.y+bounds.hi.y)*0.5f;
 		offset.normalize();
-		Real radius = warehouse->getGeometryInfo().getBoundingCircleRadius()*0.8f;
+		Real radius = warehouse->getBoundingCircleRadius()*0.8f;
 
 		location.x -= offset.x*radius;
 		location.y -= offset.y*radius;
@@ -1894,7 +1894,7 @@ void AIPlayer::buildBySupplies(Int minimumCash, const AsciiString& thingName)
 			offset.x = location.x - (bounds.lo.x+bounds.hi.x)*0.5f;
 			offset.y = location.y - (bounds.lo.y+bounds.hi.y)*0.5f;
 			offset.normalize();
-			radius = bestSupplyWarehouse->getGeometryInfo().getBoundingCircleRadius();
+			radius = bestSupplyWarehouse->getBoundingCircleRadius();
 		}
 		location.x -= offset.x*radius;
 		location.y -= offset.y*radius;
@@ -2224,7 +2224,7 @@ Object *AIPlayer::findSupplyCenter(Int minimumCash)
 
 				// Make sure we don't have a supply center near it.
 				Coord3D center = *obj->getPosition();
-				Real radius = SUPPLY_CENTER_CLOSE_DIST + obj->getGeometryInfo().getBoundingCircleRadius();
+				Real radius = SUPPLY_CENTER_CLOSE_DIST + obj->getBoundingCircleRadius();
 
 				PartitionFilterAcceptByKindOf f1(MAKE_KINDOF_MASK(KINDOF_CASH_GENERATOR), KINDOFMASK_NONE);
 				PartitionFilterPlayer f2(m_player, true);	// Only find your own units.

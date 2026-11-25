@@ -92,7 +92,7 @@ Bool SupplyWarehouseDockUpdate::action( Object* docker, Object *drone )
 
 	// Make sure that the docker is at least reasonably close to the dock.
 	// Basically, one bounding diameter of space or less between us.
-	Real closeEnoughSqr = sqr(docker->getGeometryInfo().getBoundingCircleRadius()*2);
+	Real closeEnoughSqr = sqr(docker->getBoundingCircleRadius()*2);
 	Real curDistSqr = ThePartitionManager->getDistanceSquared(docker, getObject(), FROM_BOUNDINGSPHERE_2D);
 	if (curDistSqr > closeEnoughSqr) {
 		DEBUG_LOG(("Failing dock, dist %f, not close enough(%f).", sqrt(curDistSqr), sqrt(closeEnoughSqr)));

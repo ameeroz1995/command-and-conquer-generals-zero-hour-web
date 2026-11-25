@@ -237,7 +237,7 @@ void StickyBombUpdate::detonate()
 		if( boobyTrappedObject )
 		{
 			WeaponBonus nullBonus;
-			Real boundingCircle = boobyTrappedObject->getGeometryInfo().getBoundingCircleRadius();
+			Real boundingCircle = boobyTrappedObject->getBoundingCircleRadius();
 			Real primaryDamage = data->m_geometryBasedDamageWeaponTemplate->getPrimaryDamage(nullBonus);
 			Real secondaryDamage = data->m_geometryBasedDamageWeaponTemplate->getSecondaryDamage(nullBonus);
 			Real primaryDamageRange = data->m_geometryBasedDamageWeaponTemplate->getPrimaryDamageRadius(nullBonus);

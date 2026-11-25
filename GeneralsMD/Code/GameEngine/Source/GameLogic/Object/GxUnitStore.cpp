@@ -8,6 +8,12 @@
 
 #include <algorithm>
 
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches3();
+#else
+static int GLES3_Page_Switches3() { return 0; }
+#endif
+
 GxUnitStore TheGxUnitStore;
 
 //-------------------------------------------------------------------------------------------------
@@ -15,8 +21,8 @@ int GxUnitStore::slotOf(const Object *o) const
 {
 	if (!o)
 		return -1;
-	const int s = slotOfId((int)o->getID());
-	return (s >= 0 && obj[s] == o) ? s : -1;
+	const int s = o->gxStoreSlot();
+	return (s >= 0 && s < (int)obj.size() && obj[s] == o) ? s : -1;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -35,8 +41,8 @@ void GxUnitStore::add(Object *o)
 
 	if (obj.capacity() == 0)
 	{
-		const size_t n = 16384;	// ponytail: arrays may still reallocate past this; slots are re-read by epoch
-		id.reserve(n); obj.reserve(n); x.reserve(n); y.reserve(n); z.reserve(n); vel.reserve(n);
+		const size_t n = 16384;	// ponytail: past this the arrays reallocate, which moves getPosition()/getVelocity() pointers
+		id.reserve(n); obj.reserve(n); pos.reserve(n); vel.reserve(n);
 		radius.reserve(n); player.reserve(n); playerBit.reserve(n); cell.reserve(n); mask.reserve(n);
 	}
 	const Coord3D *p = o->getPosition();
@@ -45,10 +51,10 @@ void GxUnitStore::add(Object *o)
 
 	id.push_back(oid);
 	obj.push_back(o);
-	x.push_back(p->x); y.push_back(p->y); z.push_back(p->z);
+	pos.push_back(*p);
 	Coord3D zero; zero.zero();
 	vel.push_back(zero);
-	radius.push_back(o->getGeometryInfo().getBoundingCircleRadius());
+	radius.push_back(o->getGeometryInfo().getBoundingCircleRadius());	// not yet in the store: from the geometry
 	player.push_back((signed char)pi);
 	playerBit.push_back(pi >= 0 ? (1u << pi) : 0u);
 	cell.push_back(-1);
@@ -57,7 +63,9 @@ void GxUnitStore::add(Object *o)
 	if (oid >= (int)m_slotById.size())
 		m_slotById.resize(std::max<size_t>(oid + 1, m_slotById.size() * 2), -1);
 	m_slotById[oid] = (int)obj.size() - 1;
-	++m_epoch;
+	o->gxSetStoreSlot((int)obj.size() - 1);
+	if (GLES3_Page_Switches3() & 128)
+		o->gxSetPosInStore(true);	// switch positionInStore: from now on the store holds the position
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -66,13 +74,14 @@ void GxUnitStore::remove(Object *o)
 	const int s = slotOf(o);
 	if (s < 0)
 		return;
+	o->gxSetPosInStore(false);	// the object keeps its last position
+	o->gxSetStoreSlot(-1);
 	m_dirty |= mask[s];
 	m_slotById[id[s]] = -1;
 	obj[s] = nullptr;
 	id[s] = 0;
 	mask[s] = 0;
 	++m_holes;
-	++m_epoch;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -89,7 +98,9 @@ void GxUnitStore::setMask(const Object *o, GxBehaviourMask set, GxBehaviourMask 
 void GxUnitStore::setPos(const Object *o, const Coord3D &p)
 {
 	const int s = slotOf(o);
-	if (s >= 0) { x[s] = p.x; y[s] = p.y; z[s] = p.z; }
+	if (s < 0)
+		return;
+	pos[s] = p;
 }
 
 void GxUnitStore::setRadius(const Object *o, float r)
@@ -133,13 +144,16 @@ void GxUnitStore::compact()
 		std::sort(order.begin(), order.end(), [this](int a, int b) { return id[a] < id[b]; });
 
 	gxPermute(id, order); gxPermute(obj, order);
-	gxPermute(x, order); gxPermute(y, order); gxPermute(z, order);
+	gxPermute(pos, order);
 	gxPermute(vel, order);
 	gxPermute(radius, order); gxPermute(player, order); gxPermute(playerBit, order);
 	gxPermute(cell, order); gxPermute(mask, order);
 
 	for (int s = 0; s < (int)obj.size(); ++s)
+	{
 		m_slotById[id[s]] = s;
+		obj[s]->gxSetStoreSlot(s);
+	}
 	m_lastId = obj.empty() ? 0 : id.back();
 	m_holes = 0;
 	m_unsorted = false;

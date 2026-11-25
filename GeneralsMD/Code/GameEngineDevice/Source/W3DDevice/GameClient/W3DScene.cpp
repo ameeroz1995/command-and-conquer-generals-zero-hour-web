@@ -1412,7 +1412,7 @@ void RTS3DScene::flushOccludedObjectsIntoStencil(RenderInfoClass & rinfo)
 			draw = ((DrawableInfo *)robj->Get_User_Data())->m_drawable;
 			Object *object=draw->getObject();
 
-			Int index=object->getControllingPlayer()->getPlayerIndex();
+			Int index=object->gxPlayerIndex();
 
 			if ((lastPlayerObject[index]-&playerObjects[index][0]) >= MAX_VISIBLE_OCCLUDED_PLAYER_OBJECTS)
 			{
@@ -1632,7 +1632,7 @@ void RTS3DScene::flushOccludedObjects(RenderInfoClass & rinfo)
 			draw = ((DrawableInfo *)robj->Get_User_Data())->m_drawable;
 			Object *object=draw->getObject();
 
-			Int index=object->getControllingPlayer()->getPlayerIndex();
+			Int index=object->gxPlayerIndex();
 
 			rinfo.Push_Material_Pass(m_occludedMaterialPass[index]);
 			robj->Render(rinfo);
