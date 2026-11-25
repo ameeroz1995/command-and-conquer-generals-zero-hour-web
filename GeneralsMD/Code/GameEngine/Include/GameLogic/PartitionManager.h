@@ -50,7 +50,7 @@
 //           Includes
 //-----------------------------------------------------------------------------
 #include "Common/GameCommon.h"	// ensure we get DUMP_PERF_STATS, or not
-#include "Common/GxComponentPool.h"	// web port (round 5): PartitionData's component row
+#include "Common/GxUnitStore.h"	// web port (round 5): PartitionData's per-unit state lives in the store
 #include "GameLogic/ObjectIter.h"
 #include "Common/ObjectStatusTypes.h"
 #include "Common/KindOf.h"
@@ -79,18 +79,6 @@ const Real HUGE_DIST = 1000000.0f;
 //-----------------------------------------------------------------------------
 
 struct Coord3D;
-
-// Web port (round 5, "units are pure data"): PartitionData's own per-object state, in a component row
-// (Common/GxComponentPool.h; keyed by the PartitionData, as ghost objects have no store slot).
-struct PartitionDataGxRow
-{
-	Real x = 0.0f, y = 0.0f, r = HUGE_DIST;	///< switches pairPlace / pairOffer: the object's place when last refreshed (none yet: never turned away)
-	/// switch fogKeep (fourth word bit 15): per player, the cached shroud status came from a branch that
-	/// reads only the cells' shroud, so a move that keeps the same cells need not invalidate it; verify
-	/// mode invalidates anyway and checks the kept value.
-	UnsignedShort pure = 0, keptMask = 0;
-	ObjectShroudStatus kept[MAX_PLAYER_COUNT] = {};
-};
 
 class CellAndObjectIntersection;
 class Object;
@@ -462,7 +450,6 @@ private:
 	ObjectShroudStatus					m_shroudedness[MAX_PLAYER_COUNT];
 	ObjectShroudStatus					m_shroudednessPrevious[MAX_PLAYER_COUNT];	///<previous frames value of m_shroudedness
 	Bool												m_everSeenByPlayer[MAX_PLAYER_COUNT];		///<whether this object has ever been seen by a given player.
-	GxRow<PartitionDataGxRow>		m_gx;										///< web port (round 5): this object's cached place and fog bits, as a component row
 	const PartitionCell					*m_lastCell;							///< The last cell I thought my center was in.
 	UnsignedInt									m_gxDeferStamp;						///< web port (collideStagger): frame stamp when this unit waits its turn
 	Int													m_gxFillKey[8];						///< web port (cellReuse): what the last cell fill depended on; [0] == 0: none
@@ -471,9 +458,12 @@ public:
 	/// web port (switch searchCache): copy the object's position and radius into every COI in use
 	void gxRefreshPlace();
 	/// web port (switches pairPlace / pairOffer): the same copy kept here, for the touching-pair tests
-	Real gxX() const { return m_gx->x; }
-	Real gxY() const { return m_gx->y; }
-	Real gxR() const { return m_gx->r; }
+	/// web port (round 5): this object's slot in TheGxUnitStore, which holds its cached place and fog
+	/// bits (query block); -1 for a ghost-only PartitionData (no place: never turned away; nothing kept)
+	Int gxSlot() const;
+	Real gxX() const { const Int s = gxSlot(); return s >= 0 ? TheGxUnitStore.placeX[s] : 0.0f; }
+	Real gxY() const { const Int s = gxSlot(); return s >= 0 ? TheGxUnitStore.placeY[s] : 0.0f; }
+	Real gxR() const { const Int s = gxSlot(); return s >= 0 ? TheGxUnitStore.placeR[s] : HUGE_DIST; }
 private:
 
 	/**

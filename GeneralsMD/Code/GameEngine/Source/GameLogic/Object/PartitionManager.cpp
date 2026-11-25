@@ -1954,16 +1954,19 @@ ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 			// fogKeep: which branch decided it (the fogged one also reads relationship and kinds)
 			const UnsignedShort bit = (UnsignedShort)(1u << playerIndex);
 			const Bool fogBranch = m_coiInUseCount && shroudedCells != m_coiInUseCount && shroudedCells + foggedCells == m_coiInUseCount;
-			if (fogBranch) m_gx->pure &= ~bit; else m_gx->pure |= bit;
-			if (m_gx->keptMask & bit)
+			const Int gs = gxSlot();	// ghost-only: nothing kept
+			GxUnitStore &S = TheGxUnitStore;
+			if (gs >= 0) { if (fogBranch) S.fogPure[gs] &= ~bit; else S.fogPure[gs] |= bit; }
+			if (gs >= 0 && (S.fogKeptMask[gs] & bit))
 			{
 				extern int gx_verify_mismatch, gx_verify_checked;
-				m_gx->keptMask &= ~bit;
+				S.fogKeptMask[gs] &= ~bit;
 				++gx_verify_checked;
-				if (m_gx->kept[playerIndex] != m_shroudedness[playerIndex])
+				const Int kept = (Int)(S.fogKept[gs] >> (4 * playerIndex) & 15);
+				if (kept != m_shroudedness[playerIndex])
 				{
 					++gx_verify_mismatch;
-					printf("GXVERIFY fogKeep mismatch: object %u player %d kept %d now %d\n", m_object ? m_object->getID() : 0, playerIndex, m_gx->kept[playerIndex], m_shroudedness[playerIndex]);
+					printf("GXVERIFY fogKeep mismatch: object %u player %d kept %d now %d\n", m_object ? m_object->getID() : 0, playerIndex, kept, m_shroudedness[playerIndex]);
 				}
 				static Int s_gxKeepChecks;
 				if (++s_gxKeepChecks % 20000 == 0)
@@ -2292,6 +2295,7 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 	// collision reaction earlier in the same frame moves a unit into a pair dropped here.
 	extern bool gxMatchRule(unsigned int rule);
 	const Bool gxOffer = gxMatchRule(8192 /* GXRULE_SPATIAL_PAIRS */) && !g_gxPairOff;
+	const Real gxMx = gxX(), gxMy = gxY(), gxMr = gxR();	// our kept place (store columns; nothing here refreshes it)
 	CellAndObjectIntersection *myCoi = m_coiArray;
 	for (Int i = m_coiInUseCount; i > 0; --i, ++myCoi)
 	{
@@ -2310,30 +2314,42 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 		for (CellAndObjectIntersection *coi = cell->getFirstCoiInCell(); coi; coi = coi->getNextCoi(), ++gxLane)
 		{
 #ifdef __wasm_simd128__
-			if (gxSimd && (gxLane & 3) == 0)
+			if (gxSimd && (gxLane & 7) == 0)
 			{
+				// ILP (LOGIC_AGENTS "SIMD step"): 8 neighbours per block, two independent f32x4 chains;
+				// a short tail (under 4) is all kept
 				gxLanes = ~0u;
-				CellAndObjectIntersection *q1 = coi->getNextCoi(), *q2 = q1 ? q1->getNextCoi() : nullptr, *q3 = q2 ? q2->getNextCoi() : nullptr;
-				if (q3)
+				CellAndObjectIntersection *q[8];
+				Int n = 0;
+				for (CellAndObjectIntersection *c = coi; c && n < 8; c = c->getNextCoi())
+					q[n++] = c;
+				const v128_t mx = wasm_f32x4_splat(gxMx), my = wasm_f32x4_splat(gxMy), mr = wasm_f32x4_splat(gxMr);
+				const v128_t k14 = wasm_f32x4_splat(1.4143f), one = wasm_f32x4_splat(1.0f);
+				#define GX_PAIR4(b) ([&]() -> UnsignedInt { \
+					const v128_t vx = wasm_f32x4_make(q[b]->gxX(), q[b + 1]->gxX(), q[b + 2]->gxX(), q[b + 3]->gxX()); \
+					const v128_t vy = wasm_f32x4_make(q[b]->gxY(), q[b + 1]->gxY(), q[b + 2]->gxY(), q[b + 3]->gxY()); \
+					const v128_t vr = wasm_f32x4_make(q[b]->gxR(), q[b + 1]->gxR(), q[b + 2]->gxR(), q[b + 3]->gxR()); \
+					const v128_t dx = wasm_f32x4_sub(vx, mx), dy = wasm_f32x4_sub(vy, my); \
+					const v128_t lim = wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_add(vr, mr), k14), one); \
+					const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)); \
+					return (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim)))); }())
+				if (n == 8)
 				{
-					const v128_t vx = wasm_f32x4_make(coi->gxX(), q1->gxX(), q2->gxX(), q3->gxX());
-					const v128_t vy = wasm_f32x4_make(coi->gxY(), q1->gxY(), q2->gxY(), q3->gxY());
-					const v128_t vr = wasm_f32x4_make(coi->gxR(), q1->gxR(), q2->gxR(), q3->gxR());
-					const v128_t dx = wasm_f32x4_sub(vx, wasm_f32x4_splat(m_gx->x));
-					const v128_t dy = wasm_f32x4_sub(vy, wasm_f32x4_splat(m_gx->y));
-					const v128_t lim = wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_add(vr, wasm_f32x4_splat(m_gx->r)), wasm_f32x4_splat(1.4143f)), wasm_f32x4_splat(1.0f));
-					const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy));
-					gxLanes = (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim))));
-					gxCount(GXC_PAIRS_SIMD_CULLED, 4 - __builtin_popcount(gxLanes));
+					const UnsignedInt a = GX_PAIR4(0), b = GX_PAIR4(4);
+					gxLanes = a | (b << 4) | ~0xffu;
 				}
+				else if (n >= 4)
+					gxLanes = GX_PAIR4(0) | ~0xfu;
+				#undef GX_PAIR4
+				gxCount(GXC_PAIRS_SIMD_CULLED, 8 - __builtin_popcount(gxLanes & 0xffu));
 			}
-			if (gxSimd && !((gxLanes >> (gxLane & 3)) & 1))
+			if (gxSimd && !((gxLanes >> (gxLane & 7)) & 1))
 			{
 				if (GLES3_Page_Switches() & 2097152)
 				{
 					// verify: the scalar test must turn this neighbour away too
 					static unsigned s_checked, s_bad;
-					const Real dx = coi->gxX() - m_gx->x, dy = coi->gxY() - m_gx->y, lim = (coi->gxR() + m_gx->r) * 1.4143f + 1.0f;
+					const Real dx = coi->gxX() - gxMx, dy = coi->gxY() - gxMy, lim = (coi->gxR() + gxMr) * 1.4143f + 1.0f;
 					++s_checked;
 					if (!(dx * dx + dy * dy > lim * lim))
 					{
@@ -2349,7 +2365,7 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 			if (gxOffer)
 			{
 				gxCount(GXC_PAIRS_TESTED);
-				const Real dx = coi->gxX() - m_gx->x, dy = coi->gxY() - m_gx->y, lim = (coi->gxR() + m_gx->r) * 1.4143f + 1.0f;
+				const Real dx = coi->gxX() - gxMx, dy = coi->gxY() - gxMy, lim = (coi->gxR() + gxMr) * 1.4143f + 1.0f;
 				if (dx * dx + dy * dy > lim * lim)
 					continue;
 			}
@@ -2604,17 +2620,21 @@ void PartitionData::updateCellsTouched()
 	{
 		// switch fogKeep: same cells, so a status decided by the cells' shroud alone still holds (a cell's
 		// shroud change invalidates its objects itself); the rest are invalidated as before
+		const Int gs = gxSlot();
+		GxUnitStore &S = TheGxUnitStore;
+		const UnsignedShort gxPure = gs >= 0 ? S.fogPure[gs] : 0;
 		for (Int i = 0; i < MAX_PLAYER_COUNT; ++i)
 		{
-			if ((m_gx->pure >> i & 1) && m_shroudedness[i] != OBJECTSHROUD_INVALID)
+			if ((gxPure >> i & 1) && m_shroudedness[i] != OBJECTSHROUD_INVALID)
 			{
 				gxCount(GXC_FOG_KEPT);	// tickTiming
 				if (!gxVerify)
 					continue;
 				const ObjectShroudStatus kept = m_shroudedness[i];
 				invalidateShroudedStatusForPlayer(i);
-				m_gx->kept[i] = kept;	// verify: recompute and compare (unless a real invalidation comes first)
-				m_gx->keptMask |= (UnsignedShort)(1u << i);
+				// verify: recompute and compare (unless a real invalidation comes first)
+				S.fogKept[gs] = (S.fogKept[gs] & ~(15ull << (4 * i))) | ((unsigned long long)kept << (4 * i));
+				S.fogKeptMask[gs] |= (UnsignedShort)(1u << i);
 				continue;
 			}
 			invalidateShroudedStatusForPlayer(i);
@@ -2641,7 +2661,11 @@ void PartitionData::updateCellsTouched()
 //-----------------------------------------------------------------------------
 void PartitionData::invalidateShroudedStatusForPlayer(Int playerIndex)
 {
-	m_gx->keptMask &= (UnsignedShort)~(1u << playerIndex);	// fogKeep verify: a real invalidation, nothing to compare
+	{
+		const Int gs = gxSlot();	// fogKeep verify: a real invalidation, nothing to compare
+		if (gs >= 0)
+			TheGxUnitStore.fogKeptMask[gs] &= (UnsignedShort)~(1u << playerIndex);
+	}
 #ifndef DISABLE_INVALID_PREVENTION
 	if (m_shroudedness[playerIndex] != OBJECTSHROUD_INVALID && m_shroudedness[playerIndex] != OBJECTSHROUD_INVALID_BUT_PREVIOUS_VALID)
 #endif
@@ -2772,6 +2796,8 @@ void PartitionData::attachToObject(Object* object)
 
 	// remember who contains us
 	m_object = object;
+	if (object->gxStoreSlot() >= 0)
+		TheGxUnitStore.queryReset(object->gxStoreSlot());	// web port: a new PartitionData knows no place or fog bits yet
 
 	// we only snapshot things that are immobile and have something to draw.  Don't need ghostobjects for others.
 	if (object->isKindOf(KINDOF_IMMOBILE))
@@ -4298,6 +4324,11 @@ enum
 	GX_GCO_SNAP = 32		// read this tick's per-cell lists of store slots (match rule scanManager)
 };
 
+Int PartitionData::gxSlot() const
+{
+	return m_object ? m_object->gxStoreSlot() : -1;
+}
+
 void PartitionData::gxRefreshPlace()
 {
 	const Object *o = m_object;
@@ -4306,9 +4337,13 @@ void PartitionData::gxRefreshPlace()
 	const Coord3D *p = o->getPosition();
 	const GeometryInfo &g = o->getGeometryInfo();
 	const Real r = max(g.getBoundingCircleRadius(), g.getBoundingSphereRadius());
-	m_gx->x = p->x;
-	m_gx->y = p->y;
-	m_gx->r = r;
+	const Int s = o->gxStoreSlot();
+	if (s >= 0)
+	{
+		TheGxUnitStore.placeX[s] = p->x;
+		TheGxUnitStore.placeY[s] = p->y;
+		TheGxUnitStore.placeR[s] = r;
+	}
 	for (Int i = 0; i < m_coiInUseCount; ++i)
 		m_coiArray[i].gxSetPlace(p->x, p->y, r);
 }
@@ -4650,25 +4685,34 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 					const Int s = s_gxSnapSlots[k];
 					gxCount(GXC_SEARCH_ENTRIES);
 #ifdef __wasm_simd128__
-					if (gxSimd && ((k - s_gxSnapStart[ci]) & 3) == 0)
+					if (gxSimd && ((k - s_gxSnapStart[ci]) & 7) == 0)
 					{
+						// ILP (LOGIC_AGENTS "SIMD step"): 8 slots per block, two independent f32x4 chains at
+						// the block's limit; a short tail (under 4) is all kept
 						gxLanes = ~0u;
-						if (kEnd - k >= 4)
+						const Int *q = &s_gxSnapSlots[k];
+						const v128_t sx = wasm_f32x4_splat(px), sy = wasm_f32x4_splat(py), sl = wasm_f32x4_splat(gxLimit);
+						#define GX_SNAP4(b) ([&]() -> UnsignedInt { \
+							const v128_t vx = wasm_f32x4_make(S.x[q[b]], S.x[q[b + 1]], S.x[q[b + 2]], S.x[q[b + 3]]); \
+							const v128_t vy = wasm_f32x4_make(S.y[q[b]], S.y[q[b + 1]], S.y[q[b + 2]], S.y[q[b + 3]]); \
+							const v128_t vr = wasm_f32x4_make(s_gxSnapR[q[b]], s_gxSnapR[q[b + 1]], s_gxSnapR[q[b + 2]], s_gxSnapR[q[b + 3]]); \
+							const v128_t dx = wasm_f32x4_sub(vx, sx), dy = wasm_f32x4_sub(vy, sy); \
+							const v128_t lim = wasm_f32x4_add(sl, vr); \
+							const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)); \
+							return (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim)))); }())	/* keep unless "> lim^2", as the scalar test (NaN kept) */
+						if (kEnd - k >= 8)
 						{
-							const Int *q = &s_gxSnapSlots[k];
-							const v128_t vx = wasm_f32x4_make(S.x[q[0]], S.x[q[1]], S.x[q[2]], S.x[q[3]]);
-							const v128_t vy = wasm_f32x4_make(S.y[q[0]], S.y[q[1]], S.y[q[2]], S.y[q[3]]);
-							const v128_t vr = wasm_f32x4_make(s_gxSnapR[q[0]], s_gxSnapR[q[1]], s_gxSnapR[q[2]], s_gxSnapR[q[3]]);
-							const v128_t dx = wasm_f32x4_sub(vx, wasm_f32x4_splat(px));
-							const v128_t dy = wasm_f32x4_sub(vy, wasm_f32x4_splat(py));
-							const v128_t lim = wasm_f32x4_add(wasm_f32x4_splat(gxLimit), vr);
-							const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy));
-							gxLanes = (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim))));	// keep unless "> lim^2", as the scalar test (NaN kept)
-							g_gxSimdCulled += 4 - __builtin_popcount(gxLanes);
-							gxCount(GXC_SIMD_CULLED, 4 - __builtin_popcount(gxLanes));
+							const UnsignedInt a = GX_SNAP4(0), b = GX_SNAP4(4);
+							gxLanes = a | (b << 4) | ~0xffu;
 						}
+						else if (kEnd - k >= 4)
+							gxLanes = GX_SNAP4(0) | ~0xfu;
+						#undef GX_SNAP4
+						const Int culled = 8 - __builtin_popcount(gxLanes & 0xffu);
+						g_gxSimdCulled += culled;
+						gxCount(GXC_SIMD_CULLED, culled);
 					}
-					if (!((gxLanes >> ((k - s_gxSnapStart[ci]) & 3)) & 1))
+					if (!((gxLanes >> ((k - s_gxSnapStart[ci]) & 7)) & 1))
 					{
 						if (GLES3_Page_Switches() & 2097152)
 						{

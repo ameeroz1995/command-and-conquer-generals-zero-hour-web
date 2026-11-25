@@ -95,6 +95,16 @@ public:
 	void weaponTouch(int objectId) { const int s = slotOfId(objectId); if (s >= 0) weaponReady[s] = 0; }
 	// ---- end combat block ----
 
+	// ---- query block (round 5, query agent): PartitionData's own per-unit state ----
+	std::vector<float>						placeX, placeY, placeR;	///< pairPlace / pairOffer: the place when last refreshed (placeR 1e6 = HUGE_DIST: never turned away)
+	/// fogKeep (fourth word bit 15), one bit per player: the cached shroud status came from a branch that
+	/// reads only the cells' shroud; fogKept / fogKeptMask: verify mode's kept statuses (4 bits a player)
+	std::vector<unsigned short>		fogPure, fogKeptMask;
+	std::vector<unsigned long long>	fogKept;
+	/// a PartitionData attaches to the object at slot s: its place is not known yet
+	void queryReset(int s) { placeX[s] = placeY[s] = 0.0f; placeR[s] = 1000000.0f; fogPure[s] = fogKeptMask[s] = 0; fogKept[s] = 0; }
+	// ---- end query block ----
+
 	Coord3D posOf(int s) const { Coord3D c; c.x = x[s]; c.y = y[s]; c.z = z[s]; return c; }
 	Coord3D velOf(int s) const { Coord3D c; c.x = vx[s]; c.y = vy[s]; c.z = vz[s]; return c; }
 	GxVec3Ref velRef(int s) { return GxVec3Ref(vx[s], vy[s], vz[s]); }

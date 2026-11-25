@@ -3920,3 +3920,14 @@ Stays default off.
   checked, 0 mismatches; fogKeep 2.54M checks, 0. Replays referee, query-mgr5, query-mgr6 match (query-33).
 - Battle counters (query-33, tickTiming): pairs tested 3942/tick, SIMD-culled 4395/tick; search entries 27446,
   SIMD-culled 5880/tick.
+
+## PartitionData state into store columns; ILP in the SIMD culls (LOGIC_AGENTS "SIMD step")
+- PartitionDataGxRow is gone: the cached place (placeX/Y/R) and fogKeep bits (fogPure, fogKeptMask, fogKept:
+  4 bits a player) are a query block in TheGxUnitStore (added, reserved, permuted with the rest). A
+  PartitionData reaches them through its object's store slot; attachToObject resets them (a new PartitionData
+  knows no place: placeR = HUGE_DIST, never turned away). Ghost-only PartitionData has no slot: no place,
+  nothing kept (the switch-off behaviour). The per-COI place copies stay in the COIs (one per cell entry).
+- simdPairs and simdSearch: blocks of 8 with two independent f32x4 chains (was one block of 4), branchless
+  masks, same f32 ops (no FMA / relaxed SIMD); tails under 4 are kept as before.
+- query-36: referee, query-mgr5, query-mgr6 match; battle verify: simdPairs 9.6M / simdSearch 9.8M dropped
+  lanes checked, fogKeep 2.54M, all 0 mismatches.
