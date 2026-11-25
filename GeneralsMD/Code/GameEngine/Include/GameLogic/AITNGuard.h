@@ -61,18 +61,35 @@ enum
 };
 
 //--------------------------------------------------------------------------------------
+struct GxTunnelNetworkExitConditionsRow;
 class TunnelNetworkExitConditions : public AttackExitConditionsInterface
 {
 public:
+	virtual ~TunnelNetworkExitConditions();	///< web port (round 5): releases the row
 
-	UnsignedInt			m_attackGiveUpFrame;		// frame at which we give up (if using)
+public:
 
-	TunnelNetworkExitConditions() : m_attackGiveUpFrame(0)
-	{
-	}
+	struct GxTunnelNetworkExitConditionsRow *m_gxTunnelNetworkExitConditionsRow;	///< web port (round 5): this unit's row in TheGxTunnelNetworkExitConditionss
+	friend struct GxTunnelNetworkExitConditionsRow;
+	inline struct GxTunnelNetworkExitConditionsRow &gxRow() const;
+
+	TunnelNetworkExitConditions();	///< web port (round 5): defined in the .cpp
+
 
 	virtual Bool shouldExit(const StateMachine* machine) const;
 };
+
+// Web port (round 5, units are pure data): TunnelNetworkExitConditions's per-unit state, one row per unit in TheGxTunnelNetworkExitConditionss;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxTunnelNetworkExitConditionsRow
+{
+	UnsignedInt attackGiveUpFrame;
+};
+extern GxComponentTable<GxTunnelNetworkExitConditionsRow> TheGxTunnelNetworkExitConditionss;
+
+
+inline GxTunnelNetworkExitConditionsRow &TunnelNetworkExitConditions::gxRow() const { return TheGxTunnelNetworkExitConditionss.at(m_gxTunnelNetworkExitConditionsRow); }
+
 
 
 // FORWARD DECLARATIONS ///////////////////////////////////////////////////////

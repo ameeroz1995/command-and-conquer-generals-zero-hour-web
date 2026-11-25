@@ -53,6 +53,12 @@
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/PolygonTrigger.h"
 
+// Web port (round 5, units are pure data): TunnelNetworkExitConditions's per-unit state is a row of TheGxTunnelNetworkExitConditionss;
+// GXROW_TUNNELNETWORKEXITCONDITIONS is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxTunnelNetworkExitConditionsRow> TheGxTunnelNetworkExitConditionss;
+#define GXROW_TUNNELNETWORKEXITCONDITIONS (TheGxTunnelNetworkExitConditionss.at(m_gxTunnelNetworkExitConditionsRow))
+
+
 // Web port (round 5, units are pure data): AITNGuardReturnState's per-unit state is a row of TheGxAITNGuardReturnStates;
 // GXROW_AITNGUARDRETURNSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
 GxComponentTable<GxAITNGuardReturnStateRow> TheGxAITNGuardReturnStates;
@@ -167,7 +173,7 @@ static Object *findBestTunnel(Player *ownerPlayer, const Coord3D *pos)
 Bool TunnelNetworkExitConditions::shouldExit(const StateMachine* machine) const
 {
 
-		if (TheGameLogic->getFrame() >= m_attackGiveUpFrame)
+		if (TheGameLogic->getFrame() >= GXROW_TUNNELNETWORKEXITCONDITIONS.attackGiveUpFrame)
 		{
 			return true;
 		}
@@ -373,7 +379,7 @@ StateReturnType AITNGuardInnerState::onEnter()
 		DEBUG_LOG(("Unexpected null nemesis in AITNGuardInnerState."));
 		return STATE_SUCCESS;
 	}
-	GXROW_AITNGUARDINNERSTATE.exitConditions.m_attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
+	GXROW_AITNGUARDINNERSTATE.exitConditions.gxRow().attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
 
 	GXROW_AITNGUARDINNERSTATE.attackState = newInstance(AIAttackState)(getMachine(), false, true, false, &GXROW_AITNGUARDINNERSTATE.exitConditions);
 
@@ -427,7 +433,7 @@ StateReturnType AITNGuardInnerState::update()
 		if (teamVictim)
 		{
 			getGuardMachine()->setNemesisID(teamVictim->getID());
-			GXROW_AITNGUARDINNERSTATE.exitConditions.m_attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
+			GXROW_AITNGUARDINNERSTATE.exitConditions.gxRow().attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
 			return STATE_CONTINUE;
 		}
 
@@ -436,7 +442,7 @@ StateReturnType AITNGuardInnerState::update()
 			nemesis = tunnels->getCurNemesis();
 			if (nemesis) {
 				getGuardMachine()->setNemesisID(nemesis->getID());
-				GXROW_AITNGUARDINNERSTATE.exitConditions.m_attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
+				GXROW_AITNGUARDINNERSTATE.exitConditions.gxRow().attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
 				return STATE_CONTINUE;
 			}
 		}
@@ -525,7 +531,7 @@ StateReturnType AITNGuardOuterState::onEnter()
 		return STATE_SUCCESS;
 	}
 
-	GXROW_AITNGUARDOUTERSTATE.exitConditions.m_attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
+	GXROW_AITNGUARDOUTERSTATE.exitConditions.gxRow().attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
 	GXROW_AITNGUARDOUTERSTATE.attackState = newInstance(AIAttackState)(getMachine(), false, true, false, &GXROW_AITNGUARDOUTERSTATE.exitConditions);
 	GXROW_AITNGUARDOUTERSTATE.attackState->getMachine()->setGoalObject(nemesis);
 
@@ -864,7 +870,7 @@ StateReturnType AITNGuardAttackAggressorState::onEnter()
 	}
 	if (tunnels) tunnels->updateNemesis(nemesis);
 
-	GXROW_AITNGUARDATTACKAGGRESSORSTATE.exitConditions.m_attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
+	GXROW_AITNGUARDATTACKAGGRESSORSTATE.exitConditions.gxRow().attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
 	GXROW_AITNGUARDATTACKAGGRESSORSTATE.attackState = newInstance(AIAttackState)(getMachine(), true, true, false, &GXROW_AITNGUARDATTACKAGGRESSORSTATE.exitConditions);
 	GXROW_AITNGUARDATTACKAGGRESSORSTATE.attackState->getMachine()->setGoalObject(nemesis);
 
@@ -966,3 +972,16 @@ AITNGuardReturnState::~AITNGuardReturnState()
 {
 	TheGxAITNGuardReturnStates.release( m_gxAITNGuardReturnStateRow );	// web port (round 5)
 }
+
+TunnelNetworkExitConditions::TunnelNetworkExitConditions()
+{
+	m_gxTunnelNetworkExitConditionsRow = TheGxTunnelNetworkExitConditionss.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_TUNNELNETWORKEXITCONDITIONS.attackGiveUpFrame = 0;
+
+	}
+
+TunnelNetworkExitConditions::~TunnelNetworkExitConditions()
+{
+	TheGxTunnelNetworkExitConditionss.release( m_gxTunnelNetworkExitConditionsRow );	// web port (round 5)
+}
+

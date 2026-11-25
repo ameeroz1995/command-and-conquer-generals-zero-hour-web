@@ -59,8 +59,12 @@ enum
 };
 
 //--------------------------------------------------------------------------------------
+struct GxGuardRetaliateExitConditionsRow;
 class GuardRetaliateExitConditions : public AttackExitConditionsInterface
 {
+public:
+	virtual ~GuardRetaliateExitConditions();	///< web port (round 5): releases the row
+
 public:
 
 	enum ExitConditionsEnum
@@ -70,18 +74,30 @@ public:
 		ATTACK_ExitIfNoUnitFound			= 0x04
 	};
 
-	Int							m_conditionsToConsider;
-	Coord3D					m_center;								// can be updated at any time by owner
-	Real						m_radiusSqr;						// can be updated at any time by owner
-	UnsignedInt			m_attackGiveUpFrame;		// frame at which we give up (if using)
+	struct GxGuardRetaliateExitConditionsRow *m_gxGuardRetaliateExitConditionsRow;	///< web port (round 5): this unit's row in TheGxGuardRetaliateExitConditionss
+	friend struct GxGuardRetaliateExitConditionsRow;
+	inline struct GxGuardRetaliateExitConditionsRow &gxRow() const;
 
-	GuardRetaliateExitConditions() : m_attackGiveUpFrame(0), m_conditionsToConsider(0), m_radiusSqr(0.0f)
-	{
-		m_center.zero();
-	}
+	GuardRetaliateExitConditions();	///< web port (round 5): defined in the .cpp
+
 
 	virtual Bool shouldExit(const StateMachine* machine) const;
 };
+
+// Web port (round 5, units are pure data): GuardRetaliateExitConditions's per-unit state, one row per unit in TheGxGuardRetaliateExitConditionss;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxGuardRetaliateExitConditionsRow
+{
+	Int conditionsToConsider;
+	Coord3D center;
+	Real radiusSqr;
+	UnsignedInt attackGiveUpFrame;
+};
+extern GxComponentTable<GxGuardRetaliateExitConditionsRow> TheGxGuardRetaliateExitConditionss;
+
+
+inline GxGuardRetaliateExitConditionsRow &GuardRetaliateExitConditions::gxRow() const { return TheGxGuardRetaliateExitConditionss.at(m_gxGuardRetaliateExitConditionsRow); }
+
 
 
 // FORWARD DECLARATIONS ///////////////////////////////////////////////////////

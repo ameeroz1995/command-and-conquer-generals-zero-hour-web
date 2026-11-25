@@ -3872,9 +3872,10 @@ Converted (per-unit state now in tables):
 - Upgrade/: UpgradeMux (every upgrade's "executed" flag) and GrantScienceUpgrade; the 19 others are
   stateless.
 - AIUpdateInterface (75 fields); AI state machines: 25 AIStates classes, the guard / retaliate /
-  tunnel-guard machines and states, dock machine and states, TurretAI and its states. Not converted:
-  the three *ExitConditions classes (held by value inside state rows), TurretAIAimTurretState (its
-  only field is compiled out), TurretAIData (per-type INI data).
+  tunnel-guard machines and states, dock machine and states, TurretAI and its states. The three
+  *ExitConditions classes (held by value inside state rows) are converted too (ai-23, after rows were
+  made to be built in place, never copied). Not converted: TurretAIAimTurretState (its only field is
+  compiled out), TurretAIData (per-type INI data).
 - No edit in other agents' files: JetAIUpdate.cpp (paths) still uses `m_goalPosition`,
   `m_waitingForPath` and `m_path` of its bases, which are now reference names for the row fields.
 - dataBehaviors (fourth word bit 6, same game, on): GenerateMinefieldBehavior looked up the EMP-mines
@@ -3889,3 +3890,5 @@ ai-17 (merged base) / ai-22 (converted):
 At matched load the converted build is level or faster; run 1's gap follows the load. Not slower within
 what this machine can show; it is the same game, so it stays on (there is no switch for where the
 data lives; dataBehaviors only gates the minefield's cached lookup).
+- ai-23 (ExitConditions converted): referee replay matches, the updatePasses recording replays to a
+  match, verify mode clean (only the laser-scan lines).

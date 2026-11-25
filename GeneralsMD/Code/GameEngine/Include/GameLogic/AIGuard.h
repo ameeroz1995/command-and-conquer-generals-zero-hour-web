@@ -61,8 +61,12 @@ enum
 };
 
 //--------------------------------------------------------------------------------------
+struct GxExitConditionsRow;
 class ExitConditions : public AttackExitConditionsInterface
 {
+public:
+	virtual ~ExitConditions();	///< web port (round 5): releases the row
+
 public:
 
 	enum ExitConditionsEnum
@@ -72,18 +76,30 @@ public:
 		ATTACK_ExitIfNoUnitFound			= 0x04
 	};
 
-	Int							m_conditionsToConsider;
-	Coord3D					m_center;								// can be updated at any time by owner
-	Real						m_radiusSqr;						// can be updated at any time by owner
-	UnsignedInt			m_attackGiveUpFrame;		// frame at which we give up (if using)
+	struct GxExitConditionsRow *m_gxExitConditionsRow;	///< web port (round 5): this unit's row in TheGxExitConditionss
+	friend struct GxExitConditionsRow;
+	inline struct GxExitConditionsRow &gxRow() const;
 
-	ExitConditions() : m_attackGiveUpFrame(0), m_conditionsToConsider(0), m_radiusSqr(0.0f)
-	{
-		m_center.zero();
-	}
+	ExitConditions();	///< web port (round 5): defined in the .cpp
+
 
 	virtual Bool shouldExit(const StateMachine* machine) const;
 };
+
+// Web port (round 5, units are pure data): ExitConditions's per-unit state, one row per unit in TheGxExitConditionss;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxExitConditionsRow
+{
+	Int conditionsToConsider;
+	Coord3D center;
+	Real radiusSqr;
+	UnsignedInt attackGiveUpFrame;
+};
+extern GxComponentTable<GxExitConditionsRow> TheGxExitConditionss;
+
+
+inline GxExitConditionsRow &ExitConditions::gxRow() const { return TheGxExitConditionss.at(m_gxExitConditionsRow); }
+
 
 
 // FORWARD DECLARATIONS ///////////////////////////////////////////////////////

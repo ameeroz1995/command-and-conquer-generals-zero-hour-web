@@ -52,6 +52,12 @@
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/PolygonTrigger.h"
 
+// Web port (round 5, units are pure data): GuardRetaliateExitConditions's per-unit state is a row of TheGxGuardRetaliateExitConditionss;
+// GXROW_GUARDRETALIATEEXITCONDITIONS is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxGuardRetaliateExitConditionsRow> TheGxGuardRetaliateExitConditionss;
+#define GXROW_GUARDRETALIATEEXITCONDITIONS (TheGxGuardRetaliateExitConditionss.at(m_gxGuardRetaliateExitConditionsRow))
+
+
 // Web port (round 5, units are pure data): AIGuardRetaliateReturnState's per-unit state is a row of TheGxAIGuardRetaliateReturnStates;
 // GXROW_AIGUARDRETALIATERETURNSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
 GxComponentTable<GxAIGuardRetaliateReturnStateRow> TheGxAIGuardRetaliateReturnStates;
@@ -150,7 +156,7 @@ Bool GuardRetaliateExitConditions::shouldExit(const StateMachine* machine) const
 {
 	if (!machine->getGoalObject())
 	{
-		if (m_conditionsToConsider & ATTACK_ExitIfNoUnitFound)
+		if (GXROW_GUARDRETALIATEEXITCONDITIONS.conditionsToConsider & ATTACK_ExitIfNoUnitFound)
 		{
 			return true;
 		}
@@ -160,21 +166,21 @@ Bool GuardRetaliateExitConditions::shouldExit(const StateMachine* machine) const
 		}
 	}
 
-	if (m_conditionsToConsider & ATTACK_ExitIfExpiredDuration)
+	if (GXROW_GUARDRETALIATEEXITCONDITIONS.conditionsToConsider & ATTACK_ExitIfExpiredDuration)
 	{
-		if (TheGameLogic->getFrame() >= m_attackGiveUpFrame)
+		if (TheGameLogic->getFrame() >= GXROW_GUARDRETALIATEEXITCONDITIONS.attackGiveUpFrame)
 		{
 			return true;
 		}
 	}
 
-	if (m_conditionsToConsider & ATTACK_ExitIfOutsideRadius)
+	if (GXROW_GUARDRETALIATEEXITCONDITIONS.conditionsToConsider & ATTACK_ExitIfOutsideRadius)
 	{
 		Coord3D deltaAggressor, myRange;
 		Coord3D objPos = *machine->getGoalObject()->getPosition();
 		Coord3D myPos = *machine->getOwner()->getPosition();
-		deltaAggressor.x = objPos.x - m_center.x;
-		deltaAggressor.y = objPos.y - m_center.y;
+		deltaAggressor.x = objPos.x - GXROW_GUARDRETALIATEEXITCONDITIONS.center.x;
+		deltaAggressor.y = objPos.y - GXROW_GUARDRETALIATEEXITCONDITIONS.center.y;
 		deltaAggressor.z = 0; // BGC - when we search for a target we don't account for Z, so why should we here?
 													// changing this fixed a crash where a GLARebelInfantry would be in GuardReturnState, find
 													// a target that is within range, then not be able to attack because its actually out of range.
@@ -182,11 +188,11 @@ Bool GuardRetaliateExitConditions::shouldExit(const StateMachine* machine) const
 													// loop that eventually blew the stack.
 
 		Real guardRangeSqr = sqr( AIGuardRetaliateMachine::getStdGuardRange( machine->getOwner() ) );
-		myRange.x = myPos.x - m_center.x;
-		myRange.y = myPos.y - m_center.y;
+		myRange.x = myPos.x - GXROW_GUARDRETALIATEEXITCONDITIONS.center.x;
+		myRange.y = myPos.y - GXROW_GUARDRETALIATEEXITCONDITIONS.center.y;
 		myRange.z = 0;
 
-		if( deltaAggressor.lengthSqr() > m_radiusSqr )
+		if( deltaAggressor.lengthSqr() > GXROW_GUARDRETALIATEEXITCONDITIONS.radiusSqr )
 		{
 			//The aggressor is too far away now... give up retaliation.
 			return TRUE;
@@ -436,9 +442,9 @@ StateReturnType AIGuardRetaliateInnerState::onEnter()
 			DEBUG_LOG(("Unexpected null nemesis in AIGuardRetaliateInnerState."));
 			return STATE_SUCCESS;
 		}
-		GXROW_AIGUARDRETALIATEINNERSTATE.exitConditions.m_center = pos;
-		GXROW_AIGUARDRETALIATEINNERSTATE.exitConditions.m_radiusSqr = sqr( 1.5f * AIGuardRetaliateMachine::getStdGuardRange( getMachineOwner() ) );
-		GXROW_AIGUARDRETALIATEINNERSTATE.exitConditions.m_conditionsToConsider = (GuardRetaliateExitConditions::ATTACK_ExitIfOutsideRadius |
+		GXROW_AIGUARDRETALIATEINNERSTATE.exitConditions.gxRow().center = pos;
+		GXROW_AIGUARDRETALIATEINNERSTATE.exitConditions.gxRow().radiusSqr = sqr( 1.5f * AIGuardRetaliateMachine::getStdGuardRange( getMachineOwner() ) );
+		GXROW_AIGUARDRETALIATEINNERSTATE.exitConditions.gxRow().conditionsToConsider = (GuardRetaliateExitConditions::ATTACK_ExitIfOutsideRadius |
 																								GuardRetaliateExitConditions::ATTACK_ExitIfNoUnitFound);
 
 		GXROW_AIGUARDRETALIATEINNERSTATE.attackState = newInstance(AIAttackState)(getMachine(), false, true, false, &GXROW_AIGUARDRETALIATEINNERSTATE.exitConditions);
@@ -549,10 +555,10 @@ StateReturnType AIGuardRetaliateOuterState::onEnter()
 
 	Real range = TheAI->getAdjustedVisionRangeForObject(obj, AI_VISIONFACTOR_OWNERTYPE | AI_VISIONFACTOR_MOOD);
 
-	GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.m_center = pos;
-	GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.m_radiusSqr = sqr( 0.67f * (range + AIGuardRetaliateMachine::getStdGuardRange( getMachineOwner() )) );
-	GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.m_attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
-	GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.m_conditionsToConsider = (GuardRetaliateExitConditions::ATTACK_ExitIfExpiredDuration |
+	GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.gxRow().center = pos;
+	GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.gxRow().radiusSqr = sqr( 0.67f * (range + AIGuardRetaliateMachine::getStdGuardRange( getMachineOwner() )) );
+	GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.gxRow().attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
+	GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.gxRow().conditionsToConsider = (GuardRetaliateExitConditions::ATTACK_ExitIfExpiredDuration |
 																								GuardRetaliateExitConditions::ATTACK_ExitIfOutsideRadius |
 																								GuardRetaliateExitConditions::ATTACK_ExitIfNoUnitFound);
 
@@ -577,14 +583,14 @@ StateReturnType AIGuardRetaliateOuterState::update()
 	if (goalObj)
 	{
 		Coord3D deltaAggr;
-		deltaAggr.x = GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.m_center.x - goalObj->getPosition()->x;
-		deltaAggr.y = GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.m_center.y - goalObj->getPosition()->y;
-		deltaAggr.z = GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.m_center.z - goalObj->getPosition()->z;
+		deltaAggr.x = GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.gxRow().center.x - goalObj->getPosition()->x;
+		deltaAggr.y = GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.gxRow().center.y - goalObj->getPosition()->y;
+		deltaAggr.z = GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.gxRow().center.z - goalObj->getPosition()->z;
 		Real visionSqr = sqr(AIGuardRetaliateMachine::getStdGuardRange(getMachineOwner()));
 		if (deltaAggr.lengthSqr() <= visionSqr)
 		{
 			// reset the counter
-			GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.m_attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
+			GXROW_AIGUARDRETALIATEOUTERSTATE.exitConditions.gxRow().attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
 		}
 	}
 
@@ -848,10 +854,10 @@ StateReturnType AIGuardRetaliateAttackAggressorState::onEnter()
 
 	Real range = TheAI->getAdjustedVisionRangeForObject(obj, AI_VISIONFACTOR_OWNERTYPE | AI_VISIONFACTOR_MOOD);
 
-	GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE.exitConditions.m_center = pos;
-	GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE.exitConditions.m_attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
-	GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE.exitConditions.m_radiusSqr = sqr( range + AIGuardRetaliateMachine::getStdGuardRange( obj ) );
-	GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE.exitConditions.m_conditionsToConsider = ( GuardRetaliateExitConditions::ATTACK_ExitIfExpiredDuration |
+	GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE.exitConditions.gxRow().center = pos;
+	GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE.exitConditions.gxRow().attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
+	GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE.exitConditions.gxRow().radiusSqr = sqr( range + AIGuardRetaliateMachine::getStdGuardRange( obj ) );
+	GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE.exitConditions.gxRow().conditionsToConsider = ( GuardRetaliateExitConditions::ATTACK_ExitIfExpiredDuration |
 																						  GuardRetaliateExitConditions::ATTACK_ExitIfOutsideRadius |
 																						  GuardRetaliateExitConditions::ATTACK_ExitIfNoUnitFound );
 
@@ -950,3 +956,19 @@ AIGuardRetaliateReturnState::~AIGuardRetaliateReturnState()
 {
 	TheGxAIGuardRetaliateReturnStates.release( m_gxAIGuardRetaliateReturnStateRow );	// web port (round 5)
 }
+
+GuardRetaliateExitConditions::GuardRetaliateExitConditions()
+{
+	m_gxGuardRetaliateExitConditionsRow = TheGxGuardRetaliateExitConditionss.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_GUARDRETALIATEEXITCONDITIONS.attackGiveUpFrame = 0;
+	GXROW_GUARDRETALIATEEXITCONDITIONS.conditionsToConsider = 0;
+	GXROW_GUARDRETALIATEEXITCONDITIONS.radiusSqr = 0.0f;
+
+		gxRow().center.zero();
+	}
+
+GuardRetaliateExitConditions::~GuardRetaliateExitConditions()
+{
+	TheGxGuardRetaliateExitConditionss.release( m_gxGuardRetaliateExitConditionsRow );	// web port (round 5)
+}
+
