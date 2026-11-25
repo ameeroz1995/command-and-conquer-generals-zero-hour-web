@@ -56,8 +56,7 @@
 
 // Web port (round 5, units are pure data): RiderChangeContain's per-unit state is a row of TheGxRiderChangeContains;
 // GXROW_RIDERCHANGECONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxRiderChangeContainRow> TheGxRiderChangeContains;
-#define GXROW_RIDERCHANGECONTAIN (TheGxRiderChangeContains.at(m_gxRiderChangeContainRow))
+#define GXROW_RIDERCHANGECONTAIN (const_cast<GxRiderChangeContainRow &>(*m_gxRiderChangeContainRow))
 
 
 
@@ -139,7 +138,6 @@ Int RiderChangeContain::getContainMax() const
 //-------------------------------------------------------------------------------------------------
 RiderChangeContain::RiderChangeContain( Thing *thing, const ModuleData *moduleData ) : TransportContain( thing, moduleData )
 {
-	m_gxRiderChangeContainRow = TheGxRiderChangeContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_RIDERCHANGECONTAIN.extraSlotsInUse = 0;
 	GXROW_RIDERCHANGECONTAIN.frameExitNotBusy = 0;
@@ -152,7 +150,6 @@ RiderChangeContain::RiderChangeContain( Thing *thing, const ModuleData *moduleDa
 RiderChangeContain::~RiderChangeContain()
 {
 
-	TheGxRiderChangeContains.release( m_gxRiderChangeContainRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

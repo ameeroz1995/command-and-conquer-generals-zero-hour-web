@@ -54,44 +54,37 @@
 
 // Web port (round 5, units are pure data): GuardRetaliateExitConditions's per-unit state is a row of TheGxGuardRetaliateExitConditionss;
 // GXROW_GUARDRETALIATEEXITCONDITIONS is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxGuardRetaliateExitConditionsRow> TheGxGuardRetaliateExitConditionss;
-#define GXROW_GUARDRETALIATEEXITCONDITIONS (TheGxGuardRetaliateExitConditionss.at(m_gxGuardRetaliateExitConditionsRow))
+#define GXROW_GUARDRETALIATEEXITCONDITIONS (const_cast<GxGuardRetaliateExitConditionsRow &>(*m_gxGuardRetaliateExitConditionsRow))
 
 
 // Web port (round 5, units are pure data): AIGuardRetaliateReturnState's per-unit state is a row of TheGxAIGuardRetaliateReturnStates;
 // GXROW_AIGUARDRETALIATERETURNSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardRetaliateReturnStateRow> TheGxAIGuardRetaliateReturnStates;
-#define GXROW_AIGUARDRETALIATERETURNSTATE (TheGxAIGuardRetaliateReturnStates.at(m_gxAIGuardRetaliateReturnStateRow))
+#define GXROW_AIGUARDRETALIATERETURNSTATE (const_cast<GxAIGuardRetaliateReturnStateRow &>(*m_gxAIGuardRetaliateReturnStateRow))
 
 
 // Web port (round 5, units are pure data): AIGuardRetaliateOuterState's per-unit state is a row of TheGxAIGuardRetaliateOuterStates;
 // GXROW_AIGUARDRETALIATEOUTERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardRetaliateOuterStateRow> TheGxAIGuardRetaliateOuterStates;
-#define GXROW_AIGUARDRETALIATEOUTERSTATE (TheGxAIGuardRetaliateOuterStates.at(m_gxAIGuardRetaliateOuterStateRow))
+#define GXROW_AIGUARDRETALIATEOUTERSTATE (const_cast<GxAIGuardRetaliateOuterStateRow &>(*m_gxAIGuardRetaliateOuterStateRow))
 
 
 // Web port (round 5, units are pure data): AIGuardRetaliateMachine's per-unit state is a row of TheGxAIGuardRetaliateMachines;
 // GXROW_AIGUARDRETALIATEMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardRetaliateMachineRow> TheGxAIGuardRetaliateMachines;
-#define GXROW_AIGUARDRETALIATEMACHINE (TheGxAIGuardRetaliateMachines.at(m_gxAIGuardRetaliateMachineRow))
+#define GXROW_AIGUARDRETALIATEMACHINE (const_cast<GxAIGuardRetaliateMachineRow &>(*m_gxAIGuardRetaliateMachineRow))
 
 
 // Web port (round 5, units are pure data): AIGuardRetaliateInnerState's per-unit state is a row of TheGxAIGuardRetaliateInnerStates;
 // GXROW_AIGUARDRETALIATEINNERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardRetaliateInnerStateRow> TheGxAIGuardRetaliateInnerStates;
-#define GXROW_AIGUARDRETALIATEINNERSTATE (TheGxAIGuardRetaliateInnerStates.at(m_gxAIGuardRetaliateInnerStateRow))
+#define GXROW_AIGUARDRETALIATEINNERSTATE (const_cast<GxAIGuardRetaliateInnerStateRow &>(*m_gxAIGuardRetaliateInnerStateRow))
 
 
 // Web port (round 5, units are pure data): AIGuardRetaliateIdleState's per-unit state is a row of TheGxAIGuardRetaliateIdleStates;
 // GXROW_AIGUARDRETALIATEIDLESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardRetaliateIdleStateRow> TheGxAIGuardRetaliateIdleStates;
-#define GXROW_AIGUARDRETALIATEIDLESTATE (TheGxAIGuardRetaliateIdleStates.at(m_gxAIGuardRetaliateIdleStateRow))
+#define GXROW_AIGUARDRETALIATEIDLESTATE (const_cast<GxAIGuardRetaliateIdleStateRow &>(*m_gxAIGuardRetaliateIdleStateRow))
 
 
 // Web port (round 5, units are pure data): AIGuardRetaliateAttackAggressorState's per-unit state is a row of TheGxAIGuardRetaliateAttackAggressorStates;
 // GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardRetaliateAttackAggressorStateRow> TheGxAIGuardRetaliateAttackAggressorStates;
-#define GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE (TheGxAIGuardRetaliateAttackAggressorStates.at(m_gxAIGuardRetaliateAttackAggressorStateRow))
+#define GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE (const_cast<GxAIGuardRetaliateAttackAggressorStateRow &>(*m_gxAIGuardRetaliateAttackAggressorStateRow))
 
 
 const Real CLOSE_ENOUGH = (25.0f);
@@ -212,7 +205,6 @@ Bool GuardRetaliateExitConditions::shouldExit(const StateMachine* machine) const
 //--------------------------------------------------------------------------------------
 AIGuardRetaliateMachine::AIGuardRetaliateMachine( Object *owner ) : StateMachine(owner, "AIGuardRetaliateMachine")
 {
-	m_gxAIGuardRetaliateMachineRow = TheGxAIGuardRetaliateMachines.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIGUARDRETALIATEMACHINE.nemesisToAttack = INVALID_ID;
 
 	GXROW_AIGUARDRETALIATEMACHINE.positionToGuard.zero();
@@ -237,7 +229,6 @@ AIGuardRetaliateMachine::AIGuardRetaliateMachine( Object *owner ) : StateMachine
 //--------------------------------------------------------------------------------------
 AIGuardRetaliateMachine::~AIGuardRetaliateMachine()
 {
-	TheGxAIGuardRetaliateMachines.release( m_gxAIGuardRetaliateMachineRow );	// web port (round 5)
 }
 
 Bool AIGuardRetaliateMachine::isIdle() const
@@ -408,7 +399,6 @@ AIGuardRetaliateInnerState::~AIGuardRetaliateInnerState()
 {
 	deleteInstance(GXROW_AIGUARDRETALIATEINNERSTATE.attackState);
 	deleteInstance(GXROW_AIGUARDRETALIATEINNERSTATE.enterState);
-	TheGxAIGuardRetaliateInnerStates.release( m_gxAIGuardRetaliateInnerStateRow );	// web port (round 5)
 }
 
 //--------------------------------------------------------------------------------------
@@ -531,7 +521,6 @@ void AIGuardRetaliateOuterState::loadPostProcess()
 AIGuardRetaliateOuterState::~AIGuardRetaliateOuterState()
 {
 	deleteInstance(GXROW_AIGUARDRETALIATEOUTERSTATE.attackState);
-	TheGxAIGuardRetaliateOuterStates.release( m_gxAIGuardRetaliateOuterStateRow );	// web port (round 5)
 }
 
 //--------------------------------------------------------------------------------------
@@ -800,7 +789,6 @@ void AIGuardRetaliatePickUpCrateState::onExit( StateExitType status )
 //-------------------------------------------------------------------------------------------------
 AIGuardRetaliateAttackAggressorState::AIGuardRetaliateAttackAggressorState( StateMachine *machine ) : State( machine, "AIGuardRetaliateAttackAggressorState" )
 {
-	m_gxAIGuardRetaliateAttackAggressorStateRow = TheGxAIGuardRetaliateAttackAggressorStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE.attackState = nullptr;
 }
@@ -820,7 +808,6 @@ AsciiString AIGuardRetaliateAttackAggressorState::getName(  ) const
 AIGuardRetaliateAttackAggressorState::~AIGuardRetaliateAttackAggressorState()
 {
 	deleteInstance(GXROW_AIGUARDRETALIATEATTACKAGGRESSORSTATE.attackState);
-	TheGxAIGuardRetaliateAttackAggressorStates.release( m_gxAIGuardRetaliateAttackAggressorStateRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -922,17 +909,14 @@ void AIGuardRetaliateAttackAggressorState::loadPostProcess()
 
 AIGuardRetaliateIdleState::AIGuardRetaliateIdleState( StateMachine *machine ) : State( machine, "AIGuardRetaliateIdleState" )
 {
-	m_gxAIGuardRetaliateIdleStateRow = TheGxAIGuardRetaliateIdleStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
  }
 
 AIGuardRetaliateIdleState::~AIGuardRetaliateIdleState()
 {
-	TheGxAIGuardRetaliateIdleStates.release( m_gxAIGuardRetaliateIdleStateRow );	// web port (round 5)
 }
 
 AIGuardRetaliateInnerState::AIGuardRetaliateInnerState( StateMachine *machine ) : State( machine, "AIGuardRetaliateInner" )
 {
-	m_gxAIGuardRetaliateInnerStateRow = TheGxAIGuardRetaliateInnerStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().attackState = 0;
 		gxRow().enterState = 0;
@@ -940,26 +924,22 @@ AIGuardRetaliateInnerState::AIGuardRetaliateInnerState( StateMachine *machine ) 
 
 AIGuardRetaliateOuterState::AIGuardRetaliateOuterState( StateMachine *machine ) : State( machine, "AIGuardRetaliateOuter" )
 {
-	m_gxAIGuardRetaliateOuterStateRow = TheGxAIGuardRetaliateOuterStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().attackState = nullptr;
 	}
 
 AIGuardRetaliateReturnState::AIGuardRetaliateReturnState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIGuardRetaliateReturn" )
 {
-	m_gxAIGuardRetaliateReturnStateRow = TheGxAIGuardRetaliateReturnStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().nextReturnScanTime = 0;
 	}
 
 AIGuardRetaliateReturnState::~AIGuardRetaliateReturnState()
 {
-	TheGxAIGuardRetaliateReturnStates.release( m_gxAIGuardRetaliateReturnStateRow );	// web port (round 5)
 }
 
 GuardRetaliateExitConditions::GuardRetaliateExitConditions()
 {
-	m_gxGuardRetaliateExitConditionsRow = TheGxGuardRetaliateExitConditionss.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_GUARDRETALIATEEXITCONDITIONS.attackGiveUpFrame = 0;
 	GXROW_GUARDRETALIATEEXITCONDITIONS.conditionsToConsider = 0;
 	GXROW_GUARDRETALIATEEXITCONDITIONS.radiusSqr = 0.0f;
@@ -969,6 +949,5 @@ GuardRetaliateExitConditions::GuardRetaliateExitConditions()
 
 GuardRetaliateExitConditions::~GuardRetaliateExitConditions()
 {
-	TheGxGuardRetaliateExitConditionss.release( m_gxGuardRetaliateExitConditionsRow );	// web port (round 5)
 }
 

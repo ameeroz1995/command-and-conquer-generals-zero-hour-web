@@ -65,7 +65,7 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxRiderChangeContainRow;
 class RiderChangeContain : public TransportContain
 {
@@ -108,7 +108,7 @@ protected:
 
 private:
 
-	struct GxRiderChangeContainRow *m_gxRiderChangeContainRow;	///< web port (round 5): this unit's row in TheGxRiderChangeContains
+	GxRow<struct GxRiderChangeContainRow> m_gxRiderChangeContainRow;	///< web port (round 5): this unit's row in TheGxRiderChangeContains
 	friend struct GxRiderChangeContainRow;
 	inline struct GxRiderChangeContainRow &gxRow() const;
 
@@ -124,9 +124,8 @@ struct GxRiderChangeContainRow
 	UnsignedInt scuttledOnFrame;
 	Bool containing;
 };
-extern GxComponentTable<GxRiderChangeContainRow> TheGxRiderChangeContains;
 
 
-inline GxRiderChangeContainRow &RiderChangeContain::gxRow() const { return TheGxRiderChangeContains.at(m_gxRiderChangeContainRow); }
+inline GxRiderChangeContainRow &RiderChangeContain::gxRow() const { return const_cast<GxRiderChangeContainRow &>(*m_gxRiderChangeContainRow); }
 inline Int RiderChangeContain::getExtraSlotsInUse() { return gxRow().extraSlotsInUse; }
 

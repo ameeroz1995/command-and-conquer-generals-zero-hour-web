@@ -72,7 +72,7 @@ public:
 	}
 };
 
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxTunnelContainRow;
 class TunnelContain : public OpenContain, public CreateModuleInterface
 {
@@ -136,7 +136,7 @@ public:
 protected:
 
 	void scatterToNearbyPosition(Object* obj);
-	struct GxTunnelContainRow *m_gxTunnelContainRow;	///< web port (round 5): this unit's row in TheGxTunnelContains
+	GxRow<struct GxTunnelContainRow> m_gxTunnelContainRow;	///< web port (round 5): this unit's row in TheGxTunnelContains
 	friend struct GxTunnelContainRow;
 	inline struct GxTunnelContainRow &gxRow() const;
 
@@ -149,9 +149,8 @@ struct GxTunnelContainRow
 	Bool needToRunOnBuildComplete;
 	Bool isCurrentlyRegistered;
 };
-extern GxComponentTable<GxTunnelContainRow> TheGxTunnelContains;
 
 
-inline GxTunnelContainRow &TunnelContain::gxRow() const { return TheGxTunnelContains.at(m_gxTunnelContainRow); }
+inline GxTunnelContainRow &TunnelContain::gxRow() const { return const_cast<GxTunnelContainRow &>(*m_gxTunnelContainRow); }
 inline Bool TunnelContain::shouldDoOnBuildComplete() const { return gxRow().needToRunOnBuildComplete; }
 

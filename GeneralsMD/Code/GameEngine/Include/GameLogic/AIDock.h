@@ -29,7 +29,7 @@
 #pragma once
 
 #include "Common/GameMemory.h"
-#include "GameLogic/GxComponents.h"	// web port (round 5)
+#include "Common/GxComponentPool.h"	// web port (round 5)
 #include "GameLogic/AIStateMachine.h"
 
 /**
@@ -66,7 +66,7 @@ public:
 	static Bool ableToAdvance( State *thisState, void* userData ); // Condition for scooting forward in line while waiting
 	virtual void halt(); ///< Stops the state machine & disables it in preparation for deleting it.
 
-	struct GxAIDockMachineRow *m_gxAIDockMachineRow;	///< web port (round 5): this unit's row in TheGxAIDockMachines
+	GxRow<struct GxAIDockMachineRow> m_gxAIDockMachineRow;	///< web port (round 5): this unit's row in TheGxAIDockMachines
 	friend struct GxAIDockMachineRow;
 	inline struct GxAIDockMachineRow &gxRow() const;
 
@@ -84,10 +84,9 @@ struct GxAIDockMachineRow
 {
 	Int approachPosition;
 };
-extern GxComponentTable<GxAIDockMachineRow> TheGxAIDockMachines;
 
 
-inline GxAIDockMachineRow &AIDockMachine::gxRow() const { return TheGxAIDockMachines.at(m_gxAIDockMachineRow); }
+inline GxAIDockMachineRow &AIDockMachine::gxRow() const { return const_cast<GxAIDockMachineRow &>(*m_gxAIDockMachineRow); }
 
 
 // Please do not use these states in some other machine.  I know that wouldn't even make sense, but they
@@ -121,7 +120,7 @@ public:
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
 protected:
-	struct GxAIDockWaitForClearanceStateRow *m_gxAIDockWaitForClearanceStateRow;	///< web port (round 5): this unit's row in TheGxAIDockWaitForClearanceStates
+	GxRow<struct GxAIDockWaitForClearanceStateRow> m_gxAIDockWaitForClearanceStateRow;	///< web port (round 5): this unit's row in TheGxAIDockWaitForClearanceStates
 	friend struct GxAIDockWaitForClearanceStateRow;
 	inline struct GxAIDockWaitForClearanceStateRow &gxRow() const;
 protected:
@@ -137,10 +136,9 @@ struct GxAIDockWaitForClearanceStateRow
 {
 	UnsignedInt enterFrame;
 };
-extern GxComponentTable<GxAIDockWaitForClearanceStateRow> TheGxAIDockWaitForClearanceStates;
 
 
-inline GxAIDockWaitForClearanceStateRow &AIDockWaitForClearanceState::gxRow() const { return TheGxAIDockWaitForClearanceStates.at(m_gxAIDockWaitForClearanceStateRow); }
+inline GxAIDockWaitForClearanceStateRow &AIDockWaitForClearanceState::gxRow() const { return const_cast<GxAIDockWaitForClearanceStateRow &>(*m_gxAIDockWaitForClearanceStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 class AIDockAdvancePositionState : public AIInternalMoveToState
@@ -202,7 +200,7 @@ public:
 	virtual StateReturnType update();
 
 	void setNextDockActionFrame();//This puts a delay between callings of Action to tweak the speed of docking.
-	struct GxAIDockProcessDockStateRow *m_gxAIDockProcessDockStateRow;	///< web port (round 5): this unit's row in TheGxAIDockProcessDockStates
+	GxRow<struct GxAIDockProcessDockStateRow> m_gxAIDockProcessDockStateRow;	///< web port (round 5): this unit's row in TheGxAIDockProcessDockStates
 	friend struct GxAIDockProcessDockStateRow;
 	inline struct GxAIDockProcessDockStateRow &gxRow() const;
 	// complete a Action a few frames sooner than you would have: It does not need to be saved.
@@ -225,10 +223,9 @@ struct GxAIDockProcessDockStateRow
 	UnsignedInt nextDockActionFrame;
 	ObjectID droneID;
 };
-extern GxComponentTable<GxAIDockProcessDockStateRow> TheGxAIDockProcessDockStates;
 
 
-inline GxAIDockProcessDockStateRow &AIDockProcessDockState::gxRow() const { return TheGxAIDockProcessDockStates.at(m_gxAIDockProcessDockStateRow); }
+inline GxAIDockProcessDockStateRow &AIDockProcessDockState::gxRow() const { return const_cast<GxAIDockProcessDockStateRow &>(*m_gxAIDockProcessDockStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 class AIDockMoveToExitState : public AIInternalMoveToState

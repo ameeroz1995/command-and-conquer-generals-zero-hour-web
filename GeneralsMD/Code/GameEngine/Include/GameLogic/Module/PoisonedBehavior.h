@@ -52,7 +52,7 @@ private:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxPoisonedBehaviorRow;
 class PoisonedBehavior : public UpdateModule,
 												 public DamageModuleInterface
@@ -88,7 +88,7 @@ protected:
 	UpdateSleepTime calcSleepTime();
 
 private:
-	struct GxPoisonedBehaviorRow *m_gxPoisonedBehaviorRow;	///< web port (round 5): this unit's row in TheGxPoisonedBehaviors
+	GxRow<struct GxPoisonedBehaviorRow> m_gxPoisonedBehaviorRow;	///< web port (round 5): this unit's row in TheGxPoisonedBehaviors
 	friend struct GxPoisonedBehaviorRow;
 	inline struct GxPoisonedBehaviorRow &gxRow() const;
 
@@ -104,8 +104,7 @@ struct GxPoisonedBehaviorRow
 	ObjectID poisonSource;
 	DeathType deathType;
 };
-extern GxComponentTable<GxPoisonedBehaviorRow> TheGxPoisonedBehaviors;
 
 
-inline GxPoisonedBehaviorRow &PoisonedBehavior::gxRow() const { return TheGxPoisonedBehaviors.at(m_gxPoisonedBehaviorRow); }
+inline GxPoisonedBehaviorRow &PoisonedBehavior::gxRow() const { return const_cast<GxPoisonedBehaviorRow &>(*m_gxPoisonedBehaviorRow); }
 

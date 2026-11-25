@@ -99,7 +99,7 @@ private:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxFireWeaponWhenDamagedBehaviorRow;
 class FireWeaponWhenDamagedBehavior : public UpdateModule,
 																			public UpgradeMux,
@@ -162,7 +162,7 @@ protected:
 	virtual Bool isSubObjectsUpgrade() { return false; }
 
 private:
-	struct GxFireWeaponWhenDamagedBehaviorRow *m_gxFireWeaponWhenDamagedBehaviorRow;	///< web port (round 5): this unit's row in TheGxFireWeaponWhenDamagedBehaviors
+	GxRow<struct GxFireWeaponWhenDamagedBehaviorRow> m_gxFireWeaponWhenDamagedBehaviorRow;	///< web port (round 5): this unit's row in TheGxFireWeaponWhenDamagedBehaviors
 	friend struct GxFireWeaponWhenDamagedBehaviorRow;
 	inline struct GxFireWeaponWhenDamagedBehaviorRow &gxRow() const;
 
@@ -181,8 +181,7 @@ struct GxFireWeaponWhenDamagedBehaviorRow
 	Weapon* continuousWeaponReallyDamaged;
 	Weapon* continuousWeaponRubble;
 };
-extern GxComponentTable<GxFireWeaponWhenDamagedBehaviorRow> TheGxFireWeaponWhenDamagedBehaviors;
 
 
-inline GxFireWeaponWhenDamagedBehaviorRow &FireWeaponWhenDamagedBehavior::gxRow() const { return TheGxFireWeaponWhenDamagedBehaviors.at(m_gxFireWeaponWhenDamagedBehaviorRow); }
+inline GxFireWeaponWhenDamagedBehaviorRow &FireWeaponWhenDamagedBehavior::gxRow() const { return const_cast<GxFireWeaponWhenDamagedBehaviorRow &>(*m_gxFireWeaponWhenDamagedBehaviorRow); }
 

@@ -126,7 +126,7 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxSpawnBehaviorRow;
 class SpawnBehavior : public UpdateModule,
 											public SpawnBehaviorInterface,
@@ -193,7 +193,7 @@ private:
 	Bool shouldTryToSpawn(); ///< For my own use, should I even think of spawning
 	Bool createSpawn();										///< Actual work of creating a guy
 
-	struct GxSpawnBehaviorRow *m_gxSpawnBehaviorRow;	///< web port (round 5): this unit's row in TheGxSpawnBehaviors
+	GxRow<struct GxSpawnBehaviorRow> m_gxSpawnBehaviorRow;	///< web port (round 5): this unit's row in TheGxSpawnBehaviors
 	friend struct GxSpawnBehaviorRow;
 	inline struct GxSpawnBehaviorRow &gxRow() const;
 
@@ -232,8 +232,7 @@ struct GxSpawnBehaviorRow
 	UnsignedInt selfTaskingSpawnCount;
 	UnsignedInt initialBurstCountdown;
 };
-extern GxComponentTable<GxSpawnBehaviorRow> TheGxSpawnBehaviors;
 
 
-inline GxSpawnBehaviorRow &SpawnBehavior::gxRow() const { return TheGxSpawnBehaviors.at(m_gxSpawnBehaviorRow); }
+inline GxSpawnBehaviorRow &SpawnBehavior::gxRow() const { return const_cast<GxSpawnBehaviorRow &>(*m_gxSpawnBehaviorRow); }
 

@@ -71,7 +71,7 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxDumbProjectileBehaviorRow;
 class DumbProjectileBehavior : public UpdateModule, public ProjectileUpdateInterface
 {
@@ -104,7 +104,7 @@ protected:
 
 private:
 
-	struct GxDumbProjectileBehaviorRow *m_gxDumbProjectileBehaviorRow;	///< web port (round 5): this unit's row in TheGxDumbProjectileBehaviors
+	GxRow<struct GxDumbProjectileBehaviorRow> m_gxDumbProjectileBehaviorRow;	///< web port (round 5): this unit's row in TheGxDumbProjectileBehaviors
 	friend struct GxDumbProjectileBehaviorRow;
 	inline struct GxDumbProjectileBehaviorRow &gxRow() const;
 
@@ -133,9 +133,8 @@ struct GxDumbProjectileBehaviorRow
 	WeaponBonusConditionFlags extraBonusFlags;
 	Bool hasDetonated;
 };
-extern GxComponentTable<GxDumbProjectileBehaviorRow> TheGxDumbProjectileBehaviors;
 
 
-inline GxDumbProjectileBehaviorRow &DumbProjectileBehavior::gxRow() const { return TheGxDumbProjectileBehaviors.at(m_gxDumbProjectileBehaviorRow); }
+inline GxDumbProjectileBehaviorRow &DumbProjectileBehavior::gxRow() const { return const_cast<GxDumbProjectileBehaviorRow &>(*m_gxDumbProjectileBehaviorRow); }
 inline ObjectID DumbProjectileBehavior::projectileGetLauncherID() const { return gxRow().launcherID; }
 

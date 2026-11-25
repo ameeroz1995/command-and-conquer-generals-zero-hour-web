@@ -107,15 +107,14 @@ GenerateMinefieldBehaviorModuleData::GenerateMinefieldBehaviorModuleData()
 
 //-------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-// Web port (round 5, units are pure data): the per-unit state is a row of TheGxMinefields; the old
+// Web port (round 5, units are pure data): the per-unit state is a row of the shared GxComponentPool<GxMinefieldRow>; the old
 // member names below read and write this unit's row, so the logic and xfer/CRC order are unchanged.
 // ------------------------------------------------------------------------------------------------
-GxComponentTable<GxMinefieldRow> TheGxMinefields;
-#define m_target		(TheGxMinefields.at(m_gxRow).target)
-#define m_hasTarget		(TheGxMinefields.at(m_gxRow).hasTarget)
-#define m_generated		(TheGxMinefields.at(m_gxRow).generated)
-#define m_upgraded		(TheGxMinefields.at(m_gxRow).upgraded)
-#define m_mineList		(TheGxMinefields.at(m_gxRow).mineList)
+#define m_target		(const_cast<GxMinefieldRow &>(*m_gxRow).target)
+#define m_hasTarget		(const_cast<GxMinefieldRow &>(*m_gxRow).hasTarget)
+#define m_generated		(const_cast<GxMinefieldRow &>(*m_gxRow).generated)
+#define m_upgraded		(const_cast<GxMinefieldRow &>(*m_gxRow).upgraded)
+#define m_mineList		(const_cast<GxMinefieldRow &>(*m_gxRow).mineList)
 
 // ------------------------------------------------------------------------------------------------
 // Web port (round 5 addendum): the minefield system as kernel + apply, on store behaviour bit 56
@@ -176,7 +175,9 @@ static void gxMinefieldApply(const Int *slots, Int count)
 	if (firstFrame)
 	{
 		// the rule just came on (or a load): refill the ID map from the rows and run the kernel now
-		TheGxMinefields.forEach([](const Object *o, GxMinefieldRow &r) { if (r.facade) gxMinefieldNote(o, &r); });
+		GxComponentPool<GxMinefieldRow> &pool = GxComponentPool<GxMinefieldRow>::the();
+		for (int i = 0; i < pool.size(); ++i)
+			if (pool.live(i) && pool[i].facade && pool[i].owner) gxMinefieldNote(pool[i].owner, &pool[i]);
 		gxMinefieldKernel(slots, 0, count);
 	}
 	for (Int k = 0; k < count; ++k)
@@ -202,20 +203,18 @@ static void gxMinefieldRegister()
 //-------------------------------------------------------------------------------------------------
 GenerateMinefieldBehavior::GenerateMinefieldBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRow = TheGxMinefields.alloc( getObject() );	// a fresh row: target zero, nothing generated or upgraded, no mines
 	m_gxRow->facade = this;
 	m_gxRow->owner = getObject();
 	gxMinefieldRegister();
 	if (getGenerateMinefieldBehaviorModuleData()->m_upgradable)
-		gxMinefieldNote(getObject(), m_gxRow);
+		gxMinefieldNote(getObject(), &*m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 GenerateMinefieldBehavior::~GenerateMinefieldBehavior()
 {
-	gxMinefieldForget(getObject(), m_gxRow);
-	TheGxMinefields.release( m_gxRow );
+	gxMinefieldForget(getObject(), &*m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -582,7 +581,7 @@ static const UpgradeTemplate *gxEmpMinesUpgrade()
 void GenerateMinefieldBehavior::gxReplaceMines()
 {
 	m_upgraded = TRUE;
-	gxMinefieldForget(getObject(), m_gxRow);	// upgraded: no longer polled
+	gxMinefieldForget(getObject(), &*m_gxRow);	// upgraded: no longer polled
 	// Remove all old mine objects if present
 	for (std::list<ObjectID>::iterator it = m_mineList.begin(); it != m_mineList.end(); ++it)
 	{

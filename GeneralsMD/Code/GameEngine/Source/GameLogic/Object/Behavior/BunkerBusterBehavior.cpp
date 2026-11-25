@@ -43,8 +43,7 @@
 
 // Web port (round 5, units are pure data): BunkerBusterBehavior's per-unit state is a row of TheGxBunkerBusterBehaviors;
 // GXROW_BUNKERBUSTERBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxBunkerBusterBehaviorRow> TheGxBunkerBusterBehaviors;
-#define GXROW_BUNKERBUSTERBEHAVIOR (TheGxBunkerBusterBehaviors.at(m_gxBunkerBusterBehaviorRow))
+#define GXROW_BUNKERBUSTERBEHAVIOR (const_cast<GxBunkerBusterBehaviorRow &>(*m_gxBunkerBusterBehaviorRow))
 
 
 
@@ -103,7 +102,6 @@ BunkerBusterBehaviorModuleData::BunkerBusterBehaviorModuleData()
 // ------------------------------------------------------------------------------------------------
 BunkerBusterBehavior::BunkerBusterBehavior( Thing *thing, const ModuleData *modData ) : UpdateModule( thing, modData )
 {
-	m_gxBunkerBusterBehaviorRow = TheGxBunkerBusterBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	// THIS HAS AN UPDATE... BECAUSE I FORESEE THE NEED FOR ONE, BUT RIGHT NOW IT DOES NOTHING
 	setWakeFrame( getObject(), UPDATE_SLEEP_NONE );
@@ -117,7 +115,6 @@ BunkerBusterBehavior::BunkerBusterBehavior( Thing *thing, const ModuleData *modD
 BunkerBusterBehavior::~BunkerBusterBehavior()
 {
 
-	TheGxBunkerBusterBehaviors.release( m_gxBunkerBusterBehaviorRow );	// web port (round 5)
 }
 
 

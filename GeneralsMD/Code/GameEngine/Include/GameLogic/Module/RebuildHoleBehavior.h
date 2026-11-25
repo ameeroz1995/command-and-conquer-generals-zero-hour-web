@@ -69,7 +69,7 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxRebuildHoleBehaviorRow;
 class RebuildHoleBehavior : public UpdateModule,
 														public DieModuleInterface,
@@ -111,7 +111,7 @@ protected:
 
 	void newWorkerRespawnProcess( Object *existingWorker );		///< start the worker respawn process (again if existingWorker is non nullptr)
 
-	struct GxRebuildHoleBehaviorRow *m_gxRebuildHoleBehaviorRow;	///< web port (round 5): this unit's row in TheGxRebuildHoleBehaviors
+	GxRow<struct GxRebuildHoleBehaviorRow> m_gxRebuildHoleBehaviorRow;	///< web port (round 5): this unit's row in TheGxRebuildHoleBehaviors
 	friend struct GxRebuildHoleBehaviorRow;
 	inline struct GxRebuildHoleBehaviorRow &gxRow() const;
 
@@ -128,10 +128,9 @@ struct GxRebuildHoleBehaviorRow
 	const ThingTemplate* workerTemplate;
 	const ThingTemplate* rebuildTemplate;
 };
-extern GxComponentTable<GxRebuildHoleBehaviorRow> TheGxRebuildHoleBehaviors;
 
 
-inline GxRebuildHoleBehaviorRow &RebuildHoleBehavior::gxRow() const { return TheGxRebuildHoleBehaviors.at(m_gxRebuildHoleBehaviorRow); }
+inline GxRebuildHoleBehaviorRow &RebuildHoleBehavior::gxRow() const { return const_cast<GxRebuildHoleBehaviorRow &>(*m_gxRebuildHoleBehaviorRow); }
 inline ObjectID RebuildHoleBehavior::getSpawnerID() { return gxRow().spawnerObjectID; }
 inline ObjectID RebuildHoleBehavior::getReconstructedBuildingID() { return gxRow().reconstructingID; }
 inline const ThingTemplate* RebuildHoleBehavior::getRebuildTemplate() const { return gxRow().rebuildTemplate; }

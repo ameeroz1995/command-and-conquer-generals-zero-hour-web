@@ -90,7 +90,7 @@ private:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxParkingPlaceBehaviorRow;
 class ParkingPlaceBehavior : public UpdateModule,
 														 public DieModuleInterface,
@@ -199,7 +199,7 @@ private:
 		UnsignedInt	m_healStartFrame;
 	};
 
-	struct GxParkingPlaceBehaviorRow *m_gxParkingPlaceBehaviorRow;	///< web port (round 5): this unit's row in TheGxParkingPlaceBehaviors
+	GxRow<struct GxParkingPlaceBehaviorRow> m_gxParkingPlaceBehaviorRow;	///< web port (round 5): this unit's row in TheGxParkingPlaceBehaviors
 	friend struct GxParkingPlaceBehaviorRow;
 	inline struct GxParkingPlaceBehaviorRow &gxRow() const;
 
@@ -225,9 +225,8 @@ struct GxParkingPlaceBehaviorRow
 	Coord3D heliRallyPoint;
 	Bool heliRallyPointExists;
 };
-extern GxComponentTable<GxParkingPlaceBehaviorRow> TheGxParkingPlaceBehaviors;
 
 
-inline GxParkingPlaceBehaviorRow &ParkingPlaceBehavior::gxRow() const { return TheGxParkingPlaceBehaviors.at(m_gxParkingPlaceBehaviorRow); }
+inline GxParkingPlaceBehaviorRow &ParkingPlaceBehavior::gxRow() const { return const_cast<GxParkingPlaceBehaviorRow &>(*m_gxParkingPlaceBehaviorRow); }
 inline Int ParkingPlaceBehavior::getRunwayCount() const { return gxRow().runways.size(); }
 

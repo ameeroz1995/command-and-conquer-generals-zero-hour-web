@@ -38,8 +38,7 @@
 
 // Web port (round 5, units are pure data): SupplyWarehouseCripplingBehavior's per-unit state is a row of TheGxSupplyWarehouseCripplingBehaviors;
 // GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxSupplyWarehouseCripplingBehaviorRow> TheGxSupplyWarehouseCripplingBehaviors;
-#define GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR (TheGxSupplyWarehouseCripplingBehaviors.at(m_gxSupplyWarehouseCripplingBehaviorRow))
+#define GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR (const_cast<GxSupplyWarehouseCripplingBehaviorRow &>(*m_gxSupplyWarehouseCripplingBehaviorRow))
 
 
 //-------------------------------------------------------------------------------------------------
@@ -70,7 +69,6 @@ SupplyWarehouseCripplingBehaviorModuleData::SupplyWarehouseCripplingBehaviorModu
 //-------------------------------------------------------------------------------------------------
 SupplyWarehouseCripplingBehavior::SupplyWarehouseCripplingBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxSupplyWarehouseCripplingBehaviorRow = TheGxSupplyWarehouseCripplingBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR.healingSupressedUntilFrame = 0;
 	GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR.nextHealingFrame = 0;
@@ -81,7 +79,6 @@ SupplyWarehouseCripplingBehavior::SupplyWarehouseCripplingBehavior( Thing *thing
 //-------------------------------------------------------------------------------------------------
 SupplyWarehouseCripplingBehavior::~SupplyWarehouseCripplingBehavior()
 {
-	TheGxSupplyWarehouseCripplingBehaviors.release( m_gxSupplyWarehouseCripplingBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

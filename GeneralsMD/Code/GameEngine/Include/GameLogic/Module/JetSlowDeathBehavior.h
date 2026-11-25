@@ -76,7 +76,7 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxJetSlowDeathBehaviorRow;
 class JetSlowDeathBehavior : public SlowDeathBehavior
 {
@@ -96,7 +96,7 @@ public:
 
 protected:
 
-	struct GxJetSlowDeathBehaviorRow *m_gxJetSlowDeathBehaviorRow;	///< web port (round 5): this unit's row in TheGxJetSlowDeathBehaviors
+	GxRow<struct GxJetSlowDeathBehaviorRow> m_gxJetSlowDeathBehaviorRow;	///< web port (round 5): this unit's row in TheGxJetSlowDeathBehaviors
 	friend struct GxJetSlowDeathBehaviorRow;
 	inline struct GxJetSlowDeathBehaviorRow &gxRow() const;
 
@@ -113,8 +113,7 @@ struct GxJetSlowDeathBehaviorRow
 	Real rollRate;
 	AudioEventRTS deathLoopSound;
 };
-extern GxComponentTable<GxJetSlowDeathBehaviorRow> TheGxJetSlowDeathBehaviors;
 
 
-inline GxJetSlowDeathBehaviorRow &JetSlowDeathBehavior::gxRow() const { return TheGxJetSlowDeathBehaviors.at(m_gxJetSlowDeathBehaviorRow); }
+inline GxJetSlowDeathBehaviorRow &JetSlowDeathBehavior::gxRow() const { return const_cast<GxJetSlowDeathBehaviorRow &>(*m_gxJetSlowDeathBehaviorRow); }
 

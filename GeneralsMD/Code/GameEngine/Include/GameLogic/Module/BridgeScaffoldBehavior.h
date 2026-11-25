@@ -64,7 +64,7 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxBridgeScaffoldBehaviorRow;
 class BridgeScaffoldBehavior : public UpdateModule,
 															 public BridgeScaffoldBehaviorInterface
@@ -102,7 +102,7 @@ protected:
 	void doVerticalMotion();				///< do rise/sink vertical motion
 	void doLateralmotion();					///< do lateral motion
 
-	struct GxBridgeScaffoldBehaviorRow *m_gxBridgeScaffoldBehaviorRow;	///< web port (round 5): this unit's row in TheGxBridgeScaffoldBehaviors
+	GxRow<struct GxBridgeScaffoldBehaviorRow> m_gxBridgeScaffoldBehaviorRow;	///< web port (round 5): this unit's row in TheGxBridgeScaffoldBehaviors
 	friend struct GxBridgeScaffoldBehaviorRow;
 	inline struct GxBridgeScaffoldBehaviorRow &gxRow() const;
 
@@ -120,10 +120,9 @@ struct GxBridgeScaffoldBehaviorRow
 	Real verticalSpeed;
 	Coord3D targetPos;
 };
-extern GxComponentTable<GxBridgeScaffoldBehaviorRow> TheGxBridgeScaffoldBehaviors;
 
 
-inline GxBridgeScaffoldBehaviorRow &BridgeScaffoldBehavior::gxRow() const { return TheGxBridgeScaffoldBehaviors.at(m_gxBridgeScaffoldBehaviorRow); }
+inline GxBridgeScaffoldBehaviorRow &BridgeScaffoldBehavior::gxRow() const { return const_cast<GxBridgeScaffoldBehaviorRow &>(*m_gxBridgeScaffoldBehaviorRow); }
 inline ScaffoldTargetMotion BridgeScaffoldBehavior::getCurrentMotion() { return gxRow().targetMotion; }
 inline void BridgeScaffoldBehavior::setLateralSpeed( Real lateralSpeed ) { gxRow().lateralSpeed = lateralSpeed; }
 inline void BridgeScaffoldBehavior::setVerticalSpeed( Real verticalSpeed ) { gxRow().verticalSpeed = verticalSpeed; }

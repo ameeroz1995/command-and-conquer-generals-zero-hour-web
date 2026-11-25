@@ -29,7 +29,7 @@
 #pragma once
 
 #include "Common/StateMachine.h"
-#include "GameLogic/GxComponents.h"	// web port (round 5)
+#include "Common/GxComponentPool.h"	// web port (round 5)
 #include "Common/GameMemory.h"
 
 const Real DEFAULT_TURN_RATE = 0.01f;
@@ -80,7 +80,7 @@ public:
 	virtual StateReturnType setState( StateID newStateID );
 
 private:
-	struct GxTurretStateMachineRow *m_gxTurretStateMachineRow;	///< web port (round 5): this unit's row in TheGxTurretStateMachines
+	GxRow<struct GxTurretStateMachineRow> m_gxTurretStateMachineRow;	///< web port (round 5): this unit's row in TheGxTurretStateMachines
 	friend struct GxTurretStateMachineRow;
 	inline struct GxTurretStateMachineRow &gxRow() const;
 
@@ -97,10 +97,9 @@ struct GxTurretStateMachineRow
 {
 	TurretAI* turretAI;
 };
-extern GxComponentTable<GxTurretStateMachineRow> TheGxTurretStateMachines;
 
 
-inline GxTurretStateMachineRow &TurretStateMachine::gxRow() const { return TheGxTurretStateMachines.at(m_gxTurretStateMachineRow); }
+inline GxTurretStateMachineRow &TurretStateMachine::gxRow() const { return const_cast<GxTurretStateMachineRow &>(*m_gxTurretStateMachineRow); }
 inline TurretAI* TurretStateMachine::getTurretAI() const
 { return gxRow().turretAI; }
 
@@ -133,7 +132,7 @@ protected:
 	virtual void loadPostProcess();
 private:
 	void resetIdleScan();
-	struct GxTurretAIIdleStateRow *m_gxTurretAIIdleStateRow;	///< web port (round 5): this unit's row in TheGxTurretAIIdleStates
+	GxRow<struct GxTurretAIIdleStateRow> m_gxTurretAIIdleStateRow;	///< web port (round 5): this unit's row in TheGxTurretAIIdleStates
 	friend struct GxTurretAIIdleStateRow;
 	inline struct GxTurretAIIdleStateRow &gxRow() const;
 };
@@ -144,10 +143,9 @@ struct GxTurretAIIdleStateRow
 {
 	UnsignedInt nextIdleScan;
 };
-extern GxComponentTable<GxTurretAIIdleStateRow> TheGxTurretAIIdleStates;
 
 
-inline GxTurretAIIdleStateRow &TurretAIIdleState::gxRow() const { return TheGxTurretAIIdleStates.at(m_gxTurretAIIdleStateRow); }
+inline GxTurretAIIdleStateRow &TurretAIIdleState::gxRow() const { return const_cast<GxTurretAIIdleStateRow &>(*m_gxTurretAIIdleStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 struct GxTurretAIIdleScanStateRow;
@@ -167,7 +165,7 @@ protected:
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 private:
-	struct GxTurretAIIdleScanStateRow *m_gxTurretAIIdleScanStateRow;	///< web port (round 5): this unit's row in TheGxTurretAIIdleScanStates
+	GxRow<struct GxTurretAIIdleScanStateRow> m_gxTurretAIIdleScanStateRow;	///< web port (round 5): this unit's row in TheGxTurretAIIdleScanStates
 	friend struct GxTurretAIIdleScanStateRow;
 	inline struct GxTurretAIIdleScanStateRow &gxRow() const;
 };
@@ -178,10 +176,9 @@ struct GxTurretAIIdleScanStateRow
 {
 	Real desiredAngle;
 };
-extern GxComponentTable<GxTurretAIIdleScanStateRow> TheGxTurretAIIdleScanStates;
 
 
-inline GxTurretAIIdleScanStateRow &TurretAIIdleScanState::gxRow() const { return TheGxTurretAIIdleScanStates.at(m_gxTurretAIIdleScanStateRow); }
+inline GxTurretAIIdleScanStateRow &TurretAIIdleScanState::gxRow() const { return const_cast<GxTurretAIIdleScanStateRow &>(*m_gxTurretAIIdleScanStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -239,7 +236,7 @@ class TurretAIHoldTurretState : public TurretState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(TurretAIHoldTurretState, "TurretAIHoldTurretState")
 private:
-	struct GxTurretAIHoldTurretStateRow *m_gxTurretAIHoldTurretStateRow;	///< web port (round 5): this unit's row in TheGxTurretAIHoldTurretStates
+	GxRow<struct GxTurretAIHoldTurretStateRow> m_gxTurretAIHoldTurretStateRow;	///< web port (round 5): this unit's row in TheGxTurretAIHoldTurretStates
 	friend struct GxTurretAIHoldTurretStateRow;
 	inline struct GxTurretAIHoldTurretStateRow &gxRow() const;
 public:
@@ -261,10 +258,9 @@ struct GxTurretAIHoldTurretStateRow
 {
 	UnsignedInt timestamp;
 };
-extern GxComponentTable<GxTurretAIHoldTurretStateRow> TheGxTurretAIHoldTurretStates;
 
 
-inline GxTurretAIHoldTurretStateRow &TurretAIHoldTurretState::gxRow() const { return TheGxTurretAIHoldTurretStates.at(m_gxTurretAIHoldTurretStateRow); }
+inline GxTurretAIHoldTurretStateRow &TurretAIHoldTurretState::gxRow() const { return const_cast<GxTurretAIHoldTurretStateRow &>(*m_gxTurretAIHoldTurretStateRow); }
 
 //-------------------------------------------------------------------------------------------------
 class TurretAIData : public MemoryPoolObject
@@ -405,7 +401,7 @@ private:
 	void getOtherTurretWeaponInfo(Int& numSelf, Int& numSelfReloading, Int& numSelfReady, Int& numOther, Int& numOtherReloading, Int& numOtherReady) const;
 #endif
 
-	struct GxTurretAIRow *m_gxTurretAIRow;	///< web port (round 5): this unit's row in TheGxTurretAIs
+	GxRow<struct GxTurretAIRow> m_gxTurretAIRow;	///< web port (round 5): this unit's row in TheGxTurretAIs
 	friend struct GxTurretAIRow;
 	inline struct GxTurretAIRow &gxRow() const;
 	mutable TurretTargetType	m_target;
@@ -437,10 +433,9 @@ struct GxTurretAIRow
 	Bool firesWhileTurning;
 	Bool isForceAttacking;
 };
-extern GxComponentTable<GxTurretAIRow> TheGxTurretAIs;
 
 
-inline GxTurretAIRow &TurretAI::gxRow() const { return TheGxTurretAIs.at(m_gxTurretAIRow); }
+inline GxTurretAIRow &TurretAI::gxRow() const { return const_cast<GxTurretAIRow &>(*m_gxTurretAIRow); }
 inline Real TurretAI::getTurretAngle() const
 { return gxRow().angle; }
 inline Real TurretAI::getTurretPitch() const

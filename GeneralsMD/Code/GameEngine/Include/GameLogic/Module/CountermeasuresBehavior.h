@@ -115,7 +115,7 @@ typedef std::vector<ObjectID> CountermeasuresVec;
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxCountermeasuresBehaviorRow;
 class CountermeasuresBehavior : public UpdateModule, public UpgradeMux, public CountermeasuresBehaviorInterface
 {
@@ -182,7 +182,7 @@ protected:
 	void launchVolley();
 
 private:
-	struct GxCountermeasuresBehaviorRow *m_gxCountermeasuresBehaviorRow;	///< web port (round 5): this unit's row in TheGxCountermeasuresBehaviors
+	GxRow<struct GxCountermeasuresBehaviorRow> m_gxCountermeasuresBehaviorRow;	///< web port (round 5): this unit's row in TheGxCountermeasuresBehaviors
 	friend struct GxCountermeasuresBehaviorRow;
 	inline struct GxCountermeasuresBehaviorRow &gxRow() const;
 };
@@ -200,8 +200,7 @@ struct GxCountermeasuresBehaviorRow
 	UnsignedInt nextVolleyFrame;
 	UnsignedInt reloadFrame;
 };
-extern GxComponentTable<GxCountermeasuresBehaviorRow> TheGxCountermeasuresBehaviors;
 
 
-inline GxCountermeasuresBehaviorRow &CountermeasuresBehavior::gxRow() const { return TheGxCountermeasuresBehaviors.at(m_gxCountermeasuresBehaviorRow); }
+inline GxCountermeasuresBehaviorRow &CountermeasuresBehavior::gxRow() const { return const_cast<GxCountermeasuresBehaviorRow &>(*m_gxCountermeasuresBehaviorRow); }
 

@@ -64,7 +64,7 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxPropagandaTowerBehaviorRow;
 class PropagandaTowerBehavior : public UpdateModule,
 																public DieModuleInterface
@@ -105,7 +105,7 @@ protected:
 	virtual void effectLogic( Object *obj, Bool giving,
 														const PropagandaTowerBehaviorModuleData *modData);///< give/remove effect on object
 
-	struct GxPropagandaTowerBehaviorRow *m_gxPropagandaTowerBehaviorRow;	///< web port (round 5): this unit's row in TheGxPropagandaTowerBehaviors
+	GxRow<struct GxPropagandaTowerBehaviorRow> m_gxPropagandaTowerBehaviorRow;	///< web port (round 5): this unit's row in TheGxPropagandaTowerBehaviors
 	friend struct GxPropagandaTowerBehaviorRow;
 	inline struct GxPropagandaTowerBehaviorRow &gxRow() const;
 
@@ -120,8 +120,7 @@ struct GxPropagandaTowerBehaviorRow
 	ObjectTracker* insideList;
 	const UpgradeTemplate* upgradeRequired;
 };
-extern GxComponentTable<GxPropagandaTowerBehaviorRow> TheGxPropagandaTowerBehaviors;
 
 
-inline GxPropagandaTowerBehaviorRow &PropagandaTowerBehavior::gxRow() const { return TheGxPropagandaTowerBehaviors.at(m_gxPropagandaTowerBehaviorRow); }
+inline GxPropagandaTowerBehaviorRow &PropagandaTowerBehavior::gxRow() const { return const_cast<GxPropagandaTowerBehaviorRow &>(*m_gxPropagandaTowerBehaviorRow); }
 

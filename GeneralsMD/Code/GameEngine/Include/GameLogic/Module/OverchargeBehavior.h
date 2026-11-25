@@ -67,7 +67,7 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxOverchargeBehaviorRow;
 class OverchargeBehavior : public UpdateModule,
 													 public DamageModuleInterface,
@@ -110,7 +110,7 @@ public:
 
 protected:
 
-	struct GxOverchargeBehaviorRow *m_gxOverchargeBehaviorRow;	///< web port (round 5): this unit's row in TheGxOverchargeBehaviors
+	GxRow<struct GxOverchargeBehaviorRow> m_gxOverchargeBehaviorRow;	///< web port (round 5): this unit's row in TheGxOverchargeBehaviors
 	friend struct GxOverchargeBehaviorRow;
 	inline struct GxOverchargeBehaviorRow &gxRow() const;
 
@@ -122,9 +122,8 @@ struct GxOverchargeBehaviorRow
 {
 	Bool overchargeActive;
 };
-extern GxComponentTable<GxOverchargeBehaviorRow> TheGxOverchargeBehaviors;
 
 
-inline GxOverchargeBehaviorRow &OverchargeBehavior::gxRow() const { return TheGxOverchargeBehaviors.at(m_gxOverchargeBehaviorRow); }
+inline GxOverchargeBehaviorRow &OverchargeBehavior::gxRow() const { return const_cast<GxOverchargeBehaviorRow &>(*m_gxOverchargeBehaviorRow); }
 inline Bool OverchargeBehavior::isOverchargeActive() { return gxRow().overchargeActive; }
 

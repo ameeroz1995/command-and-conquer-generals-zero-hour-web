@@ -65,7 +65,7 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxTransportContainRow;
 class TransportContain : public OpenContain
 {
@@ -107,7 +107,7 @@ protected:
 	virtual void createPayload();
 	void letRidersUpgradeWeaponSet();
 
-	struct GxTransportContainRow *m_gxTransportContainRow;	///< web port (round 5): this unit's row in TheGxTransportContains
+	GxRow<struct GxTransportContainRow> m_gxTransportContainRow;	///< web port (round 5): this unit's row in TheGxTransportContains
 	friend struct GxTransportContainRow;
 	inline struct GxTransportContainRow &gxRow() const;
 
@@ -124,9 +124,8 @@ struct GxTransportContainRow
 	Int extraSlotsInUse;
 	UnsignedInt frameExitNotBusy;
 };
-extern GxComponentTable<GxTransportContainRow> TheGxTransportContains;
 
 
-inline GxTransportContainRow &TransportContain::gxRow() const { return TheGxTransportContains.at(m_gxTransportContainRow); }
+inline GxTransportContainRow &TransportContain::gxRow() const { return const_cast<GxTransportContainRow &>(*m_gxTransportContainRow); }
 inline Int TransportContain::getExtraSlotsInUse() { return gxRow().extraSlotsInUse; }
 

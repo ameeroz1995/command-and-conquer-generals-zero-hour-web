@@ -76,8 +76,7 @@
 
 // Web port (round 5, units are pure data): AIUpdateInterface's per-unit state is a row of TheGxAIUpdateInterfaces;
 // GXROW_AIUPDATEINTERFACE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIUpdateInterfaceRow> TheGxAIUpdateInterfaces;
-#define GXROW_AIUPDATEINTERFACE (TheGxAIUpdateInterfaces.at(m_gxAIUpdateInterfaceRow))
+#define GXROW_AIUPDATEINTERFACE (const_cast<GxAIUpdateInterfaceRow &>(*m_gxAIUpdateInterfaceRow))
 
 
 #define SLEEPY_AI
@@ -212,8 +211,7 @@ AIStateMachine* AIUpdateInterface::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-AIUpdateInterface::AIUpdateInterface( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData ),
-	m_gxAIUpdateInterfaceRow( TheGxAIUpdateInterfaces.alloc( getObject() ) )	// web port (round 5): this unit's row (zeroed, like the module was)
+AIUpdateInterface::AIUpdateInterface( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )	// web port (round 5): this unit's row (zeroed, like the module was)
 {
 
 	int i;
@@ -706,7 +704,6 @@ AIUpdateInterface::~AIUpdateInterface()
 	// destroy the current path. (destroyPath is nullptr savvy)
 	destroyPath();
 
-	TheGxAIUpdateInterfaces.release( m_gxAIUpdateInterfaceRow );	// web port (round 5)
 }
 
 //=============================================================================

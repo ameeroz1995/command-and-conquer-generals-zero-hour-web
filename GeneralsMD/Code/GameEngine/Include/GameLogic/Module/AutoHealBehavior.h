@@ -106,7 +106,7 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxAutoHealBehaviorRow;
 class AutoHealBehavior : public UpdateModule,
 												 public UpgradeMux,
@@ -177,7 +177,7 @@ private:
 
 	void pulseHealObject( Object *obj );
 
-	struct GxAutoHealBehaviorRow *m_gxAutoHealBehaviorRow;	///< web port (round 5): this unit's row in TheGxAutoHealBehaviors
+	GxRow<struct GxAutoHealBehaviorRow> m_gxAutoHealBehaviorRow;	///< web port (round 5): this unit's row in TheGxAutoHealBehaviors
 	friend struct GxAutoHealBehaviorRow;
 	inline struct GxAutoHealBehaviorRow &gxRow() const;
 
@@ -197,8 +197,7 @@ struct GxAutoHealBehaviorRow
 	ParticleSystemID radiusParticleSystemID;
 	Bool stopped;
 };
-extern GxComponentTable<GxAutoHealBehaviorRow> TheGxAutoHealBehaviors;
 
 
-inline GxAutoHealBehaviorRow &AutoHealBehavior::gxRow() const { return TheGxAutoHealBehaviors.at(m_gxAutoHealBehaviorRow); }
+inline GxAutoHealBehaviorRow &AutoHealBehavior::gxRow() const { return const_cast<GxAutoHealBehaviorRow &>(*m_gxAutoHealBehaviorRow); }
 

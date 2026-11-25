@@ -83,17 +83,14 @@ void UpgradeModule::loadPostProcess()
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 // web port (round 5): the "executed" flag lives in a row of TheGxUpgradeMuxes
-GxComponentTable<GxUpgradeMuxRow> TheGxUpgradeMuxes;
-#define GXROW_UPGRADEMUX (TheGxUpgradeMuxes.at(m_gxUpgradeMuxRow))
+#define GXROW_UPGRADEMUX (const_cast<GxUpgradeMuxRow &>(*m_gxUpgradeMuxRow))
 
 UpgradeMux::UpgradeMux()
 {
-	m_gxUpgradeMuxRow = TheGxUpgradeMuxes.alloc( nullptr );	// zeroed: not executed
 }
 
 UpgradeMux::~UpgradeMux()
 {
-	TheGxUpgradeMuxes.release( m_gxUpgradeMuxRow );
 }
 
 void UpgradeMux::setUpgradeExecuted(Bool e)

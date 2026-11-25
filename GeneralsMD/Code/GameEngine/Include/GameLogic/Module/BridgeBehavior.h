@@ -111,7 +111,7 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxBridgeBehaviorRow;
 class BridgeBehavior : public UpdateModule,
 											 public BridgeBehaviorInterface,
@@ -176,7 +176,7 @@ protected:
 																 const BridgeInfo *bridgeInfo,
 																 Coord3D *pos );
 
-	struct GxBridgeBehaviorRow *m_gxBridgeBehaviorRow;	///< web port (round 5): this unit's row in TheGxBridgeBehaviors
+	GxRow<struct GxBridgeBehaviorRow> m_gxBridgeBehaviorRow;	///< web port (round 5): this unit's row in TheGxBridgeBehaviors
 	friend struct GxBridgeBehaviorRow;
 	inline struct GxBridgeBehaviorRow &gxRow() const;
 
@@ -205,9 +205,8 @@ struct GxBridgeBehaviorRow
 	ObjectIDList scaffoldObjectIDList;
 	UnsignedInt deathFrame;
 };
-extern GxComponentTable<GxBridgeBehaviorRow> TheGxBridgeBehaviors;
 
 
-inline GxBridgeBehaviorRow &BridgeBehavior::gxRow() const { return TheGxBridgeBehaviors.at(m_gxBridgeBehaviorRow); }
+inline GxBridgeBehaviorRow &BridgeBehavior::gxRow() const { return const_cast<GxBridgeBehaviorRow &>(*m_gxBridgeBehaviorRow); }
 inline Bool BridgeBehavior::isScaffoldPresent() { return gxRow().scaffoldPresent; }
 

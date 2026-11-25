@@ -56,8 +56,7 @@
 
 // Web port (round 5, units are pure data): GarrisonContain's per-unit state is a row of TheGxGarrisonContains;
 // GXROW_GARRISONCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxGarrisonContainRow> TheGxGarrisonContains;
-#define GXROW_GARRISONCONTAIN (TheGxGarrisonContains.at(m_gxGarrisonContainRow))
+#define GXROW_GARRISONCONTAIN (const_cast<GxGarrisonContainRow &>(*m_gxGarrisonContainRow))
 
 
 
@@ -509,7 +508,6 @@ TheInGameUI->message( msg );
 //-------------------------------------------------------------------------------------------------
 GarrisonContain::GarrisonContain( Thing *thing, const ModuleData *moduleData ) : OpenContain( thing, moduleData )
 {
-	m_gxGarrisonContainRow = TheGxGarrisonContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	Int i, j;
 
@@ -549,7 +547,6 @@ GarrisonContain::GarrisonContain( Thing *thing, const ModuleData *moduleData ) :
 GarrisonContain::~GarrisonContain()
 {
 
-	TheGxGarrisonContains.release( m_gxGarrisonContainRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

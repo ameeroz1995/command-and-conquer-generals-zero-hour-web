@@ -55,7 +55,7 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxHelixContainRow;
 class HelixContain : public TransportContain
 {
@@ -125,7 +125,7 @@ public:
 private:
   void parseInitialPayload( INI* ini, void *instance, void *store, const void* /*userData*/ );
   Object *getPortableStructure();
-	struct GxHelixContainRow *m_gxHelixContainRow;	///< web port (round 5): this unit's row in TheGxHelixContains
+	GxRow<struct GxHelixContainRow> m_gxHelixContainRow;	///< web port (round 5): this unit's row in TheGxHelixContains
 	friend struct GxHelixContainRow;
 	inline struct GxHelixContainRow &gxRow() const;
 
@@ -137,8 +137,7 @@ struct GxHelixContainRow
 {
 	ObjectID portableStructureID;
 };
-extern GxComponentTable<GxHelixContainRow> TheGxHelixContains;
 
 
-inline GxHelixContainRow &HelixContain::gxRow() const { return TheGxHelixContains.at(m_gxHelixContainRow); }
+inline GxHelixContainRow &HelixContain::gxRow() const { return const_cast<GxHelixContainRow &>(*m_gxHelixContainRow); }
 

@@ -46,8 +46,7 @@
 
 // Web port (round 5, units are pure data): AutoHealBehavior's per-unit state is a row of TheGxAutoHealBehaviors;
 // GXROW_AUTOHEALBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAutoHealBehaviorRow> TheGxAutoHealBehaviors;
-#define GXROW_AUTOHEALBEHAVIOR (TheGxAutoHealBehaviors.at(m_gxAutoHealBehaviorRow))
+#define GXROW_AUTOHEALBEHAVIOR (const_cast<GxAutoHealBehaviorRow &>(*m_gxAutoHealBehaviorRow))
 
 
 
@@ -95,7 +94,6 @@ static void checkForAutoHeal( Object *testObj, void *userData )
 //-------------------------------------------------------------------------------------------------
 AutoHealBehavior::AutoHealBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxAutoHealBehaviorRow = TheGxAutoHealBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	const AutoHealBehaviorModuleData *d = getAutoHealBehaviorModuleData();
 
@@ -140,7 +138,6 @@ AutoHealBehavior::~AutoHealBehavior()
 	if( GXROW_AUTOHEALBEHAVIOR.radiusParticleSystemID != INVALID_PARTICLE_SYSTEM_ID )
 		TheParticleSystemManager->destroyParticleSystemByID( GXROW_AUTOHEALBEHAVIOR.radiusParticleSystemID );
 
-	TheGxAutoHealBehaviors.release( m_gxAutoHealBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

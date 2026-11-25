@@ -49,8 +49,7 @@
 
 // Web port (round 5, units are pure data): CountermeasuresBehavior's per-unit state is a row of TheGxCountermeasuresBehaviors;
 // GXROW_COUNTERMEASURESBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxCountermeasuresBehaviorRow> TheGxCountermeasuresBehaviors;
-#define GXROW_COUNTERMEASURESBEHAVIOR (TheGxCountermeasuresBehaviors.at(m_gxCountermeasuresBehaviorRow))
+#define GXROW_COUNTERMEASURESBEHAVIOR (const_cast<GxCountermeasuresBehaviorRow &>(*m_gxCountermeasuresBehaviorRow))
 
 
 
@@ -90,7 +89,6 @@ static void checkForCountermeasures( Object *testObj, void *userData )
 //-------------------------------------------------------------------------------------------------
 CountermeasuresBehavior::CountermeasuresBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxCountermeasuresBehaviorRow = TheGxCountermeasuresBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	const CountermeasuresBehaviorModuleData *data = getCountermeasuresBehaviorModuleData();
 	GXROW_COUNTERMEASURESBEHAVIOR.availableCountermeasures = data->m_numberOfVolleys * data->m_volleySize;
@@ -107,7 +105,6 @@ CountermeasuresBehavior::CountermeasuresBehavior( Thing *thing, const ModuleData
 //-------------------------------------------------------------------------------------------------
 CountermeasuresBehavior::~CountermeasuresBehavior()
 {
-	TheGxCountermeasuresBehaviors.release( m_gxCountermeasuresBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------

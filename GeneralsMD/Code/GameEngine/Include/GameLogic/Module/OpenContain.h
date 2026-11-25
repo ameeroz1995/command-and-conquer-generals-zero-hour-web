@@ -77,7 +77,7 @@ public:
 //-------------------------------------------------------------------------------------------------
 /** An open container can actually contain other objects */
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxOpenContainRow;
 class OpenContain : public UpdateModule,
 										public ContainModuleInterface,
@@ -254,7 +254,7 @@ protected:
 
 	void pruneDeadWanters();
 
-	struct GxOpenContainRow *m_gxOpenContainRow;	///< web port (round 5): this unit's row in TheGxOpenContains
+	GxRow<struct GxOpenContainRow> m_gxOpenContainRow;	///< web port (round 5): this unit's row in TheGxOpenContains
 	friend struct GxOpenContainRow;
 	inline struct GxOpenContainRow &gxRow() const;
 private:
@@ -294,10 +294,9 @@ struct GxOpenContainRow
 	Bool loadSoundsEnabled;
 	Bool passengerAllowedToFire;
 };
-extern GxComponentTable<GxOpenContainRow> TheGxOpenContains;
 
 
-inline GxOpenContainRow &OpenContain::gxRow() const { return TheGxOpenContains.at(m_gxOpenContainRow); }
+inline GxOpenContainRow &OpenContain::gxRow() const { return const_cast<GxOpenContainRow &>(*m_gxOpenContainRow); }
 inline void OpenContain::setPassengerAllowedToFire( Bool permission) { gxRow().passengerAllowedToFire = permission; }
 inline UnsignedInt OpenContain::getContainCount() const { return gxRow().containListSize; }
 inline const ContainedItemsList* OpenContain::getContainedItemsList() const { return &gxRow().containList; }

@@ -42,15 +42,13 @@
 
 // Web port (round 5, units are pure data): BridgeTowerBehavior's per-unit state is a row of TheGxBridgeTowerBehaviors;
 // GXROW_BRIDGETOWERBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxBridgeTowerBehaviorRow> TheGxBridgeTowerBehaviors;
-#define GXROW_BRIDGETOWERBEHAVIOR (TheGxBridgeTowerBehaviors.at(m_gxBridgeTowerBehaviorRow))
+#define GXROW_BRIDGETOWERBEHAVIOR (const_cast<GxBridgeTowerBehaviorRow &>(*m_gxBridgeTowerBehaviorRow))
 
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 BridgeTowerBehavior::BridgeTowerBehavior( Thing *thing, const ModuleData *moduleData ) : BehaviorModule( thing, moduleData )
 {
-	m_gxBridgeTowerBehaviorRow = TheGxBridgeTowerBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 
 	GXROW_BRIDGETOWERBEHAVIOR.bridgeID = INVALID_ID;
@@ -62,7 +60,6 @@ BridgeTowerBehavior::BridgeTowerBehavior( Thing *thing, const ModuleData *module
 BridgeTowerBehavior::~BridgeTowerBehavior()
 {
 
-	TheGxBridgeTowerBehaviors.release( m_gxBridgeTowerBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------

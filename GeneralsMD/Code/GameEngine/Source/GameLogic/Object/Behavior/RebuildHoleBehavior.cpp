@@ -44,8 +44,7 @@
 
 // Web port (round 5, units are pure data): RebuildHoleBehavior's per-unit state is a row of TheGxRebuildHoleBehaviors;
 // GXROW_REBUILDHOLEBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxRebuildHoleBehaviorRow> TheGxRebuildHoleBehaviors;
-#define GXROW_REBUILDHOLEBEHAVIOR (TheGxRebuildHoleBehaviors.at(m_gxRebuildHoleBehaviorRow))
+#define GXROW_REBUILDHOLEBEHAVIOR (const_cast<GxRebuildHoleBehaviorRow &>(*m_gxRebuildHoleBehaviorRow))
 
 
 
@@ -86,7 +85,6 @@ RebuildHoleBehaviorModuleData::RebuildHoleBehaviorModuleData()
 //-------------------------------------------------------------------------------------------------
 RebuildHoleBehavior::RebuildHoleBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxRebuildHoleBehaviorRow = TheGxRebuildHoleBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 
 	GXROW_REBUILDHOLEBEHAVIOR.workerID = INVALID_ID;
@@ -114,7 +112,6 @@ RebuildHoleBehavior::~RebuildHoleBehavior()
 		}
 	}
 
-	TheGxRebuildHoleBehaviors.release( m_gxRebuildHoleBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------

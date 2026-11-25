@@ -41,7 +41,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////
 #include "Common/GameMemory.h"
-#include "GameLogic/GxComponents.h"	// web port (round 5)
+#include "Common/GxComponentPool.h"	// web port (round 5)
 #include "GameLogic/AIStateMachine.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
@@ -69,7 +69,7 @@ public:
 
 public:
 
-	struct GxTunnelNetworkExitConditionsRow *m_gxTunnelNetworkExitConditionsRow;	///< web port (round 5): this unit's row in TheGxTunnelNetworkExitConditionss
+	GxRow<struct GxTunnelNetworkExitConditionsRow> m_gxTunnelNetworkExitConditionsRow;	///< web port (round 5): this unit's row in TheGxTunnelNetworkExitConditionss
 	friend struct GxTunnelNetworkExitConditionsRow;
 	inline struct GxTunnelNetworkExitConditionsRow &gxRow() const;
 
@@ -85,10 +85,9 @@ struct GxTunnelNetworkExitConditionsRow
 {
 	UnsignedInt attackGiveUpFrame;
 };
-extern GxComponentTable<GxTunnelNetworkExitConditionsRow> TheGxTunnelNetworkExitConditionss;
 
 
-inline GxTunnelNetworkExitConditionsRow &TunnelNetworkExitConditions::gxRow() const { return TheGxTunnelNetworkExitConditionss.at(m_gxTunnelNetworkExitConditionsRow); }
+inline GxTunnelNetworkExitConditionsRow &TunnelNetworkExitConditions::gxRow() const { return const_cast<GxTunnelNetworkExitConditionsRow &>(*m_gxTunnelNetworkExitConditionsRow); }
 
 
 
@@ -101,7 +100,7 @@ class AITNGuardMachine : public StateMachine
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( AITNGuardMachine, "AITNGuardMachinePool" );
 
 private:
-	struct GxAITNGuardMachineRow *m_gxAITNGuardMachineRow;	///< web port (round 5): this unit's row in TheGxAITNGuardMachines
+	GxRow<struct GxAITNGuardMachineRow> m_gxAITNGuardMachineRow;	///< web port (round 5): this unit's row in TheGxAITNGuardMachines
 	friend struct GxAITNGuardMachineRow;
 	inline struct GxAITNGuardMachineRow &gxRow() const;
 
@@ -140,10 +139,9 @@ struct GxAITNGuardMachineRow
 	ObjectID nemesisToAttack;
 	GuardMode guardMode;
 };
-extern GxComponentTable<GxAITNGuardMachineRow> TheGxAITNGuardMachines;
 
 
-inline GxAITNGuardMachineRow &AITNGuardMachine::gxRow() const { return TheGxAITNGuardMachines.at(m_gxAITNGuardMachineRow); }
+inline GxAITNGuardMachineRow &AITNGuardMachine::gxRow() const { return const_cast<GxAITNGuardMachineRow &>(*m_gxAITNGuardMachineRow); }
 inline const Coord3D * AITNGuardMachine::getPositionToGuard() const
 { return &gxRow().positionToGuard; }
 inline void AITNGuardMachine::setTargetPositionToGuard( const Coord3D *pos)
@@ -177,7 +175,7 @@ protected:
 private:
 	AITNGuardMachine* getGuardMachine() { return (AITNGuardMachine*)getMachine(); }
 
-	struct GxAITNGuardInnerStateRow *m_gxAITNGuardInnerStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardInnerStates
+	GxRow<struct GxAITNGuardInnerStateRow> m_gxAITNGuardInnerStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardInnerStates
 	friend struct GxAITNGuardInnerStateRow;
 	inline struct GxAITNGuardInnerStateRow &gxRow() const;
 };
@@ -190,10 +188,9 @@ struct GxAITNGuardInnerStateRow
 	Bool scanForEnemy;
 	AIAttackState* attackState;
 };
-extern GxComponentTable<GxAITNGuardInnerStateRow> TheGxAITNGuardInnerStates;
 
 
-inline GxAITNGuardInnerStateRow &AITNGuardInnerState::gxRow() const { return TheGxAITNGuardInnerStates.at(m_gxAITNGuardInnerStateRow); }
+inline GxAITNGuardInnerStateRow &AITNGuardInnerState::gxRow() const { return const_cast<GxAITNGuardInnerStateRow &>(*m_gxAITNGuardInnerStateRow); }
 
 
 //--------------------------------------------------------------------------------------
@@ -215,7 +212,7 @@ protected:
 private:
 	AITNGuardMachine* getGuardMachine() { return (AITNGuardMachine*)getMachine(); }
 
-	struct GxAITNGuardIdleStateRow *m_gxAITNGuardIdleStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardIdleStates
+	GxRow<struct GxAITNGuardIdleStateRow> m_gxAITNGuardIdleStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardIdleStates
 	friend struct GxAITNGuardIdleStateRow;
 	inline struct GxAITNGuardIdleStateRow &gxRow() const;
 };
@@ -227,10 +224,9 @@ struct GxAITNGuardIdleStateRow
 	UnsignedInt nextEnemyScanTime;
 	Coord3D guardeePos;
 };
-extern GxComponentTable<GxAITNGuardIdleStateRow> TheGxAITNGuardIdleStates;
 
 
-inline GxAITNGuardIdleStateRow &AITNGuardIdleState::gxRow() const { return TheGxAITNGuardIdleStates.at(m_gxAITNGuardIdleStateRow); }
+inline GxAITNGuardIdleStateRow &AITNGuardIdleState::gxRow() const { return const_cast<GxAITNGuardIdleStateRow &>(*m_gxAITNGuardIdleStateRow); }
 
 //--------------------------------------------------------------------------------------
 struct GxAITNGuardOuterStateRow;
@@ -251,7 +247,7 @@ protected:
 private:
 	AITNGuardMachine* getGuardMachine() { return (AITNGuardMachine*)getMachine(); }
 
-	struct GxAITNGuardOuterStateRow *m_gxAITNGuardOuterStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardOuterStates
+	GxRow<struct GxAITNGuardOuterStateRow> m_gxAITNGuardOuterStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardOuterStates
 	friend struct GxAITNGuardOuterStateRow;
 	inline struct GxAITNGuardOuterStateRow &gxRow() const;
 };
@@ -263,10 +259,9 @@ struct GxAITNGuardOuterStateRow
 	TunnelNetworkExitConditions exitConditions;
 	AIAttackState* attackState;
 };
-extern GxComponentTable<GxAITNGuardOuterStateRow> TheGxAITNGuardOuterStates;
 
 
-inline GxAITNGuardOuterStateRow &AITNGuardOuterState::gxRow() const { return TheGxAITNGuardOuterStates.at(m_gxAITNGuardOuterStateRow); }
+inline GxAITNGuardOuterStateRow &AITNGuardOuterState::gxRow() const { return const_cast<GxAITNGuardOuterStateRow &>(*m_gxAITNGuardOuterStateRow); }
 
 
 //--------------------------------------------------------------------------------------
@@ -284,7 +279,7 @@ public:
 	virtual void onExit( StateExitType status );
 
 protected:
-	struct GxAITNGuardReturnStateRow *m_gxAITNGuardReturnStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardReturnStates
+	GxRow<struct GxAITNGuardReturnStateRow> m_gxAITNGuardReturnStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardReturnStates
 	friend struct GxAITNGuardReturnStateRow;
 	inline struct GxAITNGuardReturnStateRow &gxRow() const;
 
@@ -301,10 +296,9 @@ struct GxAITNGuardReturnStateRow
 {
 	UnsignedInt nextReturnScanTime;
 };
-extern GxComponentTable<GxAITNGuardReturnStateRow> TheGxAITNGuardReturnStates;
 
 
-inline GxAITNGuardReturnStateRow &AITNGuardReturnState::gxRow() const { return TheGxAITNGuardReturnStates.at(m_gxAITNGuardReturnStateRow); }
+inline GxAITNGuardReturnStateRow &AITNGuardReturnState::gxRow() const { return const_cast<GxAITNGuardReturnStateRow &>(*m_gxAITNGuardReturnStateRow); }
 
 //--------------------------------------------------------------------------------------
 class AITNGuardPickUpCrateState : public AIPickUpCrateState
@@ -335,7 +329,7 @@ protected:
 	virtual void loadPostProcess();
 private:
 	AITNGuardMachine* getGuardMachine() { return (AITNGuardMachine*)getMachine(); }
-	struct GxAITNGuardAttackAggressorStateRow *m_gxAITNGuardAttackAggressorStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardAttackAggressorStates
+	GxRow<struct GxAITNGuardAttackAggressorStateRow> m_gxAITNGuardAttackAggressorStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardAttackAggressorStates
 	friend struct GxAITNGuardAttackAggressorStateRow;
 	inline struct GxAITNGuardAttackAggressorStateRow &gxRow() const;
 };
@@ -347,10 +341,9 @@ struct GxAITNGuardAttackAggressorStateRow
 	TunnelNetworkExitConditions exitConditions;
 	AIAttackState* attackState;
 };
-extern GxComponentTable<GxAITNGuardAttackAggressorStateRow> TheGxAITNGuardAttackAggressorStates;
 
 
-inline GxAITNGuardAttackAggressorStateRow &AITNGuardAttackAggressorState::gxRow() const { return TheGxAITNGuardAttackAggressorStates.at(m_gxAITNGuardAttackAggressorStateRow); }
+inline GxAITNGuardAttackAggressorStateRow &AITNGuardAttackAggressorState::gxRow() const { return const_cast<GxAITNGuardAttackAggressorStateRow &>(*m_gxAITNGuardAttackAggressorStateRow); }
 
 
 //--------------------------------------------------------------------------------------

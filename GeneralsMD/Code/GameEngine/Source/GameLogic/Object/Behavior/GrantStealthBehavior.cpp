@@ -47,8 +47,7 @@
 
 // Web port (round 5, units are pure data): GrantStealthBehavior's per-unit state is a row of TheGxGrantStealthBehaviors;
 // GXROW_GRANTSTEALTHBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxGrantStealthBehaviorRow> TheGxGrantStealthBehaviors;
-#define GXROW_GRANTSTEALTHBEHAVIOR (TheGxGrantStealthBehaviors.at(m_gxGrantStealthBehaviorRow))
+#define GXROW_GRANTSTEALTHBEHAVIOR (const_cast<GxGrantStealthBehaviorRow &>(*m_gxGrantStealthBehaviorRow))
 
 
 
@@ -96,7 +95,6 @@ static void checkForGrantStealth( Object *testObj, void *userData )
 //-------------------------------------------------------------------------------------------------
 GrantStealthBehavior::GrantStealthBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxGrantStealthBehaviorRow = TheGxGrantStealthBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	const GrantStealthBehaviorModuleData *d = getGrantStealthBehaviorModuleData();
 
@@ -132,7 +130,6 @@ GrantStealthBehavior::~GrantStealthBehavior()
 	if( GXROW_GRANTSTEALTHBEHAVIOR.radiusParticleSystemID != INVALID_PARTICLE_SYSTEM_ID )
 		TheParticleSystemManager->destroyParticleSystemByID( GXROW_GRANTSTEALTHBEHAVIOR.radiusParticleSystemID );
 
-	TheGxGrantStealthBehaviors.release( m_gxGrantStealthBehaviorRow );	// web port (round 5)
 }
 
 

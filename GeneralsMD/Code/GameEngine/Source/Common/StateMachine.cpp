@@ -41,14 +41,12 @@
 
 // Web port (round 5, units are pure data): State's per-unit state is a row of TheGxStates;
 // GXROW_STATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxStateRow> TheGxStates;
-#define GXROW_STATE (TheGxStates.at(m_gxStateRow))
+#define GXROW_STATE (const_cast<GxStateRow &>(*m_gxStateRow))
 
 
 // Web port (round 5, units are pure data): StateMachine's per-unit state is a row of TheGxStateMachines;
 // GXROW_STATEMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxStateMachineRow> TheGxStateMachines;
-#define GXROW_STATEMACHINE (TheGxStateMachines.at(m_gxStateMachineRow))
+#define GXROW_STATEMACHINE (const_cast<GxStateMachineRow &>(*m_gxStateMachineRow))
 
 
 
@@ -64,7 +62,6 @@ GxComponentTable<GxStateMachineRow> TheGxStateMachines;
  */
 State::State( StateMachine *machine, AsciiString name )
 {
-	m_gxStateRow = TheGxStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 #ifdef STATE_MACHINE_DEBUG
 	GXROW_STATE.name = name;
@@ -276,7 +273,6 @@ StateReturnType State::friend_checkForSleepTransitions( StateReturnType status )
  */
 StateMachine::StateMachine( Object *owner, AsciiString name )
 {
-	m_gxStateMachineRow = TheGxStateMachines.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_STATEMACHINE.owner = owner;
 	GXROW_STATEMACHINE.sleepTill = 0;
@@ -310,7 +306,6 @@ StateMachine::~StateMachine()
 	{
 		deleteInstance((*i).second);
 	}
-	TheGxStateMachines.release( m_gxStateMachineRow );	// web port (round 5)
 }
 
 //-----------------------------------------------------------------------------
@@ -923,5 +918,4 @@ void StateMachine::loadPostProcess()
 
 State::~State()
 {
-	TheGxStates.release( m_gxStateRow );	// web port (round 5)
 }

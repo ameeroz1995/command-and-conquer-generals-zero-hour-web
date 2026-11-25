@@ -53,7 +53,7 @@ private:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxSupplyWarehouseCripplingBehaviorRow;
 class SupplyWarehouseCripplingBehavior : public UpdateModule,
 																				 public DamageModuleInterface
@@ -86,7 +86,7 @@ protected:
 	virtual void stopCrippledEffects();//Enable our object
 
 private:
-	struct GxSupplyWarehouseCripplingBehaviorRow *m_gxSupplyWarehouseCripplingBehaviorRow;	///< web port (round 5): this unit's row in TheGxSupplyWarehouseCripplingBehaviors
+	GxRow<struct GxSupplyWarehouseCripplingBehaviorRow> m_gxSupplyWarehouseCripplingBehaviorRow;	///< web port (round 5): this unit's row in TheGxSupplyWarehouseCripplingBehaviors
 	friend struct GxSupplyWarehouseCripplingBehaviorRow;
 	inline struct GxSupplyWarehouseCripplingBehaviorRow &gxRow() const;
 };
@@ -98,8 +98,7 @@ struct GxSupplyWarehouseCripplingBehaviorRow
 	UnsignedInt healingSupressedUntilFrame;
 	UnsignedInt nextHealingFrame;
 };
-extern GxComponentTable<GxSupplyWarehouseCripplingBehaviorRow> TheGxSupplyWarehouseCripplingBehaviors;
 
 
-inline GxSupplyWarehouseCripplingBehaviorRow &SupplyWarehouseCripplingBehavior::gxRow() const { return TheGxSupplyWarehouseCripplingBehaviors.at(m_gxSupplyWarehouseCripplingBehaviorRow); }
+inline GxSupplyWarehouseCripplingBehaviorRow &SupplyWarehouseCripplingBehavior::gxRow() const { return const_cast<GxSupplyWarehouseCripplingBehaviorRow &>(*m_gxSupplyWarehouseCripplingBehaviorRow); }
 

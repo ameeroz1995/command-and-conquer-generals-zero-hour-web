@@ -49,7 +49,7 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxParachuteContainRow;
 class ParachuteContain : public OpenContain
 {
@@ -93,7 +93,7 @@ private:
 	void calcSwayMtx(const Coord3D* offset, Matrix3D* mtx);
 	void setSwayMatrices();
 
-	struct GxParachuteContainRow *m_gxParachuteContainRow;	///< web port (round 5): this unit's row in TheGxParachuteContains
+	GxRow<struct GxParachuteContainRow> m_gxParachuteContainRow;	///< web port (round 5): this unit's row in TheGxParachuteContains
 	friend struct GxParachuteContainRow;
 	inline struct GxParachuteContainRow &gxRow() const;
 };
@@ -121,8 +121,7 @@ struct GxParachuteContainRow
 	Bool needToUpdateParaBones;
 	Bool opened;
 };
-extern GxComponentTable<GxParachuteContainRow> TheGxParachuteContains;
 
 
-inline GxParachuteContainRow &ParachuteContain::gxRow() const { return TheGxParachuteContains.at(m_gxParachuteContainRow); }
+inline GxParachuteContainRow &ParachuteContain::gxRow() const { return const_cast<GxParachuteContainRow &>(*m_gxParachuteContainRow); }
 

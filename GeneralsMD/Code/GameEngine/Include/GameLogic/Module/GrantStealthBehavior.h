@@ -84,7 +84,7 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxGrantStealthBehaviorRow;
 class GrantStealthBehavior : public UpdateModule
 {
@@ -103,7 +103,7 @@ public:
 private:
 
 	void grantStealthToObject( Object *obj );
-	struct GxGrantStealthBehaviorRow *m_gxGrantStealthBehaviorRow;	///< web port (round 5): this unit's row in TheGxGrantStealthBehaviors
+	GxRow<struct GxGrantStealthBehaviorRow> m_gxGrantStealthBehaviorRow;	///< web port (round 5): this unit's row in TheGxGrantStealthBehaviors
 	friend struct GxGrantStealthBehaviorRow;
 	inline struct GxGrantStealthBehaviorRow &gxRow() const;
 };
@@ -115,8 +115,7 @@ struct GxGrantStealthBehaviorRow
 	ParticleSystemID radiusParticleSystemID;
 	Real currentScanRadius;
 };
-extern GxComponentTable<GxGrantStealthBehaviorRow> TheGxGrantStealthBehaviors;
 
 
-inline GxGrantStealthBehaviorRow &GrantStealthBehavior::gxRow() const { return TheGxGrantStealthBehaviors.at(m_gxGrantStealthBehaviorRow); }
+inline GxGrantStealthBehaviorRow &GrantStealthBehavior::gxRow() const { return const_cast<GxGrantStealthBehaviorRow &>(*m_gxGrantStealthBehaviorRow); }
 

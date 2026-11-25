@@ -47,8 +47,7 @@
 
 // Web port (round 5, units are pure data): MinefieldBehavior's per-unit state is a row of TheGxMinefieldBehaviors;
 // GXROW_MINEFIELDBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxMinefieldBehaviorRow> TheGxMinefieldBehaviors;
-#define GXROW_MINEFIELDBEHAVIOR (TheGxMinefieldBehaviors.at(m_gxMinefieldBehaviorRow))
+#define GXROW_MINEFIELDBEHAVIOR (const_cast<GxMinefieldBehaviorRow &>(*m_gxMinefieldBehaviorRow))
 
 
 
@@ -107,7 +106,6 @@ MinefieldBehaviorModuleData::MinefieldBehaviorModuleData()
 //-------------------------------------------------------------------------------------------------
 MinefieldBehavior::MinefieldBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxMinefieldBehaviorRow = TheGxMinefieldBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	const MinefieldBehaviorModuleData* d = getMinefieldBehaviorModuleData();
 	GXROW_MINEFIELDBEHAVIOR.nextDeathCheckFrame = 0;
@@ -136,7 +134,6 @@ MinefieldBehavior::MinefieldBehavior( Thing *thing, const ModuleData* moduleData
 //-------------------------------------------------------------------------------------------------
 MinefieldBehavior::~MinefieldBehavior()
 {
-	TheGxMinefieldBehaviors.release( m_gxMinefieldBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------

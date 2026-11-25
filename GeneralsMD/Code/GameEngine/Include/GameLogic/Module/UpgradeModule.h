@@ -30,6 +30,7 @@
 #pragma once
 
 #include "Common/Module.h"
+#include "Common/GxComponentPool.h"	// web port (round 5): component rows
 #include "Common/STLTypedefs.h"
 #include "Common/Upgrade.h"
 
@@ -147,19 +148,17 @@ protected:
 	virtual void upgradeMuxLoadPostProcess();
 
 private:
-	struct GxUpgradeMuxRow *m_gxUpgradeMuxRow;	///< web port (round 5): this upgrade's row in TheGxUpgradeMuxes (its "executed" flag)
+	GxRow<struct GxUpgradeMuxRow> m_gxUpgradeMuxRow;	///< web port (round 5): this upgrade's row in TheGxUpgradeMuxes (its "executed" flag)
 
 };
 
 // Web port (round 5, units are pure data): an upgrade mix-in's per-unit state, one row per module in
 // TheGxUpgradeMuxes; UpgradeMux reads and writes its row (UpgradeModule.cpp). Mix-ins have no object,
 // so these rows carry none.
-#include "GameLogic/GxComponents.h"
 struct GxUpgradeMuxRow
 {
 	Bool upgradeExecuted;	///< Upgrade only executes once
 };
-extern GxComponentTable<GxUpgradeMuxRow> TheGxUpgradeMuxes;
 
 //-------------------------------------------------------------------------------------------------
 struct UpgradeModuleData : public BehaviorModuleData

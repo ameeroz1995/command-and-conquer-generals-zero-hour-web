@@ -48,8 +48,7 @@
 
 // Web port (round 5, units are pure data): HelixContain's per-unit state is a row of TheGxHelixContains;
 // GXROW_HELIXCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxHelixContainRow> TheGxHelixContains;
-#define GXROW_HELIXCONTAIN (TheGxHelixContains.at(m_gxHelixContainRow))
+#define GXROW_HELIXCONTAIN (const_cast<GxHelixContainRow &>(*m_gxHelixContainRow))
 
 
 
@@ -96,7 +95,6 @@ void HelixContainModuleData::buildFieldParse(MultiIniFieldParse& p)
 // ------------------------------------------------------------------------------------------------
 HelixContain::HelixContain( Thing *thing, const ModuleData *moduleData ) : TransportContain( thing, moduleData )
 {
-	m_gxHelixContainRow = TheGxHelixContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 
   TransportContain::gxRow().payloadCreated = FALSE;
@@ -109,7 +107,6 @@ HelixContain::HelixContain( Thing *thing, const ModuleData *moduleData ) : Trans
 HelixContain::~HelixContain()
 {
 
-	TheGxHelixContains.release( m_gxHelixContainRow );	// web port (round 5)
 }
 
 

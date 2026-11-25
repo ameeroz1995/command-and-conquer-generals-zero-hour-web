@@ -61,7 +61,7 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxBattleBusSlowDeathBehaviorRow;
 class BattleBusSlowDeathBehavior : public SlowDeathBehavior
 {
@@ -81,7 +81,7 @@ public:
 
 protected:
 
-	struct GxBattleBusSlowDeathBehaviorRow *m_gxBattleBusSlowDeathBehaviorRow;	///< web port (round 5): this unit's row in TheGxBattleBusSlowDeathBehaviors
+	GxRow<struct GxBattleBusSlowDeathBehaviorRow> m_gxBattleBusSlowDeathBehaviorRow;	///< web port (round 5): this unit's row in TheGxBattleBusSlowDeathBehaviors
 	friend struct GxBattleBusSlowDeathBehaviorRow;
 	inline struct GxBattleBusSlowDeathBehaviorRow &gxRow() const;
 
@@ -96,8 +96,7 @@ struct GxBattleBusSlowDeathBehaviorRow
 	UnsignedInt groundCheckFrame;
 	UnsignedInt penaltyDeathFrame;
 };
-extern GxComponentTable<GxBattleBusSlowDeathBehaviorRow> TheGxBattleBusSlowDeathBehaviors;
 
 
-inline GxBattleBusSlowDeathBehaviorRow &BattleBusSlowDeathBehavior::gxRow() const { return TheGxBattleBusSlowDeathBehaviors.at(m_gxBattleBusSlowDeathBehaviorRow); }
+inline GxBattleBusSlowDeathBehaviorRow &BattleBusSlowDeathBehavior::gxRow() const { return const_cast<GxBattleBusSlowDeathBehaviorRow &>(*m_gxBattleBusSlowDeathBehaviorRow); }
 

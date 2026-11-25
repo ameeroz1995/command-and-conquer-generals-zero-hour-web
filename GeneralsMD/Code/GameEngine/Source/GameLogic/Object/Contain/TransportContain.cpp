@@ -51,8 +51,7 @@
 
 // Web port (round 5, units are pure data): TransportContain's per-unit state is a row of TheGxTransportContains;
 // GXROW_TRANSPORTCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxTransportContainRow> TheGxTransportContains;
-#define GXROW_TRANSPORTCONTAIN (TheGxTransportContains.at(m_gxTransportContainRow))
+#define GXROW_TRANSPORTCONTAIN (const_cast<GxTransportContainRow &>(*m_gxTransportContainRow))
 
 
 // ------------------------------------------------------------------------------------------------
@@ -150,7 +149,6 @@ Int TransportContain::getContainMax() const {
 //-------------------------------------------------------------------------------------------------
 TransportContain::TransportContain(Thing *thing, const ModuleData *moduleData) : OpenContain(thing, moduleData)
 {
-	m_gxTransportContainRow = TheGxTransportContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
   GXROW_TRANSPORTCONTAIN.extraSlotsInUse = 0;
   GXROW_TRANSPORTCONTAIN.frameExitNotBusy = 0;
@@ -158,7 +156,7 @@ TransportContain::TransportContain(Thing *thing, const ModuleData *moduleData) :
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-TransportContain::~TransportContain() {	TheGxTransportContains.release( m_gxTransportContainRow );	// web port (round 5)
+TransportContain::~TransportContain() {
 }
 
 //-------------------------------------------------------------------------------------------------

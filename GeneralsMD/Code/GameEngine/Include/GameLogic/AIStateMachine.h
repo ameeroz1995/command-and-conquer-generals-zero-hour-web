@@ -29,7 +29,7 @@
 #pragma once
 
 #include "Lib/BaseType.h"
-#include "GameLogic/GxComponents.h"	// web port (round 5)
+#include "Common/GxComponentPool.h"	// web port (round 5)
 
 #include "Common/AudioEventRTS.h"
 #include "Common/GameMemory.h"
@@ -175,7 +175,7 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	struct GxAIStateMachineRow *m_gxAIStateMachineRow;	///< web port (round 5): this unit's row in TheGxAIStateMachines
+	GxRow<struct GxAIStateMachineRow> m_gxAIStateMachineRow;	///< web port (round 5): this unit's row in TheGxAIStateMachines
 	friend struct GxAIStateMachineRow;
 	inline struct GxAIStateMachineRow &gxRow() const;
 
@@ -193,10 +193,9 @@ struct GxAIStateMachineRow
 	State* temporaryState;
 	UnsignedInt temporaryStateFramEnd;
 };
-extern GxComponentTable<GxAIStateMachineRow> TheGxAIStateMachines;
 
 
-inline GxAIStateMachineRow &AIStateMachine::gxRow() const { return TheGxAIStateMachines.at(m_gxAIStateMachineRow); }
+inline GxAIStateMachineRow &AIStateMachine::gxRow() const { return const_cast<GxAIStateMachineRow &>(*m_gxAIStateMachineRow); }
 inline Int AIStateMachine::getGoalPathSize() const
 { return gxRow().goalPath.size(); }
 inline StateID AIStateMachine::getTemporaryState() const
@@ -234,7 +233,7 @@ class AIIdleState : public State
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIIdleState, "AIIdleState")
 private:
 
-	struct GxAIIdleStateRow *m_gxAIIdleStateRow;	///< web port (round 5): this unit's row in TheGxAIIdleStates
+	GxRow<struct GxAIIdleStateRow> m_gxAIIdleStateRow;	///< web port (round 5): this unit's row in TheGxAIIdleStates
 	friend struct GxAIIdleStateRow;
 	inline struct GxAIIdleStateRow &gxRow() const;
 
@@ -267,10 +266,9 @@ struct GxAIIdleStateRow
 	Bool shouldLookForTargets;
 	Bool inited;
 };
-extern GxComponentTable<GxAIIdleStateRow> TheGxAIIdleStates;
 
 
-inline GxAIIdleStateRow &AIIdleState::gxRow() const { return TheGxAIIdleStates.at(m_gxAIIdleStateRow); }
+inline GxAIIdleStateRow &AIIdleState::gxRow() const { return const_cast<GxAIIdleStateRow &>(*m_gxAIIdleStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -313,7 +311,7 @@ protected:
 private:
 	enum { MIN_REPATH_TIME = 10 };										///< minimum # of frames must elapse before re-pathing
 protected:
-	struct GxAIInternalMoveToStateRow *m_gxAIInternalMoveToStateRow;	///< web port (round 5): this unit's row in TheGxAIInternalMoveToStates
+	GxRow<struct GxAIInternalMoveToStateRow> m_gxAIInternalMoveToStateRow;	///< web port (round 5): this unit's row in TheGxAIInternalMoveToStates
 	friend struct GxAIInternalMoveToStateRow;
 	inline struct GxAIInternalMoveToStateRow &gxRow() const;
 private:
@@ -335,10 +333,9 @@ struct GxAIInternalMoveToStateRow
 	Bool waitingForPath;
 	Bool tryOneMoreRepath;
 };
-extern GxComponentTable<GxAIInternalMoveToStateRow> TheGxAIInternalMoveToStates;
 
 
-inline GxAIInternalMoveToStateRow &AIInternalMoveToState::gxRow() const { return TheGxAIInternalMoveToStates.at(m_gxAIInternalMoveToStateRow); }
+inline GxAIInternalMoveToStateRow &AIInternalMoveToState::gxRow() const { return const_cast<GxAIInternalMoveToStateRow &>(*m_gxAIInternalMoveToStateRow); }
 inline void AIInternalMoveToState::setAdjustsDestination(Bool b)
 { gxRow().adjustDestinations = b; }
 inline void AIInternalMoveToState::setGoalPos(const Coord3D* pos)
@@ -360,7 +357,7 @@ class AIRappelState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIRappelState, "AIRappelState")
 protected:
-	struct GxAIRappelStateRow *m_gxAIRappelStateRow;	///< web port (round 5): this unit's row in TheGxAIRappelStates
+	GxRow<struct GxAIRappelStateRow> m_gxAIRappelStateRow;	///< web port (round 5): this unit's row in TheGxAIRappelStates
 	friend struct GxAIRappelStateRow;
 	inline struct GxAIRappelStateRow &gxRow() const;
 protected:
@@ -384,10 +381,9 @@ struct GxAIRappelStateRow
 	Real destZ;
 	Bool targetIsBldg;
 };
-extern GxComponentTable<GxAIRappelStateRow> TheGxAIRappelStates;
 
 
-inline GxAIRappelStateRow &AIRappelState::gxRow() const { return TheGxAIRappelStates.at(m_gxAIRappelStateRow); }
+inline GxAIRappelStateRow &AIRappelState::gxRow() const { return const_cast<GxAIRappelStateRow &>(*m_gxAIRappelStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -420,7 +416,7 @@ class AIMoveToState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIMoveToState, "AIMoveToState")
 protected:
-	struct GxAIMoveToStateRow *m_gxAIMoveToStateRow;	///< web port (round 5): this unit's row in TheGxAIMoveToStates
+	GxRow<struct GxAIMoveToStateRow> m_gxAIMoveToStateRow;	///< web port (round 5): this unit's row in TheGxAIMoveToStates
 	friend struct GxAIMoveToStateRow;
 	inline struct GxAIMoveToStateRow &gxRow() const;
 public:
@@ -436,10 +432,9 @@ struct GxAIMoveToStateRow
 {
 	Bool isMoveTo;
 };
-extern GxComponentTable<GxAIMoveToStateRow> TheGxAIMoveToStates;
 
 
-inline GxAIMoveToStateRow &AIMoveToState::gxRow() const { return TheGxAIMoveToStates.at(m_gxAIMoveToStateRow); }
+inline GxAIMoveToStateRow &AIMoveToState::gxRow() const { return const_cast<GxAIMoveToStateRow &>(*m_gxAIMoveToStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -476,7 +471,7 @@ public:
 	virtual StateReturnType update();
 protected:
 	virtual Bool computePath();												///< compute the path
-	struct GxAIMoveAndTightenStateRow *m_gxAIMoveAndTightenStateRow;	///< web port (round 5): this unit's row in TheGxAIMoveAndTightenStates
+	GxRow<struct GxAIMoveAndTightenStateRow> m_gxAIMoveAndTightenStateRow;	///< web port (round 5): this unit's row in TheGxAIMoveAndTightenStates
 	friend struct GxAIMoveAndTightenStateRow;
 	inline struct GxAIMoveAndTightenStateRow &gxRow() const;
 protected:
@@ -493,10 +488,9 @@ struct GxAIMoveAndTightenStateRow
 	Int okToRepathTimes;
 	Bool checkForPath;
 };
-extern GxComponentTable<GxAIMoveAndTightenStateRow> TheGxAIMoveAndTightenStates;
 
 
-inline GxAIMoveAndTightenStateRow &AIMoveAndTightenState::gxRow() const { return TheGxAIMoveAndTightenStates.at(m_gxAIMoveAndTightenStateRow); }
+inline GxAIMoveAndTightenStateRow &AIMoveAndTightenState::gxRow() const { return const_cast<GxAIMoveAndTightenStateRow &>(*m_gxAIMoveAndTightenStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -546,7 +540,7 @@ private:
 
 	StateReturnType updateInternal();
 
-	struct GxAIAttackApproachTargetStateRow *m_gxAIAttackApproachTargetStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackApproachTargetStates
+	GxRow<struct GxAIAttackApproachTargetStateRow> m_gxAIAttackApproachTargetStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackApproachTargetStates
 	friend struct GxAIAttackApproachTargetStateRow;
 	inline struct GxAIAttackApproachTargetStateRow &gxRow() const;
 };
@@ -563,10 +557,9 @@ struct GxAIAttackApproachTargetStateRow
 	Bool isInitialApproach;
 	Bool isForceAttacking;
 };
-extern GxComponentTable<GxAIAttackApproachTargetStateRow> TheGxAIAttackApproachTargetStates;
 
 
-inline GxAIAttackApproachTargetStateRow &AIAttackApproachTargetState::gxRow() const { return TheGxAIAttackApproachTargetStates.at(m_gxAIAttackApproachTargetStateRow); }
+inline GxAIAttackApproachTargetStateRow &AIAttackApproachTargetState::gxRow() const { return const_cast<GxAIAttackApproachTargetStateRow &>(*m_gxAIAttackApproachTargetStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -598,7 +591,7 @@ private:
 
 	StateReturnType updateInternal();
 
-	struct GxAIAttackPursueTargetStateRow *m_gxAIAttackPursueTargetStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackPursueTargetStates
+	GxRow<struct GxAIAttackPursueTargetStateRow> m_gxAIAttackPursueTargetStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackPursueTargetStates
 	friend struct GxAIAttackPursueTargetStateRow;
 	inline struct GxAIAttackPursueTargetStateRow &gxRow() const;
 };
@@ -615,10 +608,9 @@ struct GxAIAttackPursueTargetStateRow
 	Bool isInitialApproach;
 	Bool isForceAttacking;
 };
-extern GxComponentTable<GxAIAttackPursueTargetStateRow> TheGxAIAttackPursueTargetStates;
 
 
-inline GxAIAttackPursueTargetStateRow &AIAttackPursueTargetState::gxRow() const { return TheGxAIAttackPursueTargetStates.at(m_gxAIAttackPursueTargetStateRow); }
+inline GxAIAttackPursueTargetStateRow &AIAttackPursueTargetState::gxRow() const { return const_cast<GxAIAttackPursueTargetStateRow &>(*m_gxAIAttackPursueTargetStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -638,7 +630,7 @@ protected:
 	virtual Bool computePath();												///< compute the path
 
 private:
-	struct GxAIPickUpCrateStateRow *m_gxAIPickUpCrateStateRow;	///< web port (round 5): this unit's row in TheGxAIPickUpCrateStates
+	GxRow<struct GxAIPickUpCrateStateRow> m_gxAIPickUpCrateStateRow;	///< web port (round 5): this unit's row in TheGxAIPickUpCrateStates
 	friend struct GxAIPickUpCrateStateRow;
 	inline struct GxAIPickUpCrateStateRow &gxRow() const;
 protected:
@@ -654,10 +646,9 @@ struct GxAIPickUpCrateStateRow
 {
 	Int delayCounter;
 };
-extern GxComponentTable<GxAIPickUpCrateStateRow> TheGxAIPickUpCrateStates;
 
 
-inline GxAIPickUpCrateStateRow &AIPickUpCrateState::gxRow() const { return TheGxAIPickUpCrateStates.at(m_gxAIPickUpCrateStateRow); }
+inline GxAIPickUpCrateStateRow &AIPickUpCrateState::gxRow() const { return const_cast<GxAIPickUpCrateStateRow &>(*m_gxAIPickUpCrateStateRow); }
 
 //-------------------------------------------------------------------------------------------------
 /**
@@ -716,7 +707,7 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	struct GxAIFollowWaypointPathStateRow *m_gxAIFollowWaypointPathStateRow;	///< web port (round 5): this unit's row in TheGxAIFollowWaypointPathStates
+	GxRow<struct GxAIFollowWaypointPathStateRow> m_gxAIFollowWaypointPathStateRow;	///< web port (round 5): this unit's row in TheGxAIFollowWaypointPathStates
 	friend struct GxAIFollowWaypointPathStateRow;
 	inline struct GxAIFollowWaypointPathStateRow &gxRow() const;
 
@@ -743,10 +734,9 @@ struct GxAIFollowWaypointPathStateRow
 	Bool moveAsGroup;
 	Bool isFollowWaypointPathState;
 };
-extern GxComponentTable<GxAIFollowWaypointPathStateRow> TheGxAIFollowWaypointPathStates;
 
 
-inline GxAIFollowWaypointPathStateRow &AIFollowWaypointPathState::gxRow() const { return TheGxAIFollowWaypointPathStates.at(m_gxAIFollowWaypointPathStateRow); }
+inline GxAIFollowWaypointPathStateRow &AIFollowWaypointPathState::gxRow() const { return const_cast<GxAIFollowWaypointPathStateRow &>(*m_gxAIFollowWaypointPathStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -770,7 +760,7 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	struct GxAIFollowWaypointPathExactStateRow *m_gxAIFollowWaypointPathExactStateRow;	///< web port (round 5): this unit's row in TheGxAIFollowWaypointPathExactStates
+	GxRow<struct GxAIFollowWaypointPathExactStateRow> m_gxAIFollowWaypointPathExactStateRow;	///< web port (round 5): this unit's row in TheGxAIFollowWaypointPathExactStates
 	friend struct GxAIFollowWaypointPathExactStateRow;
 	inline struct GxAIFollowWaypointPathExactStateRow &gxRow() const;
 };
@@ -782,10 +772,9 @@ struct GxAIFollowWaypointPathExactStateRow
 	const Waypoint* lastWaypoint;
 	Bool moveAsGroup;
 };
-extern GxComponentTable<GxAIFollowWaypointPathExactStateRow> TheGxAIFollowWaypointPathExactStates;
 
 
-inline GxAIFollowWaypointPathExactStateRow &AIFollowWaypointPathExactState::gxRow() const { return TheGxAIFollowWaypointPathExactStates.at(m_gxAIFollowWaypointPathExactStateRow); }
+inline GxAIFollowWaypointPathExactStateRow &AIFollowWaypointPathExactState::gxRow() const { return const_cast<GxAIFollowWaypointPathExactStateRow &>(*m_gxAIFollowWaypointPathExactStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -810,7 +799,7 @@ public:
 
 protected:
 	// We can (and want to) use the attack-move-to logic for when to attack and when to do a normal attack.
-	struct GxAIAttackFollowWaypointPathStateRow *m_gxAIAttackFollowWaypointPathStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackFollowWaypointPathStates
+	GxRow<struct GxAIAttackFollowWaypointPathStateRow> m_gxAIAttackFollowWaypointPathStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackFollowWaypointPathStates
 	friend struct GxAIAttackFollowWaypointPathStateRow;
 	inline struct GxAIAttackFollowWaypointPathStateRow &gxRow() const;
 protected:
@@ -826,10 +815,9 @@ struct GxAIAttackFollowWaypointPathStateRow
 {
 	StateMachine* attackFollowMachine;
 };
-extern GxComponentTable<GxAIAttackFollowWaypointPathStateRow> TheGxAIAttackFollowWaypointPathStates;
 
 
-inline GxAIAttackFollowWaypointPathStateRow &AIAttackFollowWaypointPathState::gxRow() const { return TheGxAIAttackFollowWaypointPathStates.at(m_gxAIAttackFollowWaypointPathStateRow); }
+inline GxAIAttackFollowWaypointPathStateRow &AIAttackFollowWaypointPathState::gxRow() const { return const_cast<GxAIAttackFollowWaypointPathStateRow &>(*m_gxAIAttackFollowWaypointPathStateRow); }
 inline Bool AIAttackFollowWaypointPathState::isAttack() const
 { return gxRow().attackFollowMachine ? gxRow().attackFollowMachine->isInAttackState() : FALSE; }
 
@@ -856,7 +844,7 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	struct GxAIWanderStateRow *m_gxAIWanderStateRow;	///< web port (round 5): this unit's row in TheGxAIWanderStates
+	GxRow<struct GxAIWanderStateRow> m_gxAIWanderStateRow;	///< web port (round 5): this unit's row in TheGxAIWanderStates
 	friend struct GxAIWanderStateRow;
 	inline struct GxAIWanderStateRow &gxRow() const;
 };
@@ -868,10 +856,9 @@ struct GxAIWanderStateRow
 	Int waitFrames;
 	Int timer;
 };
-extern GxComponentTable<GxAIWanderStateRow> TheGxAIWanderStates;
 
 
-inline GxAIWanderStateRow &AIWanderState::gxRow() const { return TheGxAIWanderStates.at(m_gxAIWanderStateRow); }
+inline GxAIWanderStateRow &AIWanderState::gxRow() const { return const_cast<GxAIWanderStateRow &>(*m_gxAIWanderStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -896,7 +883,7 @@ protected:
 
 protected:
 	void computeWanderGoal();
-	struct GxAIWanderInPlaceStateRow *m_gxAIWanderInPlaceStateRow;	///< web port (round 5): this unit's row in TheGxAIWanderInPlaceStates
+	GxRow<struct GxAIWanderInPlaceStateRow> m_gxAIWanderInPlaceStateRow;	///< web port (round 5): this unit's row in TheGxAIWanderInPlaceStates
 	friend struct GxAIWanderInPlaceStateRow;
 	inline struct GxAIWanderInPlaceStateRow &gxRow() const;
 };
@@ -909,10 +896,9 @@ struct GxAIWanderInPlaceStateRow
 	Int waitFrames;
 	Int timer;
 };
-extern GxComponentTable<GxAIWanderInPlaceStateRow> TheGxAIWanderInPlaceStates;
 
 
-inline GxAIWanderInPlaceStateRow &AIWanderInPlaceState::gxRow() const { return TheGxAIWanderInPlaceStates.at(m_gxAIWanderInPlaceStateRow); }
+inline GxAIWanderInPlaceStateRow &AIWanderInPlaceState::gxRow() const { return const_cast<GxAIWanderInPlaceStateRow &>(*m_gxAIWanderInPlaceStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -935,7 +921,7 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	struct GxAIPanicStateRow *m_gxAIPanicStateRow;	///< web port (round 5): this unit's row in TheGxAIPanicStates
+	GxRow<struct GxAIPanicStateRow> m_gxAIPanicStateRow;	///< web port (round 5): this unit's row in TheGxAIPanicStates
 	friend struct GxAIPanicStateRow;
 	inline struct GxAIPanicStateRow &gxRow() const;
 };
@@ -947,10 +933,9 @@ struct GxAIPanicStateRow
 	Int waitFrames;
 	Int timer;
 };
-extern GxComponentTable<GxAIPanicStateRow> TheGxAIPanicStates;
 
 
-inline GxAIPanicStateRow &AIPanicState::gxRow() const { return TheGxAIPanicStates.at(m_gxAIPanicStateRow); }
+inline GxAIPanicStateRow &AIPanicState::gxRow() const { return const_cast<GxAIPanicStateRow &>(*m_gxAIPanicStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -980,7 +965,7 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	struct GxAIFollowPathStateRow *m_gxAIFollowPathStateRow;	///< web port (round 5): this unit's row in TheGxAIFollowPathStates
+	GxRow<struct GxAIFollowPathStateRow> m_gxAIFollowPathStateRow;	///< web port (round 5): this unit's row in TheGxAIFollowPathStates
 	friend struct GxAIFollowPathStateRow;
 	inline struct GxAIFollowPathStateRow &gxRow() const;
 };
@@ -994,10 +979,9 @@ struct GxAIFollowPathStateRow
 	Bool adjustFinalOverride;
 	Int retryCount;
 };
-extern GxComponentTable<GxAIFollowPathStateRow> TheGxAIFollowPathStates;
 
 
-inline GxAIFollowPathStateRow &AIFollowPathState::gxRow() const { return TheGxAIFollowPathStates.at(m_gxAIFollowPathStateRow); }
+inline GxAIFollowPathStateRow &AIFollowPathState::gxRow() const { return const_cast<GxAIFollowPathStateRow &>(*m_gxAIFollowPathStateRow); }
 inline Int AIFollowPathState::getCurPathIndex() const
 { return gxRow().index; }
 inline void AIFollowPathState::setAdjustFinalDestination(Bool b)
@@ -1026,7 +1010,7 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	struct GxAIMoveAndEvacuateStateRow *m_gxAIMoveAndEvacuateStateRow;	///< web port (round 5): this unit's row in TheGxAIMoveAndEvacuateStates
+	GxRow<struct GxAIMoveAndEvacuateStateRow> m_gxAIMoveAndEvacuateStateRow;	///< web port (round 5): this unit's row in TheGxAIMoveAndEvacuateStates
 	friend struct GxAIMoveAndEvacuateStateRow;
 	inline struct GxAIMoveAndEvacuateStateRow &gxRow() const;
 };
@@ -1037,10 +1021,9 @@ struct GxAIMoveAndEvacuateStateRow
 {
 	Coord3D origin;
 };
-extern GxComponentTable<GxAIMoveAndEvacuateStateRow> TheGxAIMoveAndEvacuateStates;
 
 
-inline GxAIMoveAndEvacuateStateRow &AIMoveAndEvacuateState::gxRow() const { return TheGxAIMoveAndEvacuateStates.at(m_gxAIMoveAndEvacuateStateRow); }
+inline GxAIMoveAndEvacuateStateRow &AIMoveAndEvacuateState::gxRow() const { return const_cast<GxAIMoveAndEvacuateStateRow &>(*m_gxAIMoveAndEvacuateStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -1063,7 +1046,7 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	struct GxAIMoveAndDeleteStateRow *m_gxAIMoveAndDeleteStateRow;	///< web port (round 5): this unit's row in TheGxAIMoveAndDeleteStates
+	GxRow<struct GxAIMoveAndDeleteStateRow> m_gxAIMoveAndDeleteStateRow;	///< web port (round 5): this unit's row in TheGxAIMoveAndDeleteStates
 	friend struct GxAIMoveAndDeleteStateRow;
 	inline struct GxAIMoveAndDeleteStateRow &gxRow() const;
 };
@@ -1074,10 +1057,9 @@ struct GxAIMoveAndDeleteStateRow
 {
 	Bool appendGoalPosition;
 };
-extern GxComponentTable<GxAIMoveAndDeleteStateRow> TheGxAIMoveAndDeleteStates;
 
 
-inline GxAIMoveAndDeleteStateRow &AIMoveAndDeleteState::gxRow() const { return TheGxAIMoveAndDeleteStates.at(m_gxAIMoveAndDeleteStateRow); }
+inline GxAIMoveAndDeleteStateRow &AIMoveAndDeleteState::gxRow() const { return const_cast<GxAIMoveAndDeleteStateRow &>(*m_gxAIMoveAndDeleteStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 struct GxAIAttackAimAtTargetStateRow;
@@ -1097,7 +1079,7 @@ protected:
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 private:
-	struct GxAIAttackAimAtTargetStateRow *m_gxAIAttackAimAtTargetStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackAimAtTargetStates
+	GxRow<struct GxAIAttackAimAtTargetStateRow> m_gxAIAttackAimAtTargetStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackAimAtTargetStates
 	friend struct GxAIAttackAimAtTargetStateRow;
 	inline struct GxAIAttackAimAtTargetStateRow &gxRow() const;
 };
@@ -1111,10 +1093,9 @@ struct GxAIAttackAimAtTargetStateRow
 	Bool setLocomotor;
 	Bool isForceAttacking;
 };
-extern GxComponentTable<GxAIAttackAimAtTargetStateRow> TheGxAIAttackAimAtTargetStates;
 
 
-inline GxAIAttackAimAtTargetStateRow &AIAttackAimAtTargetState::gxRow() const { return TheGxAIAttackAimAtTargetStates.at(m_gxAIAttackAimAtTargetStateRow); }
+inline GxAIAttackAimAtTargetStateRow &AIAttackAimAtTargetState::gxRow() const { return const_cast<GxAIAttackAimAtTargetStateRow &>(*m_gxAIAttackAimAtTargetStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 class AIWaitState : public State
@@ -1208,7 +1189,7 @@ private:
 
 	Bool chooseWeapon();
 
-	struct GxAIAttackStateRow *m_gxAIAttackStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackStates
+	GxRow<struct GxAIAttackStateRow> m_gxAIAttackStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackStates
 	friend struct GxAIAttackStateRow;
 	inline struct GxAIAttackStateRow &gxRow() const;
 };
@@ -1226,10 +1207,9 @@ struct GxAIAttackStateRow
 	Bool isAttackingObject;
 	Bool isForceAttacking;
 };
-extern GxComponentTable<GxAIAttackStateRow> TheGxAIAttackStates;
 
 
-inline GxAIAttackStateRow &AIAttackState::gxRow() const { return TheGxAIAttackStates.at(m_gxAIAttackStateRow); }
+inline GxAIAttackStateRow &AIAttackState::gxRow() const { return const_cast<GxAIAttackStateRow &>(*m_gxAIAttackStateRow); }
 inline const Coord3D* AIAttackState::getOriginalVictimPos() const
 { return &gxRow().originalVictimPos; }
 inline Bool AIAttackState::isAttackingObject() const
@@ -1265,7 +1245,7 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	struct GxAIAttackSquadStateRow *m_gxAIAttackSquadStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackSquadStates
+	GxRow<struct GxAIAttackSquadStateRow> m_gxAIAttackSquadStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackSquadStates
 	friend struct GxAIAttackSquadStateRow;
 	inline struct GxAIAttackSquadStateRow &gxRow() const;
 };
@@ -1276,10 +1256,9 @@ struct GxAIAttackSquadStateRow
 {
 	StateMachine* attackSquadMachine;
 };
-extern GxComponentTable<GxAIAttackSquadStateRow> TheGxAIAttackSquadStates;
 
 
-inline GxAIAttackSquadStateRow &AIAttackSquadState::gxRow() const { return TheGxAIAttackSquadStates.at(m_gxAIAttackSquadStateRow); }
+inline GxAIAttackSquadStateRow &AIAttackSquadState::gxRow() const { return const_cast<GxAIAttackSquadStateRow &>(*m_gxAIAttackSquadStateRow); }
 inline Bool AIAttackSquadState::isAttack() const
 { return gxRow().attackSquadMachine ? gxRow().attackSquadMachine->isInAttackState() : FALSE; }
 
@@ -1325,7 +1304,7 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	struct GxAIDockStateRow *m_gxAIDockStateRow;	///< web port (round 5): this unit's row in TheGxAIDockStates
+	GxRow<struct GxAIDockStateRow> m_gxAIDockStateRow;	///< web port (round 5): this unit's row in TheGxAIDockStates
 	friend struct GxAIDockStateRow;
 	inline struct GxAIDockStateRow &gxRow() const;
 };
@@ -1337,10 +1316,9 @@ struct GxAIDockStateRow
 	StateMachine* dockMachine;
 	Bool usingPrecisionMovement;
 };
-extern GxComponentTable<GxAIDockStateRow> TheGxAIDockStates;
 
 
-inline GxAIDockStateRow &AIDockState::gxRow() const { return TheGxAIDockStates.at(m_gxAIDockStateRow); }
+inline GxAIDockStateRow &AIDockState::gxRow() const { return const_cast<GxAIDockStateRow &>(*m_gxAIDockStateRow); }
 inline Bool AIDockState::isAttack() const
 { return gxRow().dockMachine ? gxRow().dockMachine->isInAttackState() : FALSE; }
 
@@ -1353,7 +1331,7 @@ class AIEnterState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIEnterState, "AIEnterState")
 protected:
-	struct GxAIEnterStateRow *m_gxAIEnterStateRow;	///< web port (round 5): this unit's row in TheGxAIEnterStates
+	GxRow<struct GxAIEnterStateRow> m_gxAIEnterStateRow;	///< web port (round 5): this unit's row in TheGxAIEnterStates
 	friend struct GxAIEnterStateRow;
 	inline struct GxAIEnterStateRow &gxRow() const;
 protected:
@@ -1375,10 +1353,9 @@ struct GxAIEnterStateRow
 {
 	ObjectID entryToClear;
 };
-extern GxComponentTable<GxAIEnterStateRow> TheGxAIEnterStates;
 
 
-inline GxAIEnterStateRow &AIEnterState::gxRow() const { return TheGxAIEnterStates.at(m_gxAIEnterStateRow); }
+inline GxAIEnterStateRow &AIEnterState::gxRow() const { return const_cast<GxAIEnterStateRow &>(*m_gxAIEnterStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 struct GxAIExitStateRow;
@@ -1386,7 +1363,7 @@ class AIExitState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIExitState, "AIExitState")
 protected:
-	struct GxAIExitStateRow *m_gxAIExitStateRow;	///< web port (round 5): this unit's row in TheGxAIExitStates
+	GxRow<struct GxAIExitStateRow> m_gxAIExitStateRow;	///< web port (round 5): this unit's row in TheGxAIExitStates
 	friend struct GxAIExitStateRow;
 	inline struct GxAIExitStateRow &gxRow() const;
 protected:
@@ -1408,10 +1385,9 @@ struct GxAIExitStateRow
 {
 	ObjectID entryToClear;
 };
-extern GxComponentTable<GxAIExitStateRow> TheGxAIExitStates;
 
 
-inline GxAIExitStateRow &AIExitState::gxRow() const { return TheGxAIExitStates.at(m_gxAIExitStateRow); }
+inline GxAIExitStateRow &AIExitState::gxRow() const { return const_cast<GxAIExitStateRow &>(*m_gxAIExitStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 struct GxAIExitInstantlyStateRow;
@@ -1419,7 +1395,7 @@ class AIExitInstantlyState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIExitInstantlyState, "AIExitInstantlyState")
 protected:
-	struct GxAIExitInstantlyStateRow *m_gxAIExitInstantlyStateRow;	///< web port (round 5): this unit's row in TheGxAIExitInstantlyStates
+	GxRow<struct GxAIExitInstantlyStateRow> m_gxAIExitInstantlyStateRow;	///< web port (round 5): this unit's row in TheGxAIExitInstantlyStates
 	friend struct GxAIExitInstantlyStateRow;
 	inline struct GxAIExitInstantlyStateRow &gxRow() const;
 protected:
@@ -1441,10 +1417,9 @@ struct GxAIExitInstantlyStateRow
 {
 	ObjectID entryToClear;
 };
-extern GxComponentTable<GxAIExitInstantlyStateRow> TheGxAIExitInstantlyStates;
 
 
-inline GxAIExitInstantlyStateRow &AIExitInstantlyState::gxRow() const { return TheGxAIExitInstantlyStates.at(m_gxAIExitInstantlyStateRow); }
+inline GxAIExitInstantlyStateRow &AIExitInstantlyState::gxRow() const { return const_cast<GxAIExitInstantlyStateRow &>(*m_gxAIExitInstantlyStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -1473,7 +1448,7 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	struct GxAIGuardStateRow *m_gxAIGuardStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardStates
+	GxRow<struct GxAIGuardStateRow> m_gxAIGuardStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardStates
 	friend struct GxAIGuardStateRow;
 	inline struct GxAIGuardStateRow &gxRow() const;
 };
@@ -1484,10 +1459,9 @@ struct GxAIGuardStateRow
 {
 	AIGuardMachine* guardMachine;
 };
-extern GxComponentTable<GxAIGuardStateRow> TheGxAIGuardStates;
 
 
-inline GxAIGuardStateRow &AIGuardState::gxRow() const { return TheGxAIGuardStates.at(m_gxAIGuardStateRow); }
+inline GxAIGuardStateRow &AIGuardState::gxRow() const { return const_cast<GxAIGuardStateRow &>(*m_gxAIGuardStateRow); }
 
 
 //-----------------------------------------------------------------------------------------------------------
@@ -1516,7 +1490,7 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	struct GxAIGuardRetaliateStateRow *m_gxAIGuardRetaliateStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateStates
+	GxRow<struct GxAIGuardRetaliateStateRow> m_gxAIGuardRetaliateStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateStates
 	friend struct GxAIGuardRetaliateStateRow;
 	inline struct GxAIGuardRetaliateStateRow &gxRow() const;
 };
@@ -1527,10 +1501,9 @@ struct GxAIGuardRetaliateStateRow
 {
 	AIGuardRetaliateMachine* guardRetaliateMachine;
 };
-extern GxComponentTable<GxAIGuardRetaliateStateRow> TheGxAIGuardRetaliateStates;
 
 
-inline GxAIGuardRetaliateStateRow &AIGuardRetaliateState::gxRow() const { return TheGxAIGuardRetaliateStates.at(m_gxAIGuardRetaliateStateRow); }
+inline GxAIGuardRetaliateStateRow &AIGuardRetaliateState::gxRow() const { return const_cast<GxAIGuardRetaliateStateRow &>(*m_gxAIGuardRetaliateStateRow); }
 
 
 //-----------------------------------------------------------------------------------------------------------
@@ -1559,7 +1532,7 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	struct GxAITunnelNetworkGuardStateRow *m_gxAITunnelNetworkGuardStateRow;	///< web port (round 5): this unit's row in TheGxAITunnelNetworkGuardStates
+	GxRow<struct GxAITunnelNetworkGuardStateRow> m_gxAITunnelNetworkGuardStateRow;	///< web port (round 5): this unit's row in TheGxAITunnelNetworkGuardStates
 	friend struct GxAITunnelNetworkGuardStateRow;
 	inline struct GxAITunnelNetworkGuardStateRow &gxRow() const;
 };
@@ -1570,10 +1543,9 @@ struct GxAITunnelNetworkGuardStateRow
 {
 	AITNGuardMachine* guardMachine;
 };
-extern GxComponentTable<GxAITunnelNetworkGuardStateRow> TheGxAITunnelNetworkGuardStates;
 
 
-inline GxAITunnelNetworkGuardStateRow &AITunnelNetworkGuardState::gxRow() const { return TheGxAITunnelNetworkGuardStates.at(m_gxAITunnelNetworkGuardStateRow); }
+inline GxAITunnelNetworkGuardStateRow &AITunnelNetworkGuardState::gxRow() const { return const_cast<GxAITunnelNetworkGuardStateRow &>(*m_gxAITunnelNetworkGuardStateRow); }
 
 
 //-----------------------------------------------------------------------------------------------------------
@@ -1603,7 +1575,7 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	struct GxAIHuntStateRow *m_gxAIHuntStateRow;	///< web port (round 5): this unit's row in TheGxAIHuntStates
+	GxRow<struct GxAIHuntStateRow> m_gxAIHuntStateRow;	///< web port (round 5): this unit's row in TheGxAIHuntStates
 	friend struct GxAIHuntStateRow;
 	inline struct GxAIHuntStateRow &gxRow() const;
 	enum { ENEMY_SCAN_RATE = LOGICFRAMES_PER_SECOND };
@@ -1616,10 +1588,9 @@ struct GxAIHuntStateRow
 	StateMachine* huntMachine;
 	UnsignedInt nextEnemyScanTime;
 };
-extern GxComponentTable<GxAIHuntStateRow> TheGxAIHuntStates;
 
 
-inline GxAIHuntStateRow &AIHuntState::gxRow() const { return TheGxAIHuntStates.at(m_gxAIHuntStateRow); }
+inline GxAIHuntStateRow &AIHuntState::gxRow() const { return const_cast<GxAIHuntStateRow &>(*m_gxAIHuntStateRow); }
 
 
 //-----------------------------------------------------------------------------------------------------------
@@ -1649,7 +1620,7 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	struct GxAIAttackAreaStateRow *m_gxAIAttackAreaStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackAreaStates
+	GxRow<struct GxAIAttackAreaStateRow> m_gxAIAttackAreaStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackAreaStates
 	friend struct GxAIAttackAreaStateRow;
 	inline struct GxAIAttackAreaStateRow &gxRow() const;
 	enum { ENEMY_SCAN_RATE = LOGICFRAMES_PER_SECOND };
@@ -1662,10 +1633,9 @@ struct GxAIAttackAreaStateRow
 	StateMachine* attackMachine;
 	UnsignedInt nextEnemyScanTime;
 };
-extern GxComponentTable<GxAIAttackAreaStateRow> TheGxAIAttackAreaStates;
 
 
-inline GxAIAttackAreaStateRow &AIAttackAreaState::gxRow() const { return TheGxAIAttackAreaStates.at(m_gxAIAttackAreaStateRow); }
+inline GxAIAttackAreaStateRow &AIAttackAreaState::gxRow() const { return const_cast<GxAIAttackAreaStateRow &>(*m_gxAIAttackAreaStateRow); }
 inline Bool AIAttackAreaState::isAttack() const
 { return gxRow().attackMachine ? gxRow().attackMachine->isInAttackState() : FALSE; }
 
@@ -1690,7 +1660,7 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	struct GxAIFaceStateRow *m_gxAIFaceStateRow;	///< web port (round 5): this unit's row in TheGxAIFaceStates
+	GxRow<struct GxAIFaceStateRow> m_gxAIFaceStateRow;	///< web port (round 5): this unit's row in TheGxAIFaceStates
 	friend struct GxAIFaceStateRow;
 	inline struct GxAIFaceStateRow &gxRow() const;
 };
@@ -1702,8 +1672,7 @@ struct GxAIFaceStateRow
 	Bool obj;
 	Bool canTurnInPlace;
 };
-extern GxComponentTable<GxAIFaceStateRow> TheGxAIFaceStates;
 
 
-inline GxAIFaceStateRow &AIFaceState::gxRow() const { return TheGxAIFaceStates.at(m_gxAIFaceStateRow); }
+inline GxAIFaceStateRow &AIFaceState::gxRow() const { return const_cast<GxAIFaceStateRow &>(*m_gxAIFaceStateRow); }
 

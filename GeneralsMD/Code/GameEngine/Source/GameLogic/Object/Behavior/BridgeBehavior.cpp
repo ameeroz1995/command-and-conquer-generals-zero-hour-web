@@ -52,8 +52,7 @@
 
 // Web port (round 5, units are pure data): BridgeBehavior's per-unit state is a row of TheGxBridgeBehaviors;
 // GXROW_BRIDGEBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxBridgeBehaviorRow> TheGxBridgeBehaviors;
-#define GXROW_BRIDGEBEHAVIOR (TheGxBridgeBehaviors.at(m_gxBridgeBehaviorRow))
+#define GXROW_BRIDGEBEHAVIOR (const_cast<GxBridgeBehaviorRow &>(*m_gxBridgeBehaviorRow))
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -234,7 +233,6 @@ static void parseTimeAndLocationInfo( INI *ini, void *instance,
 // ------------------------------------------------------------------------------------------------
 BridgeBehavior::BridgeBehavior( Thing *thing, const ModuleData *moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxBridgeBehaviorRow = TheGxBridgeBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	Int i;
 	GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.clear();
@@ -289,7 +287,6 @@ BridgeBehavior::~BridgeBehavior()
 
 	}
 
-	TheGxBridgeBehaviors.release( m_gxBridgeBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------

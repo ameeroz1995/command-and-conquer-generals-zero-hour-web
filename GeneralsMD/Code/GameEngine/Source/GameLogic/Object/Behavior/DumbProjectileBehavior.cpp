@@ -48,8 +48,7 @@
 
 // Web port (round 5, units are pure data): DumbProjectileBehavior's per-unit state is a row of TheGxDumbProjectileBehaviors;
 // GXROW_DUMBPROJECTILEBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxDumbProjectileBehaviorRow> TheGxDumbProjectileBehaviors;
-#define GXROW_DUMBPROJECTILEBEHAVIOR (TheGxDumbProjectileBehaviors.at(m_gxDumbProjectileBehaviorRow))
+#define GXROW_DUMBPROJECTILEBEHAVIOR (const_cast<GxDumbProjectileBehaviorRow &>(*m_gxDumbProjectileBehaviorRow))
 
 
 
@@ -114,7 +113,6 @@ void DumbProjectileBehaviorModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 DumbProjectileBehavior::DumbProjectileBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxDumbProjectileBehaviorRow = TheGxDumbProjectileBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_DUMBPROJECTILEBEHAVIOR.launcherID = INVALID_ID;
 	GXROW_DUMBPROJECTILEBEHAVIOR.victimID = INVALID_ID;
@@ -134,7 +132,6 @@ DumbProjectileBehavior::DumbProjectileBehavior( Thing *thing, const ModuleData* 
 //-------------------------------------------------------------------------------------------------
 DumbProjectileBehavior::~DumbProjectileBehavior()
 {
-	TheGxDumbProjectileBehaviors.release( m_gxDumbProjectileBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

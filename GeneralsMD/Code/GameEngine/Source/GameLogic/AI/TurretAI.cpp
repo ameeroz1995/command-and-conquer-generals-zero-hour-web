@@ -47,32 +47,27 @@
 
 // Web port (round 5, units are pure data): TurretStateMachine's per-unit state is a row of TheGxTurretStateMachines;
 // GXROW_TURRETSTATEMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxTurretStateMachineRow> TheGxTurretStateMachines;
-#define GXROW_TURRETSTATEMACHINE (TheGxTurretStateMachines.at(m_gxTurretStateMachineRow))
+#define GXROW_TURRETSTATEMACHINE (const_cast<GxTurretStateMachineRow &>(*m_gxTurretStateMachineRow))
 
 
 // Web port (round 5, units are pure data): TurretAIIdleState's per-unit state is a row of TheGxTurretAIIdleStates;
 // GXROW_TURRETAIIDLESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxTurretAIIdleStateRow> TheGxTurretAIIdleStates;
-#define GXROW_TURRETAIIDLESTATE (TheGxTurretAIIdleStates.at(m_gxTurretAIIdleStateRow))
+#define GXROW_TURRETAIIDLESTATE (const_cast<GxTurretAIIdleStateRow &>(*m_gxTurretAIIdleStateRow))
 
 
 // Web port (round 5, units are pure data): TurretAIIdleScanState's per-unit state is a row of TheGxTurretAIIdleScanStates;
 // GXROW_TURRETAIIDLESCANSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxTurretAIIdleScanStateRow> TheGxTurretAIIdleScanStates;
-#define GXROW_TURRETAIIDLESCANSTATE (TheGxTurretAIIdleScanStates.at(m_gxTurretAIIdleScanStateRow))
+#define GXROW_TURRETAIIDLESCANSTATE (const_cast<GxTurretAIIdleScanStateRow &>(*m_gxTurretAIIdleScanStateRow))
 
 
 // Web port (round 5, units are pure data): TurretAIHoldTurretState's per-unit state is a row of TheGxTurretAIHoldTurretStates;
 // GXROW_TURRETAIHOLDTURRETSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxTurretAIHoldTurretStateRow> TheGxTurretAIHoldTurretStates;
-#define GXROW_TURRETAIHOLDTURRETSTATE (TheGxTurretAIHoldTurretStates.at(m_gxTurretAIHoldTurretStateRow))
+#define GXROW_TURRETAIHOLDTURRETSTATE (const_cast<GxTurretAIHoldTurretStateRow &>(*m_gxTurretAIHoldTurretStateRow))
 
 
 // Web port (round 5, units are pure data): TurretAI's per-unit state is a row of TheGxTurretAIs;
 // GXROW_TURRETAI is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxTurretAIRow> TheGxTurretAIs;
-#define GXROW_TURRETAI (TheGxTurretAIs.at(m_gxTurretAIRow))
+#define GXROW_TURRETAI (const_cast<GxTurretAIRow &>(*m_gxTurretAIRow))
 
 
 const UnsignedInt WAIT_INDEFINITELY = 0xffffffff;
@@ -113,7 +108,6 @@ static StateReturnType frameToSleepTime(
  */
 TurretStateMachine::TurretStateMachine( TurretAI* tai, Object *obj, AsciiString name ) : StateMachine( obj, name )
 {
-	m_gxTurretStateMachineRow = TheGxTurretStateMachines.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_TURRETSTATEMACHINE.turretAI = tai;
 
 	static const StateConditionInfo fireConditions[] =
@@ -134,7 +128,6 @@ TurretStateMachine::TurretStateMachine( TurretAI* tai, Object *obj, AsciiString 
 //----------------------------------------------------------------------------------------------------------
 TurretStateMachine::~TurretStateMachine()
 {
-	TheGxTurretStateMachines.release( m_gxTurretStateMachineRow );	// web port (round 5)
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -300,7 +293,6 @@ void TurretAIData::buildFieldParse(MultiIniFieldParse& p)
 //----------------------------------------------------------------------------------------------------------
 TurretAI::TurretAI(Object* owner, const TurretAIData* data, WhichTurretType tur) : m_target(TARGET_NONE), m_targetWasSetByIdleMood(false)
 {
-	m_gxTurretAIRow = TheGxTurretAIs.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_TURRETAI.owner = owner;
 	GXROW_TURRETAI.whichTurret = tur;
 	GXROW_TURRETAI.data = data;
@@ -350,7 +342,6 @@ TurretAI::~TurretAI()
 	stopRotOrPitchSound();
 
 	deleteInstance(GXROW_TURRETAI.turretStateMachine);
-	TheGxTurretAIs.release( m_gxTurretAIRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1490,34 +1481,28 @@ StateReturnType TurretAIHoldTurretState::update()
 
 TurretAIHoldTurretState::TurretAIHoldTurretState( TurretStateMachine* machine ) : TurretState( machine , "AIHoldTurretState")
 {
-	m_gxTurretAIHoldTurretStateRow = TheGxTurretAIHoldTurretStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().timestamp = 0;
 	}
 
 TurretAIHoldTurretState::~TurretAIHoldTurretState()
 {
-	TheGxTurretAIHoldTurretStates.release( m_gxTurretAIHoldTurretStateRow );	// web port (round 5)
 }
 
 TurretAIIdleScanState::TurretAIIdleScanState( TurretStateMachine* machine ) : TurretState( machine, "TurretAIIdleScanState")
 {
-	m_gxTurretAIIdleScanStateRow = TheGxTurretAIIdleScanStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_TURRETAIIDLESCANSTATE.desiredAngle = 0;
  }
 
 TurretAIIdleScanState::~TurretAIIdleScanState()
 {
-	TheGxTurretAIIdleScanStates.release( m_gxTurretAIIdleScanStateRow );	// web port (round 5)
 }
 
 TurretAIIdleState::TurretAIIdleState( TurretStateMachine* machine ) : TurretState( machine, "TurretAIIdleState")
 {
-	m_gxTurretAIIdleStateRow = TheGxTurretAIIdleStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_TURRETAIIDLESTATE.nextIdleScan = 0;
  }
 
 TurretAIIdleState::~TurretAIIdleState()
 {
-	TheGxTurretAIIdleStates.release( m_gxTurretAIIdleStateRow );	// web port (round 5)
 }

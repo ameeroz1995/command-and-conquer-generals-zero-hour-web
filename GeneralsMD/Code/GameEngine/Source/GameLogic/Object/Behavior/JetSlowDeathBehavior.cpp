@@ -45,8 +45,7 @@
 
 // Web port (round 5, units are pure data): JetSlowDeathBehavior's per-unit state is a row of TheGxJetSlowDeathBehaviors;
 // GXROW_JETSLOWDEATHBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxJetSlowDeathBehaviorRow> TheGxJetSlowDeathBehaviors;
-#define GXROW_JETSLOWDEATHBEHAVIOR (TheGxJetSlowDeathBehaviors.at(m_gxJetSlowDeathBehaviorRow))
+#define GXROW_JETSLOWDEATHBEHAVIOR (const_cast<GxJetSlowDeathBehaviorRow &>(*m_gxJetSlowDeathBehaviorRow))
 
 
 
@@ -133,7 +132,6 @@ JetSlowDeathBehaviorModuleData::JetSlowDeathBehaviorModuleData()
 // ------------------------------------------------------------------------------------------------
 JetSlowDeathBehavior::JetSlowDeathBehavior( Thing *thing, const ModuleData *moduleData ) : SlowDeathBehavior( thing, moduleData )
 {
-	m_gxJetSlowDeathBehaviorRow = TheGxJetSlowDeathBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 
 	GXROW_JETSLOWDEATHBEHAVIOR.timerDeathFrame = 0;
@@ -147,7 +145,6 @@ JetSlowDeathBehavior::JetSlowDeathBehavior( Thing *thing, const ModuleData *modu
 JetSlowDeathBehavior::~JetSlowDeathBehavior()
 {
 
-	TheGxJetSlowDeathBehaviors.release( m_gxJetSlowDeathBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------

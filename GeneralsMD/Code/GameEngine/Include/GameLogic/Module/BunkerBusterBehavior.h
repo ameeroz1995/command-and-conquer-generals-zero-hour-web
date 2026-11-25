@@ -67,7 +67,7 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxBunkerBusterBehaviorRow;
 class BunkerBusterBehavior : public UpdateModule,
  														 public DieModuleInterface
@@ -97,7 +97,7 @@ public:
 protected:
   void bustTheBunker();
 
-	struct GxBunkerBusterBehaviorRow *m_gxBunkerBusterBehaviorRow;	///< web port (round 5): this unit's row in TheGxBunkerBusterBehaviors
+	GxRow<struct GxBunkerBusterBehaviorRow> m_gxBunkerBusterBehaviorRow;	///< web port (round 5): this unit's row in TheGxBunkerBusterBehaviors
 	friend struct GxBunkerBusterBehaviorRow;
 	inline struct GxBunkerBusterBehaviorRow &gxRow() const;
 
@@ -110,8 +110,7 @@ struct GxBunkerBusterBehaviorRow
 	const UpgradeTemplate* upgradeRequired;
 	ObjectID victimID;
 };
-extern GxComponentTable<GxBunkerBusterBehaviorRow> TheGxBunkerBusterBehaviors;
 
 
-inline GxBunkerBusterBehaviorRow &BunkerBusterBehavior::gxRow() const { return TheGxBunkerBusterBehaviors.at(m_gxBunkerBusterBehaviorRow); }
+inline GxBunkerBusterBehaviorRow &BunkerBusterBehavior::gxRow() const { return const_cast<GxBunkerBusterBehaviorRow &>(*m_gxBunkerBusterBehaviorRow); }
 

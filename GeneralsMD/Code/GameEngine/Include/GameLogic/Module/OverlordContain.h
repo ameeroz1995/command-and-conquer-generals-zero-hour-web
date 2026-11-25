@@ -53,7 +53,7 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxOverlordContainRow;
 class OverlordContain : public TransportContain
 {
@@ -123,7 +123,7 @@ private:
 	void deactivateRedirectedContain();
   void parseInitialPayload( INI* ini, void *instance, void *store, const void* /*userData*/ );
 
-	struct GxOverlordContainRow *m_gxOverlordContainRow;	///< web port (round 5): this unit's row in TheGxOverlordContains
+	GxRow<struct GxOverlordContainRow> m_gxOverlordContainRow;	///< web port (round 5): this unit's row in TheGxOverlordContains
 	friend struct GxOverlordContainRow;
 	inline struct GxOverlordContainRow &gxRow() const;
 
@@ -135,8 +135,7 @@ struct GxOverlordContainRow
 {
 	Bool redirectionActivated;
 };
-extern GxComponentTable<GxOverlordContainRow> TheGxOverlordContains;
 
 
-inline GxOverlordContainRow &OverlordContain::gxRow() const { return TheGxOverlordContains.at(m_gxOverlordContainRow); }
+inline GxOverlordContainRow &OverlordContain::gxRow() const { return const_cast<GxOverlordContainRow &>(*m_gxOverlordContainRow); }
 

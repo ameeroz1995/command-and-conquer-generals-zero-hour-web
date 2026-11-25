@@ -59,8 +59,7 @@
 
 // Web port (round 5, units are pure data): OpenContain's per-unit state is a row of TheGxOpenContains;
 // GXROW_OPENCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxOpenContainRow> TheGxOpenContains;
-#define GXROW_OPENCONTAIN (TheGxOpenContains.at(m_gxOpenContainRow))
+#define GXROW_OPENCONTAIN (const_cast<GxOpenContainRow &>(*m_gxOpenContainRow))
 
 
 
@@ -126,7 +125,6 @@ OpenContainModuleData::OpenContainModuleData()
 //-------------------------------------------------------------------------------------------------
 OpenContain::OpenContain( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxOpenContainRow = TheGxOpenContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 
 	// initialize our lists
@@ -185,7 +183,6 @@ OpenContain::~OpenContain()
 										 ("OpenContain %s: GXROW_OPENCONTAIN.xferContainIDList is not empty but should be",
 											getObject()->getTemplate()->getName().str() ) );
 
-	TheGxOpenContains.release( m_gxOpenContainRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

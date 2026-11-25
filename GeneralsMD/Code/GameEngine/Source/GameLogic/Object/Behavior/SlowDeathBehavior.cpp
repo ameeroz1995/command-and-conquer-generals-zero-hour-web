@@ -52,8 +52,7 @@
 
 // Web port (round 5, units are pure data): SlowDeathBehavior's per-unit state is a row of TheGxSlowDeathBehaviors;
 // GXROW_SLOWDEATHBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxSlowDeathBehaviorRow> TheGxSlowDeathBehaviors;
-#define GXROW_SLOWDEATHBEHAVIOR (TheGxSlowDeathBehaviors.at(m_gxSlowDeathBehaviorRow))
+#define GXROW_SLOWDEATHBEHAVIOR (const_cast<GxSlowDeathBehaviorRow &>(*m_gxSlowDeathBehaviorRow))
 
 
 
@@ -156,7 +155,6 @@ static void parseWeapon( INI* ini, void *instance, void * /*store*/, const void*
 //-------------------------------------------------------------------------------------------------
 SlowDeathBehavior::SlowDeathBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxSlowDeathBehaviorRow = TheGxSlowDeathBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_SLOWDEATHBEHAVIOR.flags = 0;
 	GXROW_SLOWDEATHBEHAVIOR.sinkFrame = 0;
@@ -177,7 +175,6 @@ SlowDeathBehavior::SlowDeathBehavior( Thing *thing, const ModuleData* moduleData
 //-------------------------------------------------------------------------------------------------
 SlowDeathBehavior::~SlowDeathBehavior()
 {
-	TheGxSlowDeathBehaviors.release( m_gxSlowDeathBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

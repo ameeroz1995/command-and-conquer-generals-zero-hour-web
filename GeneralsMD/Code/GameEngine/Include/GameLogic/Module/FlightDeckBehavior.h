@@ -87,7 +87,7 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxFlightDeckBehaviorRow;
 class FlightDeckBehavior : public AIUpdateInterface,
 													 public ParkingPlaceBehaviorInterface,
@@ -207,7 +207,7 @@ private:
 	FlightDeckInfo* findPPI(ObjectID id);
 	FlightDeckInfo* findEmptyPPI();
 
-	struct GxFlightDeckBehaviorRow *m_gxFlightDeckBehaviorRow;	///< web port (round 5): this unit's row in TheGxFlightDeckBehaviors
+	GxRow<struct GxFlightDeckBehaviorRow> m_gxFlightDeckBehaviorRow;	///< web port (round 5): this unit's row in TheGxFlightDeckBehaviors
 	friend struct GxFlightDeckBehaviorRow;
 	inline struct GxFlightDeckBehaviorRow &gxRow() const;
 
@@ -237,9 +237,8 @@ struct GxFlightDeckBehaviorRow
 	Bool gotInfo;
 	Bool rampUp[ MAX_RUNWAYS ];
 };
-extern GxComponentTable<GxFlightDeckBehaviorRow> TheGxFlightDeckBehaviors;
 
 
-inline GxFlightDeckBehaviorRow &FlightDeckBehavior::gxRow() const { return TheGxFlightDeckBehaviors.at(m_gxFlightDeckBehaviorRow); }
+inline GxFlightDeckBehaviorRow &FlightDeckBehavior::gxRow() const { return const_cast<GxFlightDeckBehaviorRow &>(*m_gxFlightDeckBehaviorRow); }
 inline Int FlightDeckBehavior::getRunwayCount() const { return gxRow().runways.size(); }
 

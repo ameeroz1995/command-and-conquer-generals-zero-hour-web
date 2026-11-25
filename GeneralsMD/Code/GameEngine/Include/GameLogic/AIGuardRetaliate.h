@@ -39,7 +39,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////
 #include "Common/GameMemory.h"
-#include "GameLogic/GxComponents.h"	// web port (round 5)
+#include "Common/GxComponentPool.h"	// web port (round 5)
 #include "GameLogic/AIStateMachine.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
@@ -74,7 +74,7 @@ public:
 		ATTACK_ExitIfNoUnitFound			= 0x04
 	};
 
-	struct GxGuardRetaliateExitConditionsRow *m_gxGuardRetaliateExitConditionsRow;	///< web port (round 5): this unit's row in TheGxGuardRetaliateExitConditionss
+	GxRow<struct GxGuardRetaliateExitConditionsRow> m_gxGuardRetaliateExitConditionsRow;	///< web port (round 5): this unit's row in TheGxGuardRetaliateExitConditionss
 	friend struct GxGuardRetaliateExitConditionsRow;
 	inline struct GxGuardRetaliateExitConditionsRow &gxRow() const;
 
@@ -93,10 +93,9 @@ struct GxGuardRetaliateExitConditionsRow
 	Real radiusSqr;
 	UnsignedInt attackGiveUpFrame;
 };
-extern GxComponentTable<GxGuardRetaliateExitConditionsRow> TheGxGuardRetaliateExitConditionss;
 
 
-inline GxGuardRetaliateExitConditionsRow &GuardRetaliateExitConditions::gxRow() const { return TheGxGuardRetaliateExitConditionss.at(m_gxGuardRetaliateExitConditionsRow); }
+inline GxGuardRetaliateExitConditionsRow &GuardRetaliateExitConditions::gxRow() const { return const_cast<GxGuardRetaliateExitConditionsRow &>(*m_gxGuardRetaliateExitConditionsRow); }
 
 
 
@@ -109,7 +108,7 @@ class AIGuardRetaliateMachine : public StateMachine
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( AIGuardRetaliateMachine, "AIGuardRetaliateMachinePool" );
 
 private:
-	struct GxAIGuardRetaliateMachineRow *m_gxAIGuardRetaliateMachineRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateMachines
+	GxRow<struct GxAIGuardRetaliateMachineRow> m_gxAIGuardRetaliateMachineRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateMachines
 	friend struct GxAIGuardRetaliateMachineRow;
 	inline struct GxAIGuardRetaliateMachineRow &gxRow() const;
 
@@ -146,10 +145,9 @@ struct GxAIGuardRetaliateMachineRow
 	Coord3D positionToGuard;
 	ObjectID nemesisToAttack;
 };
-extern GxComponentTable<GxAIGuardRetaliateMachineRow> TheGxAIGuardRetaliateMachines;
 
 
-inline GxAIGuardRetaliateMachineRow &AIGuardRetaliateMachine::gxRow() const { return TheGxAIGuardRetaliateMachines.at(m_gxAIGuardRetaliateMachineRow); }
+inline GxAIGuardRetaliateMachineRow &AIGuardRetaliateMachine::gxRow() const { return const_cast<GxAIGuardRetaliateMachineRow &>(*m_gxAIGuardRetaliateMachineRow); }
 inline const Coord3D * AIGuardRetaliateMachine::getPositionToGuard() const
 { return &gxRow().positionToGuard; }
 inline void AIGuardRetaliateMachine::setTargetPositionToGuard( const Coord3D *pos)
@@ -179,7 +177,7 @@ protected:
 private:
 	AIGuardRetaliateMachine* getGuardMachine() { return (AIGuardRetaliateMachine*)getMachine(); }
 
-	struct GxAIGuardRetaliateInnerStateRow *m_gxAIGuardRetaliateInnerStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateInnerStates
+	GxRow<struct GxAIGuardRetaliateInnerStateRow> m_gxAIGuardRetaliateInnerStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateInnerStates
 	friend struct GxAIGuardRetaliateInnerStateRow;
 	inline struct GxAIGuardRetaliateInnerStateRow &gxRow() const;
 };
@@ -192,10 +190,9 @@ struct GxAIGuardRetaliateInnerStateRow
 	AIAttackState* attackState;
 	AIEnterState* enterState;
 };
-extern GxComponentTable<GxAIGuardRetaliateInnerStateRow> TheGxAIGuardRetaliateInnerStates;
 
 
-inline GxAIGuardRetaliateInnerStateRow &AIGuardRetaliateInnerState::gxRow() const { return TheGxAIGuardRetaliateInnerStates.at(m_gxAIGuardRetaliateInnerStateRow); }
+inline GxAIGuardRetaliateInnerStateRow &AIGuardRetaliateInnerState::gxRow() const { return const_cast<GxAIGuardRetaliateInnerStateRow &>(*m_gxAIGuardRetaliateInnerStateRow); }
 
 
 //--------------------------------------------------------------------------------------
@@ -217,7 +214,7 @@ protected:
 private:
 	AIGuardRetaliateMachine* getGuardMachine() { return (AIGuardRetaliateMachine*)getMachine(); }
 
-	struct GxAIGuardRetaliateIdleStateRow *m_gxAIGuardRetaliateIdleStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateIdleStates
+	GxRow<struct GxAIGuardRetaliateIdleStateRow> m_gxAIGuardRetaliateIdleStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateIdleStates
 	friend struct GxAIGuardRetaliateIdleStateRow;
 	inline struct GxAIGuardRetaliateIdleStateRow &gxRow() const;
 };
@@ -229,10 +226,9 @@ struct GxAIGuardRetaliateIdleStateRow
 	UnsignedInt nextEnemyScanTime;
 	Coord3D guardeePos;
 };
-extern GxComponentTable<GxAIGuardRetaliateIdleStateRow> TheGxAIGuardRetaliateIdleStates;
 
 
-inline GxAIGuardRetaliateIdleStateRow &AIGuardRetaliateIdleState::gxRow() const { return TheGxAIGuardRetaliateIdleStates.at(m_gxAIGuardRetaliateIdleStateRow); }
+inline GxAIGuardRetaliateIdleStateRow &AIGuardRetaliateIdleState::gxRow() const { return const_cast<GxAIGuardRetaliateIdleStateRow &>(*m_gxAIGuardRetaliateIdleStateRow); }
 
 //--------------------------------------------------------------------------------------
 struct GxAIGuardRetaliateOuterStateRow;
@@ -253,7 +249,7 @@ protected:
 private:
 	AIGuardRetaliateMachine* getGuardMachine() { return (AIGuardRetaliateMachine*)getMachine(); }
 
-	struct GxAIGuardRetaliateOuterStateRow *m_gxAIGuardRetaliateOuterStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateOuterStates
+	GxRow<struct GxAIGuardRetaliateOuterStateRow> m_gxAIGuardRetaliateOuterStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateOuterStates
 	friend struct GxAIGuardRetaliateOuterStateRow;
 	inline struct GxAIGuardRetaliateOuterStateRow &gxRow() const;
 };
@@ -265,10 +261,9 @@ struct GxAIGuardRetaliateOuterStateRow
 	GuardRetaliateExitConditions exitConditions;
 	AIAttackState* attackState;
 };
-extern GxComponentTable<GxAIGuardRetaliateOuterStateRow> TheGxAIGuardRetaliateOuterStates;
 
 
-inline GxAIGuardRetaliateOuterStateRow &AIGuardRetaliateOuterState::gxRow() const { return TheGxAIGuardRetaliateOuterStates.at(m_gxAIGuardRetaliateOuterStateRow); }
+inline GxAIGuardRetaliateOuterStateRow &AIGuardRetaliateOuterState::gxRow() const { return const_cast<GxAIGuardRetaliateOuterStateRow &>(*m_gxAIGuardRetaliateOuterStateRow); }
 
 
 //--------------------------------------------------------------------------------------
@@ -290,7 +285,7 @@ protected:
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 private:
-	struct GxAIGuardRetaliateReturnStateRow *m_gxAIGuardRetaliateReturnStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateReturnStates
+	GxRow<struct GxAIGuardRetaliateReturnStateRow> m_gxAIGuardRetaliateReturnStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateReturnStates
 	friend struct GxAIGuardRetaliateReturnStateRow;
 	inline struct GxAIGuardRetaliateReturnStateRow &gxRow() const;
 };
@@ -301,10 +296,9 @@ struct GxAIGuardRetaliateReturnStateRow
 {
 	UnsignedInt nextReturnScanTime;
 };
-extern GxComponentTable<GxAIGuardRetaliateReturnStateRow> TheGxAIGuardRetaliateReturnStates;
 
 
-inline GxAIGuardRetaliateReturnStateRow &AIGuardRetaliateReturnState::gxRow() const { return TheGxAIGuardRetaliateReturnStates.at(m_gxAIGuardRetaliateReturnStateRow); }
+inline GxAIGuardRetaliateReturnStateRow &AIGuardRetaliateReturnState::gxRow() const { return const_cast<GxAIGuardRetaliateReturnStateRow &>(*m_gxAIGuardRetaliateReturnStateRow); }
 
 //--------------------------------------------------------------------------------------
 class AIGuardRetaliatePickUpCrateState : public AIPickUpCrateState
@@ -338,7 +332,7 @@ protected:
 	virtual void loadPostProcess();
 private:
 	AIGuardRetaliateMachine* getGuardMachine() { return (AIGuardRetaliateMachine*)getMachine(); }
-	struct GxAIGuardRetaliateAttackAggressorStateRow *m_gxAIGuardRetaliateAttackAggressorStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateAttackAggressorStates
+	GxRow<struct GxAIGuardRetaliateAttackAggressorStateRow> m_gxAIGuardRetaliateAttackAggressorStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateAttackAggressorStates
 	friend struct GxAIGuardRetaliateAttackAggressorStateRow;
 	inline struct GxAIGuardRetaliateAttackAggressorStateRow &gxRow() const;
 };
@@ -350,10 +344,9 @@ struct GxAIGuardRetaliateAttackAggressorStateRow
 	GuardRetaliateExitConditions exitConditions;
 	AIAttackState* attackState;
 };
-extern GxComponentTable<GxAIGuardRetaliateAttackAggressorStateRow> TheGxAIGuardRetaliateAttackAggressorStates;
 
 
-inline GxAIGuardRetaliateAttackAggressorStateRow &AIGuardRetaliateAttackAggressorState::gxRow() const { return TheGxAIGuardRetaliateAttackAggressorStates.at(m_gxAIGuardRetaliateAttackAggressorStateRow); }
+inline GxAIGuardRetaliateAttackAggressorStateRow &AIGuardRetaliateAttackAggressorState::gxRow() const { return const_cast<GxAIGuardRetaliateAttackAggressorStateRow &>(*m_gxAIGuardRetaliateAttackAggressorStateRow); }
 
 
 //--------------------------------------------------------------------------------------

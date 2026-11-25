@@ -46,8 +46,7 @@
 
 // Web port (round 5, units are pure data): BattleBusSlowDeathBehavior's per-unit state is a row of TheGxBattleBusSlowDeathBehaviors;
 // GXROW_BATTLEBUSSLOWDEATHBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxBattleBusSlowDeathBehaviorRow> TheGxBattleBusSlowDeathBehaviors;
-#define GXROW_BATTLEBUSSLOWDEATHBEHAVIOR (TheGxBattleBusSlowDeathBehaviors.at(m_gxBattleBusSlowDeathBehaviorRow))
+#define GXROW_BATTLEBUSSLOWDEATHBEHAVIOR (const_cast<GxBattleBusSlowDeathBehaviorRow &>(*m_gxBattleBusSlowDeathBehaviorRow))
 
 
 
@@ -113,7 +112,6 @@ BattleBusSlowDeathBehaviorModuleData::BattleBusSlowDeathBehaviorModuleData()
 // ------------------------------------------------------------------------------------------------
 BattleBusSlowDeathBehavior::BattleBusSlowDeathBehavior( Thing *thing, const ModuleData *moduleData ) : SlowDeathBehavior( thing, moduleData )
 {
-	m_gxBattleBusSlowDeathBehaviorRow = TheGxBattleBusSlowDeathBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 
 	GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.isRealDeath = FALSE;
@@ -127,7 +125,6 @@ BattleBusSlowDeathBehavior::BattleBusSlowDeathBehavior( Thing *thing, const Modu
 BattleBusSlowDeathBehavior::~BattleBusSlowDeathBehavior()
 {
 
-	TheGxBattleBusSlowDeathBehaviors.release( m_gxBattleBusSlowDeathBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------

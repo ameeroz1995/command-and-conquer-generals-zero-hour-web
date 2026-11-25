@@ -71,188 +71,157 @@
 
 // Web port (round 5, units are pure data): AIStateMachine's per-unit state is a row of TheGxAIStateMachines;
 // GXROW_AISTATEMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIStateMachineRow> TheGxAIStateMachines;
-#define GXROW_AISTATEMACHINE (TheGxAIStateMachines.at(m_gxAIStateMachineRow))
+#define GXROW_AISTATEMACHINE (const_cast<GxAIStateMachineRow &>(*m_gxAIStateMachineRow))
 
 
 // Web port (round 5, units are pure data): AIWanderState's per-unit state is a row of TheGxAIWanderStates;
 // GXROW_AIWANDERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIWanderStateRow> TheGxAIWanderStates;
-#define GXROW_AIWANDERSTATE (TheGxAIWanderStates.at(m_gxAIWanderStateRow))
+#define GXROW_AIWANDERSTATE (const_cast<GxAIWanderStateRow &>(*m_gxAIWanderStateRow))
 
 
 // Web port (round 5, units are pure data): AIWanderInPlaceState's per-unit state is a row of TheGxAIWanderInPlaceStates;
 // GXROW_AIWANDERINPLACESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIWanderInPlaceStateRow> TheGxAIWanderInPlaceStates;
-#define GXROW_AIWANDERINPLACESTATE (TheGxAIWanderInPlaceStates.at(m_gxAIWanderInPlaceStateRow))
+#define GXROW_AIWANDERINPLACESTATE (const_cast<GxAIWanderInPlaceStateRow &>(*m_gxAIWanderInPlaceStateRow))
 
 
 // Web port (round 5, units are pure data): AITunnelNetworkGuardState's per-unit state is a row of TheGxAITunnelNetworkGuardStates;
 // GXROW_AITUNNELNETWORKGUARDSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAITunnelNetworkGuardStateRow> TheGxAITunnelNetworkGuardStates;
-#define GXROW_AITUNNELNETWORKGUARDSTATE (TheGxAITunnelNetworkGuardStates.at(m_gxAITunnelNetworkGuardStateRow))
+#define GXROW_AITUNNELNETWORKGUARDSTATE (const_cast<GxAITunnelNetworkGuardStateRow &>(*m_gxAITunnelNetworkGuardStateRow))
 
 
 // Web port (round 5, units are pure data): AIRappelState's per-unit state is a row of TheGxAIRappelStates;
 // GXROW_AIRAPPELSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIRappelStateRow> TheGxAIRappelStates;
-#define GXROW_AIRAPPELSTATE (TheGxAIRappelStates.at(m_gxAIRappelStateRow))
+#define GXROW_AIRAPPELSTATE (const_cast<GxAIRappelStateRow &>(*m_gxAIRappelStateRow))
 
 
 // Web port (round 5, units are pure data): AIPanicState's per-unit state is a row of TheGxAIPanicStates;
 // GXROW_AIPANICSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIPanicStateRow> TheGxAIPanicStates;
-#define GXROW_AIPANICSTATE (TheGxAIPanicStates.at(m_gxAIPanicStateRow))
+#define GXROW_AIPANICSTATE (const_cast<GxAIPanicStateRow &>(*m_gxAIPanicStateRow))
 
 
 // Web port (round 5, units are pure data): AIMoveToState's per-unit state is a row of TheGxAIMoveToStates;
 // GXROW_AIMOVETOSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIMoveToStateRow> TheGxAIMoveToStates;
-#define GXROW_AIMOVETOSTATE (TheGxAIMoveToStates.at(m_gxAIMoveToStateRow))
+#define GXROW_AIMOVETOSTATE (const_cast<GxAIMoveToStateRow &>(*m_gxAIMoveToStateRow))
 
 
 // Web port (round 5, units are pure data): AIMoveAndEvacuateState's per-unit state is a row of TheGxAIMoveAndEvacuateStates;
 // GXROW_AIMOVEANDEVACUATESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIMoveAndEvacuateStateRow> TheGxAIMoveAndEvacuateStates;
-#define GXROW_AIMOVEANDEVACUATESTATE (TheGxAIMoveAndEvacuateStates.at(m_gxAIMoveAndEvacuateStateRow))
+#define GXROW_AIMOVEANDEVACUATESTATE (const_cast<GxAIMoveAndEvacuateStateRow &>(*m_gxAIMoveAndEvacuateStateRow))
 
 
 // Web port (round 5, units are pure data): AIMoveAndDeleteState's per-unit state is a row of TheGxAIMoveAndDeleteStates;
 // GXROW_AIMOVEANDDELETESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIMoveAndDeleteStateRow> TheGxAIMoveAndDeleteStates;
-#define GXROW_AIMOVEANDDELETESTATE (TheGxAIMoveAndDeleteStates.at(m_gxAIMoveAndDeleteStateRow))
+#define GXROW_AIMOVEANDDELETESTATE (const_cast<GxAIMoveAndDeleteStateRow &>(*m_gxAIMoveAndDeleteStateRow))
 
 
 // Web port (round 5, units are pure data): AIIdleState's per-unit state is a row of TheGxAIIdleStates;
 // GXROW_AIIDLESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIIdleStateRow> TheGxAIIdleStates;
-#define GXROW_AIIDLESTATE (TheGxAIIdleStates.at(m_gxAIIdleStateRow))
+#define GXROW_AIIDLESTATE (const_cast<GxAIIdleStateRow &>(*m_gxAIIdleStateRow))
 
 
 // Web port (round 5, units are pure data): AIHuntState's per-unit state is a row of TheGxAIHuntStates;
 // GXROW_AIHUNTSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIHuntStateRow> TheGxAIHuntStates;
-#define GXROW_AIHUNTSTATE (TheGxAIHuntStates.at(m_gxAIHuntStateRow))
+#define GXROW_AIHUNTSTATE (const_cast<GxAIHuntStateRow &>(*m_gxAIHuntStateRow))
 
 
 // Web port (round 5, units are pure data): AIGuardState's per-unit state is a row of TheGxAIGuardStates;
 // GXROW_AIGUARDSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardStateRow> TheGxAIGuardStates;
-#define GXROW_AIGUARDSTATE (TheGxAIGuardStates.at(m_gxAIGuardStateRow))
+#define GXROW_AIGUARDSTATE (const_cast<GxAIGuardStateRow &>(*m_gxAIGuardStateRow))
 
 
 // Web port (round 5, units are pure data): AIGuardRetaliateState's per-unit state is a row of TheGxAIGuardRetaliateStates;
 // GXROW_AIGUARDRETALIATESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardRetaliateStateRow> TheGxAIGuardRetaliateStates;
-#define GXROW_AIGUARDRETALIATESTATE (TheGxAIGuardRetaliateStates.at(m_gxAIGuardRetaliateStateRow))
+#define GXROW_AIGUARDRETALIATESTATE (const_cast<GxAIGuardRetaliateStateRow &>(*m_gxAIGuardRetaliateStateRow))
 
 
 // Web port (round 5, units are pure data): AIFollowWaypointPathExactState's per-unit state is a row of TheGxAIFollowWaypointPathExactStates;
 // GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIFollowWaypointPathExactStateRow> TheGxAIFollowWaypointPathExactStates;
-#define GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE (TheGxAIFollowWaypointPathExactStates.at(m_gxAIFollowWaypointPathExactStateRow))
+#define GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE (const_cast<GxAIFollowWaypointPathExactStateRow &>(*m_gxAIFollowWaypointPathExactStateRow))
 
 
 // Web port (round 5, units are pure data): AIFollowPathState's per-unit state is a row of TheGxAIFollowPathStates;
 // GXROW_AIFOLLOWPATHSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIFollowPathStateRow> TheGxAIFollowPathStates;
-#define GXROW_AIFOLLOWPATHSTATE (TheGxAIFollowPathStates.at(m_gxAIFollowPathStateRow))
+#define GXROW_AIFOLLOWPATHSTATE (const_cast<GxAIFollowPathStateRow &>(*m_gxAIFollowPathStateRow))
 
 
 // Web port (round 5, units are pure data): AIFaceState's per-unit state is a row of TheGxAIFaceStates;
 // GXROW_AIFACESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIFaceStateRow> TheGxAIFaceStates;
-#define GXROW_AIFACESTATE (TheGxAIFaceStates.at(m_gxAIFaceStateRow))
+#define GXROW_AIFACESTATE (const_cast<GxAIFaceStateRow &>(*m_gxAIFaceStateRow))
 
 
 // Web port (round 5, units are pure data): AIExitState's per-unit state is a row of TheGxAIExitStates;
 // GXROW_AIEXITSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIExitStateRow> TheGxAIExitStates;
-#define GXROW_AIEXITSTATE (TheGxAIExitStates.at(m_gxAIExitStateRow))
+#define GXROW_AIEXITSTATE (const_cast<GxAIExitStateRow &>(*m_gxAIExitStateRow))
 
 
 // Web port (round 5, units are pure data): AIExitInstantlyState's per-unit state is a row of TheGxAIExitInstantlyStates;
 // GXROW_AIEXITINSTANTLYSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIExitInstantlyStateRow> TheGxAIExitInstantlyStates;
-#define GXROW_AIEXITINSTANTLYSTATE (TheGxAIExitInstantlyStates.at(m_gxAIExitInstantlyStateRow))
+#define GXROW_AIEXITINSTANTLYSTATE (const_cast<GxAIExitInstantlyStateRow &>(*m_gxAIExitInstantlyStateRow))
 
 
 // Web port (round 5, units are pure data): AIDockState's per-unit state is a row of TheGxAIDockStates;
 // GXROW_AIDOCKSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIDockStateRow> TheGxAIDockStates;
-#define GXROW_AIDOCKSTATE (TheGxAIDockStates.at(m_gxAIDockStateRow))
+#define GXROW_AIDOCKSTATE (const_cast<GxAIDockStateRow &>(*m_gxAIDockStateRow))
 
 
 // Web port (round 5, units are pure data): AIAttackState's per-unit state is a row of TheGxAIAttackStates;
 // GXROW_AIATTACKSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIAttackStateRow> TheGxAIAttackStates;
-#define GXROW_AIATTACKSTATE (TheGxAIAttackStates.at(m_gxAIAttackStateRow))
+#define GXROW_AIATTACKSTATE (const_cast<GxAIAttackStateRow &>(*m_gxAIAttackStateRow))
 
 
 // Web port (round 5, units are pure data): AIAttackSquadState's per-unit state is a row of TheGxAIAttackSquadStates;
 // GXROW_AIATTACKSQUADSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIAttackSquadStateRow> TheGxAIAttackSquadStates;
-#define GXROW_AIATTACKSQUADSTATE (TheGxAIAttackSquadStates.at(m_gxAIAttackSquadStateRow))
+#define GXROW_AIATTACKSQUADSTATE (const_cast<GxAIAttackSquadStateRow &>(*m_gxAIAttackSquadStateRow))
 
 
 // Web port (round 5, units are pure data): AIAttackPursueTargetState's per-unit state is a row of TheGxAIAttackPursueTargetStates;
 // GXROW_AIATTACKPURSUETARGETSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIAttackPursueTargetStateRow> TheGxAIAttackPursueTargetStates;
-#define GXROW_AIATTACKPURSUETARGETSTATE (TheGxAIAttackPursueTargetStates.at(m_gxAIAttackPursueTargetStateRow))
+#define GXROW_AIATTACKPURSUETARGETSTATE (const_cast<GxAIAttackPursueTargetStateRow &>(*m_gxAIAttackPursueTargetStateRow))
 
 
 // Web port (round 5, units are pure data): AIAttackFollowWaypointPathState's per-unit state is a row of TheGxAIAttackFollowWaypointPathStates;
 // GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIAttackFollowWaypointPathStateRow> TheGxAIAttackFollowWaypointPathStates;
-#define GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE (TheGxAIAttackFollowWaypointPathStates.at(m_gxAIAttackFollowWaypointPathStateRow))
+#define GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE (const_cast<GxAIAttackFollowWaypointPathStateRow &>(*m_gxAIAttackFollowWaypointPathStateRow))
 
 
 // Web port (round 5, units are pure data): AIAttackAreaState's per-unit state is a row of TheGxAIAttackAreaStates;
 // GXROW_AIATTACKAREASTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIAttackAreaStateRow> TheGxAIAttackAreaStates;
-#define GXROW_AIATTACKAREASTATE (TheGxAIAttackAreaStates.at(m_gxAIAttackAreaStateRow))
+#define GXROW_AIATTACKAREASTATE (const_cast<GxAIAttackAreaStateRow &>(*m_gxAIAttackAreaStateRow))
 
 
 // Web port (round 5, units are pure data): AIAttackApproachTargetState's per-unit state is a row of TheGxAIAttackApproachTargetStates;
 // GXROW_AIATTACKAPPROACHTARGETSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIAttackApproachTargetStateRow> TheGxAIAttackApproachTargetStates;
-#define GXROW_AIATTACKAPPROACHTARGETSTATE (TheGxAIAttackApproachTargetStates.at(m_gxAIAttackApproachTargetStateRow))
+#define GXROW_AIATTACKAPPROACHTARGETSTATE (const_cast<GxAIAttackApproachTargetStateRow &>(*m_gxAIAttackApproachTargetStateRow))
 
 
 // Web port (round 5, units are pure data): AIAttackAimAtTargetState's per-unit state is a row of TheGxAIAttackAimAtTargetStates;
 // GXROW_AIATTACKAIMATTARGETSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIAttackAimAtTargetStateRow> TheGxAIAttackAimAtTargetStates;
-#define GXROW_AIATTACKAIMATTARGETSTATE (TheGxAIAttackAimAtTargetStates.at(m_gxAIAttackAimAtTargetStateRow))
+#define GXROW_AIATTACKAIMATTARGETSTATE (const_cast<GxAIAttackAimAtTargetStateRow &>(*m_gxAIAttackAimAtTargetStateRow))
 
 
 // Web port (round 5, units are pure data): AIEnterState's per-unit state is a row of TheGxAIEnterStates;
 // GXROW_AIENTERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIEnterStateRow> TheGxAIEnterStates;
-#define GXROW_AIENTERSTATE (TheGxAIEnterStates.at(m_gxAIEnterStateRow))
+#define GXROW_AIENTERSTATE (const_cast<GxAIEnterStateRow &>(*m_gxAIEnterStateRow))
 
 
 // Web port (round 5, units are pure data): AIPickUpCrateState's per-unit state is a row of TheGxAIPickUpCrateStates;
 // GXROW_AIPICKUPCRATESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIPickUpCrateStateRow> TheGxAIPickUpCrateStates;
-#define GXROW_AIPICKUPCRATESTATE (TheGxAIPickUpCrateStates.at(m_gxAIPickUpCrateStateRow))
+#define GXROW_AIPICKUPCRATESTATE (const_cast<GxAIPickUpCrateStateRow &>(*m_gxAIPickUpCrateStateRow))
 
 
 // Web port (round 5, units are pure data): AIMoveAndTightenState's per-unit state is a row of TheGxAIMoveAndTightenStates;
 // GXROW_AIMOVEANDTIGHTENSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIMoveAndTightenStateRow> TheGxAIMoveAndTightenStates;
-#define GXROW_AIMOVEANDTIGHTENSTATE (TheGxAIMoveAndTightenStates.at(m_gxAIMoveAndTightenStateRow))
+#define GXROW_AIMOVEANDTIGHTENSTATE (const_cast<GxAIMoveAndTightenStateRow &>(*m_gxAIMoveAndTightenStateRow))
 
 
 // Web port (round 5, units are pure data): AIFollowWaypointPathState's per-unit state is a row of TheGxAIFollowWaypointPathStates;
 // GXROW_AIFOLLOWWAYPOINTPATHSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIFollowWaypointPathStateRow> TheGxAIFollowWaypointPathStates;
-#define GXROW_AIFOLLOWWAYPOINTPATHSTATE (TheGxAIFollowWaypointPathStates.at(m_gxAIFollowWaypointPathStateRow))
+#define GXROW_AIFOLLOWWAYPOINTPATHSTATE (const_cast<GxAIFollowWaypointPathStateRow &>(*m_gxAIFollowWaypointPathStateRow))
 
 
 // Web port (round 5, units are pure data): AIInternalMoveToState's per-unit state is a row of TheGxAIInternalMoveToStates;
 // GXROW_AIINTERNALMOVETOSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIInternalMoveToStateRow> TheGxAIInternalMoveToStates;
-#define GXROW_AIINTERNALMOVETOSTATE (TheGxAIInternalMoveToStates.at(m_gxAIInternalMoveToStateRow))
+#define GXROW_AIINTERNALMOVETOSTATE (const_cast<GxAIInternalMoveToStateRow &>(*m_gxAIInternalMoveToStateRow))
 
 
 
@@ -651,7 +620,6 @@ static Int killEnemiesInContainer(Object* killer, Object* bldg, Int maxToKill)
 //-----------------------------------------------------------------------------------------------------------
 AIRappelState::AIRappelState( StateMachine *machine ) : State( machine, "AIRappelState" )
 {
-	m_gxAIRappelStateRow = TheGxAIRappelStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 }
 
@@ -859,7 +827,6 @@ void AIRappelState::onExit( StateExitType status )
 */
 AIStateMachine::AIStateMachine( Object *obj, AsciiString name ) : StateMachine( obj, name )
 {
-	m_gxAIStateMachineRow = TheGxAIStateMachines.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	DEBUG_ASSERTCRASH(getOwner(), ("An AI State Machine '%s' was constructed without an owner, please tell JKMCD", name.str()));
 	DEBUG_ASSERTCRASH(getOwner()->getAI(), ("An AI State Machine '%s' was constructed without an AIUpdateInterface, please tell JKMCD", name.str()));
@@ -922,7 +889,6 @@ AIStateMachine::AIStateMachine( Object *obj, AsciiString name ) : StateMachine( 
 AIStateMachine::~AIStateMachine()
 {
 	deleteInstance(GXROW_AISTATEMACHINE.goalSquad);
-	TheGxAIStateMachines.release( m_gxAIStateMachineRow );	// web port (round 5)
 }
 
 
@@ -1455,7 +1421,6 @@ const UnsignedInt IDLE_COUNTDOWN_DELAY = (LOGICFRAMES_PER_SECOND * 2);
 //----------------------------------------------------------------------------------------------
 AIIdleState::AIIdleState( StateMachine *machine, AIIdleState::AIIdleTargetingType shouldLookForTargets ) : State( machine,"AIIdleState")
 {
-	m_gxAIIdleStateRow = TheGxAIIdleStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIIDLESTATE.shouldLookForTargets = shouldLookForTargets == AIIdleState::LOOK_FOR_TARGETS;
 
 		GXROW_AIIDLESTATE.inited = FALSE;
@@ -2216,7 +2181,6 @@ AIAttackMoveStateMachine::~AIAttackMoveStateMachine()
 //-------------------------------------------------------------------------------------------------
 AIMoveToState::AIMoveToState(StateMachine *machine) : AIInternalMoveToState( machine, "AIMoveToState" )
 {
-	m_gxAIMoveToStateRow = TheGxAIMoveToStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIMOVETOSTATE.isMoveTo = true;
 
 	// GXROW_AIMOVETOSTATE.isMoveTo is a boolean that specifies that this thing is ACTUALLY A MOVE TO.
@@ -4590,7 +4554,6 @@ StateReturnType AIFollowWaypointPathExactState::update()
 //-------------------------------------------------------------------------------------------------
 AIAttackFollowWaypointPathState::AIAttackFollowWaypointPathState( StateMachine *machine, Bool asGroup ) : AIFollowWaypointPathState ( machine, asGroup, false )
 {
-	m_gxAIAttackFollowWaypointPathStateRow = TheGxAIAttackFollowWaypointPathStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 #ifdef STATE_MACHINE_DEBUG
 	setName("AIAttackFollowWaypointPathState");
@@ -4603,7 +4566,6 @@ AIAttackFollowWaypointPathState::AIAttackFollowWaypointPathState( StateMachine *
 AIAttackFollowWaypointPathState::~AIAttackFollowWaypointPathState()
 {
 	deleteInstance(GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine);
-	TheGxAIAttackFollowWaypointPathStates.release( m_gxAIAttackFollowWaypointPathStateRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -5583,7 +5545,6 @@ StateReturnType AIWaitState::update()
 //----------------------------------------------------------------------------------------------------------
 AIAttackState::AIAttackState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking, AttackExitConditionsInterface* attackParameters) : State( machine , "AIAttackState")
 {
-	m_gxAIAttackStateRow = TheGxAIAttackStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIATTACKSTATE.attackMachine = nullptr;
 	GXROW_AIATTACKSTATE.attackParameters = attackParameters;
 	GXROW_AIATTACKSTATE.lockedWeaponOnEnter = nullptr;
@@ -5614,7 +5575,6 @@ AIAttackState::~AIAttackState()
 		GXROW_AIATTACKSTATE.attackMachine->halt();
 		deleteInstance(GXROW_AIATTACKSTATE.attackMachine);
 	}
-	TheGxAIAttackStates.release( m_gxAIAttackStateRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -6021,7 +5981,6 @@ AIAttackSquadState::~AIAttackSquadState()
 		GXROW_AIATTACKSQUADSTATE.attackSquadMachine->halt();
 		deleteInstance(GXROW_AIATTACKSQUADSTATE.attackSquadMachine);
 	}
-	TheGxAIAttackSquadStates.release( m_gxAIAttackSquadStateRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -6256,7 +6215,6 @@ AIDockState::~AIDockState()
 		GXROW_AIDOCKSTATE.dockMachine->halt();
 		deleteInstance(GXROW_AIDOCKSTATE.dockMachine);
 	}
-	TheGxAIDockStates.release( m_gxAIDockStateRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -6852,7 +6810,6 @@ AIGuardState::~AIGuardState()
 		GXROW_AIGUARDSTATE.guardMachine->halt();
 		deleteInstance(GXROW_AIGUARDSTATE.guardMachine);
 	}
-	TheGxAIGuardStates.release( m_gxAIGuardStateRow );	// web port (round 5)
 }
 
 
@@ -7004,7 +6961,6 @@ AIGuardRetaliateState::~AIGuardRetaliateState()
 		GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine->halt();
 		deleteInstance(GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine);
 	}
-	TheGxAIGuardRetaliateStates.release( m_gxAIGuardRetaliateStateRow );	// web port (round 5)
 }
 
 
@@ -7150,7 +7106,6 @@ AITunnelNetworkGuardState::~AITunnelNetworkGuardState()
 		GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine->halt();
 		deleteInstance(GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine);
 	}
-	TheGxAITunnelNetworkGuardStates.release( m_gxAITunnelNetworkGuardStateRow );	// web port (round 5)
 }
 
 
@@ -7289,7 +7244,6 @@ AIHuntState::~AIHuntState()
 		GXROW_AIHUNTSTATE.huntMachine->halt();
 		deleteInstance(GXROW_AIHUNTSTATE.huntMachine);
 	}
-	TheGxAIHuntStates.release( m_gxAIHuntStateRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -7497,7 +7451,6 @@ AIAttackAreaState::~AIAttackAreaState()
 		GXROW_AIATTACKAREASTATE.attackMachine->halt();
 		deleteInstance(GXROW_AIATTACKAREASTATE.attackMachine);
 	}
-	TheGxAIAttackAreaStates.release( m_gxAIAttackAreaStateRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -7727,8 +7680,7 @@ StateReturnType AIFaceState::update()
 	return STATE_CONTINUE;
 }
 
-AIInternalMoveToState::AIInternalMoveToState( StateMachine *machine, AsciiString name ) : State( machine, name ),
-	m_gxAIInternalMoveToStateRow( TheGxAIInternalMoveToStates.alloc( nullptr ) )	// web port (round 5): this unit's row (zeroed, like the module was)
+AIInternalMoveToState::AIInternalMoveToState( StateMachine *machine, AsciiString name ) : State( machine, name )	// web port (round 5): this unit's row (zeroed, like the module was)
 {
 
 		gxRow().goalPosition.zero();
@@ -7741,12 +7693,10 @@ AIInternalMoveToState::AIInternalMoveToState( StateMachine *machine, AsciiString
 
 AIInternalMoveToState::~AIInternalMoveToState()
 {
-	TheGxAIInternalMoveToStates.release( m_gxAIInternalMoveToStateRow );	// web port (round 5)
 }
 
 AIFollowWaypointPathState::AIFollowWaypointPathState( StateMachine *machine, Bool asGroup ) : AIInternalMoveToState( machine, "AIFollowWaypointPathState" )
 {
-	m_gxAIFollowWaypointPathStateRow = TheGxAIFollowWaypointPathStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIFOLLOWWAYPOINTPATHSTATE.isFollowWaypointPathState = true;
 	GXROW_AIFOLLOWWAYPOINTPATHSTATE.moveAsGroup = asGroup;
 
@@ -7756,7 +7706,6 @@ AIFollowWaypointPathState::AIFollowWaypointPathState( StateMachine *machine, Boo
 AIFollowWaypointPathState::AIFollowWaypointPathState( StateMachine *machine, Bool asGroup, Bool isFollow) : AIInternalMoveToState( machine,
 																"AIFollowWaypointPathState" )
 {
-	m_gxAIFollowWaypointPathStateRow = TheGxAIFollowWaypointPathStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIFOLLOWWAYPOINTPATHSTATE.isFollowWaypointPathState = isFollow;
 	GXROW_AIFOLLOWWAYPOINTPATHSTATE.moveAsGroup = asGroup;
 
@@ -7765,12 +7714,10 @@ AIFollowWaypointPathState::AIFollowWaypointPathState( StateMachine *machine, Boo
 
 AIFollowWaypointPathState::~AIFollowWaypointPathState()
 {
-	TheGxAIFollowWaypointPathStates.release( m_gxAIFollowWaypointPathStateRow );	// web port (round 5)
 }
 
 AIMoveAndTightenState::AIMoveAndTightenState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIMoveAndTightenState" )
 {
-	m_gxAIMoveAndTightenStateRow = TheGxAIMoveAndTightenStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().checkForPath = false;
 		gxRow().okToRepathTimes = 0;
@@ -7778,7 +7725,6 @@ AIMoveAndTightenState::AIMoveAndTightenState( StateMachine *machine ) : AIIntern
 
 AIMoveAndTightenState::AIMoveAndTightenState( StateMachine *machine, const char *name ) : AIInternalMoveToState( machine, name )
 {
-	m_gxAIMoveAndTightenStateRow = TheGxAIMoveAndTightenStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().checkForPath = false;
 		gxRow().okToRepathTimes = 0;
@@ -7786,12 +7732,10 @@ AIMoveAndTightenState::AIMoveAndTightenState( StateMachine *machine, const char 
 
 AIMoveAndTightenState::~AIMoveAndTightenState()
 {
-	TheGxAIMoveAndTightenStates.release( m_gxAIMoveAndTightenStateRow );	// web port (round 5)
 }
 
 AIPickUpCrateState::AIPickUpCrateState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIAttackPickUpCrateState" )
 {
-	m_gxAIPickUpCrateStateRow = TheGxAIPickUpCrateStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		// we're setting m_isInitialApproach to true in the constructor because we want the first pass
 		// through this state to allow a unit to attack incidental targets (if it is turreted)
@@ -7799,22 +7743,18 @@ AIPickUpCrateState::AIPickUpCrateState( StateMachine *machine ) : AIInternalMove
 
 AIPickUpCrateState::~AIPickUpCrateState()
 {
-	TheGxAIPickUpCrateStates.release( m_gxAIPickUpCrateStateRow );	// web port (round 5)
 }
 
 AIEnterState::AIEnterState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIEnterState" )
 {
-	m_gxAIEnterStateRow = TheGxAIEnterStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
  }
 
 AIEnterState::~AIEnterState()
 {
-	TheGxAIEnterStates.release( m_gxAIEnterStateRow );	// web port (round 5)
 }
 
 AIAttackAimAtTargetState::AIAttackAimAtTargetState( StateMachine *machine, Bool attackingObject, Bool forceAttacking ) : State( machine, "AIAttackAimAtTargetState" )
 {
-	m_gxAIAttackAimAtTargetStateRow = TheGxAIAttackAimAtTargetStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject = attackingObject;
 	GXROW_AIATTACKAIMATTARGETSTATE.canTurnInPlace = false;
 	GXROW_AIATTACKAIMATTARGETSTATE.isForceAttacking = forceAttacking;
@@ -7824,12 +7764,10 @@ AIAttackAimAtTargetState::AIAttackAimAtTargetState( StateMachine *machine, Bool 
 
 AIAttackAimAtTargetState::~AIAttackAimAtTargetState()
 {
-	TheGxAIAttackAimAtTargetStates.release( m_gxAIAttackAimAtTargetStateRow );	// web port (round 5)
 }
 
 AIAttackApproachTargetState::AIAttackApproachTargetState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking ) : AIInternalMoveToState( machine, "AIAttackApproachTargetState" )
 {
-	m_gxAIAttackApproachTargetStateRow = TheGxAIAttackApproachTargetStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIATTACKAPPROACHTARGETSTATE.follow = follow;
 	GXROW_AIATTACKAPPROACHTARGETSTATE.isAttackingObject = attackingObject;
 	GXROW_AIATTACKAPPROACHTARGETSTATE.isInitialApproach = true;
@@ -7841,19 +7779,16 @@ AIAttackApproachTargetState::AIAttackApproachTargetState( StateMachine *machine,
 
 AIAttackApproachTargetState::~AIAttackApproachTargetState()
 {
-	TheGxAIAttackApproachTargetStates.release( m_gxAIAttackApproachTargetStateRow );	// web port (round 5)
 }
 
 AIAttackAreaState::AIAttackAreaState( StateMachine *machine ) : State( machine, "AIAttackAreaState" )
 {
-	m_gxAIAttackAreaStateRow = TheGxAIAttackAreaStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIATTACKAREASTATE.attackMachine = nullptr;
 	GXROW_AIATTACKAREASTATE.nextEnemyScanTime = 0;
  }
 
 AIAttackPursueTargetState::AIAttackPursueTargetState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking ) : AIInternalMoveToState( machine, "AIAttackPursueTargetState" )
 {
-	m_gxAIAttackPursueTargetStateRow = TheGxAIAttackPursueTargetStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIATTACKPURSUETARGETSTATE.follow = follow;
 	GXROW_AIATTACKPURSUETARGETSTATE.isAttackingObject = attackingObject;
 	GXROW_AIATTACKPURSUETARGETSTATE.isInitialApproach = true;
@@ -7867,56 +7802,46 @@ AIAttackPursueTargetState::AIAttackPursueTargetState( StateMachine *machine, Boo
 
 AIAttackPursueTargetState::~AIAttackPursueTargetState()
 {
-	TheGxAIAttackPursueTargetStates.release( m_gxAIAttackPursueTargetStateRow );	// web port (round 5)
 }
 
 AIAttackSquadState::AIAttackSquadState( StateMachine *machine, AttackExitConditionsInterface *attackParameters) : State( machine , "AIAttackSquadState")
 {
-	m_gxAIAttackSquadStateRow = TheGxAIAttackSquadStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	}
 
 AIDockState::AIDockState( StateMachine *machine ) : State( machine, "AIDockState" )
 {
-	m_gxAIDockStateRow = TheGxAIDockStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIDOCKSTATE.dockMachine = nullptr;
 	GXROW_AIDOCKSTATE.usingPrecisionMovement = FALSE;
  }
 
 AIExitInstantlyState::AIExitInstantlyState( StateMachine *machine ) : State( machine, "AIExitInstantlyState" )
 {
-	m_gxAIExitInstantlyStateRow = TheGxAIExitInstantlyStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
  }
 
 AIExitInstantlyState::~AIExitInstantlyState()
 {
-	TheGxAIExitInstantlyStates.release( m_gxAIExitInstantlyStateRow );	// web port (round 5)
 }
 
 AIExitState::AIExitState( StateMachine *machine ) : State( machine, "AIExitState" )
 {
-	m_gxAIExitStateRow = TheGxAIExitStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
  }
 
 AIExitState::~AIExitState()
 {
-	TheGxAIExitStates.release( m_gxAIExitStateRow );	// web port (round 5)
 }
 
 AIFaceState::AIFaceState( StateMachine *machine, Bool obj ) : State( machine, "AIFaceState" )
 {
-	m_gxAIFaceStateRow = TheGxAIFaceStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIFACESTATE.canTurnInPlace = false;
 	GXROW_AIFACESTATE.obj = obj;
  }
 
 AIFaceState::~AIFaceState()
 {
-	TheGxAIFaceStates.release( m_gxAIFaceStateRow );	// web port (round 5)
 }
 
 AIFollowPathState::AIFollowPathState( StateMachine *machine, AsciiString name) : AIInternalMoveToState( machine, name )
 {
-	m_gxAIFollowPathStateRow = TheGxAIFollowPathStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIFOLLOWPATHSTATE.adjustFinal = true;
 	GXROW_AIFOLLOWPATHSTATE.adjustFinalOverride = false;
 	GXROW_AIFOLLOWPATHSTATE.index = 0;
@@ -7925,30 +7850,25 @@ AIFollowPathState::AIFollowPathState( StateMachine *machine, AsciiString name) :
 
 AIFollowPathState::~AIFollowPathState()
 {
-	TheGxAIFollowPathStates.release( m_gxAIFollowPathStateRow );	// web port (round 5)
 }
 
 AIFollowWaypointPathExactState::AIFollowWaypointPathExactState( StateMachine *machine, Bool asGroup ) : AIInternalMoveToState( machine, "AIFollowWaypointPathExactState" )
 {
-	m_gxAIFollowWaypointPathExactStateRow = TheGxAIFollowWaypointPathExactStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.moveAsGroup = asGroup;
 	GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.lastWaypoint = nullptr;
  }
 
 AIFollowWaypointPathExactState::~AIFollowWaypointPathExactState()
 {
-	TheGxAIFollowWaypointPathExactStates.release( m_gxAIFollowWaypointPathExactStateRow );	// web port (round 5)
 }
 
 AIGuardRetaliateState::AIGuardRetaliateState( StateMachine *machine ) : State( machine, "AIGuardRetaliateState" )
 {
-	m_gxAIGuardRetaliateStateRow = TheGxAIGuardRetaliateStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine = nullptr;
 }
 
 AIGuardState::AIGuardState( StateMachine *machine ) : State( machine, "AIGuardState" )
 {
-	m_gxAIGuardStateRow = TheGxAIGuardStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIGUARDSTATE.guardMachine = nullptr;
 
 		gxRow().guardMachine = nullptr;
@@ -7956,7 +7876,6 @@ AIGuardState::AIGuardState( StateMachine *machine ) : State( machine, "AIGuardSt
 
 AIHuntState::AIHuntState( StateMachine *machine ) : State( machine, "AIHuntState" )
 {
-	m_gxAIHuntStateRow = TheGxAIHuntStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIHUNTSTATE.huntMachine = nullptr;
 
 		gxRow().nextEnemyScanTime = 0;
@@ -7964,41 +7883,34 @@ AIHuntState::AIHuntState( StateMachine *machine ) : State( machine, "AIHuntState
 
 AIIdleState::~AIIdleState()
 {
-	TheGxAIIdleStates.release( m_gxAIIdleStateRow );	// web port (round 5)
 }
 
 AIMoveAndDeleteState::AIMoveAndDeleteState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIMoveAndDeleteState" )
 {
-	m_gxAIMoveAndDeleteStateRow = TheGxAIMoveAndDeleteStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().appendGoalPosition = FALSE;
 	}
 
 AIMoveAndDeleteState::~AIMoveAndDeleteState()
 {
-	TheGxAIMoveAndDeleteStates.release( m_gxAIMoveAndDeleteStateRow );	// web port (round 5)
 }
 
 AIMoveAndEvacuateState::AIMoveAndEvacuateState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIMoveAndEvacuateState" )
 {
-	m_gxAIMoveAndEvacuateStateRow = TheGxAIMoveAndEvacuateStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().origin.zero();
 	}
 
 AIMoveAndEvacuateState::~AIMoveAndEvacuateState()
 {
-	TheGxAIMoveAndEvacuateStates.release( m_gxAIMoveAndEvacuateStateRow );	// web port (round 5)
 }
 
 AIMoveToState::~AIMoveToState()
 {
-	TheGxAIMoveToStates.release( m_gxAIMoveToStateRow );	// web port (round 5)
 }
 
 AIPanicState::AIPanicState( StateMachine *machine ) : AIFollowWaypointPathState( machine, false)
 {
-	m_gxAIPanicStateRow = TheGxAIPanicStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 #ifdef STATE_MACHINE_DEBUG
 		setName("AIPanicState");
@@ -8007,17 +7919,14 @@ AIPanicState::AIPanicState( StateMachine *machine ) : AIFollowWaypointPathState(
 
 AIPanicState::~AIPanicState()
 {
-	TheGxAIPanicStates.release( m_gxAIPanicStateRow );	// web port (round 5)
 }
 
 AIRappelState::~AIRappelState()
 {
-	TheGxAIRappelStates.release( m_gxAIRappelStateRow );	// web port (round 5)
 }
 
 AITunnelNetworkGuardState::AITunnelNetworkGuardState( StateMachine *machine ) : State( machine, "AITunnelNetworkGuardState" )
 {
-	m_gxAITunnelNetworkGuardStateRow = TheGxAITunnelNetworkGuardStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine = nullptr;
 
 		gxRow().guardMachine = nullptr;
@@ -8025,7 +7934,6 @@ AITunnelNetworkGuardState::AITunnelNetworkGuardState( StateMachine *machine ) : 
 
 AIWanderInPlaceState::AIWanderInPlaceState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIWanderInPlaceState" )
 {
-	m_gxAIWanderInPlaceStateRow = TheGxAIWanderInPlaceStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().origin.zero();
 		gxRow().waitFrames = 0;
@@ -8034,12 +7942,10 @@ AIWanderInPlaceState::AIWanderInPlaceState( StateMachine *machine ) : AIInternal
 
 AIWanderInPlaceState::~AIWanderInPlaceState()
 {
-	TheGxAIWanderInPlaceStates.release( m_gxAIWanderInPlaceStateRow );	// web port (round 5)
 }
 
 AIWanderState::AIWanderState( StateMachine *machine ) : AIFollowWaypointPathState( machine, false )
 {
-	m_gxAIWanderStateRow = TheGxAIWanderStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 #ifdef STATE_MACHINE_DEBUG
 		setName("AIWanderState");
@@ -8050,5 +7956,4 @@ AIWanderState::AIWanderState( StateMachine *machine ) : AIFollowWaypointPathStat
 
 AIWanderState::~AIWanderState()
 {
-	TheGxAIWanderStates.release( m_gxAIWanderStateRow );	// web port (round 5)
 }

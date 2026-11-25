@@ -55,44 +55,37 @@
 
 // Web port (round 5, units are pure data): ExitConditions's per-unit state is a row of TheGxExitConditionss;
 // GXROW_EXITCONDITIONS is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxExitConditionsRow> TheGxExitConditionss;
-#define GXROW_EXITCONDITIONS (TheGxExitConditionss.at(m_gxExitConditionsRow))
+#define GXROW_EXITCONDITIONS (const_cast<GxExitConditionsRow &>(*m_gxExitConditionsRow))
 
 
 // Web port (round 5, units are pure data): AIGuardReturnState's per-unit state is a row of TheGxAIGuardReturnStates;
 // GXROW_AIGUARDRETURNSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardReturnStateRow> TheGxAIGuardReturnStates;
-#define GXROW_AIGUARDRETURNSTATE (TheGxAIGuardReturnStates.at(m_gxAIGuardReturnStateRow))
+#define GXROW_AIGUARDRETURNSTATE (const_cast<GxAIGuardReturnStateRow &>(*m_gxAIGuardReturnStateRow))
 
 
 // Web port (round 5, units are pure data): AIGuardOuterState's per-unit state is a row of TheGxAIGuardOuterStates;
 // GXROW_AIGUARDOUTERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardOuterStateRow> TheGxAIGuardOuterStates;
-#define GXROW_AIGUARDOUTERSTATE (TheGxAIGuardOuterStates.at(m_gxAIGuardOuterStateRow))
+#define GXROW_AIGUARDOUTERSTATE (const_cast<GxAIGuardOuterStateRow &>(*m_gxAIGuardOuterStateRow))
 
 
 // Web port (round 5, units are pure data): AIGuardMachine's per-unit state is a row of TheGxAIGuardMachines;
 // GXROW_AIGUARDMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardMachineRow> TheGxAIGuardMachines;
-#define GXROW_AIGUARDMACHINE (TheGxAIGuardMachines.at(m_gxAIGuardMachineRow))
+#define GXROW_AIGUARDMACHINE (const_cast<GxAIGuardMachineRow &>(*m_gxAIGuardMachineRow))
 
 
 // Web port (round 5, units are pure data): AIGuardInnerState's per-unit state is a row of TheGxAIGuardInnerStates;
 // GXROW_AIGUARDINNERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardInnerStateRow> TheGxAIGuardInnerStates;
-#define GXROW_AIGUARDINNERSTATE (TheGxAIGuardInnerStates.at(m_gxAIGuardInnerStateRow))
+#define GXROW_AIGUARDINNERSTATE (const_cast<GxAIGuardInnerStateRow &>(*m_gxAIGuardInnerStateRow))
 
 
 // Web port (round 5, units are pure data): AIGuardIdleState's per-unit state is a row of TheGxAIGuardIdleStates;
 // GXROW_AIGUARDIDLESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardIdleStateRow> TheGxAIGuardIdleStates;
-#define GXROW_AIGUARDIDLESTATE (TheGxAIGuardIdleStates.at(m_gxAIGuardIdleStateRow))
+#define GXROW_AIGUARDIDLESTATE (const_cast<GxAIGuardIdleStateRow &>(*m_gxAIGuardIdleStateRow))
 
 
 // Web port (round 5, units are pure data): AIGuardAttackAggressorState's per-unit state is a row of TheGxAIGuardAttackAggressorStates;
 // GXROW_AIGUARDATTACKAGGRESSORSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIGuardAttackAggressorStateRow> TheGxAIGuardAttackAggressorStates;
-#define GXROW_AIGUARDATTACKAGGRESSORSTATE (TheGxAIGuardAttackAggressorStates.at(m_gxAIGuardAttackAggressorStateRow))
+#define GXROW_AIGUARDATTACKAGGRESSORSTATE (const_cast<GxAIGuardAttackAggressorStateRow &>(*m_gxAIGuardAttackAggressorStateRow))
 
 
 const Real CLOSE_ENOUGH = (25.0f);
@@ -202,7 +195,6 @@ Bool ExitConditions::shouldExit(const StateMachine* machine) const
 //--------------------------------------------------------------------------------------
 AIGuardMachine::AIGuardMachine( Object *owner ) : StateMachine(owner, "AIGuardMachine")
 {
-	m_gxAIGuardMachineRow = TheGxAIGuardMachines.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIGUARDMACHINE.targetToGuard = INVALID_ID;
 	GXROW_AIGUARDMACHINE.areaToGuard = nullptr;
 	GXROW_AIGUARDMACHINE.nemesisToAttack = INVALID_ID;
@@ -233,7 +225,6 @@ AIGuardMachine::AIGuardMachine( Object *owner ) : StateMachine(owner, "AIGuardMa
 //--------------------------------------------------------------------------------------
 AIGuardMachine::~AIGuardMachine()
 {
-	TheGxAIGuardMachines.release( m_gxAIGuardMachineRow );	// web port (round 5)
 }
 
 //--------------------------------------------------------------------------------------
@@ -426,7 +417,6 @@ AIGuardInnerState::~AIGuardInnerState()
 {
 	deleteInstance(GXROW_AIGUARDINNERSTATE.attackState);
 	deleteInstance(GXROW_AIGUARDINNERSTATE.enterState);
-	TheGxAIGuardInnerStates.release( m_gxAIGuardInnerStateRow );	// web port (round 5)
 }
 
 //--------------------------------------------------------------------------------------
@@ -557,7 +547,6 @@ void AIGuardOuterState::loadPostProcess()
 AIGuardOuterState::~AIGuardOuterState()
 {
 	deleteInstance(GXROW_AIGUARDOUTERSTATE.attackState);
-	TheGxAIGuardOuterStates.release( m_gxAIGuardOuterStateRow );	// web port (round 5)
 }
 
 //--------------------------------------------------------------------------------------
@@ -859,7 +848,6 @@ void AIGuardPickUpCrateState::onExit( StateExitType status )
 //-------------------------------------------------------------------------------------------------
 AIGuardAttackAggressorState::AIGuardAttackAggressorState( StateMachine *machine ) : State( machine, "AIGuardAttackAggressorState" )
 {
-	m_gxAIGuardAttackAggressorStateRow = TheGxAIGuardAttackAggressorStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState = nullptr;
 }
@@ -868,7 +856,6 @@ AIGuardAttackAggressorState::AIGuardAttackAggressorState( StateMachine *machine 
 AIGuardAttackAggressorState::~AIGuardAttackAggressorState()
 {
 	deleteInstance(GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState);
-	TheGxAIGuardAttackAggressorStates.release( m_gxAIGuardAttackAggressorStateRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -966,17 +953,14 @@ void AIGuardAttackAggressorState::loadPostProcess()
 
 AIGuardIdleState::AIGuardIdleState( StateMachine *machine ) : State( machine, "AIGuardIdleState" )
 {
-	m_gxAIGuardIdleStateRow = TheGxAIGuardIdleStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
  }
 
 AIGuardIdleState::~AIGuardIdleState()
 {
-	TheGxAIGuardIdleStates.release( m_gxAIGuardIdleStateRow );	// web port (round 5)
 }
 
 AIGuardInnerState::AIGuardInnerState( StateMachine *machine ) : State( machine, "AIGuardInner" )
 {
-	m_gxAIGuardInnerStateRow = TheGxAIGuardInnerStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().attackState = nullptr;
 		gxRow().enterState = nullptr;
@@ -984,26 +968,22 @@ AIGuardInnerState::AIGuardInnerState( StateMachine *machine ) : State( machine, 
 
 AIGuardOuterState::AIGuardOuterState( StateMachine *machine ) : State( machine, "AIGuardOuter" )
 {
-	m_gxAIGuardOuterStateRow = TheGxAIGuardOuterStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().attackState = nullptr;
 	}
 
 AIGuardReturnState::AIGuardReturnState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIGuardReturn" )
 {
-	m_gxAIGuardReturnStateRow = TheGxAIGuardReturnStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().nextReturnScanTime = 0;
 	}
 
 AIGuardReturnState::~AIGuardReturnState()
 {
-	TheGxAIGuardReturnStates.release( m_gxAIGuardReturnStateRow );	// web port (round 5)
 }
 
 ExitConditions::ExitConditions()
 {
-	m_gxExitConditionsRow = TheGxExitConditionss.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_EXITCONDITIONS.attackGiveUpFrame = 0;
 	GXROW_EXITCONDITIONS.conditionsToConsider = 0;
 	GXROW_EXITCONDITIONS.radiusSqr = 0.0f;
@@ -1013,6 +993,5 @@ ExitConditions::ExitConditions()
 
 ExitConditions::~ExitConditions()
 {
-	TheGxExitConditionss.release( m_gxExitConditionsRow );	// web port (round 5)
 }
 

@@ -121,7 +121,7 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxSlowDeathBehaviorRow;
 class SlowDeathBehavior : public UpdateModule,
 													public DieModuleInterface,
@@ -171,7 +171,7 @@ private:
 		BOUNCED
 	};
 
-	struct GxSlowDeathBehaviorRow *m_gxSlowDeathBehaviorRow;	///< web port (round 5): this unit's row in TheGxSlowDeathBehaviors
+	GxRow<struct GxSlowDeathBehaviorRow> m_gxSlowDeathBehaviorRow;	///< web port (round 5): this unit's row in TheGxSlowDeathBehaviors
 	friend struct GxSlowDeathBehaviorRow;
 	inline struct GxSlowDeathBehaviorRow &gxRow() const;
 };
@@ -186,10 +186,9 @@ struct GxSlowDeathBehaviorRow
 	Real acceleratedTimeScale;
 	UnsignedInt flags;
 };
-extern GxComponentTable<GxSlowDeathBehaviorRow> TheGxSlowDeathBehaviors;
 
 
-inline GxSlowDeathBehaviorRow &SlowDeathBehavior::gxRow() const { return TheGxSlowDeathBehaviors.at(m_gxSlowDeathBehaviorRow); }
+inline GxSlowDeathBehaviorRow &SlowDeathBehavior::gxRow() const { return const_cast<GxSlowDeathBehaviorRow &>(*m_gxSlowDeathBehaviorRow); }
 inline Bool SlowDeathBehavior::isSlowDeathActivated() const { return (gxRow().flags & (1<<SLOW_DEATH_ACTIVATED)) != 0; }
 inline UnsignedInt SlowDeathBehavior::getDestructionFrame() const { return gxRow().destructionFrame; }
 

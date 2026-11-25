@@ -39,8 +39,7 @@
 
 // Web port (round 5, units are pure data): PoisonedBehavior's per-unit state is a row of TheGxPoisonedBehaviors;
 // GXROW_POISONEDBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxPoisonedBehaviorRow> TheGxPoisonedBehaviors;
-#define GXROW_POISONEDBEHAVIOR (TheGxPoisonedBehaviors.at(m_gxPoisonedBehaviorRow))
+#define GXROW_POISONEDBEHAVIOR (const_cast<GxPoisonedBehaviorRow &>(*m_gxPoisonedBehaviorRow))
 
 
 
@@ -73,7 +72,6 @@ PoisonedBehaviorModuleData::PoisonedBehaviorModuleData()
 //-------------------------------------------------------------------------------------------------
 PoisonedBehavior::PoisonedBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxPoisonedBehaviorRow = TheGxPoisonedBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_POISONEDBEHAVIOR.poisonDamageFrame = 0;
 	GXROW_POISONEDBEHAVIOR.poisonOverallStopFrame = 0;
@@ -87,7 +85,6 @@ PoisonedBehavior::PoisonedBehavior( Thing *thing, const ModuleData* moduleData )
 //-------------------------------------------------------------------------------------------------
 PoisonedBehavior::~PoisonedBehavior()
 {
-	TheGxPoisonedBehaviors.release( m_gxPoisonedBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

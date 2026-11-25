@@ -47,8 +47,7 @@
 
 // Web port (round 5, units are pure data): PropagandaTowerBehavior's per-unit state is a row of TheGxPropagandaTowerBehaviors;
 // GXROW_PROPAGANDATOWERBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxPropagandaTowerBehaviorRow> TheGxPropagandaTowerBehaviors;
-#define GXROW_PROPAGANDATOWERBEHAVIOR (TheGxPropagandaTowerBehaviors.at(m_gxPropagandaTowerBehaviorRow))
+#define GXROW_PROPAGANDATOWERBEHAVIOR (const_cast<GxPropagandaTowerBehaviorRow &>(*m_gxPropagandaTowerBehaviorRow))
 
 
 
@@ -126,7 +125,6 @@ PropagandaTowerBehaviorModuleData::PropagandaTowerBehaviorModuleData()
 // ------------------------------------------------------------------------------------------------
 PropagandaTowerBehavior::PropagandaTowerBehavior( Thing *thing, const ModuleData *modData ) : UpdateModule( thing, modData )
 {
-	m_gxPropagandaTowerBehaviorRow = TheGxPropagandaTowerBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_PROPAGANDATOWERBEHAVIOR.lastScanFrame = 0;
 	GXROW_PROPAGANDATOWERBEHAVIOR.insideList = nullptr;
@@ -139,7 +137,6 @@ PropagandaTowerBehavior::PropagandaTowerBehavior( Thing *thing, const ModuleData
 PropagandaTowerBehavior::~PropagandaTowerBehavior()
 {
 
-	TheGxPropagandaTowerBehaviors.release( m_gxPropagandaTowerBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------

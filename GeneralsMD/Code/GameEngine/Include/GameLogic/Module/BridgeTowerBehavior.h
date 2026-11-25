@@ -51,7 +51,7 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxBridgeTowerBehaviorRow;
 class BridgeTowerBehavior : public BehaviorModule,
 														public BridgeTowerBehaviorInterface,
@@ -90,7 +90,7 @@ public:
 
 protected:
 
-	struct GxBridgeTowerBehaviorRow *m_gxBridgeTowerBehaviorRow;	///< web port (round 5): this unit's row in TheGxBridgeTowerBehaviors
+	GxRow<struct GxBridgeTowerBehaviorRow> m_gxBridgeTowerBehaviorRow;	///< web port (round 5): this unit's row in TheGxBridgeTowerBehaviors
 	friend struct GxBridgeTowerBehaviorRow;
 	inline struct GxBridgeTowerBehaviorRow &gxRow() const;
 
@@ -103,8 +103,7 @@ struct GxBridgeTowerBehaviorRow
 	ObjectID bridgeID;
 	BridgeTowerType type;
 };
-extern GxComponentTable<GxBridgeTowerBehaviorRow> TheGxBridgeTowerBehaviors;
 
 
-inline GxBridgeTowerBehaviorRow &BridgeTowerBehavior::gxRow() const { return TheGxBridgeTowerBehaviors.at(m_gxBridgeTowerBehaviorRow); }
+inline GxBridgeTowerBehaviorRow &BridgeTowerBehavior::gxRow() const { return const_cast<GxBridgeTowerBehaviorRow &>(*m_gxBridgeTowerBehaviorRow); }
 

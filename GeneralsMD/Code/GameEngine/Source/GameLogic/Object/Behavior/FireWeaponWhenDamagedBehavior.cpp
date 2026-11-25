@@ -50,8 +50,7 @@
 
 // Web port (round 5, units are pure data): FireWeaponWhenDamagedBehavior's per-unit state is a row of TheGxFireWeaponWhenDamagedBehaviors;
 // GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxFireWeaponWhenDamagedBehaviorRow> TheGxFireWeaponWhenDamagedBehaviors;
-#define GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR (TheGxFireWeaponWhenDamagedBehaviors.at(m_gxFireWeaponWhenDamagedBehaviorRow))
+#define GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR (const_cast<GxFireWeaponWhenDamagedBehaviorRow &>(*m_gxFireWeaponWhenDamagedBehaviorRow))
 
 
 const Int MAX_IDX = 32;
@@ -63,7 +62,6 @@ const Real END_MIDPOINT_RATIO = 0.65f;
 //-------------------------------------------------------------------------------------------------
 FireWeaponWhenDamagedBehavior::FireWeaponWhenDamagedBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxFireWeaponWhenDamagedBehaviorRow = TheGxFireWeaponWhenDamagedBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponPristine = nullptr;
 	GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponDamaged = nullptr;
 	GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponReallyDamaged = nullptr;
@@ -161,7 +159,6 @@ FireWeaponWhenDamagedBehavior::~FireWeaponWhenDamagedBehavior()
 	deleteInstance(GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponDamaged);
 	deleteInstance(GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponReallyDamaged);
 	deleteInstance(GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponRubble);
-	TheGxFireWeaponWhenDamagedBehaviors.release( m_gxFireWeaponWhenDamagedBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

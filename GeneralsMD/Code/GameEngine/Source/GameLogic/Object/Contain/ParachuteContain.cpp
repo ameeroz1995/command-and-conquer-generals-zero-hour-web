@@ -48,8 +48,7 @@
 
 // Web port (round 5, units are pure data): ParachuteContain's per-unit state is a row of TheGxParachuteContains;
 // GXROW_PARACHUTECONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxParachuteContainRow> TheGxParachuteContains;
-#define GXROW_PARACHUTECONTAIN (TheGxParachuteContains.at(m_gxParachuteContainRow))
+#define GXROW_PARACHUTECONTAIN (const_cast<GxParachuteContainRow &>(*m_gxParachuteContainRow))
 
 
 
@@ -95,7 +94,6 @@ void ParachuteContainModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 ParachuteContain::ParachuteContain( Thing *thing, const ModuleData *moduleData ) : OpenContain( thing, moduleData )
 {
-	m_gxParachuteContainRow = TheGxParachuteContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_PARACHUTECONTAIN.opened = false;
 	GXROW_PARACHUTECONTAIN.needToUpdateParaBones = true;
@@ -131,7 +129,6 @@ ParachuteContain::ParachuteContain( Thing *thing, const ModuleData *moduleData )
 //-------------------------------------------------------------------------------------------------
 ParachuteContain::~ParachuteContain()
 {
-	TheGxParachuteContains.release( m_gxParachuteContainRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

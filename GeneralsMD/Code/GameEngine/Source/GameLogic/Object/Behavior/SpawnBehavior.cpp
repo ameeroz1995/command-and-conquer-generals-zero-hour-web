@@ -47,8 +47,7 @@
 
 // Web port (round 5, units are pure data): SpawnBehavior's per-unit state is a row of TheGxSpawnBehaviors;
 // GXROW_SPAWNBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxSpawnBehaviorRow> TheGxSpawnBehaviors;
-#define GXROW_SPAWNBEHAVIOR (TheGxSpawnBehaviors.at(m_gxSpawnBehaviorRow))
+#define GXROW_SPAWNBEHAVIOR (const_cast<GxSpawnBehaviorRow &>(*m_gxSpawnBehaviorRow))
 
 
 
@@ -62,7 +61,6 @@ GxComponentTable<GxSpawnBehaviorRow> TheGxSpawnBehaviors;
 //-------------------------------------------------------------------------------------------------
 SpawnBehavior::SpawnBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxSpawnBehaviorRow = TheGxSpawnBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	const SpawnBehaviorModuleData* md = getSpawnBehaviorModuleData();
 
@@ -101,7 +99,6 @@ SpawnBehavior::SpawnBehavior( Thing *thing, const ModuleData* moduleData ) : Upd
 SpawnBehavior::~SpawnBehavior()
 {
 	GXROW_SPAWNBEHAVIOR.replacementTimes.clear();
-	TheGxSpawnBehaviors.release( m_gxSpawnBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------

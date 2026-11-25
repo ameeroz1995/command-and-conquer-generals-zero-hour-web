@@ -37,15 +37,13 @@
 
 // Web port (round 5, units are pure data): BridgeScaffoldBehavior's per-unit state is a row of TheGxBridgeScaffoldBehaviors;
 // GXROW_BRIDGESCAFFOLDBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxBridgeScaffoldBehaviorRow> TheGxBridgeScaffoldBehaviors;
-#define GXROW_BRIDGESCAFFOLDBEHAVIOR (TheGxBridgeScaffoldBehaviors.at(m_gxBridgeScaffoldBehaviorRow))
+#define GXROW_BRIDGESCAFFOLDBEHAVIOR (const_cast<GxBridgeScaffoldBehaviorRow &>(*m_gxBridgeScaffoldBehaviorRow))
 
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 BridgeScaffoldBehavior::BridgeScaffoldBehavior( Thing *thing, const ModuleData *moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxBridgeScaffoldBehaviorRow = TheGxBridgeScaffoldBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 
 	GXROW_BRIDGESCAFFOLDBEHAVIOR.targetMotion = STM_STILL;
@@ -63,7 +61,6 @@ BridgeScaffoldBehavior::BridgeScaffoldBehavior( Thing *thing, const ModuleData *
 BridgeScaffoldBehavior::~BridgeScaffoldBehavior()
 {
 
-	TheGxBridgeScaffoldBehaviors.release( m_gxBridgeScaffoldBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------

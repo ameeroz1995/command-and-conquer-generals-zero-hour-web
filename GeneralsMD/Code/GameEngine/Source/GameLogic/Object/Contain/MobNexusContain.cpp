@@ -46,8 +46,7 @@
 
 // Web port (round 5, units are pure data): MobNexusContain's per-unit state is a row of TheGxMobNexusContains;
 // GXROW_MOBNEXUSCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxMobNexusContainRow> TheGxMobNexusContains;
-#define GXROW_MOBNEXUSCONTAIN (TheGxMobNexusContains.at(m_gxMobNexusContainRow))
+#define GXROW_MOBNEXUSCONTAIN (const_cast<GxMobNexusContainRow &>(*m_gxMobNexusContainRow))
 
 
 // ------------------------------------------------------------------------------------------------
@@ -124,7 +123,6 @@ Int MobNexusContain::getContainMax() const
 //-------------------------------------------------------------------------------------------------
 MobNexusContain::MobNexusContain( Thing *thing, const ModuleData *moduleData ) : OpenContain( thing, moduleData )
 {
-	m_gxMobNexusContainRow = TheGxMobNexusContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_MOBNEXUSCONTAIN.extraSlotsInUse = 0;
 }
@@ -134,7 +132,6 @@ MobNexusContain::MobNexusContain( Thing *thing, const ModuleData *moduleData ) :
 MobNexusContain::~MobNexusContain()
 {
 
-	TheGxMobNexusContains.release( m_gxMobNexusContainRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

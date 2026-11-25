@@ -54,8 +54,7 @@
 
 // Web port (round 5, units are pure data): FlightDeckBehavior's per-unit state is a row of TheGxFlightDeckBehaviors;
 // GXROW_FLIGHTDECKBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxFlightDeckBehaviorRow> TheGxFlightDeckBehaviors;
-#define GXROW_FLIGHTDECKBEHAVIOR (TheGxFlightDeckBehaviors.at(m_gxFlightDeckBehaviorRow))
+#define GXROW_FLIGHTDECKBEHAVIOR (const_cast<GxFlightDeckBehaviorRow &>(*m_gxFlightDeckBehaviorRow))
 
 
 
@@ -135,7 +134,6 @@ void FlightDeckBehaviorModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 FlightDeckBehavior::FlightDeckBehavior( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_gxFlightDeckBehaviorRow = TheGxFlightDeckBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_FLIGHTDECKBEHAVIOR.gotInfo = false;
 
@@ -165,7 +163,6 @@ FlightDeckBehavior::FlightDeckBehavior( Thing *thing, const ModuleData* moduleDa
 //-------------------------------------------------------------------------------------------------
 FlightDeckBehavior::~FlightDeckBehavior()
 {
-	TheGxFlightDeckBehaviors.release( m_gxFlightDeckBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

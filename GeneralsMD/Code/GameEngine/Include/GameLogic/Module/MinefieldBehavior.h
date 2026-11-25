@@ -64,7 +64,7 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxMinefieldBehaviorRow;
 class MinefieldBehavior : public UpdateModule,
 													public CollideModuleInterface,
@@ -129,7 +129,7 @@ private:
 		Coord3D where;
 	};
 
-	struct GxMinefieldBehaviorRow *m_gxMinefieldBehaviorRow;	///< web port (round 5): this unit's row in TheGxMinefieldBehaviors
+	GxRow<struct GxMinefieldBehaviorRow> m_gxMinefieldBehaviorRow;	///< web port (round 5): this unit's row in TheGxMinefieldBehaviors
 	friend struct GxMinefieldBehaviorRow;
 	inline struct GxMinefieldBehaviorRow &gxRow() const;
 
@@ -153,8 +153,7 @@ struct GxMinefieldBehaviorRow
 	Bool regenerates;
 	Bool draining;
 };
-extern GxComponentTable<GxMinefieldBehaviorRow> TheGxMinefieldBehaviors;
 
 
-inline GxMinefieldBehaviorRow &MinefieldBehavior::gxRow() const { return TheGxMinefieldBehaviors.at(m_gxMinefieldBehaviorRow); }
+inline GxMinefieldBehaviorRow &MinefieldBehavior::gxRow() const { return const_cast<GxMinefieldBehaviorRow &>(*m_gxMinefieldBehaviorRow); }
 

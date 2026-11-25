@@ -56,7 +56,7 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxCreateModuleRow;
 class CreateModule : public BehaviorModule, public CreateModuleInterface
 {
@@ -81,7 +81,7 @@ public:
 
 private:
 
-	struct GxCreateModuleRow *m_gxCreateModuleRow;	///< web port (round 5): this unit's row in TheGxCreateModules
+	GxRow<struct GxCreateModuleRow> m_gxCreateModuleRow;	///< web port (round 5): this unit's row in TheGxCreateModules
 	friend struct GxCreateModuleRow;
 	inline struct GxCreateModuleRow &gxRow() const;
 
@@ -93,10 +93,9 @@ struct GxCreateModuleRow
 {
 	Bool needToRunOnBuildComplete;
 };
-extern GxComponentTable<GxCreateModuleRow> TheGxCreateModules;
 
 
-inline GxCreateModuleRow &CreateModule::gxRow() const { return TheGxCreateModules.at(m_gxCreateModuleRow); }
+inline GxCreateModuleRow &CreateModule::gxRow() const { return const_cast<GxCreateModuleRow &>(*m_gxCreateModuleRow); }
 inline void CreateModule::onBuildComplete() { gxRow().needToRunOnBuildComplete = FALSE; }
 inline Bool CreateModule::shouldDoOnBuildComplete() const { return gxRow().needToRunOnBuildComplete; }
 

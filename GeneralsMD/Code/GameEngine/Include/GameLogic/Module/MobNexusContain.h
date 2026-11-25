@@ -59,7 +59,7 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxMobNexusContainRow;
 class MobNexusContain : public OpenContain,
 												public TransportPassengerInterface // lorenzen add a MobMemberInterface
@@ -99,7 +99,7 @@ protected:
 
 private:
 
-	struct GxMobNexusContainRow *m_gxMobNexusContainRow;	///< web port (round 5): this unit's row in TheGxMobNexusContains
+	GxRow<struct GxMobNexusContainRow> m_gxMobNexusContainRow;	///< web port (round 5): this unit's row in TheGxMobNexusContains
 	friend struct GxMobNexusContainRow;
 	inline struct GxMobNexusContainRow &gxRow() const;
 
@@ -111,9 +111,8 @@ struct GxMobNexusContainRow
 {
 	Int extraSlotsInUse;
 };
-extern GxComponentTable<GxMobNexusContainRow> TheGxMobNexusContains;
 
 
-inline GxMobNexusContainRow &MobNexusContain::gxRow() const { return TheGxMobNexusContains.at(m_gxMobNexusContainRow); }
+inline GxMobNexusContainRow &MobNexusContain::gxRow() const { return const_cast<GxMobNexusContainRow &>(*m_gxMobNexusContainRow); }
 inline Int MobNexusContain::getExtraSlotsInUse() { return gxRow().extraSlotsInUse; }
 

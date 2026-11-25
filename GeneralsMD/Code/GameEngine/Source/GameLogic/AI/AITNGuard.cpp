@@ -55,44 +55,37 @@
 
 // Web port (round 5, units are pure data): TunnelNetworkExitConditions's per-unit state is a row of TheGxTunnelNetworkExitConditionss;
 // GXROW_TUNNELNETWORKEXITCONDITIONS is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxTunnelNetworkExitConditionsRow> TheGxTunnelNetworkExitConditionss;
-#define GXROW_TUNNELNETWORKEXITCONDITIONS (TheGxTunnelNetworkExitConditionss.at(m_gxTunnelNetworkExitConditionsRow))
+#define GXROW_TUNNELNETWORKEXITCONDITIONS (const_cast<GxTunnelNetworkExitConditionsRow &>(*m_gxTunnelNetworkExitConditionsRow))
 
 
 // Web port (round 5, units are pure data): AITNGuardReturnState's per-unit state is a row of TheGxAITNGuardReturnStates;
 // GXROW_AITNGUARDRETURNSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAITNGuardReturnStateRow> TheGxAITNGuardReturnStates;
-#define GXROW_AITNGUARDRETURNSTATE (TheGxAITNGuardReturnStates.at(m_gxAITNGuardReturnStateRow))
+#define GXROW_AITNGUARDRETURNSTATE (const_cast<GxAITNGuardReturnStateRow &>(*m_gxAITNGuardReturnStateRow))
 
 
 // Web port (round 5, units are pure data): AITNGuardOuterState's per-unit state is a row of TheGxAITNGuardOuterStates;
 // GXROW_AITNGUARDOUTERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAITNGuardOuterStateRow> TheGxAITNGuardOuterStates;
-#define GXROW_AITNGUARDOUTERSTATE (TheGxAITNGuardOuterStates.at(m_gxAITNGuardOuterStateRow))
+#define GXROW_AITNGUARDOUTERSTATE (const_cast<GxAITNGuardOuterStateRow &>(*m_gxAITNGuardOuterStateRow))
 
 
 // Web port (round 5, units are pure data): AITNGuardMachine's per-unit state is a row of TheGxAITNGuardMachines;
 // GXROW_AITNGUARDMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAITNGuardMachineRow> TheGxAITNGuardMachines;
-#define GXROW_AITNGUARDMACHINE (TheGxAITNGuardMachines.at(m_gxAITNGuardMachineRow))
+#define GXROW_AITNGUARDMACHINE (const_cast<GxAITNGuardMachineRow &>(*m_gxAITNGuardMachineRow))
 
 
 // Web port (round 5, units are pure data): AITNGuardInnerState's per-unit state is a row of TheGxAITNGuardInnerStates;
 // GXROW_AITNGUARDINNERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAITNGuardInnerStateRow> TheGxAITNGuardInnerStates;
-#define GXROW_AITNGUARDINNERSTATE (TheGxAITNGuardInnerStates.at(m_gxAITNGuardInnerStateRow))
+#define GXROW_AITNGUARDINNERSTATE (const_cast<GxAITNGuardInnerStateRow &>(*m_gxAITNGuardInnerStateRow))
 
 
 // Web port (round 5, units are pure data): AITNGuardIdleState's per-unit state is a row of TheGxAITNGuardIdleStates;
 // GXROW_AITNGUARDIDLESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAITNGuardIdleStateRow> TheGxAITNGuardIdleStates;
-#define GXROW_AITNGUARDIDLESTATE (TheGxAITNGuardIdleStates.at(m_gxAITNGuardIdleStateRow))
+#define GXROW_AITNGUARDIDLESTATE (const_cast<GxAITNGuardIdleStateRow &>(*m_gxAITNGuardIdleStateRow))
 
 
 // Web port (round 5, units are pure data): AITNGuardAttackAggressorState's per-unit state is a row of TheGxAITNGuardAttackAggressorStates;
 // GXROW_AITNGUARDATTACKAGGRESSORSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAITNGuardAttackAggressorStateRow> TheGxAITNGuardAttackAggressorStates;
-#define GXROW_AITNGUARDATTACKAGGRESSORSTATE (TheGxAITNGuardAttackAggressorStates.at(m_gxAITNGuardAttackAggressorStateRow))
+#define GXROW_AITNGUARDATTACKAGGRESSORSTATE (const_cast<GxAITNGuardAttackAggressorStateRow &>(*m_gxAITNGuardAttackAggressorStateRow))
 
 
 const Real CLOSE_ENOUGH = (25.0f);
@@ -186,7 +179,6 @@ Bool TunnelNetworkExitConditions::shouldExit(const StateMachine* machine) const
 //--------------------------------------------------------------------------------------
 AITNGuardMachine::AITNGuardMachine( Object *owner ) : StateMachine(owner, "AITNGuardMachine")
 {
-	m_gxAITNGuardMachineRow = TheGxAITNGuardMachines.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AITNGUARDMACHINE.nemesisToAttack = INVALID_ID;
 	GXROW_AITNGUARDMACHINE.guardMode = GUARDMODE_NORMAL;
 
@@ -215,7 +207,6 @@ AITNGuardMachine::AITNGuardMachine( Object *owner ) : StateMachine(owner, "AITNG
 //--------------------------------------------------------------------------------------
 AITNGuardMachine::~AITNGuardMachine()
 {
-	TheGxAITNGuardMachines.release( m_gxAITNGuardMachineRow );	// web port (round 5)
 }
 
 //--------------------------------------------------------------------------------------
@@ -367,7 +358,6 @@ void AITNGuardInnerState::loadPostProcess()
 AITNGuardInnerState::~AITNGuardInnerState()
 {
 	deleteInstance(GXROW_AITNGUARDINNERSTATE.attackState);
-	TheGxAITNGuardInnerStates.release( m_gxAITNGuardInnerStateRow );	// web port (round 5)
 }
 
 //--------------------------------------------------------------------------------------
@@ -512,7 +502,6 @@ void AITNGuardOuterState::loadPostProcess()
 AITNGuardOuterState::~AITNGuardOuterState()
 {
 	deleteInstance(GXROW_AITNGUARDOUTERSTATE.attackState);
-	TheGxAITNGuardOuterStates.release( m_gxAITNGuardOuterStateRow );	// web port (round 5)
 }
 
 //--------------------------------------------------------------------------------------
@@ -832,7 +821,6 @@ void AITNGuardPickUpCrateState::onExit( StateExitType status )
 //-------------------------------------------------------------------------------------------------
 AITNGuardAttackAggressorState::AITNGuardAttackAggressorState( StateMachine *machine ) : State( machine, "AITNGuardAttackAggressorState" )
 {
-	m_gxAITNGuardAttackAggressorStateRow = TheGxAITNGuardAttackAggressorStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_AITNGUARDATTACKAGGRESSORSTATE.attackState = nullptr;
 }
@@ -841,7 +829,6 @@ AITNGuardAttackAggressorState::AITNGuardAttackAggressorState( StateMachine *mach
 AITNGuardAttackAggressorState::~AITNGuardAttackAggressorState()
 {
 	deleteInstance(GXROW_AITNGUARDATTACKAGGRESSORSTATE.attackState);
-	TheGxAITNGuardAttackAggressorStates.release( m_gxAITNGuardAttackAggressorStateRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -939,49 +926,41 @@ void AITNGuardAttackAggressorState::loadPostProcess()
 
 AITNGuardIdleState::AITNGuardIdleState( StateMachine *machine ) : State( machine, "AITNGuardIdleState" )
 {
-	m_gxAITNGuardIdleStateRow = TheGxAITNGuardIdleStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
  }
 
 AITNGuardIdleState::~AITNGuardIdleState()
 {
-	TheGxAITNGuardIdleStates.release( m_gxAITNGuardIdleStateRow );	// web port (round 5)
 }
 
 AITNGuardInnerState::AITNGuardInnerState( StateMachine *machine ) : State( machine, "AITNGuardInner" )
 {
-	m_gxAITNGuardInnerStateRow = TheGxAITNGuardInnerStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().attackState = nullptr;
 	}
 
 AITNGuardOuterState::AITNGuardOuterState( StateMachine *machine ) : State( machine, "AITNGuardOuter" )
 {
-	m_gxAITNGuardOuterStateRow = TheGxAITNGuardOuterStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().attackState = nullptr;
 	}
 
 AITNGuardReturnState::AITNGuardReturnState( StateMachine *machine ) : AIEnterState(machine )
 {
-	m_gxAITNGuardReturnStateRow = TheGxAITNGuardReturnStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 		gxRow().nextReturnScanTime = 0;
 	}
 
 AITNGuardReturnState::~AITNGuardReturnState()
 {
-	TheGxAITNGuardReturnStates.release( m_gxAITNGuardReturnStateRow );	// web port (round 5)
 }
 
 TunnelNetworkExitConditions::TunnelNetworkExitConditions()
 {
-	m_gxTunnelNetworkExitConditionsRow = TheGxTunnelNetworkExitConditionss.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_TUNNELNETWORKEXITCONDITIONS.attackGiveUpFrame = 0;
 
 	}
 
 TunnelNetworkExitConditions::~TunnelNetworkExitConditions()
 {
-	TheGxTunnelNetworkExitConditionss.release( m_gxTunnelNetworkExitConditionsRow );	// web port (round 5)
 }
 

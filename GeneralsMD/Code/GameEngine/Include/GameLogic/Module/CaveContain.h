@@ -63,7 +63,7 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxCaveContainRow;
 class CaveContain : public OpenContain, public CreateModuleInterface, public CaveInterface
 {
@@ -120,7 +120,7 @@ protected:
 
 	void changeTeamOnAllConnectedCaves( Team *newTeam, Bool setOriginalTeams );	///< When one gets captured, all connected ones get captured.  DistributedGarrison.
 
-	struct GxCaveContainRow *m_gxCaveContainRow;	///< web port (round 5): this unit's row in TheGxCaveContains
+	GxRow<struct GxCaveContainRow> m_gxCaveContainRow;	///< web port (round 5): this unit's row in TheGxCaveContains
 	friend struct GxCaveContainRow;
 	inline struct GxCaveContainRow &gxRow() const;
 
@@ -135,9 +135,8 @@ struct GxCaveContainRow
 	Int caveIndex;
 	Team* originalTeam;
 };
-extern GxComponentTable<GxCaveContainRow> TheGxCaveContains;
 
 
-inline GxCaveContainRow &CaveContain::gxRow() const { return TheGxCaveContains.at(m_gxCaveContainRow); }
+inline GxCaveContainRow &CaveContain::gxRow() const { return const_cast<GxCaveContainRow &>(*m_gxCaveContainRow); }
 inline Bool CaveContain::shouldDoOnBuildComplete() const { return gxRow().needToRunOnBuildComplete; }
 

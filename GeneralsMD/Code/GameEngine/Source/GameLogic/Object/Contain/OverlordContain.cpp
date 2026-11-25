@@ -48,8 +48,7 @@
 
 // Web port (round 5, units are pure data): OverlordContain's per-unit state is a row of TheGxOverlordContains;
 // GXROW_OVERLORDCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxOverlordContainRow> TheGxOverlordContains;
-#define GXROW_OVERLORDCONTAIN (TheGxOverlordContains.at(m_gxOverlordContainRow))
+#define GXROW_OVERLORDCONTAIN (const_cast<GxOverlordContainRow &>(*m_gxOverlordContainRow))
 
 
 
@@ -95,7 +94,6 @@ void OverlordContainModuleData::buildFieldParse(MultiIniFieldParse& p)
 // ------------------------------------------------------------------------------------------------
 OverlordContain::OverlordContain( Thing *thing, const ModuleData *moduleData ) : TransportContain( thing, moduleData )
 {
-	m_gxOverlordContainRow = TheGxOverlordContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_OVERLORDCONTAIN.redirectionActivated = FALSE;
 
@@ -108,7 +106,6 @@ OverlordContain::OverlordContain( Thing *thing, const ModuleData *moduleData ) :
 OverlordContain::~OverlordContain()
 {
 
-	TheGxOverlordContains.release( m_gxOverlordContainRow );	// web port (round 5)
 }
 
 

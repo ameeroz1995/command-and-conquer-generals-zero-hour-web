@@ -38,20 +38,17 @@
 
 // Web port (round 5, units are pure data): AIDockWaitForClearanceState's per-unit state is a row of TheGxAIDockWaitForClearanceStates;
 // GXROW_AIDOCKWAITFORCLEARANCESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIDockWaitForClearanceStateRow> TheGxAIDockWaitForClearanceStates;
-#define GXROW_AIDOCKWAITFORCLEARANCESTATE (TheGxAIDockWaitForClearanceStates.at(m_gxAIDockWaitForClearanceStateRow))
+#define GXROW_AIDOCKWAITFORCLEARANCESTATE (const_cast<GxAIDockWaitForClearanceStateRow &>(*m_gxAIDockWaitForClearanceStateRow))
 
 
 // Web port (round 5, units are pure data): AIDockProcessDockState's per-unit state is a row of TheGxAIDockProcessDockStates;
 // GXROW_AIDOCKPROCESSDOCKSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIDockProcessDockStateRow> TheGxAIDockProcessDockStates;
-#define GXROW_AIDOCKPROCESSDOCKSTATE (TheGxAIDockProcessDockStates.at(m_gxAIDockProcessDockStateRow))
+#define GXROW_AIDOCKPROCESSDOCKSTATE (const_cast<GxAIDockProcessDockStateRow &>(*m_gxAIDockProcessDockStateRow))
 
 
 // Web port (round 5, units are pure data): AIDockMachine's per-unit state is a row of TheGxAIDockMachines;
 // GXROW_AIDOCKMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxAIDockMachineRow> TheGxAIDockMachines;
-#define GXROW_AIDOCKMACHINE (TheGxAIDockMachines.at(m_gxAIDockMachineRow))
+#define GXROW_AIDOCKMACHINE (const_cast<GxAIDockMachineRow &>(*m_gxAIDockMachineRow))
 
 
 //----------------------------------------------------------------------------------------------------------
@@ -61,7 +58,6 @@ GxComponentTable<GxAIDockMachineRow> TheGxAIDockMachines;
  */
 AIDockMachine::AIDockMachine( Object *obj ) : StateMachine( obj, "AIDockMachine" )
 {
-	m_gxAIDockMachineRow = TheGxAIDockMachines.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	static const StateConditionInfo waitForClearanceConditions[] =
 	{
@@ -84,7 +80,6 @@ AIDockMachine::AIDockMachine( Object *obj ) : StateMachine( obj, "AIDockMachine"
 
 AIDockMachine::~AIDockMachine()
 {
-	TheGxAIDockMachines.release( m_gxAIDockMachineRow );	// web port (round 5)
 }
 
 //-----------------------------------------------------------------------------
@@ -588,7 +583,6 @@ void AIDockMoveToDockState::onExit( StateExitType status )
 //----------------------------------------------------------------------------------------------
 AIDockProcessDockState::AIDockProcessDockState( StateMachine *machine ) : State( machine, "AIDockProcessDockState" )
 {
-	m_gxAIDockProcessDockStateRow = TheGxAIDockProcessDockStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_AIDOCKPROCESSDOCKSTATE.nextDockActionFrame = 0;
 }
@@ -841,16 +835,13 @@ void AIDockMoveToRallyState::onExit( StateExitType status )
 
 AIDockProcessDockState::~AIDockProcessDockState()
 {
-	TheGxAIDockProcessDockStates.release( m_gxAIDockProcessDockStateRow );	// web port (round 5)
 }
 
 AIDockWaitForClearanceState::AIDockWaitForClearanceState( StateMachine *machine ) : State( machine, "AIDockWaitForClearanceState" )
 {
-	m_gxAIDockWaitForClearanceStateRow = TheGxAIDockWaitForClearanceStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
 	GXROW_AIDOCKWAITFORCLEARANCESTATE.enterFrame = 0;
  }
 
 AIDockWaitForClearanceState::~AIDockWaitForClearanceState()
 {
-	TheGxAIDockWaitForClearanceStates.release( m_gxAIDockWaitForClearanceStateRow );	// web port (round 5)
 }

@@ -29,7 +29,7 @@
 #pragma once
 
 #include "GameLogic/Module/UpdateModule.h"
-#include "GameLogic/GxComponents.h"	// web port (round 5)
+#include "Common/GxComponentPool.h"	// web port (round 5)
 #include "GameLogic/AI.h"
 #include "GameLogic/AIStateMachine.h"
 #include "GameLogic/GameLogic.h"
@@ -698,7 +698,7 @@ private:
 	Bool chooseLocomotorSetExplicit(LocomotorSetType wst);
 
 private:
-	struct GxAIUpdateInterfaceRow *m_gxAIUpdateInterfaceRow;	///< web port (round 5): this unit's row in TheGxAIUpdateInterfaces
+	GxRow<struct GxAIUpdateInterfaceRow> m_gxAIUpdateInterfaceRow;	///< web port (round 5): this unit's row in TheGxAIUpdateInterfaces
 	friend struct GxAIUpdateInterfaceRow;
 	inline struct GxAIUpdateInterfaceRow &gxRow() const;
 
@@ -830,10 +830,9 @@ struct GxAIUpdateInterfaceRow
 	Bool gxMoveOn = FALSE;
 	Bool fixLocoInPostProcess;
 };
-extern GxComponentTable<GxAIUpdateInterfaceRow> TheGxAIUpdateInterfaces;
 
 
-inline GxAIUpdateInterfaceRow &AIUpdateInterface::gxRow() const { return TheGxAIUpdateInterfaces.at(m_gxAIUpdateInterfaceRow); }
+inline GxAIUpdateInterfaceRow &AIUpdateInterface::gxRow() const { return const_cast<GxAIUpdateInterfaceRow &>(*m_gxAIUpdateInterfaceRow); }
 inline const Coord3D * AIUpdateInterface::getGuardLocation() const
 { return &gxRow().locationToGuard;	}
 inline ObjectID AIUpdateInterface::getGuardObject() const

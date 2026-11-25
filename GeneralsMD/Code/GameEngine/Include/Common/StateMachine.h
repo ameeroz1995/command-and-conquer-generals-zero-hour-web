@@ -29,7 +29,7 @@
 #pragma once
 
 #include "Common/GameMemory.h"
-#include "GameLogic/GxComponents.h"	// web port (round 5)
+#include "Common/GxComponentPool.h"	// web port (round 5)
 #include "Common/GameType.h"
 #include "Common/ModelState.h"
 #include "Common/Snapshot.h"
@@ -213,7 +213,7 @@ private:
 		{ }
 	};
 
-	struct GxStateRow *m_gxStateRow;	///< web port (round 5): this unit's row in TheGxStates
+	GxRow<struct GxStateRow> m_gxStateRow;	///< web port (round 5): this unit's row in TheGxStates
 	friend struct GxStateRow;
 	inline struct GxStateRow &gxRow() const;
 
@@ -233,10 +233,9 @@ struct GxStateRow
 	StateMachine* machine;
 	AsciiString name;
 };
-extern GxComponentTable<GxStateRow> TheGxStates;
 
 
-inline GxStateRow &State::gxRow() const { return TheGxStates.at(m_gxStateRow); }
+inline GxStateRow &State::gxRow() const { return const_cast<GxStateRow &>(*m_gxStateRow); }
 inline StateMachine* State::getMachine()
 { return gxRow().machine; }
 inline StateID State::getID() const
@@ -380,7 +379,7 @@ private:
 	void internalSetGoalPosition( const Coord3D *pos);
 
 
-	struct GxStateMachineRow *m_gxStateMachineRow;	///< web port (round 5): this unit's row in TheGxStateMachines
+	GxRow<struct GxStateMachineRow> m_gxStateMachineRow;	///< web port (round 5): this unit's row in TheGxStateMachines
 	friend struct GxStateMachineRow;
 	inline struct GxStateMachineRow &gxRow() const;
 
@@ -411,10 +410,9 @@ struct GxStateMachineRow
 	AsciiString name;
 	const char* lockedby;
 };
-extern GxComponentTable<GxStateMachineRow> TheGxStateMachines;
 
 
-inline GxStateMachineRow &StateMachine::gxRow() const { return TheGxStateMachines.at(m_gxStateMachineRow); }
+inline GxStateMachineRow &StateMachine::gxRow() const { return const_cast<GxStateMachineRow &>(*m_gxStateMachineRow); }
 inline void StateMachine::Add_Ref() const
 { gxRow().refCount.Add_Ref(); }
 inline void StateMachine::Release_Ref() const

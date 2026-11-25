@@ -29,7 +29,7 @@
 
 #pragma once
 
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/BehaviorModule.h"
@@ -81,7 +81,6 @@ struct GxMinefieldRow
 	Bool								gxReplace = false;		///< kernel output: the EMP-mines upgrade completed, replace the mines
 	GxMinefieldRow() { target.zero(); }
 };
-extern GxComponentTable<GxMinefieldRow> TheGxMinefields;
 
 class GenerateMinefieldBehavior : public UpdateModule,
 																	public DieModuleInterface,
@@ -136,7 +135,7 @@ protected:
 
 
 private:
-	struct GxMinefieldRow *									m_gxRow;	///< web port (round 5): this unit's row in TheGxMinefields
+	GxRow<struct GxMinefieldRow>									m_gxRow;	///< web port (round 5): this unit's row in TheGxMinefields
 
 	const Coord3D* getMinefieldTarget() const;
 	void placeMines();

@@ -94,7 +94,7 @@ public:
 //-------------------------------------------------------------------------------------------------
 /** A GarrisonContain is used for objects that can be garrisoned, heh, go figure */
 //-------------------------------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxGarrisonContainRow;
 class GarrisonContain : public OpenContain
 {
@@ -227,7 +227,7 @@ private:
 		MAX_GARRISON_POINT_CONDITIONS
 	};
 
-	struct GxGarrisonContainRow *m_gxGarrisonContainRow;	///< web port (round 5): this unit's row in TheGxGarrisonContains
+	GxRow<struct GxGarrisonContainRow> m_gxGarrisonContainRow;	///< web port (round 5): this unit's row in TheGxGarrisonContains
 	friend struct GxGarrisonContainRow;
 	inline struct GxGarrisonContainRow &gxRow() const;
 
@@ -252,9 +252,8 @@ struct GxGarrisonContainRow
 	Bool rallyValid;
 	EvacDisposition evacDisposition;
 };
-extern GxComponentTable<GxGarrisonContainRow> TheGxGarrisonContains;
 
 
-inline GxGarrisonContainRow &GarrisonContain::gxRow() const { return TheGxGarrisonContains.at(m_gxGarrisonContainRow); }
+inline GxGarrisonContainRow &GarrisonContain::gxRow() const { return const_cast<GxGarrisonContainRow &>(*m_gxGarrisonContainRow); }
 inline void GarrisonContain::setEvacDisposition( EvacDisposition disp ) { gxRow().evacDisposition = disp; }
 

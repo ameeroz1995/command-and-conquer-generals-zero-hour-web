@@ -44,8 +44,7 @@
 
 // Web port (round 5, units are pure data): OverchargeBehavior's per-unit state is a row of TheGxOverchargeBehaviors;
 // GXROW_OVERCHARGEBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxOverchargeBehaviorRow> TheGxOverchargeBehaviors;
-#define GXROW_OVERCHARGEBEHAVIOR (TheGxOverchargeBehaviors.at(m_gxOverchargeBehaviorRow))
+#define GXROW_OVERCHARGEBEHAVIOR (const_cast<GxOverchargeBehaviorRow &>(*m_gxOverchargeBehaviorRow))
 
 
 
@@ -86,7 +85,6 @@ OverchargeBehaviorModuleData::OverchargeBehaviorModuleData()
 //-------------------------------------------------------------------------------------------------
 OverchargeBehavior::OverchargeBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxOverchargeBehaviorRow = TheGxOverchargeBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 
 	GXROW_OVERCHARGEBEHAVIOR.overchargeActive = FALSE;
@@ -101,7 +99,6 @@ OverchargeBehavior::OverchargeBehavior( Thing *thing, const ModuleData* moduleDa
 OverchargeBehavior::~OverchargeBehavior()
 {
 
-	TheGxOverchargeBehaviors.release( m_gxOverchargeBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -47,8 +47,7 @@
 
 // Web port (round 5, units are pure data): CaveContain's per-unit state is a row of TheGxCaveContains;
 // GXROW_CAVECONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxCaveContainRow> TheGxCaveContains;
-#define GXROW_CAVECONTAIN (TheGxCaveContains.at(m_gxCaveContainRow))
+#define GXROW_CAVECONTAIN (const_cast<GxCaveContainRow &>(*m_gxCaveContainRow))
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -59,7 +58,6 @@ GxComponentTable<GxCaveContainRow> TheGxCaveContains;
 //-------------------------------------------------------------------------------------------------
 CaveContain::CaveContain( Thing *thing, const ModuleData* moduleData ) : OpenContain( thing, moduleData )
 {
-	m_gxCaveContainRow = TheGxCaveContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_CAVECONTAIN.needToRunOnBuildComplete = true;
 	GXROW_CAVECONTAIN.caveIndex = 0;
@@ -70,7 +68,6 @@ CaveContain::CaveContain( Thing *thing, const ModuleData* moduleData ) : OpenCon
 //-------------------------------------------------------------------------------------------------
 CaveContain::~CaveContain()
 {
-	TheGxCaveContains.release( m_gxCaveContainRow );	// web port (round 5)
 }
 
 void CaveContain::addToContainList( Object *obj )

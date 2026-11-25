@@ -59,7 +59,7 @@ public:
 };
 
 //-----------------------------------------------------------------------------
-#include "GameLogic/GxComponents.h"
+#include "Common/GxComponentPool.h"
 struct GxGrantScienceUpgradeRow;
 class GrantScienceUpgrade : public UpgradeModule
 {
@@ -78,7 +78,7 @@ protected:
 
 private:
 
-	struct GxGrantScienceUpgradeRow *m_gxGrantScienceUpgradeRow;	///< web port (round 5): this unit's row in TheGxGrantScienceUpgrades
+	GxRow<struct GxGrantScienceUpgradeRow> m_gxGrantScienceUpgradeRow;	///< web port (round 5): this unit's row in TheGxGrantScienceUpgrades
 	friend struct GxGrantScienceUpgradeRow;
 	inline struct GxGrantScienceUpgradeRow &gxRow() const;
 
@@ -90,8 +90,7 @@ struct GxGrantScienceUpgradeRow
 {
 	ScienceType scienceType;
 };
-extern GxComponentTable<GxGrantScienceUpgradeRow> TheGxGrantScienceUpgrades;
 
 
-inline GxGrantScienceUpgradeRow &GrantScienceUpgrade::gxRow() const { return TheGxGrantScienceUpgrades.at(m_gxGrantScienceUpgradeRow); }
+inline GxGrantScienceUpgradeRow &GrantScienceUpgrade::gxRow() const { return const_cast<GxGrantScienceUpgradeRow &>(*m_gxGrantScienceUpgradeRow); }
 

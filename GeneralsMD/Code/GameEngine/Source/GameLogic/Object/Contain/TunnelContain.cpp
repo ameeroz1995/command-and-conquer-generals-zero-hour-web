@@ -45,8 +45,7 @@
 
 // Web port (round 5, units are pure data): TunnelContain's per-unit state is a row of TheGxTunnelContains;
 // GXROW_TUNNELCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxTunnelContainRow> TheGxTunnelContains;
-#define GXROW_TUNNELCONTAIN (TheGxTunnelContains.at(m_gxTunnelContainRow))
+#define GXROW_TUNNELCONTAIN (const_cast<GxTunnelContainRow &>(*m_gxTunnelContainRow))
 
 
 
@@ -58,7 +57,6 @@ GxComponentTable<GxTunnelContainRow> TheGxTunnelContains;
 //-------------------------------------------------------------------------------------------------
 TunnelContain::TunnelContain( Thing *thing, const ModuleData* moduleData ) : OpenContain( thing, moduleData )
 {
-	m_gxTunnelContainRow = TheGxTunnelContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_TUNNELCONTAIN.needToRunOnBuildComplete = true;
 	GXROW_TUNNELCONTAIN.isCurrentlyRegistered = FALSE;
@@ -68,7 +66,6 @@ TunnelContain::TunnelContain( Thing *thing, const ModuleData* moduleData ) : Ope
 //-------------------------------------------------------------------------------------------------
 TunnelContain::~TunnelContain()
 {
-	TheGxTunnelContains.release( m_gxTunnelContainRow );	// web port (round 5)
 }
 
 void TunnelContain::addToContainList( Object *obj )

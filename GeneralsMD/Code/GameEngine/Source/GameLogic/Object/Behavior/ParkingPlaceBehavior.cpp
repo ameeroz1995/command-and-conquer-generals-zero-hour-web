@@ -46,8 +46,7 @@
 
 // Web port (round 5, units are pure data): ParkingPlaceBehavior's per-unit state is a row of TheGxParkingPlaceBehaviors;
 // GXROW_PARKINGPLACEBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
-GxComponentTable<GxParkingPlaceBehaviorRow> TheGxParkingPlaceBehaviors;
-#define GXROW_PARKINGPLACEBEHAVIOR (TheGxParkingPlaceBehaviors.at(m_gxParkingPlaceBehaviorRow))
+#define GXROW_PARKINGPLACEBEHAVIOR (const_cast<GxParkingPlaceBehaviorRow &>(*m_gxParkingPlaceBehaviorRow))
 
 
 
@@ -56,7 +55,6 @@ GxComponentTable<GxParkingPlaceBehaviorRow> TheGxParkingPlaceBehaviors;
 //-------------------------------------------------------------------------------------------------
 ParkingPlaceBehavior::ParkingPlaceBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_gxParkingPlaceBehaviorRow = TheGxParkingPlaceBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
 	GXROW_PARKINGPLACEBEHAVIOR.gotInfo = false;
 	GXROW_PARKINGPLACEBEHAVIOR.heliRallyPoint.zero();
@@ -69,7 +67,6 @@ ParkingPlaceBehavior::ParkingPlaceBehavior( Thing *thing, const ModuleData* modu
 //-------------------------------------------------------------------------------------------------
 ParkingPlaceBehavior::~ParkingPlaceBehavior()
 {
-	TheGxParkingPlaceBehaviors.release( m_gxParkingPlaceBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
