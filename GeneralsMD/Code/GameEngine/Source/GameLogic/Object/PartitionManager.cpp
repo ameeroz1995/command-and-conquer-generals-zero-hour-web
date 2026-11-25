@@ -104,6 +104,7 @@ static int GLES3_Page_Switches() { return 0; }
 static int GLES3_Page_Switches2() { return 0; }
 static int gx_verify_mismatch, gx_verify_checked;
 #endif
+static Bool g_gxPairOff = false;	// timing mode (gxPairTiming): this frame runs without pairPlace / pairOffer
 
 #ifdef DUMP_PERF_STATS
 	long s_countInClosestObjects = 0;
@@ -1279,6 +1280,17 @@ void CellAndObjectIntersection::gxSlotLink(Int slot)
 		next->m_gxSlotPrev = this;
 }
 
+void CellAndObjectIntersection::gxMoveToFront()
+{
+	// the cell list runs from high to low sequence (switch searchSlotSkip merges per-slot lists by
+	// it), so the COI put at the head takes a new, highest sequence and moves in its slot list too
+	m_cell->friend_removeFromCellList(this);
+	m_cell->friend_addToCellList(this);
+	gxSlotUnlink();
+	m_gxSeq = m_cell->gxTakeSeq();
+	gxSlotLink(m_gxPlayer);
+}
+
 void CellAndObjectIntersection::gxSlotUnlink()
 {
 	if (m_gxSlotPrev)
@@ -1732,6 +1744,8 @@ PartitionData::PartitionData()
 	m_coiArray = nullptr;
 	m_coiInUseCount = 0;
 	m_doneFlag = 0;
+	m_gxX = m_gxY = 0.0f;
+	m_gxR = HUGE_DIST;	// no place yet: never turned away
 	m_dirtyStatus = NOT_DIRTY;
 	m_lastCell = nullptr;
 	memset(m_gxFillKey, 0, sizeof(m_gxFillKey));
@@ -2177,6 +2191,11 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 
 	//DEBUG_LOG(("adding possible collision for %s",getObject()->getTemplate()->getName().str()));
 
+	// Web port (match rule spatialPairs 8192, switch pairOffer, second word bit 29): a neighbour whose
+	// kept place is clearly apart from ours is not offered at all. Changes the game only when a
+	// collision reaction earlier in the same frame moves a unit into a pair dropped here.
+	extern bool gxMatchRule(unsigned int rule);
+	const Bool gxOffer = gxMatchRule(8192 /* GXRULE_SPATIAL_PAIRS */) && !g_gxPairOff;
 	CellAndObjectIntersection *myCoi = m_coiArray;
 	for (Int i = m_coiInUseCount; i > 0; --i, ++myCoi)
 	{
@@ -2186,6 +2205,12 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 
 		for (CellAndObjectIntersection *coi = cell->getFirstCoiInCell(); coi; coi = coi->getNextCoi())
 		{
+			if (gxOffer)
+			{
+				const Real dx = coi->gxX() - m_gxX, dy = coi->gxY() - m_gxY, lim = (coi->gxR() + m_gxR) * 1.4143f + 1.0f;
+				if (dx * dx + dy * dy > lim * lim)
+					continue;
+			}
 			PartitionData *that = coi->getModule();
 			if (this != that)
 			{
@@ -2272,6 +2297,7 @@ Bool PartitionManager::geomCollidesWithGeom(const Coord3D* pos1,
 //-----------------------------------------------------------------------------
 void PartitionData::updateCellsTouched()
 {
+	gxRefreshPlace();	// web port: the kept place starts right when the object registers
 	GeometryType geom;
 	Bool isSmall;
 	Coord3D pos;
@@ -2345,18 +2371,17 @@ void PartitionData::updateCellsTouched()
 				key[0] = 0;
 	}
 	const Bool gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
-	if (key[0] && (GLES3_Page_Switches2() & 256) && !gxVerify)
+	// verify mode: the fast path runs on odd frames (so the range-search check sees lists it reordered)
+	// and the fill check on even ones
+	const Bool gxVerifyFast = gxVerify && TheGameLogic && (TheGameLogic->getFrame() & 1);
+	if (key[0] && (GLES3_Page_Switches2() & 256) && (!gxVerify || gxVerifyFast))
 	{
 		const Int slot = gxSlotOf(this);
 		CellAndObjectIntersection *coi = m_coiArray;
 		for (Int i = m_coiInUseCount; i > 0; --i, ++coi)
 		{
 			if (coi->getPrevCoi())
-			{
-				PartitionCell *cell = coi->getCell();
-				cell->friend_removeFromCellList(coi);
-				cell->friend_addToCellList(coi);
-			}
+				coi->gxMoveToFront();
 			coi->gxSetPlayerSlot(slot);
 		}
 	}
@@ -2962,6 +2987,38 @@ void PartitionContactList::gxProcessPair(PartitionData*& a, PartitionData*& b)
 	if (a == nullptr || b == nullptr)
 		return;
 
+	// Web port (switch pairPlace, second word bit 28): two units whose kept places are farther apart
+	// than both bounding radii times sqrt 2 plus one unit can't touch (every shape test is a
+	// footprint test; the box test treats a circle as its bounding square, whose corner is r * sqrt 2
+	// out), so the pair is done without reading either object. Exact: the places follow every move
+	// (Object::reactToTransformChange).
+	if ((GLES3_Page_Switches2() & 268435456) && !g_gxPairOff)
+	{
+		const Real dx = a->gxX() - b->gxX(), dy = a->gxY() - b->gxY(), lim = (a->gxR() + b->gxR()) * 1.4143f + 1.0f;
+		if (dx * dx + dy * dy > lim * lim)
+		{
+			if (GLES3_Page_Switches() & 2097152)
+			{
+				// verify mode: the full test must agree
+				Object *o1 = a->getObject(), *o2 = b->getObject();
+				CollideLocAndNormal ci;
+				++gx_verify_checked;
+				if (o1 && o2 && a->friend_collidesWith(b, &ci))
+				{
+					++gx_verify_mismatch;
+					printf("GXVERIFY pair place mismatch: %u and %u touch; kept %.1f,%.1f r%.1f / %.1f,%.1f r%.1f; real %.1f,%.1f r%.1f type %d / %.1f,%.1f r%.1f type %d; %s / %s\n", o1->getID(), o2->getID(),
+						a->gxX(), a->gxY(), a->gxR(), b->gxX(), b->gxY(), b->gxR(),
+						o1->getPosition()->x, o1->getPosition()->y, o1->getGeometryInfo().getBoundingCircleRadius(), (int)o1->getGeometryInfo().getGeomType(),
+						o2->getPosition()->x, o2->getPosition()->y, o2->getGeometryInfo().getBoundingCircleRadius(), (int)o2->getGeometryInfo().getGeomType(),
+						o1->getTemplate()->getName().str(), o2->getTemplate()->getName().str());
+				}
+				if (gx_verify_checked % 50000 == 0)
+					printf("GXVERIFY pair place checked %d, mismatches %d (all checks)\n", gx_verify_checked, gx_verify_mismatch);
+			}
+			return;
+		}
+	}
+
 	Object* obj = a->getObject();
 	Object* other = b->getObject();
 	if (obj == nullptr || other == nullptr)
@@ -3275,6 +3332,33 @@ void PartitionManager::shutdown()
 void PartitionManager::update()
 {
 	//USE_PERF_TIMER(PartitionManager_update)
+#ifdef __EMSCRIPTEN__
+	// Timing mode (hidden setting gxPairTiming, normal build): frames picked by a fixed hash of the
+	// frame number run without pairPlace / pairOffer; both kinds of frame are timed, so machine load
+	// hits both alike. Only for measuring: with pairOffer on it changes the game.
+	static Int s_gxTiming = 0;
+	static double s_gxPairMs[2];
+	static Int s_gxPairFrames[2];
+	const UnsignedInt gxF = TheGameLogic ? TheGameLogic->getFrame() : 0;
+	if (gxF % 60 == 0)
+		s_gxTiming = EM_ASM_INT({ var s = typeof window !== 'undefined' && window.GeneralsX && window.GeneralsX.settings; return s && s.gxPairTiming ? 1 : 0; });
+	g_gxPairOff = s_gxTiming && ((gxF * 2654435761u) >> 16 & 1);
+	const double gxT0 = s_gxTiming ? emscripten_get_now() : 0.0;
+	struct GxPairTimer
+	{
+		double t0;
+		~GxPairTimer()
+		{
+			if (!s_gxTiming)
+				return;
+			const Int k = g_gxPairOff ? 1 : 0;
+			s_gxPairMs[k] += emscripten_get_now() - t0;
+			if (++s_gxPairFrames[k] % 300 == 0 && k == 0)
+				printf("GXPAIRTIME partition update: features on %.1f ms over %d frames (%.3f ms each), off %.1f ms over %d frames (%.3f ms each)\n",
+					s_gxPairMs[0], s_gxPairFrames[0], s_gxPairMs[0] / s_gxPairFrames[0], s_gxPairMs[1], s_gxPairFrames[1], s_gxPairFrames[1] ? s_gxPairMs[1] / s_gxPairFrames[1] : 0.0);
+		}
+	} gxTimer = { gxT0 };
+#endif
 	{
 #ifdef INTENSE_DEBUG
 		Int cc = 0;
@@ -3847,6 +3931,9 @@ void PartitionData::gxRefreshPlace()
 	const Coord3D *p = o->getPosition();
 	const GeometryInfo &g = o->getGeometryInfo();
 	const Real r = max(g.getBoundingCircleRadius(), g.getBoundingSphereRadius());
+	m_gxX = p->x;
+	m_gxY = p->y;
+	m_gxR = r;
 	for (Int i = 0; i < m_coiInUseCount; ++i)
 		m_coiArray[i].gxSetPlace(p->x, p->y, r);
 }

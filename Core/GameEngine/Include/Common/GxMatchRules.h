@@ -24,6 +24,7 @@ enum GxMatchRule
 	GXRULE_ROUTE_REFINE   = 4194304,	///< routeRefine: long moves search in detail only the next ~30 cells, then follow the zone-level route and extend; closest-spot searches stop at 2,000 cells once they have a spot (AIPathfind.cpp, AIStates.cpp)
 	GXRULE_FLOW_COVER     = 8388608,	///< flowCover: flow fields also for moves over 8 cells (AIPathfind.cpp)
 	GXRULE_PHYS_BULK      = 2048,	///< physBulk: forces + velocity integrated for all units in one pass at the start of the physics phase (PhysicsUpdate.cpp)
+	GXRULE_SPATIAL_PAIRS  = 8192,	///< pairOffer: touching-pair search drops clearly-apart neighbours when offered (PartitionManager.cpp)
 };
 
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for

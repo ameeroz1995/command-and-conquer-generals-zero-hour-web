@@ -3388,3 +3388,54 @@ reset or a load) and only those objects are checked; ones no longer disabled dro
 AI state dispatch as a flat pass: no slice found that pays. A state machine's per-tick cost is its
 transition tests and state updates, which read their own unit and the world; the dispatch itself
 (sleep check, virtual calls) is ~0.5% of the frame.
+## 2026-11-24 — Measured, not kept: 8x8 block masks for range searches (would-be switch blockMask, second word bit 24)
+
+- Built on 29c8869: per 8x8 block of cells, the OR of the cells' player masks, recomputed from the
+  dense cell masks whenever a cell's mask changes; the ring walk checked the block before the cell,
+  so the visited cells and their order were unchanged.
+- Same game: verify (every search against the plain walk) 0 mismatches in 4 runs, plus a direct check
+  that no skipped block held a wanted cell; referee replay matched over 9000 frames.
+- Paired timing (fast / plain walk): on 0.231 and 0.255, off 0.245 and 0.251: no difference. fps A/B
+  (blockMask off vs on): pair 1 unusable (load jumped 3 -> 24), pair 2 at load 9-12 strikes 13.7 ->
+  13.0, work 71.9 -> 76.0 ms. Reason: after the dense mask a skipped cell costs one 4-byte read from
+  a small array; the ring walk itself (offset list) is what's left, and blocks can't skip it without
+  changing the visit order. Removed; the patch is kept outside the repo
+  (side-session notes, logic-query-blockmask.patch).
+
+## 2026-11-25 — Round 3 (spatial data): touching-pair tests read kept places, not units (switch pairPlace, second word bit 28, on; match rule spatialPairs 8192 / switch pairOffer, bit 29, off)
+
+- Measured first (merged tree c182dee, profile at load 35-56, shares only): PartitionManager::update
+  15.0% of the strike frame (11.3% armies): pair building 3.4%, gxProcessPair reading both units
+  2.9%, shape tests 2.3%, collision reactions 2.7%; range searches 4.1%. ~87% of listed pairs don't
+  touch.
+- The flat data: every PartitionData now keeps x, y and max(bounding circle, sphere) radius (the same
+  copy its COIs already kept for range searches), refreshed on every transform change, cell update
+  and Z-geometry change.
+- pairPlace (exact): a listed pair whose kept places are farther apart than (rA + rB) x sqrt 2 + 1 is
+  finished from the two PartitionData alone: neither Object, its status bits nor the shape test is
+  read. The sqrt 2: the box-vs-cylinder test treats the circle as its bounding square (first version
+  used rA + rB and verify caught 4,836 touching pairs among 150M; with sqrt 2, 0 in 140M).
+- pairOffer (match rule 8192, changes the game slightly): the same test when a neighbour is offered,
+  so clearly-apart pairs never enter the pair table. Differs only when a collision reaction earlier
+  in the same frame moves a unit next to a dropped neighbour.
+- Same game (pairPlace): verify 0 mismatches (every skipped pair re-tested with the full shape test);
+  referee replay matches over 9000 frames. pairOffer: recorded 9003 frames with it on, played back:
+  matches the recording; referee replay (rule off) matches; screenshots of the crowded fight with it
+  on look normal (no stuck or stacked units).
+- Paired timing (hidden setting gxPairTiming: frames picked by a hash of the frame number run with
+  the features off; PartitionManager::update timed for both kinds, ~900 frames each):
+  pairPlace alone 10.65 -> 10.01 ms and 9.60 -> 9.29 ms per frame (-6%, -3%); pairPlace + pairOffer
+  10.95 -> 9.60 and 11.00 -> 9.46 ms (-12%, -14%). Load 13-31.
+- fps A/B (pairPlace off/on): one usable pair at load 7: armies 16.3 -> 16.6, strikes 12.1 -> 12.0,
+  aftermath 19.4 -> 22.5; the other pairs ran at load 16-50 and stopped at the time limit.
+
+## 2026-11-25 — Fix: cellReuse fast path kept the per-player search lists out of step
+
+- cellReuse (unchanged cells: move each COI to the front of its cell list) put the COI at the head
+  without a new sequence number, so the cell list was no longer in sequence order and searchSlotSkip's
+  merge of per-player lists could visit candidates in a different order than the plain walk (ties
+  and iterator order). Verify mode never saw it: it turned the fast path off.
+- Now CellAndObjectIntersection::gxMoveToFront takes a new sequence and re-links the slot list; in
+  verify mode the fast path runs on odd frames (the fill check on even ones), so the search check
+  covers lists it reordered.
+- Verify: 90k searches, 0 mismatches; cellReuse checks 0 mismatches; referee replay matches.

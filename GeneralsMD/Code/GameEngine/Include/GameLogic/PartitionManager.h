@@ -207,6 +207,7 @@ private:
 
 public:
 	UnsignedInt gxSeq() const { return m_gxSeq; }
+	void gxMoveToFront();	///< web port: to the head of its cell list, keeping the per-slot lists in step (switch cellReuse)
 	CellAndObjectIntersection *gxSlotNext() const { return m_gxSlotNext; }
 	Int gxPlayerSlot() const { return m_gxPlayer; }
 	Real gxX() const { return m_gxX; }
@@ -444,7 +445,12 @@ private:
 public:
 	/// web port (switch searchCache): copy the object's position and radius into every COI in use
 	void gxRefreshPlace();
+	/// web port (switches pairPlace / pairOffer): the same copy kept here, for the touching-pair tests
+	Real gxX() const { return m_gxX; }
+	Real gxY() const { return m_gxY; }
+	Real gxR() const { return m_gxR; }
 private:
+	Real												m_gxX, m_gxY, m_gxR;
 
 	/**
 		Given a shape's geometry and size parameters, calculate the maximum number of COIs
