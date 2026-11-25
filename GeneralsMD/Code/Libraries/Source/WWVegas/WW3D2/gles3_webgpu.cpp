@@ -51,6 +51,7 @@ EM_JS(int, gxw_js_init, (), {
   dev.addEventListener('uncapturederror', function (e) { if (W.errors++ < 30) console.error('GXW error: ' + e.error.message); });
   dev.lost.then(function (i) { console.error('GXW device lost: ' + i.message); });
   Module.gxWebGPU = 1;
+  if (typeof window !== 'undefined' && window.gxRepinCanvas) window.gxRepinCanvas(); // full-size canvas (no render scale on WebGPU)
   return 1;
 });
 
@@ -381,6 +382,14 @@ static void To_RGBA8(unsigned f, unsigned w, unsigned h, const uint8_t* in, std:
                        o[2] = (uint8_t)((v & 31) * 255 / 31); o[3] = (v & 0x8000) ? 255 : 0; break; }
             case 26: { uint16_t v = s16[i]; o[0] = (uint8_t)(((v >> 8) & 15) * 17); o[1] = (uint8_t)(((v >> 4) & 15) * 17);
                        o[2] = (uint8_t)((v & 15) * 17); o[3] = (uint8_t)(((v >> 12) & 15) * 17); break; }
+            case 24: { uint16_t v = s16[i]; o[0] = (uint8_t)(((v >> 10) & 31) * 255 / 31); o[1] = (uint8_t)(((v >> 5) & 31) * 255 / 31);
+                       o[2] = (uint8_t)((v & 31) * 255 / 31); o[3] = 255; break; } // X1R5G5B5
+            case 30: { uint16_t v = s16[i]; o[0] = (uint8_t)(((v >> 8) & 15) * 17); o[1] = (uint8_t)(((v >> 4) & 15) * 17);
+                       o[2] = (uint8_t)((v & 15) * 17); o[3] = 255; break; } // X4R4G4B4
+            case 27: { uint8_t v = in[i]; o[0] = (uint8_t)(((v >> 5) & 7) * 255 / 7); o[1] = (uint8_t)(((v >> 2) & 7) * 255 / 7);
+                       o[2] = (uint8_t)((v & 3) * 85); o[3] = 255; break; } // R3G3B2
+            case 29: { uint16_t v = s16[i]; o[0] = (uint8_t)(((v >> 5) & 7) * 255 / 7); o[1] = (uint8_t)(((v >> 2) & 7) * 255 / 7);
+                       o[2] = (uint8_t)((v & 3) * 85); o[3] = (uint8_t)(v >> 8); break; } // A8R3G3B2
             case 20: { const uint8_t* p = in + i * 3; o[0] = p[2]; o[1] = p[1]; o[2] = p[0]; o[3] = 255; break; }
             case 22: { const uint8_t* p = in + i * 4; o[0] = p[2]; o[1] = p[1]; o[2] = p[0]; o[3] = 255; break; }
             case 50: o[0] = o[1] = o[2] = in[i]; o[3] = 255; break;

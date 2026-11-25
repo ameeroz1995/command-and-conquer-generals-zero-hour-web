@@ -1498,7 +1498,8 @@
           // (Module.gxScaled3D); otherwise the canvas itself is smaller and CSS-upscaled.
           const rs = window.GeneralsX && window.GeneralsX.settings && window.GeneralsX.settings.renderScale;
           M.gxRenderScale = rs === 'auto' ? (window.gxAutoScale || 1) : (+rs || 1);
-          const s = M.gxScaled3D ? 1 : M.gxRenderScale;
+          // WebGPU has no offscreen 3D view yet: a smaller canvas would blur the interface too.
+          const s = (M.gxScaled3D || M.gxWebGPU) ? 1 : M.gxRenderScale;
           const w = Math.max(1, Math.round((M.gxCanvasW || GX_FIXED_W) * s));
           const h = Math.max(1, Math.round((M.gxCanvasH || GX_FIXED_H) * s));
           try { // throws once the canvas belongs to the game thread (worker build)

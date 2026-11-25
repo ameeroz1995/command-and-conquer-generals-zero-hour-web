@@ -51,6 +51,12 @@ Step 1 works: menus, battle and the 5-map tour draw through WebGPU; pictures mat
   pass): armies +1%, strikes +5%; tour run: all phases within +-2%.
 - Against WebGL with its batching on (live settings): -7..-9%, because WebGPU still draws
   every unit part separately (2x the draws). Porting unit batching and GPU skinning is next.
+- Unit batching (instancing) and GPU skinning ported: one drawIndexed with N instances over N
+  draw blocks; skinned parts read bone rows from a storage array. Live settings both sides:
+  fps -4..+2%, draws equal to WebGL. WebGPU is now on by default (WebGL when navigator.gpu is
+  missing, the adapter is software/SwiftShader, or the switch is off).
+- Render scale "auto" shrank the whole canvas under WebGPU (there is no separate 3D target
+  yet), which blurred and striped the interface; the canvas stays full size on WebGPU.
 
 ## Draw counts and multi-part draws (2026-11-25, WebGL, RX 580)
 GXCAT log, strikes frame: rigid parts 1,500-2,350 draws, see-through 200-680, interface ~200,
@@ -61,7 +67,8 @@ soldiers 100-160, terrain/water/shadows/tracks/roads < 70 together. Why rigid pa
   WEBGL_multi_draw call, matrix per gl_DrawID. Quiet machine: draws -22..-30%, fps -4..+3% (noise),
   screenshots clean in 10 runs. Under heavy machine load (load 35-47) ~7 of 10 runs showed stray
   polygons covering the view; drawing the same groups one by one never did, so it is a timing
-  issue in the browser's multi-draw path; kept off.
+  issue in the browser's multi-draw path. A ring of 8 per-draw textures did not help (9 of 30
+shots bad under 12 busy loops, 0 of 20 with multiDraw off; ANGLE Vulkan also shows it); kept off.
 - multiLights (switch, off, needs multiDraw): parts in different light join, each with its own
   lights from the per-draw texture. Draws only -1..-3% more, uploads +22..39%, fps +1%.
 Conclusion: at these counts draw calls are not what limits the frame on this machine.
@@ -69,4 +76,4 @@ Conclusion: at these counts draw calls are not what limits the frame on this mac
   drawn in one call. sortMaterials (switch, off): see-through draws whose materials are separate
   copies with the same settings (equal CRC) merge. Quiet A/B with screenshots: interface strip
   pixel-identical, battle shots clean, but draws -0% and fps within +-1%: runs that could merge are
-  rare (menu: ~2 of 88 interface draws saved). Kept off.
+  rare (menu: ~2 of 88 interface draws saved). On by default since they draw the same.
