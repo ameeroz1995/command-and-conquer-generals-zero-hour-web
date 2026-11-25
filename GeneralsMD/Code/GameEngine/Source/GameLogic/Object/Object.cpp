@@ -174,6 +174,17 @@ AsciiString DebugDescribeObject(const Object *obj)
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port: switch words (gles3_wrapper.cpp) and verify counters (GameLogic.cpp)
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches3();
+extern int gx_verify_mismatch, gx_verify_checked;
+#else
+static int GLES3_Page_Switches() { return 0; }
+static int GLES3_Page_Switches3() { return 0; }
+static int gx_verify_mismatch, gx_verify_checked;
+#endif
+
 //-------------------------------------------------------------------------------------------------
 Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatusMask, Team *team ) :
 	Thing(tt),
@@ -185,6 +196,7 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 	m_xferContainedByID(INVALID_ID),
 	m_containedByFrame(0),
 	m_behaviors(nullptr),
+	m_gxCollides(nullptr),
 	m_body(nullptr),
 	m_contain(nullptr),
   m_stealth(nullptr),
@@ -654,6 +666,8 @@ Object::~Object()
 
 	delete [] m_behaviors;
 	m_behaviors = nullptr;
+	delete [] m_gxCollides;
+	m_gxCollides = nullptr;
 
 	deleteInstance(m_experienceTracker);
 	m_experienceTracker = nullptr;
@@ -1111,6 +1125,28 @@ void Object::setScriptStatus( ObjectScriptStatusBit bit, Bool set )
 
 //=============================================================================
 Bool Object::canCrushOrSquish(Object *otherObj, CrushSquishTestType testType ) const
+{
+	// web port (switch crushFirst, third word bit 4; same game): a crush-only test can only answer
+	// true when my crusher level is above its crushable level, so decide that before the ally
+	// lookup (getRelationship changes nothing, the answer is false either way)
+	if (testType == TEST_CRUSH_ONLY && otherObj && (GLES3_Page_Switches3() & 16)
+		&& getCrusherLevel() <= otherObj->getCrushableLevel())
+	{
+#ifdef __EMSCRIPTEN__
+		if (GLES3_Page_Switches() & 2097152)	// verify mode: the full test must say false too
+		{
+			static Int s_checked = 0, s_bad = 0;
+			++gx_verify_checked;
+			if (gxCanCrushOrSquishFull(otherObj, testType)) { ++gx_verify_mismatch; ++s_bad; printf("GXVERIFY crushFirst mismatch: %u vs %u\n", getID(), otherObj->getID()); }
+			if (++s_checked % 20000 == 0) printf("GXVERIFY crushFirst checked %d, mismatches %d\n", s_checked, s_bad);
+		}
+#endif
+		return false;
+	}
+	return gxCanCrushOrSquishFull(otherObj, testType);
+}
+
+Bool Object::gxCanCrushOrSquishFull(Object *otherObj, CrushSquishTestType testType ) const
 {
 	DEBUG_ASSERTCRASH(this, ("null this in canCrushOrSquish"));
 
@@ -2431,6 +2467,49 @@ void Object::updateTriggerAreaFlags()
 //-------------------------------------------------------------------------------------------------
 void Object::onCollide( Object *other, const Coord3D *loc, const Coord3D *normal )
 {
+	// web port (switch collideList, third word bit 5; same game): walk only the collide modules,
+	// listed once (in behaviour order) instead of asking every behaviour each collision.
+	// getCollide() is fixed per module and the behaviour list never changes after creation.
+	if (GLES3_Page_Switches3() & 32)
+	{
+		if (!m_gxCollides)
+		{
+			Int n = 0;
+			for (BehaviorModule** m = m_behaviors; *m; ++m)
+				if ((*m)->getCollide())
+					++n;
+			m_gxCollides = MSGNEW("ModulePtrs") CollideModuleInterface*[n + 1];
+			n = 0;
+			for (BehaviorModule** m = m_behaviors; *m; ++m)
+				if (CollideModuleInterface* c = (*m)->getCollide())
+					m_gxCollides[n++] = c;
+			m_gxCollides[n] = nullptr;
+		}
+#ifdef __EMSCRIPTEN__
+		else if (GLES3_Page_Switches() & 2097152)	// verify mode: the list still matches the behaviours
+		{
+			static Int s_checked = 0, s_bad = 0;
+			CollideModuleInterface** c = m_gxCollides;
+			Bool ok = true;
+			for (BehaviorModule** m = m_behaviors; *m; ++m)
+				if (CollideModuleInterface* cm = (*m)->getCollide())
+					ok = ok && *c && *c++ == cm;
+			ok = ok && *c == nullptr;
+			++gx_verify_checked;
+			if (!ok) { ++gx_verify_mismatch; ++s_bad; printf("GXVERIFY collideList mismatch: object %u\n", getID()); }
+			if (++s_checked % 20000 == 0) printf("GXVERIFY collideList checked %d, mismatches %d\n", s_checked, s_bad);
+		}
+#endif
+		for (CollideModuleInterface** c = m_gxCollides; *c; ++c)
+		{
+			// check each time thru the loop, in case a collide module sets it
+			if( getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) )
+				break;
+			(*c)->onCollide(other, loc, normal);
+		}
+		return;
+	}
+
 	for (BehaviorModule** m = m_behaviors; *m; ++m)
 	{
 		CollideModuleInterface* collide = (*m)->getCollide();

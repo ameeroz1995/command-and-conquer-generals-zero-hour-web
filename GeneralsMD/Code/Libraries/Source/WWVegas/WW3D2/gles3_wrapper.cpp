@@ -52,11 +52,11 @@ double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gle
 static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 // Second switch word (the first is full): bit 0 contactTable, bit 1 sleepyKeys, bit 2 openHeap, bit 3 contactArray (game logic, same game).
-static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 512 | 65536 | 131072 | 262144 | 524288 | 128;
+static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 512 | 65536 | 131072 | 262144 | 524288 | 128 | 67108864;
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
-static int g_PageSwitches3 = 0;
+static int g_PageSwitches3 = 0 | 16 | 32;
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -455,6 +455,8 @@ void GLES3_Begin_Scene() {
                  | (o.leanPairs === false ? 0 : 512)   // bit 9: touching-pair offers read no unit data and use a 4x smaller table (PartitionManager.cpp; same game)
                  | (o.collideStagger === true ? 1024 : 0)   // bit 10: ground units check collisions every 2nd frame (PartitionManager.cpp; match rule)
                  | (o.collideStagger3 === true ? 2048 : 0)  // bit 11: ... every 3rd frame (wins over bit 10)
+                 | (o.physReuse === false ? 0 : 67108864)  // bit 26: physics reuses its ground height for the airborne check (PhysicsUpdate.cpp; same game)
+                 | (o.physBulk === true ? 134217728 : 0)  // bit 27: physics forces + velocity for all units in one pass (PhysicsUpdate.cpp; match rule)
                  | (o.searchSlotSkip === false ? 0 : 65536)  // bit 16: range searches skip entries of players the relationship filter rejects (PartitionManager.cpp; same game)
                  | (o.laserFilters === false ? 0 : 131072)   // bit 17: point-defense lasers filter inside the range search (PointDefenseLaserUpdate.cpp; same game)
                  | (o.denseCellMask === false ? 0 : 262144)  // bit 18: range searches read each cell's player mask from one dense array (PartitionManager.cpp; same game)
@@ -469,7 +471,9 @@ void GLES3_Begin_Scene() {
                  | (o.routeQueue === true ? 8 : 0)      // bit 3: match rule routeQueue, no dropped route requests (AIPathfind.cpp)
                  | (o.routeCache === true ? 1048576 : 0)   // bit 20: match rule routeCache, recent routes reused (AIPathfind.cpp)
                  | (o.routeRefine === true ? 2097152 : 0)  // bit 21: match rule routeRefine, detailed search only for the next stretch (AIPathfind.cpp)
-                 | (o.flowCover === true ? 4194304 : 0);   // bit 22: match rule flowCover, flow fields for moves over 8 cells (AIPathfind.cpp)
+                 | (o.flowCover === true ? 4194304 : 0)   // bit 22: match rule flowCover, flow fields for moves over 8 cells (AIPathfind.cpp)
+                 | (o.crushFirst === false ? 0 : 16)   // bit 4: crush tests compare crush levels before the ally lookup (Object.cpp; same game)
+                 | (o.collideList === false ? 0 : 32);  // bit 5: each unit lists its collide modules once instead of asking every module per collision (Object.cpp; same game)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;

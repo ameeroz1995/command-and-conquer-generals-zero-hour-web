@@ -126,6 +126,8 @@ public:
 	void getUnitDirectionVector3D(Coord3D& dir) const;
 
 	Real getHeightAboveTerrain() const;
+	/// web port (physReuse): a caller that just computed calculateHeightAboveTerrain() for the current transform stores it
+	void gxSetHeightAboveTerrain(Real h) const { m_cachedAltitudeAboveTerrain = h; m_cacheFlags |= VALID_ALTITUDE_TERRAIN; }
 	Real getHeightAboveTerrainOrWater() const;
 
 	Bool isAboveTerrain() const { return getHeightAboveTerrain() > 0.0f; }

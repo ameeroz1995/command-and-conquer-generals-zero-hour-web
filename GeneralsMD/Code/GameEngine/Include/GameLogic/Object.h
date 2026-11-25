@@ -386,6 +386,7 @@ public:
 
 	/// returns true iff the object can run over the other object.
 	Bool canCrushOrSquish(Object *otherObj, CrushSquishTestType testType = TEST_CRUSH_OR_SQUISH) const;
+	Bool gxCanCrushOrSquishFull(Object *otherObj, CrushSquishTestType testType ) const;	///< web port: the original test (crushFirst skips to its answer)
 	UnsignedByte getCrusherLevel() const;
 	UnsignedByte getCrushableLevel() const;
 
@@ -746,6 +747,7 @@ private:
 
 	// modules
 	BehaviorModule**							m_behaviors;	// BehaviorModule, not BehaviorModuleInterface
+	CollideModuleInterface**			m_gxCollides;	///< web port (collideList): the behaviours' collide interfaces in order, null-terminated; built on first collision
 
 	// cache these, for convenience
 	ContainModuleInterface*				m_contain;

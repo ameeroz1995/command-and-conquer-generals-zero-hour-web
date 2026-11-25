@@ -66,6 +66,18 @@ const Real MAX_FRICTION = 0.99f;
 const Real STUN_RELIEF_EPSILON = 0.5f;
 
 #include "Common/CRCDebug.h"
+#include "Common/GxMatchRules.h"
+
+// web port: performance switches (gles3_wrapper.cpp) and verify counters (GameLogic.cpp)
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches2();
+extern int gx_verify_mismatch, gx_verify_checked;
+#else
+static int GLES3_Page_Switches() { return 0; }
+static int GLES3_Page_Switches2() { return 0; }
+static int gx_verify_mismatch, gx_verify_checked;
+#endif
 
 const Int MOTIVE_FRAMES = LOGICFRAMES_PER_SECOND / 3;
 
@@ -198,6 +210,12 @@ static void parseFrictionPerSec( INI* ini, void * /*instance*/, void *store, con
 const Real INVALID_VEL_MAG = -1.0f;
 
 //-------------------------------------------------------------------------------------------------
+// web port (match rule physBulk): every PhysicsBehavior in creation order (= object ID order),
+// with null holes left by deleted ones until the next bulk pass compacts the list
+// (allocated once and never freed, so behaviours deleted at shutdown never touch a destroyed list)
+static std::vector<PhysicsBehavior*> &s_gxPhysList = *new std::vector<PhysicsBehavior*>;
+static UnsignedInt s_gxBulkFrame = ~0u;
+
 PhysicsBehavior::PhysicsBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
 	m_accel.zero();
@@ -225,6 +243,10 @@ PhysicsBehavior::PhysicsBehavior( Thing *thing, const ModuleData* moduleData ) :
 
 	m_pui = nullptr;
 	m_bounceSound = nullptr;
+
+	m_gxPreFrame = ~0u;
+	m_gxIdx = (Int)s_gxPhysList.size();
+	s_gxPhysList.push_back(this);
 
 #ifdef SLEEPY_PHYSICS
 	setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
@@ -255,6 +277,7 @@ void PhysicsBehavior::onObjectCreated()
 //-------------------------------------------------------------------------------------------------
 PhysicsBehavior::~PhysicsBehavior()
 {
+	s_gxPhysList[m_gxIdx] = nullptr;	// compacted by the next bulk pass
 	deleteInstance(m_bounceSound);
 	m_bounceSound = nullptr;
 }
@@ -616,9 +639,63 @@ void PhysicsBehavior::setBounceSound(const AudioEventRTS* bounceSound)
  */
 
 DECLARE_PERF_TIMER(PhysicsBehavior)
+void PhysicsBehavior::gxIntegrate()
+{
+	applyGravitationalForces();
+	applyFrictionalForces();
+
+	// integrate acceleration into velocity
+	m_vel.x += m_accel.x;
+	m_vel.y += m_accel.y;
+	m_vel.z += m_accel.z;
+
+	// when vel gets tiny, just clamp to zero
+	const Real THRESH = 0.001f;
+	if (fabsf(m_vel.x) < THRESH) m_vel.x = 0.0f;
+	if (fabsf(m_vel.y) < THRESH) m_vel.y = 0.0f;
+	if (fabsf(m_vel.z) < THRESH) m_vel.z = 0.0f;
+
+	m_velMag = INVALID_VEL_MAG;
+}
+
+// web port (match rule physBulk): at the first physics update of a frame, integrate forces and
+// velocity for every unit whose physics runs this frame, in creation order. Each unit's own update
+// then only moves it. A force applied to a unit after this pass (by another unit's physics step)
+// counts next frame instead of this one: that is the drift.
+void PhysicsBehavior::gxBulkPass(UnsignedInt now)
+{
+	size_t w = 0;
+	for (size_t i = 0; i < s_gxPhysList.size(); ++i)
+	{
+		PhysicsBehavior *pb = s_gxPhysList[i];
+		if (!pb)
+			continue;
+		pb->m_gxIdx = (Int)w;
+		s_gxPhysList[w++] = pb;
+		if (pb->friend_getNextCallFrame() != now || pb->getObject()->isDisabledByType(DISABLED_HELD))
+			continue;
+		pb->m_prevAccel = pb->m_accel;
+		pb->setFlag(IS_IN_UPDATE, true);	// friction forces must not re-wake it (it is due anyway)
+		pb->gxIntegrate();
+		pb->setFlag(IS_IN_UPDATE, false);
+		pb->m_accel.zero();
+		pb->m_gxPreFrame = now;
+	}
+	s_gxPhysList.resize(w);
+}
+
 UpdateSleepTime PhysicsBehavior::update()
 {
 	USE_PERF_TIMER(PhysicsBehavior)
+	if (gxMatchRule(GXRULE_PHYS_BULK))
+	{
+		const UnsignedInt now = TheGameLogic->getFrame();
+		if (now != s_gxBulkFrame)
+		{
+			s_gxBulkFrame = now;
+			gxBulkPass(now);
+		}
+	}
 
 	Object*														obj = getObject();
 	const PhysicsBehaviorModuleData*	d = getPhysicsBehaviorModuleData();
@@ -637,27 +714,20 @@ UpdateSleepTime PhysicsBehavior::update()
 	}
 
 	Coord3D prevPos = *obj->getPosition();
-	m_prevAccel = m_accel;
+	const Bool preDone = m_gxPreFrame == TheGameLogic->getFrame();	// physBulk already integrated this frame
+	if (!preDone)
+		m_prevAccel = m_accel;
+
+	// web port (switch physReuse, second word bit 26; same game): reuse this step's ground height
+	const Bool gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
+	const Bool physReuse = (GLES3_Page_Switches2() & 67108864) != 0;
 
 	if (!obj->isDisabledByType(DISABLED_HELD))
 	{
 		Matrix3D mtx = *obj->getTransformMatrix();
 
-		applyGravitationalForces();
-		applyFrictionalForces();
-
-		// integrate acceleration into velocity
-		m_vel.x += m_accel.x;
-		m_vel.y += m_accel.y;
-		m_vel.z += m_accel.z;
-
-		// when vel gets tiny, just clamp to zero
-		const Real THRESH = 0.001f;
-		if (fabsf(m_vel.x) < THRESH) m_vel.x = 0.0f;
-		if (fabsf(m_vel.y) < THRESH) m_vel.y = 0.0f;
-		if (fabsf(m_vel.z) < THRESH) m_vel.z = 0.0f;
-
-		m_velMag = INVALID_VEL_MAG;
+		if (!preDone)
+			gxIntegrate();
 
 		Real oldPosZ = mtx.Get_Z_Translation();
 
@@ -753,6 +823,7 @@ UpdateSleepTime PhysicsBehavior::update()
 
 		// do not allow object to pass through the ground
 		Real groundZ = TheTerrainLogic->getLayerHeight(mtx.Get_X_Translation(), mtx.Get_Y_Translation(), obj->getLayer());
+		const Real layerZ = groundZ;	// web port (physReuse): Object::calculateHeightAboveTerrain() at this x, y and layer
 		if( obj->getStatusBits().test( OBJECT_STATUS_DECK_HEIGHT_OFFSET ) )
 		{
 			groundZ += obj->getCarrierDeckHeight();
@@ -815,10 +886,28 @@ UpdateSleepTime PhysicsBehavior::update()
 		{
 			obj->setTransformMatrix(&mtx);
 		}
+
+		// physReuse: the airborne check below would look up the same ground height again
+		const Coord3D *p = obj->getPosition();
+		if (physReuse && p->x == mtx.Get_X_Translation() && p->y == mtx.Get_Y_Translation())
+		{
+			const Real h = p->z - layerZ;
+			if (gxVerify)
+			{
+				static Int s_checked = 0, s_bad = 0;
+				++gx_verify_checked;
+				if (h != p->z - TheTerrainLogic->getLayerHeight(p->x, p->y, obj->getLayer())) { ++gx_verify_mismatch; ++s_bad; printf("GXVERIFY physReuse height mismatch: object %u\n", obj->getID()); }
+				if (++s_checked % 20000 == 0) printf("GXVERIFY physReuse checked %d, mismatches %d\n", s_checked, s_bad);
+			}
+			else
+				obj->gxSetHeightAboveTerrain(h);
+		}
 	}
 
 	// reset the acceleration for accumulation next frame
-	m_accel.zero();
+	// (physBulk zeroed it in its pass; forces applied since then count next frame)
+	if (!preDone)
+		m_accel.zero();
 
 	// clear overlap object, which will be set by PhysicsCollide later
 	m_previousOverlap = m_currentOverlap;

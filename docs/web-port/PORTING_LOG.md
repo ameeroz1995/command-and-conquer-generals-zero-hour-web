@@ -3236,3 +3236,85 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   battle frames (after the two loading frames) 366 -> 291 and 271 -> 252 ms.
 - Determinism: referee replay matches; recorded with the four route rules plus routeQueue on
   (GX=F00422) and played back with them off locally: matches.
+## 2026-11-25 — Round 3: physics as flat arrays (bits 26 / 27) — measured, not built
+
+- Asked: PhysicsBehavior position/velocity/forces in flat arrays with one bulk integration pass.
+- Measured first (temporary timers in PhysicsBehavior::update, phase span = first to last physics
+  call of a frame; physics is the only PHASE_PHYSICS module, so it runs as one block; load 20-37,
+  strikes ~75 ms/frame, 1,000-3,000 physics steps per frame):
+  phase 4.2-9.7 ms/frame (~10% of a strike frame), split per frame:
+  forces + integration (what flat arrays would speed up) 0.5-1.3 ms;
+  terrain height + bounce 0.5-1.2 ms; setTransformMatrix 1.6-3.7 ms (drawable transform,
+  partition refresh/dirty, trigger areas, map extent); tail (airborne check = second terrain
+  query, landing, sleep time) 0.8-1.6 ms; the rest is update-queue dispatch and timer overhead.
+- Result: the integration math is ~1-1.5% of a strike frame. Even halving it (~0.5 ms) is far
+  below what the fps A/B pairs resolve, and a bulk pass could not move the rest: every step
+  writes the object's transform, which feeds the drawable, the partition and triggers in
+  update-queue order. Stopped per the round-3 rule; no code kept, bits 26 / 27 unused.
+- Where physics time actually goes: setTransformMatrix (~40% of the phase, ~4% of the frame).
+  Cheaper ideas there (skip the drawable/trigger work when the position did not change, reuse
+  the ground height from the step for the airborne check) are not data-layout changes; not done.
+- Rechecked after the rule change (drift allowed behind match rule 2048, behaviour-outer passes
+  approved), with the transform update split as well (build phys-2, load 11-24; extra timers
+  inflate it): per strike frame setTransformMatrix is drawable transform ~33%, partition
+  refresh/dirty ~18%, trigger areas + pathfinder position ~14%, map extent ~8%, the rest matrix
+  copies / yaw (atan2). Each piece is under ~1 ms of a ~90 ms frame, and a bulk physics pass
+  already exists (physics is its own update phase). Drift-allowed options considered and not
+  built: physics every 2nd frame for ground units (locomotors push every frame: visible jerks,
+  wrong speeds); bulk integrate-then-commit (same calls, same cost). Still nothing measurable;
+  match rule 2048 left unused.
+
+## 2026-11-25 — Physics flat pass built anyway (switch physReuse bit 26, on; match rule physBulk 2048 / bit 27, off)
+
+Built per the user's round-3 decision (small gains meant to add up). Two parts:
+- physReuse (second word bit 26, default ON, same game): the physics step already looks up the
+  ground height at the unit's x, y and layer; that is exactly what Object::calculateHeightAboveTerrain()
+  computes for the airborne check after the move, so the step stores it in the height cache
+  (Thing::gxSetHeightAboveTerrain) instead of a second terrain lookup. Only when the position after
+  setTransformMatrix still has that x, y. Verify mode: 1,060,000 checks in the battle, 0 mismatches.
+- physBulk (match rule GXRULE_PHYS_BULK 2048, second word bit 27, default OFF, drifts): at the first
+  physics update of a frame, one pass over a flat list of all PhysicsBehaviors (creation = object ID
+  order, compacted in the pass) integrates gravity, friction and velocity for every unit whose
+  physics runs this frame; each unit's own update then only moves it. A force applied to a unit
+  by another unit's physics step after the pass counts next frame (the drift). Units not covered
+  (woken during the phase, held) integrate inline as before.
+- Dropped: skipping setTransformMatrix when the matrix did not change. Not the same game: the
+  battle's physics call counts drifted from the first 150 frames (260 vs 261), and with only the
+  height reuse they match off exactly (261, 674, 1180, ... 1922). Setting an unchanged transform still
+  refreshes something the simulation reads (most likely the drawable's transform, which weapon
+  launch bones are read from).
+- Replays (final build phys-7, wasm c9e96a89…): referee replay matches (9,000 frames) with defaults and with physBulk on locally;
+  recorded a skirmish with physBulk on (phys-bulk6.rep, header rules 0x802) and it replays to a
+  match. Screenshots (phys6-bulk*/reuse*/off* battle2-7): normal fights, nothing stuck or piled up
+  (shots are taken by wall time, so scenes differ between runs).
+- A/B (build phys-6t, physics-phase timer, the first 6 windows of 150 frames that every run
+  reached = the same 8,858 physics calls for off/reuse; load 8-19, very noisy):
+  off 44.4 / 37.4 ms, physReuse 32.9 / 26.3 ms (-28%, both pairs), physBulk (+ physReuse)
+  28.5 / 33.8 ms (same as physReuse: one pair each way). Strikes fps off 5.8 / 8.2, physReuse
+  8.7 / 11.1, physBulk 10.7 / 8.4: load noise, physics is ~10% of a strike frame. physBulk gives
+  nothing measurable on its own and is not slower; left off for the combined measurement.
+
+## 2026-11-25 — Collisions: quicker crush check and collide-module list (third word bits 4 / 5, on, same game)
+
+- Measured first (build col-t1, temporary timers; they inflate everything, compare shares only):
+  per strike frame 4k-31k pairs offered, 1.4k-5k really touching; the geometry test is about a third
+  of the collision time, Object::onCollide on both sides two thirds; inside PhysicsBehavior::onCollide
+  AI processCollision ~1/3 (2k-7k calls per frame; AIUpdate.cpp, the ai agent's file this round) and
+  the crush check ~15%.
+- crushFirst (third word bit 4, Object.cpp): canCrushOrSquish(TEST_CRUSH_ONLY) can only answer true
+  when my crusher level is above its crushable level, so it decides that before the ally lookup
+  (getRelationship changes nothing). Verify mode: 1,240,000 checks in the battle, 0 mismatches.
+  Pairs (col-2t, crush-check time summed over the first 6 windows, load 10-20): off 12.80 / 11.44 ms,
+  on 11.92 / 12.00 ms: inside noise, not slower.
+- collideList (third word bit 5, Object.cpp): Object::onCollide asked every behaviour module (20-40
+  per unit) for its collide interface on every collision; now each object lists its collide modules
+  once (behaviour order, built on its first collision; getCollide() is fixed per module and the
+  behaviour list never changes after creation). Same status check before each module. Verify mode:
+  10,080,000 checks, 0 mismatches. Pairs (col-3t, Object::onCollide time outside PhysicsBehavior
+  summed over the first 6 windows, same 20,617 touching pairs per run, load 5-11): off 45.5 / 27.4 ms
+  (the first under a load spike), on 18.9 / 19.1 ms: about -30% of the dispatch.
+- Referee replay matches (9,000 frames) on col-2 and col-3.
+- physBulk pair rerun (phys-6t, load 6-10): off 30.6 / 22.8 ms, on 26.2 / 27.0 ms: same as before,
+  no gain, not slower.
+- crushFirst pair rerun at load 5-7 (col-3t, the first pair started at load 12): crush-check time
+  off 10.25 / 9.95 ms, on 10.77 / 9.33 ms: inside noise, not slower (kept on: same game).
