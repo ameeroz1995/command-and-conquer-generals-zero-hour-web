@@ -35,19 +35,26 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/Module/BridgeScaffoldBehavior.h"
 
-// ------------------------------------------------------------------------------------------------
-// ------------------------------------------------------------------------------------------------
-BridgeScaffoldBehavior::BridgeScaffoldBehavior( Thing *thing, const ModuleData *moduleData )
-											: UpdateModule( thing, moduleData )
-{
+// Web port (round 5, units are pure data): BridgeScaffoldBehavior's per-unit state is a row of TheGxBridgeScaffoldBehaviors;
+// GXROW_BRIDGESCAFFOLDBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxBridgeScaffoldBehaviorRow> TheGxBridgeScaffoldBehaviors;
+#define GXROW_BRIDGESCAFFOLDBEHAVIOR (TheGxBridgeScaffoldBehaviors.at(m_gxBridgeScaffoldBehaviorRow))
 
-	m_targetMotion = STM_STILL;
-	m_createPos.zero();
-	m_riseToPos.zero();
-	m_buildPos.zero();
-	m_targetPos.zero();
-	m_lateralSpeed = 1.0f;
-	m_verticalSpeed = 1.0f;
+
+// ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+BridgeScaffoldBehavior::BridgeScaffoldBehavior( Thing *thing, const ModuleData *moduleData ) : UpdateModule( thing, moduleData )
+{
+	m_gxBridgeScaffoldBehaviorRow = TheGxBridgeScaffoldBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+
+	GXROW_BRIDGESCAFFOLDBEHAVIOR.targetMotion = STM_STILL;
+	GXROW_BRIDGESCAFFOLDBEHAVIOR.createPos.zero();
+	GXROW_BRIDGESCAFFOLDBEHAVIOR.riseToPos.zero();
+	GXROW_BRIDGESCAFFOLDBEHAVIOR.buildPos.zero();
+	GXROW_BRIDGESCAFFOLDBEHAVIOR.targetPos.zero();
+	GXROW_BRIDGESCAFFOLDBEHAVIOR.lateralSpeed = 1.0f;
+	GXROW_BRIDGESCAFFOLDBEHAVIOR.verticalSpeed = 1.0f;
 
 }
 
@@ -56,6 +63,7 @@ BridgeScaffoldBehavior::BridgeScaffoldBehavior( Thing *thing, const ModuleData *
 BridgeScaffoldBehavior::~BridgeScaffoldBehavior()
 {
 
+	TheGxBridgeScaffoldBehaviors.release( m_gxBridgeScaffoldBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -66,9 +74,9 @@ void BridgeScaffoldBehavior::setPositions( const Coord3D *createPos,
 																					 const Coord3D *buildPos )
 {
 
-	m_createPos = *createPos;
-	m_riseToPos = *riseToPos;
-	m_buildPos = *buildPos;
+	GXROW_BRIDGESCAFFOLDBEHAVIOR.createPos = *createPos;
+	GXROW_BRIDGESCAFFOLDBEHAVIOR.riseToPos = *riseToPos;
+	GXROW_BRIDGESCAFFOLDBEHAVIOR.buildPos = *buildPos;
 
 }
 
@@ -79,26 +87,26 @@ void BridgeScaffoldBehavior::setMotion( ScaffoldTargetMotion targetMotion )
 {
 
 	// save the target motion type
-	m_targetMotion = targetMotion;
+	GXROW_BRIDGESCAFFOLDBEHAVIOR.targetMotion = targetMotion;
 
 	// given the target motion, pick a destination target
-	switch( m_targetMotion )
+	switch( GXROW_BRIDGESCAFFOLDBEHAVIOR.targetMotion )
 	{
 
 		// --------------------------------------------------------------------------------------------
 		case STM_RISE:
 		case STM_TEAR_DOWN_ACROSS:
-			m_targetPos = m_riseToPos;
+			GXROW_BRIDGESCAFFOLDBEHAVIOR.targetPos = GXROW_BRIDGESCAFFOLDBEHAVIOR.riseToPos;
 			break;
 
 		// --------------------------------------------------------------------------------------------
 		case STM_BUILD_ACROSS:
-			m_targetPos = m_buildPos;
+			GXROW_BRIDGESCAFFOLDBEHAVIOR.targetPos = GXROW_BRIDGESCAFFOLDBEHAVIOR.buildPos;
 			break;
 
 		// --------------------------------------------------------------------------------------------
 		case STM_SINK:
-			m_targetPos = m_createPos;
+			GXROW_BRIDGESCAFFOLDBEHAVIOR.targetPos = GXROW_BRIDGESCAFFOLDBEHAVIOR.createPos;
 			break;
 
 	}
@@ -111,7 +119,7 @@ void BridgeScaffoldBehavior::setMotion( ScaffoldTargetMotion targetMotion )
 void BridgeScaffoldBehavior::reverseMotion()
 {
 
-	switch( m_targetMotion )
+	switch( GXROW_BRIDGESCAFFOLDBEHAVIOR.targetMotion )
 	{
 
 		case STM_STILL:
@@ -145,7 +153,7 @@ UpdateSleepTime BridgeScaffoldBehavior::update()
 {
 
 	// do nothing if we're not in motion
-	if( m_targetMotion == STM_STILL )
+	if( GXROW_BRIDGESCAFFOLDBEHAVIOR.targetMotion == STM_STILL )
 		return UPDATE_SLEEP_NONE;
 
 	// get our info
@@ -154,9 +162,9 @@ UpdateSleepTime BridgeScaffoldBehavior::update()
 
 	// compute direction vector from our position to the target position
 	Coord3D dirV;
-	dirV.x = m_targetPos.x - ourPos->x;
-	dirV.y = m_targetPos.y - ourPos->y;
-	dirV.z = m_targetPos.z - ourPos->z;
+	dirV.x = GXROW_BRIDGESCAFFOLDBEHAVIOR.targetPos.x - ourPos->x;
+	dirV.y = GXROW_BRIDGESCAFFOLDBEHAVIOR.targetPos.y - ourPos->y;
+	dirV.z = GXROW_BRIDGESCAFFOLDBEHAVIOR.targetPos.z - ourPos->z;
 
 	// use normalized direction vector "v" to do the pulling movement
 	Coord3D v = dirV;
@@ -165,31 +173,31 @@ UpdateSleepTime BridgeScaffoldBehavior::update()
 	// depending on our motion type, we move at different speeds
 	Real topSpeed = 1.0f;
 	Coord3D *start, *end;
-	switch( m_targetMotion )
+	switch( GXROW_BRIDGESCAFFOLDBEHAVIOR.targetMotion )
 	{
 
 		case STM_RISE:
-			topSpeed = m_verticalSpeed;
-			start = &m_createPos;
-			end = &m_riseToPos;
+			topSpeed = GXROW_BRIDGESCAFFOLDBEHAVIOR.verticalSpeed;
+			start = &GXROW_BRIDGESCAFFOLDBEHAVIOR.createPos;
+			end = &GXROW_BRIDGESCAFFOLDBEHAVIOR.riseToPos;
 			break;
 
 		case STM_SINK:
-			topSpeed = m_verticalSpeed;
-			start = &m_riseToPos;
-			end = &m_createPos;
+			topSpeed = GXROW_BRIDGESCAFFOLDBEHAVIOR.verticalSpeed;
+			start = &GXROW_BRIDGESCAFFOLDBEHAVIOR.riseToPos;
+			end = &GXROW_BRIDGESCAFFOLDBEHAVIOR.createPos;
 			break;
 
 		case STM_BUILD_ACROSS:
-			topSpeed = m_lateralSpeed;
-			start = &m_riseToPos;
-			end = &m_buildPos;
+			topSpeed = GXROW_BRIDGESCAFFOLDBEHAVIOR.lateralSpeed;
+			start = &GXROW_BRIDGESCAFFOLDBEHAVIOR.riseToPos;
+			end = &GXROW_BRIDGESCAFFOLDBEHAVIOR.buildPos;
 			break;
 
 		case STM_TEAR_DOWN_ACROSS:
-			topSpeed = m_lateralSpeed;
-			start = &m_buildPos;
-			end = &m_riseToPos;
+			topSpeed = GXROW_BRIDGESCAFFOLDBEHAVIOR.lateralSpeed;
+			start = &GXROW_BRIDGESCAFFOLDBEHAVIOR.buildPos;
+			end = &GXROW_BRIDGESCAFFOLDBEHAVIOR.riseToPos;
 			break;
 
 		default:
@@ -235,20 +243,20 @@ UpdateSleepTime BridgeScaffoldBehavior::update()
 	// overshoot the distance if we use the new position
 	//
 	Coord3D tooFarVector;
-	tooFarVector.x = m_targetPos.x - newPos.x;
-	tooFarVector.y = m_targetPos.y - newPos.y;
-	tooFarVector.z = m_targetPos.z - newPos.z;
+	tooFarVector.x = GXROW_BRIDGESCAFFOLDBEHAVIOR.targetPos.x - newPos.x;
+	tooFarVector.y = GXROW_BRIDGESCAFFOLDBEHAVIOR.targetPos.y - newPos.y;
+	tooFarVector.z = GXROW_BRIDGESCAFFOLDBEHAVIOR.targetPos.z - newPos.z;
 	if( tooFarVector.x * dirV.x + tooFarVector.y * dirV.y + tooFarVector.z * dirV.z <= 0.0f )
 	{
 
 		// use the destination position
-		newPos = m_targetPos;
+		newPos = GXROW_BRIDGESCAFFOLDBEHAVIOR.targetPos;
 
 		//
 		// we have reached our target position, switch motion to the next position in
 		// the chain (which may be stay still and don't move anymore)
 		//
-		switch( m_targetMotion )
+		switch( GXROW_BRIDGESCAFFOLDBEHAVIOR.targetMotion )
 		{
 
 			case STM_RISE: setMotion( STM_BUILD_ACROSS ); break;
@@ -332,25 +340,25 @@ void BridgeScaffoldBehavior::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// target motion
-	xfer->xferUser( &m_targetMotion, sizeof( ScaffoldTargetMotion ) );
+	xfer->xferUser( &GXROW_BRIDGESCAFFOLDBEHAVIOR.targetMotion, sizeof( ScaffoldTargetMotion ) );
 
 	// create pos
-	xfer->xferCoord3D( &m_createPos );
+	xfer->xferCoord3D( &GXROW_BRIDGESCAFFOLDBEHAVIOR.createPos );
 
 	// rise to pos
-	xfer->xferCoord3D( &m_riseToPos );
+	xfer->xferCoord3D( &GXROW_BRIDGESCAFFOLDBEHAVIOR.riseToPos );
 
 	// build pos
-	xfer->xferCoord3D( &m_buildPos );
+	xfer->xferCoord3D( &GXROW_BRIDGESCAFFOLDBEHAVIOR.buildPos );
 
 	// lateral speed
-	xfer->xferReal( &m_lateralSpeed );
+	xfer->xferReal( &GXROW_BRIDGESCAFFOLDBEHAVIOR.lateralSpeed );
 
 	// vertical speed
-	xfer->xferReal( &m_verticalSpeed );
+	xfer->xferReal( &GXROW_BRIDGESCAFFOLDBEHAVIOR.verticalSpeed );
 
 	// current target pos
-	xfer->xferCoord3D( &m_targetPos );
+	xfer->xferCoord3D( &GXROW_BRIDGESCAFFOLDBEHAVIOR.targetPos );
 
 }
 

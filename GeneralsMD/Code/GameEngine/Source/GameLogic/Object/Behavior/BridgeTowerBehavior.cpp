@@ -40,13 +40,20 @@
 #include "GameLogic/Module/BridgeTowerBehavior.h"
 #include "GameLogic/TerrainLogic.h"
 
-// ------------------------------------------------------------------------------------------------
-// ------------------------------------------------------------------------------------------------
-BridgeTowerBehavior::BridgeTowerBehavior( Thing *thing, const ModuleData *moduleData )
-									 : BehaviorModule( thing, moduleData )
-{
+// Web port (round 5, units are pure data): BridgeTowerBehavior's per-unit state is a row of TheGxBridgeTowerBehaviors;
+// GXROW_BRIDGETOWERBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxBridgeTowerBehaviorRow> TheGxBridgeTowerBehaviors;
+#define GXROW_BRIDGETOWERBEHAVIOR (TheGxBridgeTowerBehaviors.at(m_gxBridgeTowerBehaviorRow))
 
-	m_bridgeID = INVALID_ID;
+
+// ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+BridgeTowerBehavior::BridgeTowerBehavior( Thing *thing, const ModuleData *moduleData ) : BehaviorModule( thing, moduleData )
+{
+	m_gxBridgeTowerBehaviorRow = TheGxBridgeTowerBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+
+	GXROW_BRIDGETOWERBEHAVIOR.bridgeID = INVALID_ID;
 
 }
 
@@ -55,6 +62,7 @@ BridgeTowerBehavior::BridgeTowerBehavior( Thing *thing, const ModuleData *module
 BridgeTowerBehavior::~BridgeTowerBehavior()
 {
 
+	TheGxBridgeTowerBehaviors.release( m_gxBridgeTowerBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -63,9 +71,9 @@ void BridgeTowerBehavior::setBridge( Object *bridge )
 {
 
 	if( bridge == nullptr )
-		m_bridgeID = INVALID_ID;
+		GXROW_BRIDGETOWERBEHAVIOR.bridgeID = INVALID_ID;
 	else
-		m_bridgeID = bridge->getID();
+		GXROW_BRIDGETOWERBEHAVIOR.bridgeID = bridge->getID();
 
 }
 
@@ -74,7 +82,7 @@ void BridgeTowerBehavior::setBridge( Object *bridge )
 ObjectID BridgeTowerBehavior::getBridgeID()
 {
 
-	return m_bridgeID;
+	return GXROW_BRIDGETOWERBEHAVIOR.bridgeID;
 
 }
 
@@ -83,7 +91,7 @@ ObjectID BridgeTowerBehavior::getBridgeID()
 void BridgeTowerBehavior::setTowerType( BridgeTowerType type )
 {
 
-	m_type = type;
+	GXROW_BRIDGETOWERBEHAVIOR.type = type;
 
 }
 
@@ -316,10 +324,10 @@ void BridgeTowerBehavior::xfer( Xfer *xfer )
 	BehaviorModule::xfer( xfer );
 
 	// xfer bridge object ID
-	xfer->xferObjectID( &m_bridgeID );
+	xfer->xferObjectID( &GXROW_BRIDGETOWERBEHAVIOR.bridgeID );
 
 	// xfer tower type
-	xfer->xferUser( &m_type, sizeof( BridgeTowerType ) );
+	xfer->xferUser( &GXROW_BRIDGETOWERBEHAVIOR.type, sizeof( BridgeTowerType ) );
 
 }
 

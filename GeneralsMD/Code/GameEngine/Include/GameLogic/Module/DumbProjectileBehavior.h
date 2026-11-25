@@ -71,6 +71,8 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxDumbProjectileBehaviorRow;
 class DumbProjectileBehavior : public UpdateModule, public ProjectileUpdateInterface
 {
 
@@ -91,7 +93,7 @@ public:
 	virtual void projectileFireAtObjectOrPosition( const Object *victim, const Coord3D *victimPos, const WeaponTemplate *detWeap, const ParticleSystemTemplate* exhaustSysOverride );
 	virtual Bool projectileHandleCollision( Object *other );
 	virtual Bool projectileIsArmed() const { return true; }
-	virtual ObjectID projectileGetLauncherID() const { return m_launcherID; }
+	virtual ObjectID projectileGetLauncherID() const;
 	virtual void setFramesTillCountermeasureDiversionOccurs( UnsignedInt frames ) {}
 	virtual void projectileNowJammed() {}
 
@@ -102,19 +104,10 @@ protected:
 
 private:
 
-	ObjectID							m_launcherID;							///< ID of object that launched us (zero if not yet launched)
-	ObjectID							m_victimID;								///< ID of object we are targeting (zero if not yet launched)
-	const WeaponTemplate*	m_detonationWeaponTmpl;		///< weapon to fire at end (or null)
-	UnsignedInt						m_lifespanFrame;					///< if we haven't collided by this frame, blow up anyway
-	VecCoord3D						m_flightPath;							///< The frame by frame flight path in a Bezier curve
-	Coord3D								m_flightPathStart;				///< where flight path started (in case we must regen it)
-	Coord3D								m_flightPathEnd;					///< where flight path ends (in case we must regen it)
-	Real									m_flightPathSpeed;				///< flight path speed (in case we must regen it)
-	Int										m_flightPathSegments;			///< number of segments in the flightpath (in case we must regen it)
-	Int										m_currentFlightPathStep;	///< Our current index in the flight path vector.  Quicker than popping off.
-	WeaponBonusConditionFlags		m_extraBonusFlags;
+	struct GxDumbProjectileBehaviorRow *m_gxDumbProjectileBehaviorRow;	///< web port (round 5): this unit's row in TheGxDumbProjectileBehaviors
+	friend struct GxDumbProjectileBehaviorRow;
+	inline struct GxDumbProjectileBehaviorRow &gxRow() const;
 
-  Bool                  m_hasDetonated;           ///<
 
 	Bool calcFlightPath(Bool recalcNumSegments);
 #if defined(RTS_DEBUG)
@@ -122,3 +115,27 @@ private:
 #endif
 
 };
+
+// Web port (round 5, units are pure data): DumbProjectileBehavior's per-unit state, one row per unit in TheGxDumbProjectileBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxDumbProjectileBehaviorRow
+{
+	ObjectID launcherID;
+	ObjectID victimID;
+	const WeaponTemplate* detonationWeaponTmpl;
+	UnsignedInt lifespanFrame;
+	VecCoord3D flightPath;
+	Coord3D flightPathStart;
+	Coord3D flightPathEnd;
+	Real flightPathSpeed;
+	Int flightPathSegments;
+	Int currentFlightPathStep;
+	WeaponBonusConditionFlags extraBonusFlags;
+	Bool hasDetonated;
+};
+extern GxComponentTable<GxDumbProjectileBehaviorRow> TheGxDumbProjectileBehaviors;
+
+
+inline GxDumbProjectileBehaviorRow &DumbProjectileBehavior::gxRow() const { return TheGxDumbProjectileBehaviors.at(m_gxDumbProjectileBehaviorRow); }
+inline ObjectID DumbProjectileBehavior::projectileGetLauncherID() const { return gxRow().launcherID; }
+

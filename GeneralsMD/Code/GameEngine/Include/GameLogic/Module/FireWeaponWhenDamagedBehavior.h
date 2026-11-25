@@ -99,6 +99,8 @@ private:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxFireWeaponWhenDamagedBehaviorRow;
 class FireWeaponWhenDamagedBehavior : public UpdateModule,
 																			public UpgradeMux,
 																			public DamageModuleInterface
@@ -160,13 +162,27 @@ protected:
 	virtual Bool isSubObjectsUpgrade() { return false; }
 
 private:
-	Weapon *m_reactionWeaponPristine;
-	Weapon *m_reactionWeaponDamaged;
-	Weapon *m_reactionWeaponReallyDamaged;
-	Weapon *m_reactionWeaponRubble;
-	Weapon *m_continuousWeaponPristine;
-	Weapon *m_continuousWeaponDamaged;
-	Weapon *m_continuousWeaponReallyDamaged;
-	Weapon *m_continuousWeaponRubble;
+	struct GxFireWeaponWhenDamagedBehaviorRow *m_gxFireWeaponWhenDamagedBehaviorRow;	///< web port (round 5): this unit's row in TheGxFireWeaponWhenDamagedBehaviors
+	friend struct GxFireWeaponWhenDamagedBehaviorRow;
+	inline struct GxFireWeaponWhenDamagedBehaviorRow &gxRow() const;
 
 };
+
+// Web port (round 5, units are pure data): FireWeaponWhenDamagedBehavior's per-unit state, one row per unit in TheGxFireWeaponWhenDamagedBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxFireWeaponWhenDamagedBehaviorRow
+{
+	Weapon* reactionWeaponPristine;
+	Weapon* reactionWeaponDamaged;
+	Weapon* reactionWeaponReallyDamaged;
+	Weapon* reactionWeaponRubble;
+	Weapon* continuousWeaponPristine;
+	Weapon* continuousWeaponDamaged;
+	Weapon* continuousWeaponReallyDamaged;
+	Weapon* continuousWeaponRubble;
+};
+extern GxComponentTable<GxFireWeaponWhenDamagedBehaviorRow> TheGxFireWeaponWhenDamagedBehaviors;
+
+
+inline GxFireWeaponWhenDamagedBehaviorRow &FireWeaponWhenDamagedBehavior::gxRow() const { return TheGxFireWeaponWhenDamagedBehaviors.at(m_gxFireWeaponWhenDamagedBehaviorRow); }
+

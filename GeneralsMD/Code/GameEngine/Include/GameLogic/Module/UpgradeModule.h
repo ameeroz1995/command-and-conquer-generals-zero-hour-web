@@ -115,6 +115,7 @@ class UpgradeMux : public UpgradeModuleInterface
 public:
 
 	UpgradeMux();
+	virtual ~UpgradeMux();
 
 	virtual Bool isAlreadyUpgraded() const ;
 	// ***DANGER! DANGER! Don't use this, unless you are forcing an already made upgrade to refresh!!
@@ -126,7 +127,7 @@ public:
 
 protected:
 
-	void setUpgradeExecuted(Bool e) { m_upgradeExecuted = e; }
+	void setUpgradeExecuted(Bool e);
 	virtual void upgradeImplementation() = 0; ///< Here's the actual work of Upgrading
 	virtual void getUpgradeActivationMasks(UpgradeMaskType& activation, UpgradeMaskType& conflicting) const = 0; ///< Here's the actual work of Upgrading
 	virtual void performUpgradeFX() = 0;	///< perform the associated fx list
@@ -146,9 +147,19 @@ protected:
 	virtual void upgradeMuxLoadPostProcess();
 
 private:
-	Bool m_upgradeExecuted;				///< Upgrade only executes once
+	struct GxUpgradeMuxRow *m_gxUpgradeMuxRow;	///< web port (round 5): this upgrade's row in TheGxUpgradeMuxes (its "executed" flag)
 
 };
+
+// Web port (round 5, units are pure data): an upgrade mix-in's per-unit state, one row per module in
+// TheGxUpgradeMuxes; UpgradeMux reads and writes its row (UpgradeModule.cpp). Mix-ins have no object,
+// so these rows carry none.
+#include "GameLogic/GxComponents.h"
+struct GxUpgradeMuxRow
+{
+	Bool upgradeExecuted;	///< Upgrade only executes once
+};
+extern GxComponentTable<GxUpgradeMuxRow> TheGxUpgradeMuxes;
 
 //-------------------------------------------------------------------------------------------------
 struct UpgradeModuleData : public BehaviorModuleData

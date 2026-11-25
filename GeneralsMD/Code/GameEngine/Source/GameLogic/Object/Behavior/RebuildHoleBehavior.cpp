@@ -42,6 +42,12 @@
 #include "GameLogic/Module/RebuildHoleBehavior.h"
 #include "GameLogic/Module/StickyBombUpdate.h"
 
+// Web port (round 5, units are pure data): RebuildHoleBehavior's per-unit state is a row of TheGxRebuildHoleBehaviors;
+// GXROW_REBUILDHOLEBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxRebuildHoleBehaviorRow> TheGxRebuildHoleBehaviors;
+#define GXROW_REBUILDHOLEBEHAVIOR (TheGxRebuildHoleBehaviors.at(m_gxRebuildHoleBehaviorRow))
+
+
 
 //-------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
@@ -78,16 +84,17 @@ RebuildHoleBehaviorModuleData::RebuildHoleBehaviorModuleData()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-RebuildHoleBehavior::RebuildHoleBehavior( Thing *thing, const ModuleData* moduleData )
-									 : UpdateModule( thing, moduleData )
+RebuildHoleBehavior::RebuildHoleBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxRebuildHoleBehaviorRow = TheGxRebuildHoleBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
-	m_workerID = INVALID_ID;
-	m_reconstructingID = INVALID_ID;
-	m_spawnerObjectID = INVALID_ID;
-	m_workerWaitCounter = 0;
-	m_workerTemplate = nullptr;
-	m_rebuildTemplate = nullptr;
+
+	GXROW_REBUILDHOLEBEHAVIOR.workerID = INVALID_ID;
+	GXROW_REBUILDHOLEBEHAVIOR.reconstructingID = INVALID_ID;
+	GXROW_REBUILDHOLEBEHAVIOR.spawnerObjectID = INVALID_ID;
+	GXROW_REBUILDHOLEBEHAVIOR.workerWaitCounter = 0;
+	GXROW_REBUILDHOLEBEHAVIOR.workerTemplate = nullptr;
+	GXROW_REBUILDHOLEBEHAVIOR.rebuildTemplate = nullptr;
 
 }
 
@@ -97,16 +104,17 @@ RebuildHoleBehavior::~RebuildHoleBehavior()
 {
 	// ensure that our generated worker is destroyed,
 	// just in case someone decides to destroy (not kill) us...
-	if( m_workerID != INVALID_ID )
+	if( GXROW_REBUILDHOLEBEHAVIOR.workerID != INVALID_ID )
 	{
-		Object *worker = TheGameLogic->findObjectByID(m_workerID);
+		Object *worker = TheGameLogic->findObjectByID(GXROW_REBUILDHOLEBEHAVIOR.workerID);
 		if( worker )
 		{
 			TheGameLogic->destroyObject(worker);
-			m_workerID = INVALID_ID;
+			GXROW_REBUILDHOLEBEHAVIOR.workerID = INVALID_ID;
 		}
 	}
 
+	TheGxRebuildHoleBehaviors.release( m_gxRebuildHoleBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -119,13 +127,13 @@ void RebuildHoleBehavior::newWorkerRespawnProcess( Object *existingWorker )
 	// if we have an existing worker, get rid of it
 	if( existingWorker )
 	{
-		DEBUG_ASSERTCRASH(existingWorker->getID() == m_workerID, ("m_workerID mismatch in RebuildHole"));
+		DEBUG_ASSERTCRASH(existingWorker->getID() == GXROW_REBUILDHOLEBEHAVIOR.workerID, ("GXROW_REBUILDHOLEBEHAVIOR.workerID mismatch in RebuildHole"));
 		TheGameLogic->destroyObject( existingWorker );
 	}
-	m_workerID = INVALID_ID;
+	GXROW_REBUILDHOLEBEHAVIOR.workerID = INVALID_ID;
 
 	// set the timer for the next worker respawn
-	m_workerWaitCounter = modData->m_workerRespawnDelay;
+	GXROW_REBUILDHOLEBEHAVIOR.workerWaitCounter = modData->m_workerRespawnDelay;
 
 	//
 	// this method is called when a worker needs to be respawned from the hole.  One of those
@@ -144,13 +152,13 @@ void RebuildHoleBehavior::startRebuildProcess( const ThingTemplate *rebuild, Obj
 {
 
 	// save what we're gonna do
-	m_rebuildTemplate = rebuild;
+	GXROW_REBUILDHOLEBEHAVIOR.rebuildTemplate = rebuild;
 
 	// store the object that spawned this hole (even though it's likely being destroyed)
-	m_spawnerObjectID = spawnerID;
+	GXROW_REBUILDHOLEBEHAVIOR.spawnerObjectID = spawnerID;
 
 	// start the spawning process for a worker
-	Object *worker = TheGameLogic->findObjectByID(m_workerID);
+	Object *worker = TheGameLogic->findObjectByID(GXROW_REBUILDHOLEBEHAVIOR.workerID);
 	newWorkerRespawnProcess( worker ); //Kill the worker if we have one.
 
 }
@@ -188,11 +196,11 @@ UpdateSleepTime RebuildHoleBehavior::update()
 	Object *worker = nullptr;
 
 	// get the worker object if we have one
-	if( m_workerID != 0 )
+	if( GXROW_REBUILDHOLEBEHAVIOR.workerID != 0 )
 	{
 
 		// get the worker
-		worker = TheGameLogic->findObjectByID( m_workerID );
+		worker = TheGameLogic->findObjectByID( GXROW_REBUILDHOLEBEHAVIOR.workerID );
 
 		// if the worker is no longer there, start the respawning process for a worker again
 		if( worker == nullptr )
@@ -201,11 +209,11 @@ UpdateSleepTime RebuildHoleBehavior::update()
 	}
 
 	// if we have a reconstructing object built, get the actual object pointer
-	if( m_reconstructingID != 0 )
+	if( GXROW_REBUILDHOLEBEHAVIOR.reconstructingID != 0 )
 	{
 
 		// get object pointer
-		reconstructing = TheGameLogic->findObjectByID( m_reconstructingID );
+		reconstructing = TheGameLogic->findObjectByID( GXROW_REBUILDHOLEBEHAVIOR.reconstructingID );
 
 		//
 		// if that object does not exist anymore, we need to kill a worker if we have one
@@ -214,25 +222,25 @@ UpdateSleepTime RebuildHoleBehavior::update()
 		if( reconstructing == nullptr )
 		{
 			newWorkerRespawnProcess( worker );
-			m_reconstructingID = INVALID_ID;
+			GXROW_REBUILDHOLEBEHAVIOR.reconstructingID = INVALID_ID;
 		}
 
 	}
 
 	// see if it's time for us to spawn a worker
-	if( worker == nullptr && m_workerWaitCounter > 0 )
+	if( worker == nullptr && GXROW_REBUILDHOLEBEHAVIOR.workerWaitCounter > 0 )
 	{
 
 		// decrement counter and respawn if it's time
-		if( --m_workerWaitCounter == 0 )
+		if( --GXROW_REBUILDHOLEBEHAVIOR.workerWaitCounter == 0 )
 		{
 
 			// resolve the worker template pointer if necessary
-			if( m_workerTemplate == nullptr )
-				m_workerTemplate = TheThingFactory->findTemplate( modData->m_workerTemplateName );
+			if( GXROW_REBUILDHOLEBEHAVIOR.workerTemplate == nullptr )
+				GXROW_REBUILDHOLEBEHAVIOR.workerTemplate = TheThingFactory->findTemplate( modData->m_workerTemplateName );
 
 			// create a worker
-			worker = TheThingFactory->newObject( m_workerTemplate, hole->getTeam() );
+			worker = TheThingFactory->newObject( GXROW_REBUILDHOLEBEHAVIOR.workerTemplate, hole->getTeam() );
 			if( worker )
 			{
 
@@ -240,7 +248,7 @@ UpdateSleepTime RebuildHoleBehavior::update()
 				worker->setPosition( hole->getPosition() );
 
 				// save the ID of the worker spawned
-				m_workerID = worker->getID();
+				GXROW_REBUILDHOLEBEHAVIOR.workerID = worker->getID();
 
 				//
 				// tell the worker to begin construction of a building if one does not
@@ -251,7 +259,7 @@ UpdateSleepTime RebuildHoleBehavior::update()
 				{
 
 					if( reconstructing == nullptr )
-						reconstructing = ai->construct( m_rebuildTemplate,
+						reconstructing = ai->construct( GXROW_REBUILDHOLEBEHAVIOR.rebuildTemplate,
 																						hole->getPosition(),
 																						hole->getOrientation(),
 																						hole->getControllingPlayer(),
@@ -271,7 +279,7 @@ UpdateSleepTime RebuildHoleBehavior::update()
 					}
 
 					// save the id of what we are reconstructing
-					m_reconstructingID = reconstructing->getID();
+					GXROW_REBUILDHOLEBEHAVIOR.reconstructingID = reconstructing->getID();
 
 					//Kris: Hacking the building to set the hole as the producer... so if the site dies, we
 					//can transfer the attack back to the hole. The object has OBJECT_STATUS_RECONSTRUCTING
@@ -337,15 +345,15 @@ UpdateSleepTime RebuildHoleBehavior::update()
 //-------------------------------------------------------------------------------------------------
 void RebuildHoleBehavior::onDie( const DamageInfo *damageInfo )
 {
-	if( m_workerID != INVALID_ID )
+	if( GXROW_REBUILDHOLEBEHAVIOR.workerID != INVALID_ID )
 	{
 		// Our rebuilding building and us the hole can be killed in the same frame, which means we may not have
 		// deleted our generated worker since we do that in our update.
-		Object *worker = TheGameLogic->findObjectByID(m_workerID);
+		Object *worker = TheGameLogic->findObjectByID(GXROW_REBUILDHOLEBEHAVIOR.workerID);
 		if( worker )
 		{
 			TheGameLogic->destroyObject(worker);
-			m_workerID = INVALID_ID;
+			GXROW_REBUILDHOLEBEHAVIOR.workerID = INVALID_ID;
 		}
 	}
 
@@ -410,20 +418,20 @@ void RebuildHoleBehavior::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// worker ID
-	xfer->xferObjectID( &m_workerID );
+	xfer->xferObjectID( &GXROW_REBUILDHOLEBEHAVIOR.workerID );
 
 	// reconstructing id
-	xfer->xferObjectID( &m_reconstructingID );
+	xfer->xferObjectID( &GXROW_REBUILDHOLEBEHAVIOR.reconstructingID );
 
 	// spawner ID
 	if( version >= 2 )
-		xfer->xferObjectID( &m_spawnerObjectID );
+		xfer->xferObjectID( &GXROW_REBUILDHOLEBEHAVIOR.spawnerObjectID );
 
 	// worker wait counter
-	xfer->xferUnsignedInt( &m_workerWaitCounter );
+	xfer->xferUnsignedInt( &GXROW_REBUILDHOLEBEHAVIOR.workerWaitCounter );
 
 	// worker template
-	AsciiString workerName = m_workerTemplate ? m_workerTemplate->getName() : AsciiString::TheEmptyString;
+	AsciiString workerName = GXROW_REBUILDHOLEBEHAVIOR.workerTemplate ? GXROW_REBUILDHOLEBEHAVIOR.workerTemplate->getName() : AsciiString::TheEmptyString;
 	xfer->xferAsciiString( &workerName );
 	if( xfer->getXferMode() == XFER_LOAD )
 	{
@@ -431,8 +439,8 @@ void RebuildHoleBehavior::xfer( Xfer *xfer )
 		if( workerName != AsciiString::TheEmptyString )
 		{
 
-			m_workerTemplate = TheThingFactory->findTemplate( workerName );
-			if( m_workerTemplate == nullptr )
+			GXROW_REBUILDHOLEBEHAVIOR.workerTemplate = TheThingFactory->findTemplate( workerName );
+			if( GXROW_REBUILDHOLEBEHAVIOR.workerTemplate == nullptr )
 			{
 
 				DEBUG_CRASH(( "RebuildHoleBehavior::xfer - Unable to find template '%s'",
@@ -443,12 +451,12 @@ void RebuildHoleBehavior::xfer( Xfer *xfer )
 
 		}
 		else
-			m_workerTemplate = nullptr;
+			GXROW_REBUILDHOLEBEHAVIOR.workerTemplate = nullptr;
 
 	}
 
 	// rebuild template
-	AsciiString rebuildName = m_rebuildTemplate ? m_rebuildTemplate->getName() : AsciiString::TheEmptyString;
+	AsciiString rebuildName = GXROW_REBUILDHOLEBEHAVIOR.rebuildTemplate ? GXROW_REBUILDHOLEBEHAVIOR.rebuildTemplate->getName() : AsciiString::TheEmptyString;
 	xfer->xferAsciiString( &rebuildName );
 	if( xfer->getXferMode() == XFER_LOAD )
 	{
@@ -456,8 +464,8 @@ void RebuildHoleBehavior::xfer( Xfer *xfer )
 		if( rebuildName != AsciiString::TheEmptyString )
 		{
 
-			m_rebuildTemplate = TheThingFactory->findTemplate( rebuildName );
-			if( m_rebuildTemplate == nullptr )
+			GXROW_REBUILDHOLEBEHAVIOR.rebuildTemplate = TheThingFactory->findTemplate( rebuildName );
+			if( GXROW_REBUILDHOLEBEHAVIOR.rebuildTemplate == nullptr )
 			{
 
 				DEBUG_CRASH(( "RebuildHoleBehavior::xfer - Unable to find template '%s'",
@@ -468,7 +476,7 @@ void RebuildHoleBehavior::xfer( Xfer *xfer )
 
 		}
 		else
-			m_rebuildTemplate = nullptr;
+			GXROW_REBUILDHOLEBEHAVIOR.rebuildTemplate = nullptr;
 
 	}
 

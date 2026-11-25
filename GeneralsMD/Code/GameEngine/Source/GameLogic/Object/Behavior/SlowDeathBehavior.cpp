@@ -50,6 +50,12 @@
 #include "GameLogic/ObjectCreationList.h"
 #include "GameLogic/Weapon.h"
 
+// Web port (round 5, units are pure data): SlowDeathBehavior's per-unit state is a row of TheGxSlowDeathBehaviors;
+// GXROW_SLOWDEATHBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxSlowDeathBehaviorRow> TheGxSlowDeathBehaviors;
+#define GXROW_SLOWDEATHBEHAVIOR (TheGxSlowDeathBehaviors.at(m_gxSlowDeathBehaviorRow))
+
+
 
 const Real BEGIN_MIDPOINT_RATIO = 0.35f;
 const Real END_MIDPOINT_RATIO = 0.65f;
@@ -150,11 +156,13 @@ static void parseWeapon( INI* ini, void *instance, void * /*store*/, const void*
 //-------------------------------------------------------------------------------------------------
 SlowDeathBehavior::SlowDeathBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_flags = 0;
-	m_sinkFrame = 0;
-	m_midpointFrame = 0;
-	m_destructionFrame = 0;
-	m_acceleratedTimeScale = 1.0f;
+	m_gxSlowDeathBehaviorRow = TheGxSlowDeathBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+	GXROW_SLOWDEATHBEHAVIOR.flags = 0;
+	GXROW_SLOWDEATHBEHAVIOR.sinkFrame = 0;
+	GXROW_SLOWDEATHBEHAVIOR.midpointFrame = 0;
+	GXROW_SLOWDEATHBEHAVIOR.destructionFrame = 0;
+	GXROW_SLOWDEATHBEHAVIOR.acceleratedTimeScale = 1.0f;
 
 	if (getSlowDeathBehaviorModuleData()->m_probabilityModifier < 1)
 	{
@@ -169,6 +177,7 @@ SlowDeathBehavior::SlowDeathBehavior( Thing *thing, const ModuleData* moduleData
 //-------------------------------------------------------------------------------------------------
 SlowDeathBehavior::~SlowDeathBehavior()
 {
+	TheGxSlowDeathBehaviors.release( m_gxSlowDeathBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -232,7 +241,7 @@ void SlowDeathBehavior::beginSlowDeath(const DamageInfo *damageInfo)
 
 		// Ask game detail manager if we need to speedup all deaths to improve performance
 		Real timeScale = TheGameLODManager->getSlowDeathScale();
-		m_acceleratedTimeScale = 1.0f;	// assume normal death speed.
+		GXROW_SLOWDEATHBEHAVIOR.acceleratedTimeScale = 1.0f;	// assume normal death speed.
 
 		if (timeScale == 0.0f && !d->hasNonLodEffects())
 		{
@@ -246,17 +255,17 @@ void SlowDeathBehavior::beginSlowDeath(const DamageInfo *damageInfo)
 			if( getObject()->isKindOf( KINDOF_HULK ) && TheGameLogic->getHulkMaxLifetimeOverride() != -1 )
 			{
 				//Scripts don't want hulks around, so start sinking immediately!
-				m_sinkFrame = 1;
-				m_midpointFrame = (LOGICFRAMES_PER_SECOND/2) + 1;
-				m_destructionFrame = LOGICFRAMES_PER_SECOND + 1;
-				m_acceleratedTimeScale = 1.0f;
+				GXROW_SLOWDEATHBEHAVIOR.sinkFrame = 1;
+				GXROW_SLOWDEATHBEHAVIOR.midpointFrame = (LOGICFRAMES_PER_SECOND/2) + 1;
+				GXROW_SLOWDEATHBEHAVIOR.destructionFrame = LOGICFRAMES_PER_SECOND + 1;
+				GXROW_SLOWDEATHBEHAVIOR.acceleratedTimeScale = 1.0f;
 			}
 			else
 			{
-				m_sinkFrame = timeScale * (d->m_sinkDelay + GameLogicRandomValue(0, d->m_sinkDelayVariance));
-				m_destructionFrame = timeScale * (d->m_destructionDelay + GameLogicRandomValue(0, d->m_destructionDelayVariance));
-				m_midpointFrame = GameLogicRandomValue( BEGIN_MIDPOINT_RATIO * m_destructionFrame, END_MIDPOINT_RATIO * m_destructionFrame );
-				m_acceleratedTimeScale = timeScale;
+				GXROW_SLOWDEATHBEHAVIOR.sinkFrame = timeScale * (d->m_sinkDelay + GameLogicRandomValue(0, d->m_sinkDelayVariance));
+				GXROW_SLOWDEATHBEHAVIOR.destructionFrame = timeScale * (d->m_destructionDelay + GameLogicRandomValue(0, d->m_destructionDelayVariance));
+				GXROW_SLOWDEATHBEHAVIOR.midpointFrame = GameLogicRandomValue( BEGIN_MIDPOINT_RATIO * GXROW_SLOWDEATHBEHAVIOR.destructionFrame, END_MIDPOINT_RATIO * GXROW_SLOWDEATHBEHAVIOR.destructionFrame );
+				GXROW_SLOWDEATHBEHAVIOR.acceleratedTimeScale = timeScale;
 			}
 		}
 
@@ -302,7 +311,7 @@ void SlowDeathBehavior::beginSlowDeath(const DamageInfo *damageInfo)
 				Real orientation = atan2(force.y, force.x);
 				physics->setAngles(orientation, 0, 0);
 				obj->getDrawable()->setModelConditionState(MODELCONDITION_EXPLODED_FLAILING);
-				m_flags |= (1<<FLUNG_INTO_AIR);
+				GXROW_SLOWDEATHBEHAVIOR.flags |= (1<<FLUNG_INTO_AIR);
 			}
 			setWakeFrame(obj, UPDATE_SLEEP_NONE);
 		}
@@ -310,18 +319,18 @@ void SlowDeathBehavior::beginSlowDeath(const DamageInfo *damageInfo)
 		{
 			// we don't need to wake up immediately, but only when the first of these
 			// counters wants to trigger....
-			Int whenToWakeTime = m_sinkFrame;
-			if (whenToWakeTime > m_destructionFrame)
-				whenToWakeTime = m_destructionFrame;
-			if (whenToWakeTime > m_midpointFrame)
-				whenToWakeTime = m_midpointFrame;
+			Int whenToWakeTime = GXROW_SLOWDEATHBEHAVIOR.sinkFrame;
+			if (whenToWakeTime > GXROW_SLOWDEATHBEHAVIOR.destructionFrame)
+				whenToWakeTime = GXROW_SLOWDEATHBEHAVIOR.destructionFrame;
+			if (whenToWakeTime > GXROW_SLOWDEATHBEHAVIOR.midpointFrame)
+				whenToWakeTime = GXROW_SLOWDEATHBEHAVIOR.midpointFrame;
 			setWakeFrame(obj, UPDATE_SLEEP(whenToWakeTime));
 		}
-		m_sinkFrame += now;
-		m_destructionFrame += now;
-		m_midpointFrame += now;
+		GXROW_SLOWDEATHBEHAVIOR.sinkFrame += now;
+		GXROW_SLOWDEATHBEHAVIOR.destructionFrame += now;
+		GXROW_SLOWDEATHBEHAVIOR.midpointFrame += now;
 
-		m_flags |= (1<<SLOW_DEATH_ACTIVATED);
+		GXROW_SLOWDEATHBEHAVIOR.flags |= (1<<SLOW_DEATH_ACTIVATED);
 
 		doPhaseStuff(SDPHASE_INITIAL);
 
@@ -385,7 +394,7 @@ UpdateSleepTime SlowDeathBehavior::update()
 	Real timeScale = TheGameLODManager->getSlowDeathScale();
 
 	// Check if we have normal time scale but LODManager is requesting acceleration
-	if (timeScale != 1.0f && m_acceleratedTimeScale == 1.0f && !d->hasNonLodEffects())
+	if (timeScale != 1.0f && GXROW_SLOWDEATHBEHAVIOR.acceleratedTimeScale == 1.0f && !d->hasNonLodEffects())
 	{
 		// speed of deaths has been increased since beginning of death
 		// so adjust it to current levels.
@@ -396,27 +405,27 @@ UpdateSleepTime SlowDeathBehavior::update()
 			return UPDATE_SLEEP_NONE;
 		}
 
-		m_sinkFrame = (Real)m_sinkFrame * timeScale;
-		m_midpointFrame = (Real)m_midpointFrame * timeScale;
-		m_destructionFrame = (Real)m_destructionFrame * timeScale;
-		m_acceleratedTimeScale = timeScale;
+		GXROW_SLOWDEATHBEHAVIOR.sinkFrame = (Real)GXROW_SLOWDEATHBEHAVIOR.sinkFrame * timeScale;
+		GXROW_SLOWDEATHBEHAVIOR.midpointFrame = (Real)GXROW_SLOWDEATHBEHAVIOR.midpointFrame * timeScale;
+		GXROW_SLOWDEATHBEHAVIOR.destructionFrame = (Real)GXROW_SLOWDEATHBEHAVIOR.destructionFrame * timeScale;
+		GXROW_SLOWDEATHBEHAVIOR.acceleratedTimeScale = timeScale;
 	};
 
 	UnsignedInt now = TheGameLogic->getFrame();
 
 
-	if ((m_flags & (1<<FLUNG_INTO_AIR)) != 0)
+	if ((GXROW_SLOWDEATHBEHAVIOR.flags & (1<<FLUNG_INTO_AIR)) != 0)
 	{
-		if ((m_flags & (1<<BOUNCED)) == 0)
+		if ((GXROW_SLOWDEATHBEHAVIOR.flags & (1<<BOUNCED)) == 0)
 		{
-			++m_sinkFrame;
-			++m_midpointFrame;
-			++m_destructionFrame;
+			++GXROW_SLOWDEATHBEHAVIOR.sinkFrame;
+			++GXROW_SLOWDEATHBEHAVIOR.midpointFrame;
+			++GXROW_SLOWDEATHBEHAVIOR.destructionFrame;
 			if (!obj->isAboveTerrain())
 			{
 				obj->clearAndSetModelConditionFlags(MAKE_MODELCONDITION_MASK(MODELCONDITION_EXPLODED_FLAILING),
 																						MAKE_MODELCONDITION_MASK(MODELCONDITION_EXPLODED_BOUNCING));
-				m_flags |= (1<<BOUNCED);
+				GXROW_SLOWDEATHBEHAVIOR.flags |= (1<<BOUNCED);
 			}
 
 			// Here we want to make sure we die if we collide with a tree on the way down
@@ -446,22 +455,22 @@ UpdateSleepTime SlowDeathBehavior::update()
 		}
 	}
 
-	if ( (now >= m_sinkFrame && d->m_sinkRate > 0.0f) )
+	if ( (now >= GXROW_SLOWDEATHBEHAVIOR.sinkFrame && d->m_sinkRate > 0.0f) )
 	{
 		// disable Physics (if any) so that we can control the sink...
 		obj->setDisabled( DISABLED_HELD );
 		Coord3D pos = *obj->getPosition();
-		pos.z -= d->m_sinkRate / m_acceleratedTimeScale;
+		pos.z -= d->m_sinkRate / GXROW_SLOWDEATHBEHAVIOR.acceleratedTimeScale;
 		obj->setPosition( &pos );
 	}
 
-	if( now >= m_midpointFrame && (m_flags & (1<<MIDPOINT_EXECUTED)) == 0 )
+	if( now >= GXROW_SLOWDEATHBEHAVIOR.midpointFrame && (GXROW_SLOWDEATHBEHAVIOR.flags & (1<<MIDPOINT_EXECUTED)) == 0 )
 	{
 		doPhaseStuff(SDPHASE_MIDPOINT);
-		m_flags |= (1<<MIDPOINT_EXECUTED);
+		GXROW_SLOWDEATHBEHAVIOR.flags |= (1<<MIDPOINT_EXECUTED);
 	}
 
-	if (now >= m_destructionFrame)
+	if (now >= GXROW_SLOWDEATHBEHAVIOR.destructionFrame)
 	{
 		doPhaseStuff(SDPHASE_FINAL);
 		TheGameLogic->destroyObject(obj);
@@ -551,19 +560,19 @@ void SlowDeathBehavior::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// sink frame
-	xfer->xferUnsignedInt( &m_sinkFrame );
+	xfer->xferUnsignedInt( &GXROW_SLOWDEATHBEHAVIOR.sinkFrame );
 
 	// midpoint frame
-	xfer->xferUnsignedInt( &m_midpointFrame );
+	xfer->xferUnsignedInt( &GXROW_SLOWDEATHBEHAVIOR.midpointFrame );
 
 	// destruction frame
-	xfer->xferUnsignedInt( &m_destructionFrame );
+	xfer->xferUnsignedInt( &GXROW_SLOWDEATHBEHAVIOR.destructionFrame );
 
 	// accelerated time scale
-	xfer->xferReal( &m_acceleratedTimeScale );
+	xfer->xferReal( &GXROW_SLOWDEATHBEHAVIOR.acceleratedTimeScale );
 
 	// flags
-	xfer->xferUnsignedInt( &m_flags );
+	xfer->xferUnsignedInt( &GXROW_SLOWDEATHBEHAVIOR.flags );
 
 }
 

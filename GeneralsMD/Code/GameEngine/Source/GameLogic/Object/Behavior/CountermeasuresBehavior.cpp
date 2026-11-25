@@ -47,6 +47,12 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 
+// Web port (round 5, units are pure data): CountermeasuresBehavior's per-unit state is a row of TheGxCountermeasuresBehaviors;
+// GXROW_COUNTERMEASURESBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxCountermeasuresBehaviorRow> TheGxCountermeasuresBehaviors;
+#define GXROW_COUNTERMEASURESBEHAVIOR (TheGxCountermeasuresBehaviors.at(m_gxCountermeasuresBehaviorRow))
+
+
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -84,13 +90,15 @@ static void checkForCountermeasures( Object *testObj, void *userData )
 //-------------------------------------------------------------------------------------------------
 CountermeasuresBehavior::CountermeasuresBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxCountermeasuresBehaviorRow = TheGxCountermeasuresBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
+
 	const CountermeasuresBehaviorModuleData *data = getCountermeasuresBehaviorModuleData();
-	m_availableCountermeasures = data->m_numberOfVolleys * data->m_volleySize;
-	m_reactionFrame = 0;
-	m_activeCountermeasures = 0;
-	m_divertedMissiles = 0;
-	m_incomingMissiles = 0;
-	m_nextVolleyFrame = 0;
+	GXROW_COUNTERMEASURESBEHAVIOR.availableCountermeasures = data->m_numberOfVolleys * data->m_volleySize;
+	GXROW_COUNTERMEASURESBEHAVIOR.reactionFrame = 0;
+	GXROW_COUNTERMEASURESBEHAVIOR.activeCountermeasures = 0;
+	GXROW_COUNTERMEASURESBEHAVIOR.divertedMissiles = 0;
+	GXROW_COUNTERMEASURESBEHAVIOR.incomingMissiles = 0;
+	GXROW_COUNTERMEASURESBEHAVIOR.nextVolleyFrame = 0;
 
 	setWakeFrame( getObject(), UPDATE_SLEEP_NONE );
 }
@@ -99,6 +107,7 @@ CountermeasuresBehavior::CountermeasuresBehavior( Thing *thing, const ModuleData
 //-------------------------------------------------------------------------------------------------
 CountermeasuresBehavior::~CountermeasuresBehavior()
 {
+	TheGxCountermeasuresBehaviors.release( m_gxCountermeasuresBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -110,9 +119,9 @@ void CountermeasuresBehavior::reportMissileForCountermeasures( Object *missile )
 	}
 
 	//Record the number of missiles that have been fired at us
-	m_incomingMissiles++;
+	GXROW_COUNTERMEASURESBEHAVIOR.incomingMissiles++;
 
-  if( m_availableCountermeasures + m_activeCountermeasures > 0 )
+  if( GXROW_COUNTERMEASURESBEHAVIOR.availableCountermeasures + GXROW_COUNTERMEASURESBEHAVIOR.activeCountermeasures > 0 )
 	{
 		//We have countermeasures we can use. Determine now whether or not the incoming missile will
 		//be diverted.
@@ -131,14 +140,14 @@ void CountermeasuresBehavior::reportMissileForCountermeasures( Object *missile )
 					DEBUG_ASSERTCRASH( data->m_countermeasureReactionFrames < data->m_missileDecoyFrames,
 						("MissileDecoyDelay needs to be less than CountermeasureReactionTime in order to function properly.") );
 					pui->setFramesTillCountermeasureDiversionOccurs( data->m_missileDecoyFrames );
-					m_divertedMissiles++;
+					GXROW_COUNTERMEASURESBEHAVIOR.divertedMissiles++;
 
-					if( m_activeCountermeasures == 0 && m_reactionFrame == 0 )
+					if( GXROW_COUNTERMEASURESBEHAVIOR.activeCountermeasures == 0 && GXROW_COUNTERMEASURESBEHAVIOR.reactionFrame == 0 )
 					{
 						//We need to launch our first volley of countermeasures, but we can't do it now. If we
 						//do, it'll look too artificial. Instead, we need to set up a timer to fake a reaction
 						//delay.
-						m_reactionFrame = TheGameLogic->getFrame() + data->m_countermeasureReactionFrames;
+						GXROW_COUNTERMEASURESBEHAVIOR.reactionFrame = TheGameLogic->getFrame() + data->m_countermeasureReactionFrames;
 					}
 					break;
 				}
@@ -164,9 +173,9 @@ ObjectID CountermeasuresBehavior::calculateCountermeasureToDivertTo( const Objec
 
 	//Flares are pushed to the front of the list, but we only want to acquire the "newest" of the flares, therefore
 	//Start at the end of the list and go towards the beginning.
-	CountermeasuresVec::reverse_iterator it = m_counterMeasures.rbegin();
+	CountermeasuresVec::reverse_iterator it = GXROW_COUNTERMEASURESBEHAVIOR.counterMeasures.rbegin();
 	//stop iterating after we've reached size of a single volley.
-	while( it != m_counterMeasures.rend() && volleyFlaresCounted < volleySize )
+	while( it != GXROW_COUNTERMEASURESBEHAVIOR.counterMeasures.rend() && volleyFlaresCounted < volleySize )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it++ );
 		if( obj )
@@ -219,13 +228,13 @@ UpdateSleepTime CountermeasuresBehavior::update()
 	}
 
 	//Validate all existing flares, and clean them up as needed.
-	for (CountermeasuresVec::iterator it = m_counterMeasures.begin(); it != m_counterMeasures.end(); /*nothing*/ )
+	for (CountermeasuresVec::iterator it = GXROW_COUNTERMEASURESBEHAVIOR.counterMeasures.begin(); it != GXROW_COUNTERMEASURESBEHAVIOR.counterMeasures.end(); /*nothing*/ )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it );
 		if( !obj )
 		{
-			it = m_counterMeasures.erase( it );
-			m_activeCountermeasures--;
+			it = GXROW_COUNTERMEASURESBEHAVIOR.counterMeasures.erase( it );
+			GXROW_COUNTERMEASURESBEHAVIOR.activeCountermeasures--;
 		}
 		else
 		{
@@ -237,37 +246,37 @@ UpdateSleepTime CountermeasuresBehavior::update()
 	{
 
 		//Handle flare volley launching (initial reaction, and continuation firing).
-		if( m_availableCountermeasures )
+		if( GXROW_COUNTERMEASURESBEHAVIOR.availableCountermeasures )
 		{
 			//Deal with the initial volley, but wait until we are permitted to react.
-			if( m_reactionFrame )
+			if( GXROW_COUNTERMEASURESBEHAVIOR.reactionFrame )
 			{
-				if( m_reactionFrame == now )
+				if( GXROW_COUNTERMEASURESBEHAVIOR.reactionFrame == now )
 				{
 					//We have been shot at and now that the reaction timer has expired, fire a full volley of
 					//countermeasures.
 					launchVolley();
-					m_nextVolleyFrame = now + data->m_framesBetweenVolleys;
-					m_reactionFrame = 0;
+					GXROW_COUNTERMEASURESBEHAVIOR.nextVolleyFrame = now + data->m_framesBetweenVolleys;
+					GXROW_COUNTERMEASURESBEHAVIOR.reactionFrame = 0;
 				}
 			}
 
 			//Handle subsequent volley launching.
-			if( m_nextVolleyFrame == now )
+			if( GXROW_COUNTERMEASURESBEHAVIOR.nextVolleyFrame == now )
 			{
 				launchVolley();
-				m_nextVolleyFrame = now + data->m_framesBetweenVolleys;
+				GXROW_COUNTERMEASURESBEHAVIOR.nextVolleyFrame = now + data->m_framesBetweenVolleys;
 			}
 		}
 	}
 
 	//Handle auto-reloading (data->m_reloadFrames of zero means it's not possible to auto-reload).
 	//Aircraft that don't auto-reload require landing at an airfield for resupply.
-	if( !m_availableCountermeasures && data->m_reloadFrames )
+	if( !GXROW_COUNTERMEASURESBEHAVIOR.availableCountermeasures && data->m_reloadFrames )
 	{
-		if( m_reloadFrame != 0 )
+		if( GXROW_COUNTERMEASURESBEHAVIOR.reloadFrame != 0 )
 		{
-			if( m_reloadFrame <= now )
+			if( GXROW_COUNTERMEASURESBEHAVIOR.reloadFrame <= now )
 			{
 				//We've successfully reloaded automatically.
 				reloadCountermeasures();
@@ -276,7 +285,7 @@ UpdateSleepTime CountermeasuresBehavior::update()
 		else
 		{
 			//We just started reloading, so set the frame it'll be ready.
-			m_reloadFrame = now + data->m_reloadFrames;
+			GXROW_COUNTERMEASURESBEHAVIOR.reloadFrame = now + data->m_reloadFrames;
 		}
 	}
 
@@ -287,8 +296,8 @@ UpdateSleepTime CountermeasuresBehavior::update()
 void CountermeasuresBehavior::reloadCountermeasures()
 {
 	const CountermeasuresBehaviorModuleData *data = getCountermeasuresBehaviorModuleData();
-	m_availableCountermeasures = data->m_numberOfVolleys * data->m_volleySize;
-	m_reloadFrame = 0;
+	GXROW_COUNTERMEASURESBEHAVIOR.availableCountermeasures = data->m_numberOfVolleys * data->m_volleySize;
+	GXROW_COUNTERMEASURESBEHAVIOR.reloadFrame = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -345,9 +354,9 @@ void CountermeasuresBehavior::launchVolley()
 			flare->setOrientation( obj->getOrientation() );
 			physics->transferVelocityTo( flare->getPhysics() );
 			flare->getPhysics()->applyMotiveForce( &vel );
-			m_activeCountermeasures++;
-			m_availableCountermeasures--;
-			m_counterMeasures.push_back( flare->getID() );
+			GXROW_COUNTERMEASURESBEHAVIOR.activeCountermeasures++;
+			GXROW_COUNTERMEASURESBEHAVIOR.availableCountermeasures--;
+			GXROW_COUNTERMEASURESBEHAVIOR.counterMeasures.push_back( flare->getID() );
 		}
 	}
 }
@@ -388,13 +397,13 @@ void CountermeasuresBehavior::xfer( Xfer *xfer )
 
 	if( currentVersion >= 2 )
 	{
-		xfer->xferSTLObjectIDVector( &m_counterMeasures );
-		xfer->xferUnsignedInt( &m_availableCountermeasures );
-		xfer->xferUnsignedInt( &m_activeCountermeasures );
-		xfer->xferUnsignedInt( &m_divertedMissiles );
-		xfer->xferUnsignedInt( &m_incomingMissiles );
-		xfer->xferUnsignedInt( &m_reactionFrame );
-		xfer->xferUnsignedInt( &m_nextVolleyFrame );
+		xfer->xferSTLObjectIDVector( &GXROW_COUNTERMEASURESBEHAVIOR.counterMeasures );
+		xfer->xferUnsignedInt( &GXROW_COUNTERMEASURESBEHAVIOR.availableCountermeasures );
+		xfer->xferUnsignedInt( &GXROW_COUNTERMEASURESBEHAVIOR.activeCountermeasures );
+		xfer->xferUnsignedInt( &GXROW_COUNTERMEASURESBEHAVIOR.divertedMissiles );
+		xfer->xferUnsignedInt( &GXROW_COUNTERMEASURESBEHAVIOR.incomingMissiles );
+		xfer->xferUnsignedInt( &GXROW_COUNTERMEASURESBEHAVIOR.reactionFrame );
+		xfer->xferUnsignedInt( &GXROW_COUNTERMEASURESBEHAVIOR.nextVolleyFrame );
 	}
 
 }

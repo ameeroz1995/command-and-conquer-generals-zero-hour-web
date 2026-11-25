@@ -69,6 +69,8 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxRebuildHoleBehaviorRow;
 class RebuildHoleBehavior : public UpdateModule,
 														public DieModuleInterface,
 														public RebuildHoleBehaviorInterface
@@ -97,9 +99,9 @@ public:
 
 	// RebuildHole specific methods
 	virtual void startRebuildProcess( const ThingTemplate *rebuild, ObjectID spawnerID );
-	virtual ObjectID getSpawnerID() { return m_spawnerObjectID; }
-	virtual ObjectID getReconstructedBuildingID() { return m_reconstructingID; }
-	virtual const ThingTemplate* getRebuildTemplate() const { return m_rebuildTemplate; }
+	virtual ObjectID getSpawnerID();
+	virtual ObjectID getReconstructedBuildingID();
+	virtual const ThingTemplate* getRebuildTemplate() const;
 	void transferBombs( Object *reconstruction );
 
 	// interface acquisition
@@ -109,11 +111,28 @@ protected:
 
 	void newWorkerRespawnProcess( Object *existingWorker );		///< start the worker respawn process (again if existingWorker is non nullptr)
 
-	ObjectID m_workerID;										///< id of the worker that will rebuild us
-	ObjectID m_reconstructingID;						///< ID of the object we're reconstructing
-	ObjectID m_spawnerObjectID;							///< Object that was killed and therefore the object that created this hole
-	UnsignedInt m_workerWaitCounter;				///< when this reaches zero we spawn a worker after death
-	const ThingTemplate *m_workerTemplate;  ///< template of the worker to make
-	const ThingTemplate *m_rebuildTemplate;	///< what we are rebuilding
+	struct GxRebuildHoleBehaviorRow *m_gxRebuildHoleBehaviorRow;	///< web port (round 5): this unit's row in TheGxRebuildHoleBehaviors
+	friend struct GxRebuildHoleBehaviorRow;
+	inline struct GxRebuildHoleBehaviorRow &gxRow() const;
 
 };
+
+// Web port (round 5, units are pure data): RebuildHoleBehavior's per-unit state, one row per unit in TheGxRebuildHoleBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxRebuildHoleBehaviorRow
+{
+	ObjectID workerID;
+	ObjectID reconstructingID;
+	ObjectID spawnerObjectID;
+	UnsignedInt workerWaitCounter;
+	const ThingTemplate* workerTemplate;
+	const ThingTemplate* rebuildTemplate;
+};
+extern GxComponentTable<GxRebuildHoleBehaviorRow> TheGxRebuildHoleBehaviors;
+
+
+inline GxRebuildHoleBehaviorRow &RebuildHoleBehavior::gxRow() const { return TheGxRebuildHoleBehaviors.at(m_gxRebuildHoleBehaviorRow); }
+inline ObjectID RebuildHoleBehavior::getSpawnerID() { return gxRow().spawnerObjectID; }
+inline ObjectID RebuildHoleBehavior::getReconstructedBuildingID() { return gxRow().reconstructingID; }
+inline const ThingTemplate* RebuildHoleBehavior::getRebuildTemplate() const { return gxRow().rebuildTemplate; }
+

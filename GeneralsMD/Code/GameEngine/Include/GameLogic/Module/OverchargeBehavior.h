@@ -67,6 +67,8 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxOverchargeBehaviorRow;
 class OverchargeBehavior : public UpdateModule,
 													 public DamageModuleInterface,
 													 public OverchargeBehaviorInterface
@@ -101,13 +103,28 @@ public:
 	// specific methods
 	virtual void toggle();						///< toggle overcharge on/off
 	virtual void enable( Bool enable );			///< turn overcharge on/off
-	virtual Bool isOverchargeActive() { return m_overchargeActive; }
+	virtual Bool isOverchargeActive();
 
 	void onDelete();																///< we have some work to do when this module goes away
 	void onCapture( Player *oldOwner, Player *newOwner );	///< object containing upgrade has changed teams
 
 protected:
 
-	Bool m_overchargeActive;				///< Overcharge is currently on/off for this object
+	struct GxOverchargeBehaviorRow *m_gxOverchargeBehaviorRow;	///< web port (round 5): this unit's row in TheGxOverchargeBehaviors
+	friend struct GxOverchargeBehaviorRow;
+	inline struct GxOverchargeBehaviorRow &gxRow() const;
 
 };
+
+// Web port (round 5, units are pure data): OverchargeBehavior's per-unit state, one row per unit in TheGxOverchargeBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxOverchargeBehaviorRow
+{
+	Bool overchargeActive;
+};
+extern GxComponentTable<GxOverchargeBehaviorRow> TheGxOverchargeBehaviors;
+
+
+inline GxOverchargeBehaviorRow &OverchargeBehavior::gxRow() const { return TheGxOverchargeBehaviors.at(m_gxOverchargeBehaviorRow); }
+inline Bool OverchargeBehavior::isOverchargeActive() { return gxRow().overchargeActive; }
+

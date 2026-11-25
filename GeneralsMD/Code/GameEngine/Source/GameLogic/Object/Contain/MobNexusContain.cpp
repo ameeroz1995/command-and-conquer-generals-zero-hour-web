@@ -44,6 +44,12 @@
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Object.h"
 
+// Web port (round 5, units are pure data): MobNexusContain's per-unit state is a row of TheGxMobNexusContains;
+// GXROW_MOBNEXUSCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxMobNexusContainRow> TheGxMobNexusContains;
+#define GXROW_MOBNEXUSCONTAIN (TheGxMobNexusContains.at(m_gxMobNexusContainRow))
+
+
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 MobNexusContainModuleData::MobNexusContainModuleData()
@@ -116,10 +122,11 @@ Int MobNexusContain::getContainMax() const
 // PUBLIC /////////////////////////////////////////////////////////////////////////////////////////
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-MobNexusContain::MobNexusContain( Thing *thing, const ModuleData *moduleData ) :
-								 OpenContain( thing, moduleData )
+MobNexusContain::MobNexusContain( Thing *thing, const ModuleData *moduleData ) : OpenContain( thing, moduleData )
 {
-	m_extraSlotsInUse = 0;
+	m_gxMobNexusContainRow = TheGxMobNexusContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+	GXROW_MOBNEXUSCONTAIN.extraSlotsInUse = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -127,6 +134,7 @@ MobNexusContain::MobNexusContain( Thing *thing, const ModuleData *moduleData ) :
 MobNexusContain::~MobNexusContain()
 {
 
+	TheGxMobNexusContains.release( m_gxMobNexusContainRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -187,7 +195,7 @@ Bool MobNexusContain::isValidContainerFor(const Object* rider, Bool checkCapacit
 
 	if (checkCapacity)
 	{
-		return (m_extraSlotsInUse + getContainCount() + mobNexusSlotCount <= getContainMax());
+		return (GXROW_MOBNEXUSCONTAIN.extraSlotsInUse + getContainCount() + mobNexusSlotCount <= getContainMax());
 	}
 	else
 	{
@@ -207,8 +215,8 @@ void MobNexusContain::onContaining( Object *rider, Bool wasSelected )
 	Int mobNexusSlotCount = rider->getTransportSlotCount();
 
 	DEBUG_ASSERTCRASH(mobNexusSlotCount > 0, ("Hmm, this object isnt MobNexusable"));
-	m_extraSlotsInUse += mobNexusSlotCount - 1;
-	DEBUG_ASSERTCRASH(m_extraSlotsInUse >= 0 && m_extraSlotsInUse + getContainCount() <= getContainMax(), ("Hmm, bad slot count"));
+	GXROW_MOBNEXUSCONTAIN.extraSlotsInUse += mobNexusSlotCount - 1;
+	DEBUG_ASSERTCRASH(GXROW_MOBNEXUSCONTAIN.extraSlotsInUse >= 0 && GXROW_MOBNEXUSCONTAIN.extraSlotsInUse + getContainCount() <= getContainMax(), ("Hmm, bad slot count"));
 
 	//
 	// when we go from holding nothing to holding something we have a model condition
@@ -278,8 +286,8 @@ void MobNexusContain::onRemoving( Object *rider )
 
 	Int mobNexusSlotCount = rider->getTransportSlotCount();
 	DEBUG_ASSERTCRASH(mobNexusSlotCount > 0, ("This object isnt MobNexusable"));
-	m_extraSlotsInUse -= mobNexusSlotCount - 1;
-	DEBUG_ASSERTCRASH(m_extraSlotsInUse >= 0 && m_extraSlotsInUse + getContainCount() <= getContainMax(), ("Bad slot count, MobNexus"));
+	GXROW_MOBNEXUSCONTAIN.extraSlotsInUse -= mobNexusSlotCount - 1;
+	DEBUG_ASSERTCRASH(GXROW_MOBNEXUSCONTAIN.extraSlotsInUse >= 0 && GXROW_MOBNEXUSCONTAIN.extraSlotsInUse + getContainCount() <= getContainMax(), ("Bad slot count, MobNexus"));
 
 	// when we are empty again, clear the model condition for loaded
 	if( getContainCount() == 0 )
@@ -481,7 +489,7 @@ void MobNexusContain::xfer( Xfer *xfer )
 	OpenContain::xfer( xfer );
 
 	// extra slots in use
-	xfer->xferInt( &m_extraSlotsInUse );
+	xfer->xferInt( &GXROW_MOBNEXUSCONTAIN.extraSlotsInUse );
 
 }
 

@@ -61,6 +61,8 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxBattleBusSlowDeathBehaviorRow;
 class BattleBusSlowDeathBehavior : public SlowDeathBehavior
 {
 
@@ -79,9 +81,23 @@ public:
 
 protected:
 
-	Bool m_isRealDeath;								///< Flag set by onDie that prevents the alternate processing caused by beginSlowDeath.
-	Bool m_isInFirstDeath;						///< Flag that controls lifetime of alternate processing.  Prevented by RealDeath flag.
-	UnsignedInt m_groundCheckFrame;		///< Don't check for bouncing until at least here.
-	UnsignedInt m_penaltyDeathFrame;	///< If non zero, kill us with Penalty damage at this frame
+	struct GxBattleBusSlowDeathBehaviorRow *m_gxBattleBusSlowDeathBehaviorRow;	///< web port (round 5): this unit's row in TheGxBattleBusSlowDeathBehaviors
+	friend struct GxBattleBusSlowDeathBehaviorRow;
+	inline struct GxBattleBusSlowDeathBehaviorRow &gxRow() const;
 
 };
+
+// Web port (round 5, units are pure data): BattleBusSlowDeathBehavior's per-unit state, one row per unit in TheGxBattleBusSlowDeathBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxBattleBusSlowDeathBehaviorRow
+{
+	Bool isRealDeath;
+	Bool isInFirstDeath;
+	UnsignedInt groundCheckFrame;
+	UnsignedInt penaltyDeathFrame;
+};
+extern GxComponentTable<GxBattleBusSlowDeathBehaviorRow> TheGxBattleBusSlowDeathBehaviors;
+
+
+inline GxBattleBusSlowDeathBehaviorRow &BattleBusSlowDeathBehavior::gxRow() const { return TheGxBattleBusSlowDeathBehaviors.at(m_gxBattleBusSlowDeathBehaviorRow); }
+

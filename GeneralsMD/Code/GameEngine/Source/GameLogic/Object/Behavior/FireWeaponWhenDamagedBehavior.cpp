@@ -48,6 +48,12 @@
 #include "GameLogic/ObjectCreationList.h"
 #include "GameLogic/Weapon.h"
 
+// Web port (round 5, units are pure data): FireWeaponWhenDamagedBehavior's per-unit state is a row of TheGxFireWeaponWhenDamagedBehaviors;
+// GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxFireWeaponWhenDamagedBehaviorRow> TheGxFireWeaponWhenDamagedBehaviors;
+#define GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR (TheGxFireWeaponWhenDamagedBehaviors.at(m_gxFireWeaponWhenDamagedBehaviorRow))
+
+
 const Int MAX_IDX = 32;
 
 const Real BEGIN_MIDPOINT_RATIO = 0.35f;
@@ -55,70 +61,71 @@ const Real END_MIDPOINT_RATIO = 0.65f;
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-FireWeaponWhenDamagedBehavior::FireWeaponWhenDamagedBehavior( Thing *thing, const ModuleData* moduleData ) :
-	UpdateModule( thing, moduleData ),
-	m_reactionWeaponPristine( nullptr ),
-	m_reactionWeaponDamaged( nullptr ),
-	m_reactionWeaponReallyDamaged( nullptr ),
-	m_reactionWeaponRubble( nullptr ),
-	m_continuousWeaponPristine( nullptr ),
-	m_continuousWeaponDamaged( nullptr ),
-	m_continuousWeaponReallyDamaged( nullptr ),
-	m_continuousWeaponRubble( nullptr )
+FireWeaponWhenDamagedBehavior::FireWeaponWhenDamagedBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxFireWeaponWhenDamagedBehaviorRow = TheGxFireWeaponWhenDamagedBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponPristine = nullptr;
+	GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponDamaged = nullptr;
+	GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponReallyDamaged = nullptr;
+	GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponRubble = nullptr;
+	GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponPristine = nullptr;
+	GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponDamaged = nullptr;
+	GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponReallyDamaged = nullptr;
+	GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponRubble = nullptr;
+
 
 	const FireWeaponWhenDamagedBehaviorModuleData *d = getFireWeaponWhenDamagedBehaviorModuleData();
 	const Object* obj = getObject();
 
 	if ( d->m_reactionWeaponPristine )
 	{
-		m_reactionWeaponPristine				= TheWeaponStore->allocateNewWeapon(
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponPristine				= TheWeaponStore->allocateNewWeapon(
 			d->m_reactionWeaponPristine,					PRIMARY_WEAPON);
-		m_reactionWeaponPristine->reloadAmmo( obj );
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponPristine->reloadAmmo( obj );
 	}
 	if ( d->m_reactionWeaponDamaged )
 	{
-		m_reactionWeaponDamaged					= TheWeaponStore->allocateNewWeapon(
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponDamaged					= TheWeaponStore->allocateNewWeapon(
 			d->m_reactionWeaponDamaged,					PRIMARY_WEAPON);
-		m_reactionWeaponDamaged->reloadAmmo( obj );
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponDamaged->reloadAmmo( obj );
 	}
 	if ( d->m_reactionWeaponReallyDamaged )
 	{
-		m_reactionWeaponReallyDamaged		= TheWeaponStore->allocateNewWeapon(
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponReallyDamaged		= TheWeaponStore->allocateNewWeapon(
 			d->m_reactionWeaponReallyDamaged,		PRIMARY_WEAPON);
-		m_reactionWeaponReallyDamaged->reloadAmmo( obj );
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponReallyDamaged->reloadAmmo( obj );
 	}
 	if ( d->m_reactionWeaponRubble )
 	{
-		m_reactionWeaponRubble					= TheWeaponStore->allocateNewWeapon(
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponRubble					= TheWeaponStore->allocateNewWeapon(
 			d->m_reactionWeaponRubble,						PRIMARY_WEAPON);
-		m_reactionWeaponRubble->reloadAmmo( obj );
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponRubble->reloadAmmo( obj );
 	}
 
 
 	if ( d->m_continuousWeaponPristine )
 	{
-		m_continuousWeaponPristine			= TheWeaponStore->allocateNewWeapon(
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponPristine			= TheWeaponStore->allocateNewWeapon(
 			d->m_continuousWeaponPristine,				PRIMARY_WEAPON);
-		m_continuousWeaponPristine->reloadAmmo( obj );
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponPristine->reloadAmmo( obj );
 	}
 	if ( d->m_continuousWeaponDamaged )
 	{
-		m_continuousWeaponDamaged				= TheWeaponStore->allocateNewWeapon(
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponDamaged				= TheWeaponStore->allocateNewWeapon(
 			d->m_continuousWeaponDamaged,				PRIMARY_WEAPON);
-		m_continuousWeaponDamaged->reloadAmmo( obj );
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponDamaged->reloadAmmo( obj );
 	}
 	if ( d->m_continuousWeaponReallyDamaged )
 	{
-		m_continuousWeaponReallyDamaged = TheWeaponStore->allocateNewWeapon(
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponReallyDamaged = TheWeaponStore->allocateNewWeapon(
 			d->m_continuousWeaponReallyDamaged,	PRIMARY_WEAPON);
-		m_continuousWeaponReallyDamaged->reloadAmmo( obj );
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponReallyDamaged->reloadAmmo( obj );
 	}
 	if ( d->m_continuousWeaponRubble )
 	{
-		m_continuousWeaponRubble				= TheWeaponStore->allocateNewWeapon(
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponRubble				= TheWeaponStore->allocateNewWeapon(
 			d->m_continuousWeaponRubble,					PRIMARY_WEAPON);
-		m_continuousWeaponRubble->reloadAmmo( obj );
+		GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponRubble->reloadAmmo( obj );
 	}
 
 	if (d->m_initiallyActive)
@@ -145,15 +152,16 @@ FireWeaponWhenDamagedBehavior::FireWeaponWhenDamagedBehavior( Thing *thing, cons
 //-------------------------------------------------------------------------------------------------
 FireWeaponWhenDamagedBehavior::~FireWeaponWhenDamagedBehavior()
 {
-	deleteInstance(m_reactionWeaponPristine);
-	deleteInstance(m_reactionWeaponDamaged);
-	deleteInstance(m_reactionWeaponReallyDamaged);
-	deleteInstance(m_reactionWeaponRubble);
+	deleteInstance(GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponPristine);
+	deleteInstance(GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponDamaged);
+	deleteInstance(GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponReallyDamaged);
+	deleteInstance(GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponRubble);
 
-	deleteInstance(m_continuousWeaponPristine);
-	deleteInstance(m_continuousWeaponDamaged);
-	deleteInstance(m_continuousWeaponReallyDamaged);
-	deleteInstance(m_continuousWeaponRubble);
+	deleteInstance(GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponPristine);
+	deleteInstance(GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponDamaged);
+	deleteInstance(GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponReallyDamaged);
+	deleteInstance(GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponRubble);
+	TheGxFireWeaponWhenDamagedBehaviors.release( m_gxFireWeaponWhenDamagedBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -179,31 +187,31 @@ void FireWeaponWhenDamagedBehavior::onDamage( DamageInfo *damageInfo )
 
 	if ( bdt == BODY_RUBBLE )
 	{
-		if( m_reactionWeaponRubble && m_reactionWeaponRubble->getStatus() == READY_TO_FIRE )
+		if( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponRubble && GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponRubble->getStatus() == READY_TO_FIRE )
 		{
-			m_reactionWeaponRubble->forceFireWeapon( obj, obj->getPosition() );
+			GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponRubble->forceFireWeapon( obj, obj->getPosition() );
 		}
 
 	}
 	else if ( bdt == BODY_REALLYDAMAGED )
 	{
-		if( m_reactionWeaponReallyDamaged && m_reactionWeaponReallyDamaged->getStatus() == READY_TO_FIRE )
+		if( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponReallyDamaged && GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponReallyDamaged->getStatus() == READY_TO_FIRE )
 		{
-			m_reactionWeaponReallyDamaged->forceFireWeapon( obj, obj->getPosition() );
+			GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponReallyDamaged->forceFireWeapon( obj, obj->getPosition() );
 		}
 	}
 	else if ( bdt == BODY_DAMAGED )
 	{
-		if( m_reactionWeaponDamaged && m_reactionWeaponDamaged->getStatus() == READY_TO_FIRE )
+		if( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponDamaged && GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponDamaged->getStatus() == READY_TO_FIRE )
 		{
-			m_reactionWeaponDamaged->forceFireWeapon( obj, obj->getPosition() );
+			GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponDamaged->forceFireWeapon( obj, obj->getPosition() );
 		}
 	}
 	else // not damaged yet
 	{
-		if( m_reactionWeaponPristine && m_reactionWeaponPristine->getStatus() == READY_TO_FIRE )
+		if( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponPristine && GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponPristine->getStatus() == READY_TO_FIRE )
 		{
-			m_reactionWeaponPristine->forceFireWeapon( obj, obj->getPosition() );
+			GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponPristine->forceFireWeapon( obj, obj->getPosition() );
 		}
 	}
 
@@ -225,31 +233,31 @@ UpdateSleepTime FireWeaponWhenDamagedBehavior::update()
 
 	if ( bdt == BODY_RUBBLE )
 	{
-		if( m_continuousWeaponRubble && m_continuousWeaponRubble->getStatus() == READY_TO_FIRE )
+		if( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponRubble && GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponRubble->getStatus() == READY_TO_FIRE )
 		{
-			m_continuousWeaponRubble->forceFireWeapon( obj, obj->getPosition() );
+			GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponRubble->forceFireWeapon( obj, obj->getPosition() );
 		}
 
 	}
 	else if ( bdt == BODY_REALLYDAMAGED )
 	{
-		if( m_continuousWeaponReallyDamaged && m_continuousWeaponReallyDamaged->getStatus() == READY_TO_FIRE )
+		if( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponReallyDamaged && GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponReallyDamaged->getStatus() == READY_TO_FIRE )
 		{
-			m_continuousWeaponReallyDamaged->forceFireWeapon( obj, obj->getPosition() );
+			GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponReallyDamaged->forceFireWeapon( obj, obj->getPosition() );
 		}
 	}
 	else if ( bdt == BODY_DAMAGED )
 	{
-		if( m_continuousWeaponDamaged && m_continuousWeaponDamaged->getStatus() == READY_TO_FIRE )
+		if( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponDamaged && GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponDamaged->getStatus() == READY_TO_FIRE )
 		{
-			m_continuousWeaponDamaged->forceFireWeapon( obj, obj->getPosition() );
+			GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponDamaged->forceFireWeapon( obj, obj->getPosition() );
 		}
 	}
 	else // not damaged yet
 	{
-		if( m_continuousWeaponPristine && m_continuousWeaponPristine->getStatus() == READY_TO_FIRE )
+		if( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponPristine && GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponPristine->getStatus() == READY_TO_FIRE )
 		{
-			m_continuousWeaponPristine->forceFireWeapon( obj, obj->getPosition() );
+			GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponPristine->forceFireWeapon( obj, obj->getPosition() );
 		}
 	}
 
@@ -292,52 +300,52 @@ void FireWeaponWhenDamagedBehavior::xfer( Xfer *xfer )
 	Bool weaponPresent;
 
 	// reaction pristine
-	weaponPresent = m_reactionWeaponPristine ? TRUE : FALSE;
+	weaponPresent = GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponPristine ? TRUE : FALSE;
 	xfer->xferBool( &weaponPresent );
 	if( weaponPresent )
-		xfer->xferSnapshot( m_reactionWeaponPristine );
+		xfer->xferSnapshot( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponPristine );
 
 	// reaction damaged
-	weaponPresent = m_reactionWeaponDamaged ? TRUE : FALSE;
+	weaponPresent = GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponDamaged ? TRUE : FALSE;
 	xfer->xferBool( &weaponPresent );
 	if( weaponPresent )
-		xfer->xferSnapshot( m_reactionWeaponDamaged );
+		xfer->xferSnapshot( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponDamaged );
 
 	// reaction really damaged
-	weaponPresent = m_reactionWeaponReallyDamaged ? TRUE : FALSE;
+	weaponPresent = GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponReallyDamaged ? TRUE : FALSE;
 	xfer->xferBool( &weaponPresent );
 	if( weaponPresent )
-		xfer->xferSnapshot( m_reactionWeaponReallyDamaged );
+		xfer->xferSnapshot( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponReallyDamaged );
 
 	// reaction rubble
-	weaponPresent = m_reactionWeaponRubble ? TRUE : FALSE;
+	weaponPresent = GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponRubble ? TRUE : FALSE;
 	xfer->xferBool( &weaponPresent );
 	if( weaponPresent )
-		xfer->xferSnapshot( m_reactionWeaponRubble );
+		xfer->xferSnapshot( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.reactionWeaponRubble );
 
 	// continuous pristine
-	weaponPresent = m_continuousWeaponPristine ? TRUE : FALSE;
+	weaponPresent = GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponPristine ? TRUE : FALSE;
 	xfer->xferBool( &weaponPresent );
 	if( weaponPresent )
-		xfer->xferSnapshot( m_continuousWeaponPristine );
+		xfer->xferSnapshot( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponPristine );
 
 	// continuous damaged
-	weaponPresent = m_continuousWeaponDamaged ? TRUE : FALSE;
+	weaponPresent = GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponDamaged ? TRUE : FALSE;
 	xfer->xferBool( &weaponPresent );
 	if( weaponPresent )
-		xfer->xferSnapshot( m_continuousWeaponDamaged );
+		xfer->xferSnapshot( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponDamaged );
 
 	// continuous really damaged
-	weaponPresent = m_continuousWeaponReallyDamaged ? TRUE : FALSE;
+	weaponPresent = GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponReallyDamaged ? TRUE : FALSE;
 	xfer->xferBool( &weaponPresent );
 	if( weaponPresent )
-		xfer->xferSnapshot( m_continuousWeaponReallyDamaged );
+		xfer->xferSnapshot( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponReallyDamaged );
 
 	// continuous rubble
-	weaponPresent = m_continuousWeaponRubble ? TRUE : FALSE;
+	weaponPresent = GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponRubble ? TRUE : FALSE;
 	xfer->xferBool( &weaponPresent );
 	if( weaponPresent )
-		xfer->xferSnapshot( m_continuousWeaponRubble );
+		xfer->xferSnapshot( GXROW_FIREWEAPONWHENDAMAGEDBEHAVIOR.continuousWeaponRubble );
 
 }
 

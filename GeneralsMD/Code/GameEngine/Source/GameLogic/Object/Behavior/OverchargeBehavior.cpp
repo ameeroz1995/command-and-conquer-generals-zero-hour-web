@@ -42,6 +42,12 @@
 #include "GameLogic/Module/PowerPlantUpdate.h"
 #include "GameClient/InGameUI.h"
 
+// Web port (round 5, units are pure data): OverchargeBehavior's per-unit state is a row of TheGxOverchargeBehaviors;
+// GXROW_OVERCHARGEBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxOverchargeBehaviorRow> TheGxOverchargeBehaviors;
+#define GXROW_OVERCHARGEBEHAVIOR (TheGxOverchargeBehaviors.at(m_gxOverchargeBehaviorRow))
+
+
 
 
 //-------------------------------------------------------------------------------------------------
@@ -78,11 +84,12 @@ OverchargeBehaviorModuleData::OverchargeBehaviorModuleData()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-OverchargeBehavior::OverchargeBehavior( Thing *thing, const ModuleData* moduleData )
-									 : UpdateModule( thing, moduleData )
+OverchargeBehavior::OverchargeBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxOverchargeBehaviorRow = TheGxOverchargeBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
-	m_overchargeActive = FALSE;
+
+	GXROW_OVERCHARGEBEHAVIOR.overchargeActive = FALSE;
 
 	// start off sleeping forever until we become active
 	setWakeFrame( getObject(), UPDATE_SLEEP_FOREVER );
@@ -94,6 +101,7 @@ OverchargeBehavior::OverchargeBehavior( Thing *thing, const ModuleData* moduleDa
 OverchargeBehavior::~OverchargeBehavior()
 {
 
+	TheGxOverchargeBehaviors.release( m_gxOverchargeBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -102,7 +110,7 @@ UpdateSleepTime OverchargeBehavior::update()
 {
 
 	// if the overcharge is active we need to take away some life
-	if( m_overchargeActive )
+	if( GXROW_OVERCHARGEBEHAVIOR.overchargeActive )
 	{
 		Object *us = getObject();
 
@@ -162,7 +170,7 @@ void OverchargeBehavior::toggle()
 {
 
 	// just toggle using enable()
-	enable( !m_overchargeActive );
+	enable( !GXROW_OVERCHARGEBEHAVIOR.overchargeActive );
 
 }
 
@@ -177,7 +185,7 @@ void OverchargeBehavior::enable( Bool enable )
 	{
 
 		// if we're turned on, turn off
-		if( m_overchargeActive == TRUE )
+		if( GXROW_OVERCHARGEBEHAVIOR.overchargeActive == TRUE )
 		{
 
 			// make sure to NOT extend rods for purpose of maintaining proper model condition
@@ -194,7 +202,7 @@ void OverchargeBehavior::enable( Bool enable )
 				player->removePowerBonus(us);
 
 			// we are no longer active
-			m_overchargeActive = FALSE;
+			GXROW_OVERCHARGEBEHAVIOR.overchargeActive = FALSE;
 
 			// sleep forever
 			setWakeFrame( us, UPDATE_SLEEP_FOREVER );
@@ -206,7 +214,7 @@ void OverchargeBehavior::enable( Bool enable )
 	{
 
 		// if we're turned off, turn on
-		if( m_overchargeActive == FALSE )
+		if( GXROW_OVERCHARGEBEHAVIOR.overchargeActive == FALSE )
 		{
 
 			// make sure to extend rods for purpose of maintaining proper model condition
@@ -224,7 +232,7 @@ void OverchargeBehavior::enable( Bool enable )
 				player->addPowerBonus(us);
 
 			// we are now active
-			m_overchargeActive = TRUE;
+			GXROW_OVERCHARGEBEHAVIOR.overchargeActive = TRUE;
 
 			// need to update every frame now
 			setWakeFrame( us, UPDATE_SLEEP_NONE );
@@ -241,7 +249,7 @@ void OverchargeBehavior::onDelete()
 {
 
 	// if we haven't been upgraded there is nothing to clean up
-	if( m_overchargeActive == FALSE )
+	if( GXROW_OVERCHARGEBEHAVIOR.overchargeActive == FALSE )
 		return;
 
 	// remove the power bonus from the player
@@ -249,7 +257,7 @@ void OverchargeBehavior::onDelete()
 	if( player )
 		player->removePowerBonus( getObject() );
 
-	m_overchargeActive = FALSE;
+	GXROW_OVERCHARGEBEHAVIOR.overchargeActive = FALSE;
 
 }
 
@@ -259,7 +267,7 @@ void OverchargeBehavior::onCapture( Player *oldOwner, Player *newOwner )
 {
 
 	// do nothing if we haven't upgraded yet
-	if( m_overchargeActive == FALSE )
+	if( GXROW_OVERCHARGEBEHAVIOR.overchargeActive == FALSE )
 		return;
 
 	if (getObject()->isDisabled())
@@ -303,7 +311,7 @@ void OverchargeBehavior::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// overcharge active
-	xfer->xferBool( &m_overchargeActive );
+	xfer->xferBool( &GXROW_OVERCHARGEBEHAVIOR.overchargeActive );
 
 }
 
@@ -317,7 +325,7 @@ void OverchargeBehavior::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 	// Our effect is a fire and forget effect, not an upgrade state that is itself saved, so need to re-fire.
-	if( m_overchargeActive && getObject()->getControllingPlayer() )
+	if( GXROW_OVERCHARGEBEHAVIOR.overchargeActive && getObject()->getControllingPlayer() )
 		getObject()->getControllingPlayer()->addPowerBonus( getObject() );
 
 }

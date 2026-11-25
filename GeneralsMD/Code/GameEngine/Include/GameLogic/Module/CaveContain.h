@@ -63,6 +63,8 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxCaveContainRow;
 class CaveContain : public OpenContain, public CreateModuleInterface, public CaveInterface
 {
 
@@ -108,7 +110,7 @@ public:
 
 	virtual void onCreate();
 	virtual void onBuildComplete();	///< This is called when you are a finished game object
-	virtual Bool shouldDoOnBuildComplete() const { return m_needToRunOnBuildComplete; }
+	virtual Bool shouldDoOnBuildComplete() const;
 
 	// Unique to Cave Contain
 	virtual void tryToSetCaveIndex( Int newIndex );	///< Called by script as an alternative to instancing separate objects.  'Try', because can fail.
@@ -118,9 +120,24 @@ protected:
 
 	void changeTeamOnAllConnectedCaves( Team *newTeam, Bool setOriginalTeams );	///< When one gets captured, all connected ones get captured.  DistributedGarrison.
 
-	Bool m_needToRunOnBuildComplete;
-	Int m_caveIndex;
+	struct GxCaveContainRow *m_gxCaveContainRow;	///< web port (round 5): this unit's row in TheGxCaveContains
+	friend struct GxCaveContainRow;
+	inline struct GxCaveContainRow &gxRow() const;
 
-	Team *m_originalTeam;												///< our original team before we were garrisoned
 
 };
+
+// Web port (round 5, units are pure data): CaveContain's per-unit state, one row per unit in TheGxCaveContains;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxCaveContainRow
+{
+	Bool needToRunOnBuildComplete;
+	Int caveIndex;
+	Team* originalTeam;
+};
+extern GxComponentTable<GxCaveContainRow> TheGxCaveContains;
+
+
+inline GxCaveContainRow &CaveContain::gxRow() const { return TheGxCaveContains.at(m_gxCaveContainRow); }
+inline Bool CaveContain::shouldDoOnBuildComplete() const { return gxRow().needToRunOnBuildComplete; }
+

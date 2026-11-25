@@ -3842,3 +3842,43 @@ Stays default off.
   - moveAfterTick off vs on (paths-28): 14.9 → 14.5 / 7.0 → 6.5 / 34 → 35 and 14.7 → 12.3 /
     6.0 → 5.9 / 21 → 115 (that half ran at load 8.6–9.8). Not faster: kept behind its rule,
     default off, as the round-4 bar asks.
+
+## 2026-11-25 — Round 5 (units are pure data), logic-ai: component tables for my families
+
+Merged origin/perf/low-end f8473f1 first.
+
+Pattern (GameLogic/GxComponents.h, `GxComponentTable<Row>`): a module family's per-unit state is a
+row in a table owned by the family, not fields of the module object. Rows live in a deque (never
+move), are built in place (zeroed, like the memory-pool objects they replace) and are visited by
+forEach in object-ID order. The module keeps one pointer to its row; its class is a facade (INI
+data, the engine's calls, xfer/CRC reading and writing the row's fields in the old order, so saves
+and CRCs are unchanged). Conversions are mechanical (tools/web-port/gx_rowify.py,
+gx_inline_out.py, gx_base_rewrite.py): members -> row fields; member uses inside the class's own
+functions -> the row; inline header methods that touch the row moved after the row type; subclass
+uses of base members -> Base::gxRow().x. Every-frame updates already run as passes over the store's
+lists in object-ID order through the updatePasses dispatch table (round 4); the module's update is the
+per-row step of that pass.
+
+Converted (per-unit state now in tables):
+- Behavior/ (24 with state): AutoHeal, BattleBusSlowDeath, Bridge, BridgeScaffold, BridgeTower,
+  BunkerBuster, Countermeasures, DumbProjectile, FireWeaponWhenDamaged, FlightDeck, GenerateMinefield,
+  GrantStealth, JetSlowDeath, Minefield, Overcharge, ParkingPlace, Poisoned, PropagandaTower,
+  RebuildHole, SlowDeath, Spawn, SupplyWarehouseCrippling. Stateless already (nothing per unit):
+  BehaviorModule, FireWeaponWhenDead, InstantDeath, POWTruck, TechBuilding. Compiled out
+  (ALLOW_SURRENDER): Prison, PropagandaCenter.
+- Contain/ (10 with state): OpenContain (base), Garrison, Transport, Cave, Helix, MobNexus, Overlord,
+  Parachute, RiderChange, Tunnel; stateless: Heal, InternetHack, RailedTransport.
+- Create/: CreateModule (base, the only state); the 7 others are stateless.
+- Upgrade/: UpgradeMux (every upgrade's "executed" flag) and GrantScienceUpgrade; the 19 others are
+  stateless.
+- AIUpdateInterface (75 fields); AI state machines: 25 AIStates classes, the guard / retaliate /
+  tunnel-guard machines and states, dock machine and states, TurretAI and its states. Not converted:
+  the three *ExitConditions classes (held by value inside state rows), TurretAIAimTurretState (its
+  only field is compiled out), TurretAIData (per-type INI data).
+- No edit in other agents' files: JetAIUpdate.cpp (paths) still uses `m_goalPosition`,
+  `m_waitingForPath` and `m_path` of its bases, which are now reference names for the row fields.
+- dataBehaviors (fourth word bit 6, same game, on): GenerateMinefieldBehavior looked up the EMP-mines
+  upgrade by name every frame (~140 units); now once (verify mode compares with the lookup).
+Checks: referee replay matches (builds ai-19, ai-20, ai-21, ai-22); a recording made with
+updatePasses on replays to a match on each; verify mode shows no mismatch from these changes (the only
+mismatch lines on perf/low-end come from the "laser scan" check, objects 829/832/1624/1643).

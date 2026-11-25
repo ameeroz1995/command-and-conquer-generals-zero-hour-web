@@ -73,6 +73,12 @@
 #include "GameLogic/Weapon.h"
 #include "Common/Radar.h"									// For TheRadar
 
+// Web port (round 5, units are pure data): AIUpdateInterface's per-unit state is a row of TheGxAIUpdateInterfaces;
+// GXROW_AIUPDATEINTERFACE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIUpdateInterfaceRow> TheGxAIUpdateInterfaces;
+#define GXROW_AIUPDATEINTERFACE (TheGxAIUpdateInterfaces.at(m_gxAIUpdateInterfaceRow))
+
+
 #define SLEEPY_AI
 
 
@@ -205,85 +211,87 @@ AIStateMachine* AIUpdateInterface::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-AIUpdateInterface::AIUpdateInterface( Thing *thing, const ModuleData* moduleData ) :
-	UpdateModule( thing, moduleData )
+AIUpdateInterface::AIUpdateInterface( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData ),
+	m_gxAIUpdateInterfaceRow( TheGxAIUpdateInterfaces.alloc( getObject() ) ),	// web port (round 5): this unit's row (zeroed, like the module was)
+	m_path( m_gxAIUpdateInterfaceRow->path )
 {
+
 	int i;
 
-	m_priorWaypointID = 0xfacade;
-	m_currentWaypointID	= 0xfacade;
-	m_stateMachine = nullptr;
-	m_nextEnemyScanTime = 0;
-	m_currentVictimID = INVALID_ID;
-	m_desiredSpeed = FAST_AS_POSSIBLE;
+	GXROW_AIUPDATEINTERFACE.priorWaypointID = 0xfacade;
+	GXROW_AIUPDATEINTERFACE.currentWaypointID	= 0xfacade;
+	GXROW_AIUPDATEINTERFACE.stateMachine = nullptr;
+	GXROW_AIUPDATEINTERFACE.nextEnemyScanTime = 0;
+	GXROW_AIUPDATEINTERFACE.currentVictimID = INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.desiredSpeed = FAST_AS_POSSIBLE;
 	m_lastCommandSource = CMD_FROM_AI;
-	m_guardMode = GUARDMODE_NORMAL;
-	m_guardTargetType[0] = m_guardTargetType[1] = GUARDTARGET_NONE;
-	m_locationToGuard.zero();
-	m_objectToGuard = INVALID_ID;
-	m_areaToGuard = nullptr;
-	m_attackInfo = nullptr;
-	m_waypointCount = 0;
-	m_waypointIndex = 0;
-	m_completedWaypoint = nullptr;
-	m_path = nullptr;
-	m_requestedVictimID = INVALID_ID;
-	m_requestedDestination.zero();
-	m_requestedDestination2.zero();
-	m_pathTimestamp = 0;
-	m_ignoreObstacleID = INVALID_ID;
-	m_pathExtraDistance = 0;
-	m_pathfindGoalCell.x = m_pathfindGoalCell.y = -1;
-	m_pathfindCurCell.x = m_pathfindCurCell.y = -1;
-	m_blockedFrames = 0;
-	m_curMaxBlockedSpeed = 0;
-	m_bumpSpeedLimit = FAST_AS_POSSIBLE;
-	m_ignoreCollisionsUntil = 0;
-	m_queueForPathFrame = 0;
-	m_finalPosition.zero();
-	m_repulsor1 = INVALID_ID;
-	m_repulsor2 = INVALID_ID;
-	m_nextGoalPathIndex = -1;
-	m_moveOutOfWay1 = INVALID_ID;
-	m_moveOutOfWay2 = INVALID_ID;
-	m_locomotorSet.clear();
-	m_curLocomotor = nullptr;
-	m_curLocomotorSet = LOCOMOTORSET_INVALID;
-	m_locomotorGoalType = NONE;
-	m_locomotorGoalData.zero();
+	GXROW_AIUPDATEINTERFACE.guardMode = GUARDMODE_NORMAL;
+	GXROW_AIUPDATEINTERFACE.guardTargetType[0] = GXROW_AIUPDATEINTERFACE.guardTargetType[1] = GUARDTARGET_NONE;
+	GXROW_AIUPDATEINTERFACE.locationToGuard.zero();
+	GXROW_AIUPDATEINTERFACE.objectToGuard = INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.areaToGuard = nullptr;
+	GXROW_AIUPDATEINTERFACE.attackInfo = nullptr;
+	GXROW_AIUPDATEINTERFACE.waypointCount = 0;
+	GXROW_AIUPDATEINTERFACE.waypointIndex = 0;
+	GXROW_AIUPDATEINTERFACE.completedWaypoint = nullptr;
+	GXROW_AIUPDATEINTERFACE.path = nullptr;
+	GXROW_AIUPDATEINTERFACE.requestedVictimID = INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.requestedDestination.zero();
+	GXROW_AIUPDATEINTERFACE.requestedDestination2.zero();
+	GXROW_AIUPDATEINTERFACE.pathTimestamp = 0;
+	GXROW_AIUPDATEINTERFACE.ignoreObstacleID = INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.pathExtraDistance = 0;
+	GXROW_AIUPDATEINTERFACE.pathfindGoalCell.x = GXROW_AIUPDATEINTERFACE.pathfindGoalCell.y = -1;
+	GXROW_AIUPDATEINTERFACE.pathfindCurCell.x = GXROW_AIUPDATEINTERFACE.pathfindCurCell.y = -1;
+	GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+	GXROW_AIUPDATEINTERFACE.curMaxBlockedSpeed = 0;
+	GXROW_AIUPDATEINTERFACE.bumpSpeedLimit = FAST_AS_POSSIBLE;
+	GXROW_AIUPDATEINTERFACE.ignoreCollisionsUntil = 0;
+	GXROW_AIUPDATEINTERFACE.queueForPathFrame = 0;
+	GXROW_AIUPDATEINTERFACE.finalPosition.zero();
+	GXROW_AIUPDATEINTERFACE.repulsor1 = INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.repulsor2 = INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.nextGoalPathIndex = -1;
+	GXROW_AIUPDATEINTERFACE.moveOutOfWay1 = INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.moveOutOfWay2 = INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.locomotorSet.clear();
+	GXROW_AIUPDATEINTERFACE.curLocomotor = nullptr;
+	GXROW_AIUPDATEINTERFACE.curLocomotorSet = LOCOMOTORSET_INVALID;
+	GXROW_AIUPDATEINTERFACE.locomotorGoalType = NONE;
+	GXROW_AIUPDATEINTERFACE.locomotorGoalData.zero();
 	for (i = 0; i < MAX_TURRETS; i++)
-		m_turretAI[i] = nullptr;
-	m_turretSyncFlag = TURRET_INVALID;
-	m_attitude = ATTITUDE_NORMAL;
-	m_nextMoodCheckTime = 0;
+		GXROW_AIUPDATEINTERFACE.turretAI[i] = nullptr;
+	GXROW_AIUPDATEINTERFACE.turretSyncFlag = TURRET_INVALID;
+	GXROW_AIUPDATEINTERFACE.attitude = ATTITUDE_NORMAL;
+	GXROW_AIUPDATEINTERFACE.nextMoodCheckTime = 0;
 #ifdef ALLOW_DEMORALIZE
-	m_demoralizedFramesLeft = 0;
+	GXROW_AIUPDATEINTERFACE.demoralizedFramesLeft = 0;
 #endif
 #ifdef ALLOW_SURRENDER
-	m_surrenderedFramesLeft = 0;
-	m_surrenderedPlayerIndex = -1;
+	GXROW_AIUPDATEINTERFACE.surrenderedFramesLeft = 0;
+	GXROW_AIUPDATEINTERFACE.surrenderedPlayerIndex = -1;
 #endif
-	m_crateCreated = INVALID_ID;
-	m_tmpInt = 0;
-	m_doFinalPosition = FALSE;
-	m_waitingForPath = FALSE;
-	m_isAttackPath = FALSE;
-	m_isFinalGoal = FALSE;
-	m_isApproachPath = FALSE;
-	m_isSafePath = FALSE;
-	m_movementComplete = FALSE;
-	m_isMoving = FALSE;
-	m_isBlocked = FALSE;
-	m_isBlockedAndStuck = FALSE;
-	m_upgradedLocomotors = FALSE;
-	m_canPathThroughUnits = FALSE;
-	m_randomlyOffsetMoodCheck = FALSE;
-	m_isAiDead = FALSE;
-	m_isRecruitable = TRUE; // Things default to being recruitable.
-	m_executingWaypointQueue = FALSE;
-	m_retryPath = FALSE;
-	m_isInUpdate = FALSE;
-	m_fixLocoInPostProcess = FALSE;
+	GXROW_AIUPDATEINTERFACE.crateCreated = INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.tmpInt = 0;
+	GXROW_AIUPDATEINTERFACE.doFinalPosition = FALSE;
+	GXROW_AIUPDATEINTERFACE.waitingForPath = FALSE;
+	GXROW_AIUPDATEINTERFACE.isAttackPath = FALSE;
+	GXROW_AIUPDATEINTERFACE.isFinalGoal = FALSE;
+	GXROW_AIUPDATEINTERFACE.isApproachPath = FALSE;
+	GXROW_AIUPDATEINTERFACE.isSafePath = FALSE;
+	GXROW_AIUPDATEINTERFACE.movementComplete = FALSE;
+	GXROW_AIUPDATEINTERFACE.isMoving = FALSE;
+	GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
+	GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
+	GXROW_AIUPDATEINTERFACE.upgradedLocomotors = FALSE;
+	GXROW_AIUPDATEINTERFACE.canPathThroughUnits = FALSE;
+	GXROW_AIUPDATEINTERFACE.randomlyOffsetMoodCheck = FALSE;
+	GXROW_AIUPDATEINTERFACE.isAiDead = FALSE;
+	GXROW_AIUPDATEINTERFACE.isRecruitable = TRUE; // Things default to being recruitable.
+	GXROW_AIUPDATEINTERFACE.executingWaypointQueue = FALSE;
+	GXROW_AIUPDATEINTERFACE.retryPath = FALSE;
+	GXROW_AIUPDATEINTERFACE.isInUpdate = FALSE;
+	GXROW_AIUPDATEINTERFACE.fixLocoInPostProcess = FALSE;
 
 	// ---------------------------------------------
 
@@ -291,7 +299,7 @@ AIUpdateInterface::AIUpdateInterface( Thing *thing, const ModuleData* moduleData
 	{
 		if (getAIUpdateModuleData()->m_turretData[i])
 		{
-			m_turretAI[i] = newInstance(TurretAI)(getObject(), getAIUpdateModuleData()->m_turretData[i], (WhichTurretType)i);
+			GXROW_AIUPDATEINTERFACE.turretAI[i] = newInstance(TurretAI)(getObject(), getAIUpdateModuleData()->m_turretData[i], (WhichTurretType)i);
 		}
 	}
 
@@ -314,11 +322,11 @@ void AIUpdateInterface::setSurrendered( const Object *objWeSurrenderedTo, Bool s
 
 		const AIUpdateModuleData* d = getAIUpdateModuleData();
 
-		if (m_surrenderedFramesLeft < d->m_surrenderDuration)
-			m_surrenderedFramesLeft = d->m_surrenderDuration;
+		if (GXROW_AIUPDATEINTERFACE.surrenderedFramesLeft < d->m_surrenderDuration)
+			GXROW_AIUPDATEINTERFACE.surrenderedFramesLeft = d->m_surrenderDuration;
 
 		const Player* playerWeSurrenderedTo = objWeSurrenderedTo ? objWeSurrenderedTo->getControllingPlayer() : nullptr;
-		m_surrenderedPlayerIndex = playerWeSurrenderedTo ? playerWeSurrenderedTo->getPlayerIndex() : -1;
+		GXROW_AIUPDATEINTERFACE.surrenderedPlayerIndex = playerWeSurrenderedTo ? playerWeSurrenderedTo->getPlayerIndex() : -1;
 
 		if (!wasSurrendered)
 		{
@@ -342,8 +350,8 @@ void AIUpdateInterface::setSurrendered( const Object *objWeSurrenderedTo, Bool s
 
 		getObject()->setEffectivelyDead( FALSE );
 
-		m_surrenderedFramesLeft = 0;
-		m_surrenderedPlayerIndex = -1;
+		GXROW_AIUPDATEINTERFACE.surrenderedFramesLeft = 0;
+		GXROW_AIUPDATEINTERFACE.surrenderedPlayerIndex = -1;
 	}
 
 }
@@ -358,10 +366,10 @@ void AIUpdateInterface::setGoalPositionClipped(const Coord3D* in, CommandSourceT
 		if (cmdSource == CMD_FROM_PLAYER)
 		{
 			Real fudge = TheGlobalData->m_partitionCellSize * 0.5f;
-			if (getObject()->isKindOf(KINDOF_AIRCRAFT) && getObject()->isSignificantlyAboveTerrain() && m_curLocomotor != nullptr)
+			if (getObject()->isKindOf(KINDOF_AIRCRAFT) && getObject()->isSignificantlyAboveTerrain() && GXROW_AIUPDATEINTERFACE.curLocomotor != nullptr)
 			{
 				// aircraft must stay further away from the map edges, to prevent getting "lost"
-				fudge = max(fudge, m_curLocomotor->getPreferredHeight());
+				fudge = max(fudge, GXROW_AIUPDATEINTERFACE.curLocomotor->getPreferredHeight());
 			}
 			Region3D mapRegion;
 			TheTerrainLogic->getExtent( &mapRegion );
@@ -397,77 +405,77 @@ except by the pathfinder during pathfind queue processing.  jba */
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::doPathfind( PathfindServicesInterface *pathfinder )
 {
-	if (!m_waitingForPath) {
+	if (!GXROW_AIUPDATEINTERFACE.waitingForPath) {
 		return;
 	}
 	//CRCDEBUG_LOG(("AIUpdateInterface::doPathfind() for object %d", getObject()->getID()));
-	m_waitingForPath = FALSE;
-	if (m_isSafePath) {
+	GXROW_AIUPDATEINTERFACE.waitingForPath = FALSE;
+	if (GXROW_AIUPDATEINTERFACE.isSafePath) {
 		destroyPath();
 		Coord3D pos1, pos2;
 		pos1.set(-1000,-1000,0);
-		Object *repulsor = TheGameLogic->findObjectByID(m_repulsor1);
+		Object *repulsor = TheGameLogic->findObjectByID(GXROW_AIUPDATEINTERFACE.repulsor1);
 		if (repulsor) {
 			pos1 = *repulsor->getPosition();
 		}
 		pos2 = pos1;
-		repulsor = TheGameLogic->findObjectByID(m_repulsor2);
+		repulsor = TheGameLogic->findObjectByID(GXROW_AIUPDATEINTERFACE.repulsor2);
 		if (repulsor) {
 			pos2 = *repulsor->getPosition();
 		}
-		m_path = pathfinder->findSafePath(getObject(), m_locomotorSet,
+		GXROW_AIUPDATEINTERFACE.path = pathfinder->findSafePath(getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet,
 			getObject()->getPosition(),
 			&pos1, 	&pos2,
 			getObject()->getVisionRange() + TheAI->getAiData()->m_repulsedDistance);
 		return;
 	}
-	if (m_isApproachPath & !isDoingGroundMovement()) {
-		m_isApproachPath = false;
+	if (GXROW_AIUPDATEINTERFACE.isApproachPath & !isDoingGroundMovement()) {
+		GXROW_AIUPDATEINTERFACE.isApproachPath = false;
 	}
-	if (m_isApproachPath) {
+	if (GXROW_AIUPDATEINTERFACE.isApproachPath) {
 		destroyPath();
-		m_path = pathfinder->findClosestPath(getObject(), m_locomotorSet, getObject()->getPosition(),
-			&m_requestedDestination, m_isBlockedAndStuck, 0.2f, FALSE );
+		GXROW_AIUPDATEINTERFACE.path = pathfinder->findClosestPath(getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet, getObject()->getPosition(),
+			&GXROW_AIUPDATEINTERFACE.requestedDestination, GXROW_AIUPDATEINTERFACE.isBlockedAndStuck, 0.2f, FALSE );
 		if (isDoingGroundMovement() && getPath()) {
 			TheAI->pathfinder()->updateGoal(getObject(), getPath()->getLastNode()->getPosition(),
 				getPath()->getLastNode()->getLayer());
 		}
 		return;
 	}
-	if (m_isAttackPath) {
+	if (GXROW_AIUPDATEINTERFACE.isAttackPath) {
 		Object *victim = nullptr;
-		if (m_requestedVictimID != INVALID_ID) {
-			victim = TheGameLogic->findObjectByID(m_requestedVictimID);
+		if (GXROW_AIUPDATEINTERFACE.requestedVictimID != INVALID_ID) {
+			victim = TheGameLogic->findObjectByID(GXROW_AIUPDATEINTERFACE.requestedVictimID);
 		}
-		if (computeAttackPath(pathfinder, victim, &m_requestedDestination))	{
+		if (computeAttackPath(pathfinder, victim, &GXROW_AIUPDATEINTERFACE.requestedDestination))	{
 			if (getPath()) {
 				TheAI->pathfinder()->updateGoal(getObject(), getPath()->getLastNode()->getPosition(),
 					getPath()->getLastNode()->getLayer());
 			}
-			//CRCDEBUG_LOG(("AIUpdateInterface::doPathfind() - m_isAttackPath = TRUE after computeAttackPath"));
-			m_isAttackPath = TRUE;
+			//CRCDEBUG_LOG(("AIUpdateInterface::doPathfind() - GXROW_AIUPDATEINTERFACE.isAttackPath = TRUE after computeAttackPath"));
+			GXROW_AIUPDATEINTERFACE.isAttackPath = TRUE;
 			return;
 		}
-		//CRCDEBUG_LOG(("AIUpdateInterface::doPathfind() - m_isAttackPath = FALSE after computeAttackPath()"));
-		m_isAttackPath = FALSE;
+		//CRCDEBUG_LOG(("AIUpdateInterface::doPathfind() - GXROW_AIUPDATEINTERFACE.isAttackPath = FALSE after computeAttackPath()"));
+		GXROW_AIUPDATEINTERFACE.isAttackPath = FALSE;
 		if (victim) {
-			m_requestedDestination = *victim->getPosition();
+			GXROW_AIUPDATEINTERFACE.requestedDestination = *victim->getPosition();
 			/* find a pathable destination near the victim.*/
-			TheAI->pathfinder()->adjustToPossibleDestination(getObject(), getLocomotorSet(), &m_requestedDestination);
+			TheAI->pathfinder()->adjustToPossibleDestination(getObject(), getLocomotorSet(), &GXROW_AIUPDATEINTERFACE.requestedDestination);
 			ignoreObstacle(victim);
 		}
 	}
-	computePath(pathfinder, &m_requestedDestination);
-	if (m_isFinalGoal && isDoingGroundMovement() && getPath()) {
+	computePath(pathfinder, &GXROW_AIUPDATEINTERFACE.requestedDestination);
+	if (GXROW_AIUPDATEINTERFACE.isFinalGoal && isDoingGroundMovement() && getPath()) {
 		TheAI->pathfinder()->updateGoal(getObject(), getPath()->getLastNode()->getPosition(),
 			getPath()->getLastNode()->getLayer());
 	}
-	if (m_queueForPathFrame > TheGameLogic->getFrame()) {
-		m_waitingForPath = TRUE;
+	if (GXROW_AIUPDATEINTERFACE.queueForPathFrame > TheGameLogic->getFrame()) {
+		GXROW_AIUPDATEINTERFACE.waitingForPath = TRUE;
 	}
 #ifdef SLEEPY_AI
 	// if we're no longer waiting for a path, make sure we wake up right away!
-	if (!m_waitingForPath)
+	if (!GXROW_AIUPDATEINTERFACE.waitingForPath)
 	{
 		wakeUpNow();
 	}
@@ -481,27 +489,27 @@ will be processed when we get to the front of the pathfind queue. jba */
 void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 {
 
-	if (m_locomotorSet.getValidSurfaces() == 0) {
+	if (GXROW_AIUPDATEINTERFACE.locomotorSet.getValidSurfaces() == 0) {
 		DEBUG_CRASH(("Attempting to path immobile unit."));
 	}
 
 	//DEBUG_LOG(("Request Frame %d, obj %s %x", TheGameLogic->getFrame(), getObject()->getTemplate()->getName().str(), getObject()));
-	m_requestedDestination = *destination;
-	m_isFinalGoal = isFinalGoal;
-	CRCDEBUG_LOG(("AIUpdateInterface::requestPath() - m_isAttackPath = FALSE for object %d", getObject()->getID()));
-	m_isAttackPath = FALSE;
-	m_requestedVictimID = INVALID_ID;
-	m_isApproachPath = FALSE;
-	m_isSafePath = FALSE;
+	GXROW_AIUPDATEINTERFACE.requestedDestination = *destination;
+	GXROW_AIUPDATEINTERFACE.isFinalGoal = isFinalGoal;
+	CRCDEBUG_LOG(("AIUpdateInterface::requestPath() - GXROW_AIUPDATEINTERFACE.isAttackPath = FALSE for object %d", getObject()->getID()));
+	GXROW_AIUPDATEINTERFACE.isAttackPath = FALSE;
+	GXROW_AIUPDATEINTERFACE.requestedVictimID = INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.isApproachPath = FALSE;
+	GXROW_AIUPDATEINTERFACE.isSafePath = FALSE;
 	if (canComputeQuickPath()) {
 		computeQuickPath(destination);
 		return;
 	}
 	// web port (match rule groupRoute): the group's route, shifted to us, instead of a queued search
-	if (!m_gxHintPts.empty()) {
-		std::vector<Coord3D> pts; pts.swap(m_gxHintPts);
+	if (!GXROW_AIUPDATEINTERFACE.gxHintPts.empty()) {
+		std::vector<Coord3D> pts; pts.swap(GXROW_AIUPDATEINTERFACE.gxHintPts);
 		extern bool gxMatchRule(unsigned int rule);
-		if (gxMatchRule(1024 /* GXRULE_GROUP_ROUTE */) && TheGameLogic->getFrame() - m_gxHintFrame <= 2 && isDoingGroundMovement()) {
+		if (gxMatchRule(1024 /* GXRULE_GROUP_ROUTE */) && TheGameLogic->getFrame() - GXROW_AIUPDATEINTERFACE.gxHintFrame <= 2 && isDoingGroundMovement()) {
 			Path *path = newInstance(Path);
 			path->appendNode(getObject()->getPosition(), LAYER_GROUND);
 			for (const Coord3D &p : pts) path->appendNode(&p, LAYER_GROUND);
@@ -510,26 +518,26 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 				node->setNextOptimized(node->getNext());
 			path->markOptimized();
 			destroyPath();	// also: no request outstanding
-			m_path = path;
-			if (m_isFinalGoal)
-				TheAI->pathfinder()->updateGoal(getObject(), m_path->getLastNode()->getPosition(), LAYER_GROUND);
+			GXROW_AIUPDATEINTERFACE.path = path;
+			if (GXROW_AIUPDATEINTERFACE.isFinalGoal)
+				TheAI->pathfinder()->updateGoal(getObject(), GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition(), LAYER_GROUND);
 			return;
 		}
 	}
-	m_waitingForPath = TRUE;
-	if (m_pathTimestamp > TheGameLogic->getFrame()-3) {
+	GXROW_AIUPDATEINTERFACE.waitingForPath = TRUE;
+	if (GXROW_AIUPDATEINTERFACE.pathTimestamp > TheGameLogic->getFrame()-3) {
 		/* Requesting path very quickly.  Can cause a spin. */
 		//DEBUG_LOG(("%d Pathfind - repathing in less than 3 frames.  Waiting 1 second",
 			//TheGameLogic->getFrame()));
 		setQueueForPathTime(LOGICFRAMES_PER_SECOND);
 		// See if it has been too soon.
 		// jba intense debug
-		//DEBUG_LOG(("Info - RePathing very quickly %d, %d.", m_pathTimestamp, TheGameLogic->getFrame()));
-		if (m_path && m_isBlockedAndStuck) {
+		//DEBUG_LOG(("Info - RePathing very quickly %d, %d.", GXROW_AIUPDATEINTERFACE.pathTimestamp, TheGameLogic->getFrame()));
+		if (GXROW_AIUPDATEINTERFACE.path && GXROW_AIUPDATEINTERFACE.isBlockedAndStuck) {
 			setIgnoreCollisionTime(2*LOGICFRAMES_PER_SECOND);
-			m_blockedFrames = 0;
-			m_isBlocked = FALSE;
-			m_isBlockedAndStuck = FALSE;
+			GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+			GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
+			GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 		}
 		return;
 	}
@@ -551,32 +559,32 @@ void AIUpdateInterface::gxStartCoarse( const Coord3D *destination )
 	extern bool gxMatchRule(unsigned int rule);
 	if (!gxMatchRule(32 /* GXRULE_COARSE_START */) || !isDoingGroundMovement())
 		return;
-	if (m_gxCoarse && m_path && m_gxCoarseTo.x == destination->x && m_gxCoarseTo.y == destination->y)
+	if (GXROW_AIUPDATEINTERFACE.gxCoarse && GXROW_AIUPDATEINTERFACE.path && GXROW_AIUPDATEINTERFACE.gxCoarseTo.x == destination->x && GXROW_AIUPDATEINTERFACE.gxCoarseTo.y == destination->y)
 		return;	// already on a coarse route there (blocked units ask again every frame)
 	Object *obj = getObject();
-	Path *coarse = TheAI->pathfinder()->gxCoarsePath(obj, m_locomotorSet, destination);
+	Path *coarse = TheAI->pathfinder()->gxCoarsePath(obj, GXROW_AIUPDATEINTERFACE.locomotorSet, destination);
 	if (!coarse)
 		return;
-	deleteInstance(m_path);	// not destroyPath(): the request stays outstanding
-	m_path = coarse;
-	m_gxCoarse = TRUE;
-	m_gxCoarseTo = *destination;
+	deleteInstance(GXROW_AIUPDATEINTERFACE.path);	// not destroyPath(): the request stays outstanding
+	GXROW_AIUPDATEINTERFACE.path = coarse;
+	GXROW_AIUPDATEINTERFACE.gxCoarse = TRUE;
+	GXROW_AIUPDATEINTERFACE.gxCoarseTo = *destination;
 }
 
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::requestAttackPath( ObjectID victimID, const Coord3D* victimPos )
 {
-	if (m_locomotorSet.getValidSurfaces() == 0) {
+	if (GXROW_AIUPDATEINTERFACE.locomotorSet.getValidSurfaces() == 0) {
 		DEBUG_CRASH(("Attempting to path immobile unit."));
 	}
-	CRCDEBUG_LOG(("AIUpdateInterface::requestAttackPath() - m_isAttackPath = TRUE for object %d", getObject()->getID()));
-	m_requestedDestination = *victimPos;
-	m_requestedVictimID = victimID;
-	m_isAttackPath = TRUE;
-	m_isApproachPath = FALSE;
-	m_isSafePath = FALSE;
-	m_waitingForPath = TRUE;
-	if (m_pathTimestamp > TheGameLogic->getFrame()-3) {
+	CRCDEBUG_LOG(("AIUpdateInterface::requestAttackPath() - GXROW_AIUPDATEINTERFACE.isAttackPath = TRUE for object %d", getObject()->getID()));
+	GXROW_AIUPDATEINTERFACE.requestedDestination = *victimPos;
+	GXROW_AIUPDATEINTERFACE.requestedVictimID = victimID;
+	GXROW_AIUPDATEINTERFACE.isAttackPath = TRUE;
+	GXROW_AIUPDATEINTERFACE.isApproachPath = FALSE;
+	GXROW_AIUPDATEINTERFACE.isSafePath = FALSE;
+	GXROW_AIUPDATEINTERFACE.waitingForPath = TRUE;
+	if (GXROW_AIUPDATEINTERFACE.pathTimestamp > TheGameLogic->getFrame()-3) {
 		/* Requesting path very quickly.  Can cause a spin. */
 		//DEBUG_LOG(("%d Pathfind - repathing in less than 3 frames.  Waiting 2 second",TheGameLogic->getFrame()));
 		setQueueForPathTime(2*LOGICFRAMES_PER_SECOND);
@@ -589,18 +597,18 @@ void AIUpdateInterface::requestAttackPath( ObjectID victimID, const Coord3D* vic
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::requestApproachPath( Coord3D *destination )
 {
-	if (m_locomotorSet.getValidSurfaces() == 0) {
+	if (GXROW_AIUPDATEINTERFACE.locomotorSet.getValidSurfaces() == 0) {
 		DEBUG_CRASH(("Attempting to path immobile unit."));
 	}
-	m_requestedDestination = *destination;
-	m_isFinalGoal = TRUE;
-	CRCDEBUG_LOG(("AIUpdateInterface::requestApproachPath() - m_isAttackPath = FALSE for object %d", getObject()->getID()));
-	m_isAttackPath = FALSE;
-	m_requestedVictimID = INVALID_ID;
-	m_isApproachPath = TRUE;
-	m_isSafePath = FALSE;
-	m_waitingForPath = TRUE;
-	if (m_pathTimestamp > TheGameLogic->getFrame()-3) {
+	GXROW_AIUPDATEINTERFACE.requestedDestination = *destination;
+	GXROW_AIUPDATEINTERFACE.isFinalGoal = TRUE;
+	CRCDEBUG_LOG(("AIUpdateInterface::requestApproachPath() - GXROW_AIUPDATEINTERFACE.isAttackPath = FALSE for object %d", getObject()->getID()));
+	GXROW_AIUPDATEINTERFACE.isAttackPath = FALSE;
+	GXROW_AIUPDATEINTERFACE.requestedVictimID = INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.isApproachPath = TRUE;
+	GXROW_AIUPDATEINTERFACE.isSafePath = FALSE;
+	GXROW_AIUPDATEINTERFACE.waitingForPath = TRUE;
+	if (GXROW_AIUPDATEINTERFACE.pathTimestamp > TheGameLogic->getFrame()-3) {
 		/* Requesting path very quickly.  Can cause a spin. */
 		//DEBUG_LOG(("%d Pathfind - repathing in less than 3 frames.  Waiting 2 second",TheGameLogic->getFrame()));
 		setQueueForPathTime(2*LOGICFRAMES_PER_SECOND);
@@ -613,18 +621,18 @@ void AIUpdateInterface::requestApproachPath( Coord3D *destination )
 // Requests a safe path away from the repulsor.
 void AIUpdateInterface::requestSafePath( ObjectID repulsor )
 {
-	if (repulsor != m_repulsor1) {
-		m_repulsor2 = m_repulsor1; // save the prior repulsor.
+	if (repulsor != GXROW_AIUPDATEINTERFACE.repulsor1) {
+		GXROW_AIUPDATEINTERFACE.repulsor2 = GXROW_AIUPDATEINTERFACE.repulsor1; // save the prior repulsor.
 	}
-	m_repulsor1 = repulsor;
-	m_isFinalGoal = FALSE;
-	CRCDEBUG_LOG(("AIUpdateInterface::requestSafePath() - m_isAttackPath = FALSE for object %d", getObject()->getID()));
-	m_isAttackPath = FALSE;
-	m_requestedVictimID = INVALID_ID;
-	m_isApproachPath = FALSE;
-	m_isSafePath = TRUE;
-	m_waitingForPath = TRUE;
-	if (m_pathTimestamp > TheGameLogic->getFrame()-3) {
+	GXROW_AIUPDATEINTERFACE.repulsor1 = repulsor;
+	GXROW_AIUPDATEINTERFACE.isFinalGoal = FALSE;
+	CRCDEBUG_LOG(("AIUpdateInterface::requestSafePath() - GXROW_AIUPDATEINTERFACE.isAttackPath = FALSE for object %d", getObject()->getID()));
+	GXROW_AIUPDATEINTERFACE.isAttackPath = FALSE;
+	GXROW_AIUPDATEINTERFACE.requestedVictimID = INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.isApproachPath = FALSE;
+	GXROW_AIUPDATEINTERFACE.isSafePath = TRUE;
+	GXROW_AIUPDATEINTERFACE.waitingForPath = TRUE;
+	if (GXROW_AIUPDATEINTERFACE.pathTimestamp > TheGameLogic->getFrame()-3) {
 		/* Requesting path very quickly.  Can cause a spin. */
 		//DEBUG_LOG(("%d Pathfind - repathing in less than 3 frames.  Waiting 2 second",TheGameLogic->getFrame()));
 		setQueueForPathTime(2*LOGICFRAMES_PER_SECOND);
@@ -639,10 +647,10 @@ enum {WAYPOINT_PATH_LIMIT=1024};
 void AIUpdateInterface::setPathFromWaypoint(const Waypoint *way, const Coord2D *offset)
 {
 	destroyPath();
-	m_path = newInstance(Path);
+	GXROW_AIUPDATEINTERFACE.path = newInstance(Path);
 	Coord3D pos = *getObject()->getPosition();
-	m_path->prependNode( &pos, LAYER_GROUND );
-	m_path->markOptimized();
+	GXROW_AIUPDATEINTERFACE.path->prependNode( &pos, LAYER_GROUND );
+	GXROW_AIUPDATEINTERFACE.path->markOptimized();
 	int count = 0;
 	while (way) {
 		Coord3D wayPos = *way->getLocation();
@@ -651,13 +659,13 @@ void AIUpdateInterface::setPathFromWaypoint(const Waypoint *way, const Coord2D *
 		if (way->getLink(0) == nullptr) {
 			TheAI->pathfinder()->snapPosition(getObject(), &wayPos);
 		}
-		m_path->appendNode( &wayPos, LAYER_GROUND );
+		GXROW_AIUPDATEINTERFACE.path->appendNode( &wayPos, LAYER_GROUND );
 		way = way->getLink(0);
 		count++;
 		if (count>WAYPOINT_PATH_LIMIT) break;
 	}
-	m_waitingForPath = FALSE;
-	TheAI->pathfinder()->setDebugPath(m_path);
+	GXROW_AIUPDATEINTERFACE.waitingForPath = FALSE;
+	TheAI->pathfinder()->setDebugPath(GXROW_AIUPDATEINTERFACE.path);
 #ifdef SLEEPY_AI
 	// if we're no longer waiting for a path, make sure we wake up right away!
 	wakeUpNow();
@@ -670,53 +678,54 @@ void AIUpdateInterface::onObjectCreated()
 	// create the behavior state machine.
 	// can't do this in the ctor because makeStateMachine is a protected virtual func,
 	// and overrides to virtual funcs don't exist in our ctor. (look it up.)
-	if (m_stateMachine == nullptr)
+	if (GXROW_AIUPDATEINTERFACE.stateMachine == nullptr)
 	{
-		m_stateMachine = makeStateMachine();
-		m_stateMachine->initDefaultState();
+		GXROW_AIUPDATEINTERFACE.stateMachine = makeStateMachine();
+		GXROW_AIUPDATEINTERFACE.stateMachine->initDefaultState();
 	}
 }
 
 //-------------------------------------------------------------------------------------------------
 AIUpdateInterface::~AIUpdateInterface()
 {
-	m_locomotorSet.clear();
-	m_curLocomotor = nullptr;
+	GXROW_AIUPDATEINTERFACE.locomotorSet.clear();
+	GXROW_AIUPDATEINTERFACE.curLocomotor = nullptr;
 
-	if( m_stateMachine ) {
-		m_stateMachine->halt();
-		deleteInstance(m_stateMachine);
+	if( GXROW_AIUPDATEINTERFACE.stateMachine ) {
+		GXROW_AIUPDATEINTERFACE.stateMachine->halt();
+		deleteInstance(GXROW_AIUPDATEINTERFACE.stateMachine);
 	}
 
 	for (int i = 0; i < MAX_TURRETS; i++)
 	{
-		deleteInstance(m_turretAI[i]);
-		m_turretAI[i] = nullptr;
+		deleteInstance(GXROW_AIUPDATEINTERFACE.turretAI[i]);
+		GXROW_AIUPDATEINTERFACE.turretAI[i] = nullptr;
 	}
-	m_stateMachine = nullptr;
+	GXROW_AIUPDATEINTERFACE.stateMachine = nullptr;
 
 	// destroy the current path. (destroyPath is nullptr savvy)
 	destroyPath();
 
+	TheGxAIUpdateInterfaces.release( m_gxAIUpdateInterfaceRow );	// web port (round 5)
 }
 
 //=============================================================================
 void AIUpdateInterface::setTurretTargetObject(WhichTurretType tur, Object* o, Bool forceAttacking)
 {
-	if (m_turretAI[tur])
+	if (GXROW_AIUPDATEINTERFACE.turretAI[tur])
 	{
-		m_turretAI[tur]->setTurretTargetObject(o, forceAttacking);
+		GXROW_AIUPDATEINTERFACE.turretAI[tur]->setTurretTargetObject(o, forceAttacking);
 	}
 }
 
 //=============================================================================
 Object* AIUpdateInterface::getTurretTargetObject( WhichTurretType tur, Bool clearDeadTargets )
 {
-	if( m_turretAI[ tur ] )
+	if( GXROW_AIUPDATEINTERFACE.turretAI[ tur ] )
 	{
 		Object *obj;
 		Coord3D pos;
-		if( m_turretAI[ tur ]->friend_getTurretTarget( obj, pos, clearDeadTargets ) == TARGET_OBJECT )
+		if( GXROW_AIUPDATEINTERFACE.turretAI[ tur ]->friend_getTurretTarget( obj, pos, clearDeadTargets ) == TARGET_OBJECT )
 		{
 			return obj;
 		}
@@ -727,36 +736,36 @@ Object* AIUpdateInterface::getTurretTargetObject( WhichTurretType tur, Bool clea
 //=============================================================================
 void AIUpdateInterface::setTurretTargetPosition(WhichTurretType tur, const Coord3D* pos)
 {
-	if (m_turretAI[tur])
+	if (GXROW_AIUPDATEINTERFACE.turretAI[tur])
 	{
-		m_turretAI[tur]->setTurretTargetPosition(pos);
+		GXROW_AIUPDATEINTERFACE.turretAI[tur]->setTurretTargetPosition(pos);
 	}
 }
 
 //=============================================================================
 void AIUpdateInterface::setTurretEnabled(WhichTurretType tur, Bool enabled)
 {
-	if (m_turretAI[tur])
+	if (GXROW_AIUPDATEINTERFACE.turretAI[tur])
 	{
-		m_turretAI[tur]->setTurretEnabled( enabled );
+		GXROW_AIUPDATEINTERFACE.turretAI[tur]->setTurretEnabled( enabled );
 	}
 }
 
 //=============================================================================
 void AIUpdateInterface::recenterTurret(WhichTurretType tur)
 {
-	if (m_turretAI[tur])
+	if (GXROW_AIUPDATEINTERFACE.turretAI[tur])
 	{
-		m_turretAI[tur]->recenterTurret();
+		GXROW_AIUPDATEINTERFACE.turretAI[tur]->recenterTurret();
 	}
 }
 
 //=============================================================================
 Bool AIUpdateInterface::isTurretEnabled( WhichTurretType tur ) const
 {
-	if( m_turretAI[ tur ] )
+	if( GXROW_AIUPDATEINTERFACE.turretAI[ tur ] )
 	{
-		return m_turretAI[ tur ]->isTurretEnabled();
+		return GXROW_AIUPDATEINTERFACE.turretAI[ tur ]->isTurretEnabled();
 	}
 	return FALSE;
 }
@@ -764,9 +773,9 @@ Bool AIUpdateInterface::isTurretEnabled( WhichTurretType tur ) const
 //=============================================================================
 Bool AIUpdateInterface::isTurretInNaturalPosition(WhichTurretType tur) const
 {
-	if (m_turretAI[tur])
+	if (GXROW_AIUPDATEINTERFACE.turretAI[tur])
 	{
-		return m_turretAI[tur]->isTurretInNaturalPosition();
+		return GXROW_AIUPDATEINTERFACE.turretAI[tur]->isTurretInNaturalPosition();
 	}
 	return FALSE;
 }
@@ -776,9 +785,9 @@ Bool AIUpdateInterface::isWeaponSlotOnTurretAndAimingAtTarget(WeaponSlotType wsl
 {
 	for (int i = 0; i < MAX_TURRETS; i++)
 	{
-		if (m_turretAI[i] && m_turretAI[i]->isWeaponSlotOnTurret(wslot))
+		if (GXROW_AIUPDATEINTERFACE.turretAI[i] && GXROW_AIUPDATEINTERFACE.turretAI[i]->isWeaponSlotOnTurret(wslot))
 		{
-			return m_turretAI[i]->isTryingToAimAtTarget(victim);
+			return GXROW_AIUPDATEINTERFACE.turretAI[i]->isTryingToAimAtTarget(victim);
 		}
 	}
 	return FALSE;
@@ -787,12 +796,12 @@ Bool AIUpdateInterface::isWeaponSlotOnTurretAndAimingAtTarget(WeaponSlotType wsl
 //=============================================================================
 Bool AIUpdateInterface::getTurretRotAndPitch(WhichTurretType tur, Real* turretAngle, Real* turretPitch) const
 {
-	if (m_turretAI[tur])
+	if (GXROW_AIUPDATEINTERFACE.turretAI[tur])
 	{
 		if (turretAngle)
-			*turretAngle = m_turretAI[tur]->getTurretAngle();
+			*turretAngle = GXROW_AIUPDATEINTERFACE.turretAI[tur]->getTurretAngle();
 		if (turretPitch)
-			*turretPitch = m_turretAI[tur]->getTurretPitch();
+			*turretPitch = GXROW_AIUPDATEINTERFACE.turretAI[tur]->getTurretPitch();
 		return TRUE;
 	}
 	return FALSE;
@@ -801,8 +810,8 @@ Bool AIUpdateInterface::getTurretRotAndPitch(WhichTurretType tur, Real* turretAn
 //=============================================================================
 Real AIUpdateInterface::getTurretTurnRate(WhichTurretType tur) const
 {
-	return (tur != TURRET_INVALID && m_turretAI[tur] != nullptr) ?
-					m_turretAI[tur]->getTurnRate() :
+	return (tur != TURRET_INVALID && GXROW_AIUPDATEINTERFACE.turretAI[tur] != nullptr) ?
+					GXROW_AIUPDATEINTERFACE.turretAI[tur]->getTurnRate() :
 					0.0f;
 }
 
@@ -810,7 +819,7 @@ Real AIUpdateInterface::getTurretTurnRate(WhichTurretType tur) const
 WhichTurretType AIUpdateInterface::getWhichTurretForCurWeapon() const
 {
 	for (int i = 0; i < MAX_TURRETS; ++i)
-		if (m_turretAI[i] && m_turretAI[i]->isOwnersCurWeaponOnTurret())
+		if (GXROW_AIUPDATEINTERFACE.turretAI[i] && GXROW_AIUPDATEINTERFACE.turretAI[i]->isOwnersCurWeaponOnTurret())
 			return (WhichTurretType)i;
 
 	return TURRET_INVALID;
@@ -821,12 +830,12 @@ WhichTurretType AIUpdateInterface::getWhichTurretForWeaponSlot(WeaponSlotType ws
 {
 	for (int i = 0; i < MAX_TURRETS; ++i)
 	{
-		if (m_turretAI[i] && m_turretAI[i]->isWeaponSlotOnTurret(wslot))
+		if (GXROW_AIUPDATEINTERFACE.turretAI[i] && GXROW_AIUPDATEINTERFACE.turretAI[i]->isWeaponSlotOnTurret(wslot))
 		{
 			if (turretAngle)
-				*turretAngle = m_turretAI[i]->getTurretAngle();
+				*turretAngle = GXROW_AIUPDATEINTERFACE.turretAI[i]->getTurretAngle();
 			if (turretPitch)
-				*turretPitch = m_turretAI[i]->getTurretPitch();
+				*turretPitch = GXROW_AIUPDATEINTERFACE.turretAI[i]->getTurretPitch();
 
 			return (WhichTurretType)i;
 		}
@@ -837,8 +846,8 @@ WhichTurretType AIUpdateInterface::getWhichTurretForWeaponSlot(WeaponSlotType ws
 //=============================================================================
 Real AIUpdateInterface::getCurLocomotorSpeed() const
 {
-	if (m_curLocomotor != nullptr)
-		return m_curLocomotor->getMaxSpeedForCondition(getObject()->getBodyModule()->getDamageState());
+	if (GXROW_AIUPDATEINTERFACE.curLocomotor != nullptr)
+		return GXROW_AIUPDATEINTERFACE.curLocomotor->getMaxSpeedForCondition(getObject()->getBodyModule()->getDamageState());
 
 	DEBUG_LOG(("no current locomotor!"));
 	return 0.0f;
@@ -847,8 +856,8 @@ Real AIUpdateInterface::getCurLocomotorSpeed() const
 //=============================================================================
 void AIUpdateInterface::setLocomotorUpgrade(Bool set)
 {
-	m_upgradedLocomotors = set;
-	if (m_curLocomotorSet == LOCOMOTORSET_NORMAL || m_curLocomotorSet == LOCOMOTORSET_NORMAL_UPGRADED)
+	GXROW_AIUPDATEINTERFACE.upgradedLocomotors = set;
+	if (GXROW_AIUPDATEINTERFACE.curLocomotorSet == LOCOMOTORSET_NORMAL || GXROW_AIUPDATEINTERFACE.curLocomotorSet == LOCOMOTORSET_NORMAL_UPGRADED)
 		chooseLocomotorSet(LOCOMOTORSET_NORMAL);
 }
 
@@ -856,10 +865,10 @@ void AIUpdateInterface::setLocomotorUpgrade(Bool set)
 Bool AIUpdateInterface::chooseLocomotorSet(LocomotorSetType wst)
 {
 	DEBUG_ASSERTCRASH(wst != LOCOMOTORSET_NORMAL_UPGRADED, ("never pass LOCOMOTORSET_NORMAL_UPGRADED here"));
-	if (wst == LOCOMOTORSET_NORMAL && m_upgradedLocomotors)
+	if (wst == LOCOMOTORSET_NORMAL && GXROW_AIUPDATEINTERFACE.upgradedLocomotors)
 		wst = LOCOMOTORSET_NORMAL_UPGRADED;
 
-	if (wst == m_curLocomotorSet)
+	if (wst == GXROW_AIUPDATEINTERFACE.curLocomotorSet)
 		return TRUE;
 
 	if (chooseLocomotorSetExplicit(wst))
@@ -879,15 +888,15 @@ Bool AIUpdateInterface::chooseLocomotorSetExplicit(LocomotorSetType wst)
 	const LocomotorTemplateVector* set = getAIUpdateModuleData()->findLocomotorTemplateVector(wst);
 	if (set)
 	{
-		m_locomotorSet.clear();
-		m_curLocomotor = nullptr;
+		GXROW_AIUPDATEINTERFACE.locomotorSet.clear();
+		GXROW_AIUPDATEINTERFACE.curLocomotor = nullptr;
 		for (size_t i = 0; i < set->size(); ++i)
 		{
 			const LocomotorTemplate* lt = set->at(i);
 			if (lt)
-				m_locomotorSet.addLocomotor(lt);
+				GXROW_AIUPDATEINTERFACE.locomotorSet.addLocomotor(lt);
 		}
-		m_curLocomotorSet = wst;
+		GXROW_AIUPDATEINTERFACE.curLocomotorSet = wst;
 		return TRUE;
 	}
 	return FALSE;
@@ -896,9 +905,9 @@ Bool AIUpdateInterface::chooseLocomotorSetExplicit(LocomotorSetType wst)
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::chooseGoodLocomotorFromCurrentSet()
 {
-	Locomotor* prevLoco = m_curLocomotor;
+	Locomotor* prevLoco = GXROW_AIUPDATEINTERFACE.curLocomotor;
 
-	Locomotor* newLoco = TheAI->pathfinder()->chooseBestLocomotorForPosition(getObject()->getLayer(), &m_locomotorSet, getObject()->getPosition());
+	Locomotor* newLoco = TheAI->pathfinder()->chooseBestLocomotorForPosition(getObject()->getLayer(), &GXROW_AIUPDATEINTERFACE.locomotorSet, getObject()->getPosition());
 
 	if (newLoco == nullptr)
 	{
@@ -914,13 +923,13 @@ void AIUpdateInterface::chooseGoodLocomotorFromCurrentSet()
 		{
 			/* this can happen for a newly-created object, which might come into being in
 				the middle of an obstacle. for now, we just fake it and choose a ground locomotor. */
-			newLoco = m_locomotorSet.findLocomotor(LOCOMOTORSURFACE_GROUND);
+			newLoco = GXROW_AIUPDATEINTERFACE.locomotorSet.findLocomotor(LOCOMOTORSURFACE_GROUND);
 		}
 	}
 
-	m_curLocomotor = newLoco;
+	GXROW_AIUPDATEINTERFACE.curLocomotor = newLoco;
 
-	if (prevLoco != m_curLocomotor)
+	if (prevLoco != GXROW_AIUPDATEINTERFACE.curLocomotor)
 	{
 		// make sure the group's speed will be recalculated
 		if (getGroup())
@@ -928,21 +937,21 @@ void AIUpdateInterface::chooseGoodLocomotorFromCurrentSet()
 
 		// turn off precision-z-pos anytime the loco changes, just in case,
 		// since it should only be enabled in very special cases
-		m_curLocomotor->setUsePreciseZPos(FALSE);
+		GXROW_AIUPDATEINTERFACE.curLocomotor->setUsePreciseZPos(FALSE);
 		// ditto for no-slow-down.
-		m_curLocomotor->setNoSlowDownAsApproachingDest(FALSE);
+		GXROW_AIUPDATEINTERFACE.curLocomotor->setNoSlowDownAsApproachingDest(FALSE);
 		// ditto for ultra-accuracy.
-		m_curLocomotor->setUltraAccurate(FALSE);
+		GXROW_AIUPDATEINTERFACE.curLocomotor->setUltraAccurate(FALSE);
 	}
 }
 
 //----------------------------------------------------------------------------------------------------------
 Object* AIUpdateInterface::checkForCrateToPickup()
 {
-	if (m_crateCreated != INVALID_ID)
+	if (GXROW_AIUPDATEINTERFACE.crateCreated != INVALID_ID)
 	{
-		m_crateCreated = INVALID_ID; // we have processed it, so clear it.
-		Object* crate = TheGameLogic->findObjectByID(m_crateCreated);
+		GXROW_AIUPDATEINTERFACE.crateCreated = INVALID_ID; // we have processed it, so clear it.
+		Object* crate = TheGameLogic->findObjectByID(GXROW_AIUPDATEINTERFACE.crateCreated);
 		if (crate)
 		{
 			for (BehaviorModule** m = crate->getBehaviorModules(); *m; ++m)
@@ -973,12 +982,12 @@ void AIUpdateInterface::doSurrenderUpdateStuff()
 		to AIUpdate every frame just to support this. (srj)
 	*/
 
-	UnsignedInt prevSurrenderedFrames = m_surrenderedFramesLeft;
+	UnsignedInt prevSurrenderedFrames = GXROW_AIUPDATEINTERFACE.surrenderedFramesLeft;
 
-	if (m_surrenderedFramesLeft > 0)
-		--m_surrenderedFramesLeft;
+	if (GXROW_AIUPDATEINTERFACE.surrenderedFramesLeft > 0)
+		--GXROW_AIUPDATEINTERFACE.surrenderedFramesLeft;
 
-	if (m_surrenderedFramesLeft > 0)
+	if (GXROW_AIUPDATEINTERFACE.surrenderedFramesLeft > 0)
 		getObject()->setModelConditionState( MODELCONDITION_SURRENDER );
 	else
 		getObject()->clearModelConditionState( MODELCONDITION_SURRENDER );
@@ -988,9 +997,9 @@ void AIUpdateInterface::doSurrenderUpdateStuff()
 	// during the surrender sequence we might have started moving towards a POW truck come
 	// to pick us up, but now we should stop and be all normal again
 	//
-	if( prevSurrenderedFrames > 0 && m_surrenderedFramesLeft == 0 )
+	if( prevSurrenderedFrames > 0 && GXROW_AIUPDATEINTERFACE.surrenderedFramesLeft == 0 )
 	{
-		m_surrenderedPlayerIndex = -1;
+		GXROW_AIUPDATEINTERFACE.surrenderedPlayerIndex = -1;
 		aiIdle( CMD_FROM_AI );
 	}
 }
@@ -1002,7 +1011,7 @@ void AIUpdateInterface::setQueueForPathTime(Int frames)
 #ifdef SLEEPY_AI
 	if (frames >= UPDATE_SLEEP_NONE && getWakeFrame() > UPDATE_SLEEP(frames))
 	{
-		if (m_isInUpdate)
+		if (GXROW_AIUPDATEINTERFACE.isInUpdate)
 		{
 			// we're changing this while in our own update (probably via a move state).
 			// just do nothing, since update will calculate the correct sleep behavior at the end.
@@ -1013,7 +1022,7 @@ void AIUpdateInterface::setQueueForPathTime(Int frames)
 		}
 	}
 #endif
-	m_queueForPathFrame = frames ? (TheGameLogic->getFrame() + frames) : 0;
+	GXROW_AIUPDATEINTERFACE.queueForPathFrame = frames ? (TheGameLogic->getFrame() + frames) : 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1022,7 +1031,7 @@ void AIUpdateInterface::wakeUpNow()
 #ifdef SLEEPY_AI
 	if (getWakeFrame() > UPDATE_SLEEP_NONE)
 	{
-		if (m_isInUpdate)
+		if (GXROW_AIUPDATEINTERFACE.isInUpdate)
 		{
 			// we're changing this while in our own update (probably via a move state).
 			// just do nothing, since update will calculate the correct sleep behavior at the end.
@@ -1052,9 +1061,9 @@ DECLARE_PERF_TIMER(AIUpdateInterface_update)
 // over pass(GXB_MOVE), in object-ID order, runs locomotion + route following for every unit in it.
 void AIUpdateInterface::gxSetMoving(Bool on)
 {
-	if (m_gxMoveOn == on)
+	if (GXROW_AIUPDATEINTERFACE.gxMoveOn == on)
 		return;
-	m_gxMoveOn = on;
+	GXROW_AIUPDATEINTERFACE.gxMoveOn = on;
 	TheGxUnitStore.setMask(getObject(), on ? GXB_BIT(GXB_MOVE) : 0, on ? 0 : GXB_BIT(GXB_MOVE));
 }
 
@@ -1096,9 +1105,9 @@ UpdateSleepTime AIUpdateInterface::update()
 
 	USE_PERF_TIMER(AIUpdateInterface_update)
 
-	m_isInUpdate = TRUE;
+	GXROW_AIUPDATEINTERFACE.isInUpdate = TRUE;
 
-	m_completedWaypoint = nullptr; // Reset so state machine update can set it if we just completed the path.
+	GXROW_AIUPDATEINTERFACE.completedWaypoint = nullptr; // Reset so state machine update can set it if we just completed the path.
 
 	// assume we can sleep forever, unless the state machine (or turret, etc) demand otherwise
 	UpdateSleepTime subMachineSleep = UPDATE_SLEEP_FOREVER;
@@ -1118,12 +1127,12 @@ UpdateSleepTime AIUpdateInterface::update()
 		subMachineSleep = UPDATE_SLEEP_NONE;
 	}
 
-	// note that this is all OK with sleepiness, since m_movementComplete can
+	// note that this is all OK with sleepiness, since GXROW_AIUPDATEINTERFACE.movementComplete can
 	// only be set via our statemachine (via friend_startingMove or friend_endMove),
 	// which we just called. thus we should
 	// never have worry about waking ourselves up when this changes, since
 	// if it changes the code will always flow thru here anyway. (srj)
-	if (m_movementComplete)
+	if (GXROW_AIUPDATEINTERFACE.movementComplete)
 	{
 		setQueueForPathTime(0);
 
@@ -1148,21 +1157,21 @@ UpdateSleepTime AIUpdateInterface::update()
 			setFinalPosition(&goalPos);
 			TheAI->pathfinder()->updateGoal(getObject(), &goalPos, getObject()->getLayer());
 		}
-		m_movementComplete = FALSE;
+		GXROW_AIUPDATEINTERFACE.movementComplete = FALSE;
 		ignoreObstacle(nullptr);
 	}
 
 	UnsignedInt now = TheGameLogic->getFrame();
-	if (m_queueForPathFrame != 0)
+	if (GXROW_AIUPDATEINTERFACE.queueForPathFrame != 0)
 	{
-		if (now >= m_queueForPathFrame)
+		if (now >= GXROW_AIUPDATEINTERFACE.queueForPathFrame)
 		{
 			TheAI->pathfinder()->queueForPath(getObject()->getID());
 			setQueueForPathTime(0);
 		}
 		else
 		{
-			UnsignedInt sleepForPathDelta = m_queueForPathFrame - now;
+			UnsignedInt sleepForPathDelta = GXROW_AIUPDATEINTERFACE.queueForPathFrame - now;
 			if (sleepForPathDelta < subMachineSleep)
 				subMachineSleep = UPDATE_SLEEP(sleepForPathDelta);
 		}
@@ -1180,9 +1189,9 @@ UpdateSleepTime AIUpdateInterface::update()
 		// If we are dead, don't let the turrets do anything anymore, or else they will keep attacking
 		for (int i = 0; i < MAX_TURRETS; ++i)
 		{
-			if (m_turretAI[i])
+			if (GXROW_AIUPDATEINTERFACE.turretAI[i])
 			{
-				UpdateSleepTime tmp = m_turretAI[i]->updateTurretAI();
+				UpdateSleepTime tmp = GXROW_AIUPDATEINTERFACE.turretAI[i]->updateTurretAI();
 				if (tmp < subMachineSleep)
 					subMachineSleep = tmp;
 			}
@@ -1216,9 +1225,9 @@ UpdateSleepTime AIUpdateInterface::update()
 #ifdef ALLOW_DEMORALIZE
 	RELEASE_CRASH(("If ALLOW_DEMORALIZE is ever defined, this code must be redone to do proper SLEEPY updates. (srj)"));
 	// update the demoralized frames if present
-	if( m_demoralizedFramesLeft > 0 )
+	if( GXROW_AIUPDATEINTERFACE.demoralizedFramesLeft > 0 )
 	{
-		setDemoralized( m_demoralizedFramesLeft - 1 );
+		setDemoralized( GXROW_AIUPDATEINTERFACE.demoralizedFramesLeft - 1 );
 	}
 #endif
 
@@ -1227,9 +1236,9 @@ UpdateSleepTime AIUpdateInterface::update()
 	doSurrenderUpdateStuff();
 #endif
 
-	m_isInUpdate = FALSE;
+	GXROW_AIUPDATEINTERFACE.isInUpdate = FALSE;
 
-	if (m_completedWaypoint != nullptr)
+	if (GXROW_AIUPDATEINTERFACE.completedWaypoint != nullptr)
 	{
 		// sleep NONE here so that it will get reset next frame.
 		// this happen infrequently, so it shouldn't be an issue.
@@ -1253,9 +1262,9 @@ UpdateSleepTime AIUpdateInterface::update()
  */
 Bool AIUpdateInterface::queueWaypoint( const Coord3D *pos )
 {
-	if (m_waypointCount < MAX_WAYPOINTS)
+	if (GXROW_AIUPDATEINTERFACE.waypointCount < MAX_WAYPOINTS)
 	{
-		m_waypointQueue[ m_waypointCount++ ] = *pos;
+		GXROW_AIUPDATEINTERFACE.waypointQueue[ GXROW_AIUPDATEINTERFACE.waypointCount++ ] = *pos;
 		return TRUE;
 	}
 	return FALSE;
@@ -1273,24 +1282,24 @@ void AIUpdateInterface::executeWaypointQueue()
 
 //	m_actionStack->clear();
 
-	if (m_waypointCount > 0)
+	if (GXROW_AIUPDATEINTERFACE.waypointCount > 0)
 	{
-		m_waypointIndex = 0;
-		m_executingWaypointQueue = TRUE;
+		GXROW_AIUPDATEINTERFACE.waypointIndex = 0;
+		GXROW_AIUPDATEINTERFACE.executingWaypointQueue = TRUE;
 	}
 }
 
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::clearWaypointQueue()
 {
-	m_waypointCount = 0;
-	m_executingWaypointQueue = FALSE;
+	GXROW_AIUPDATEINTERFACE.waypointCount = 0;
+	GXROW_AIUPDATEINTERFACE.executingWaypointQueue = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::markAsDead()
 {
-	m_isAiDead = TRUE;
+	GXROW_AIUPDATEINTERFACE.isAiDead = TRUE;
 	getObject()->setEffectivelyDead(TRUE);
 	wakeUpNow();	// wake us up immediately so that our anim plays promptly!
 }
@@ -1361,7 +1370,7 @@ Real AIUpdateInterface::calculateMaxBlockedSpeed(Object *other) const
 	Real speedFactor = dotProduct;
 	PhysicsBehavior *otherPhysics = other->getPhysics();
 	if (!otherPhysics) {
-		return m_curMaxBlockedSpeed;
+		return GXROW_AIUPDATEINTERFACE.curMaxBlockedSpeed;
 	}
 	Coord3D otherVel = *otherPhysics->getVelocity();
 	otherVel.z = 0;
@@ -1372,13 +1381,13 @@ Real AIUpdateInterface::calculateMaxBlockedSpeed(Object *other) const
 	dotProduct = vectorToOther.x*ourDir.x	+ vectorToOther.y*ourDir.y;
 	if (dotProduct<=0) {
 		// Unexpected - we are moving away.  Shouldn't be blocked...
-		return m_curMaxBlockedSpeed;
+		return GXROW_AIUPDATEINTERFACE.curMaxBlockedSpeed;
 	}
 	Real maxSpeed = awaySpeed / dotProduct;
 	if (other->getFormationID()!=NO_FORMATION_ID && getObject()->getFormationID()==other->getFormationID()) {
 		maxSpeed *= 0.55f; // don't let formations crowd each other.
 	}
-	if (maxSpeed>m_curMaxBlockedSpeed) return m_curMaxBlockedSpeed;
+	if (maxSpeed>GXROW_AIUPDATEINTERFACE.curMaxBlockedSpeed) return GXROW_AIUPDATEINTERFACE.curMaxBlockedSpeed;
 	return maxSpeed;
 }
 
@@ -1414,7 +1423,7 @@ Bool AIUpdateInterface::blockedBy(Object *other)
 	if (getCurLocomotor() && getCurLocomotor()->isMovingBackwards()) {
 		return false; // don't collide.
 	}
-	Bool otherMoving = ( aiOther->m_locomotorGoalType != NONE );
+	Bool otherMoving = ( aiOther->gxRow().locomotorGoalType != NONE );
 	Coord3D otherPos = *other->getPosition();
 	Real dx = pos.x-otherPos.x;
 	Real dy = pos.y-otherPos.y;
@@ -1506,7 +1515,7 @@ Bool AIUpdateInterface::needToRotate()
 	{
 		ClosestPointOnPathInfo info;
 		CRCDEBUG_LOG(("AIUpdateInterface::needToRotate() - calling computePointOnPath() for object %d", getObject()->getID()));
-		getPath()->computePointOnPath(getObject(), m_locomotorSet, *getObject()->getPosition(), info);
+		getPath()->computePointOnPath(getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet, *getObject()->getPosition(), info);
 		deltaAngle = ThePartitionManager->getRelativeAngle2D( getObject(), &info.posOnPath );
 	}
 
@@ -1529,10 +1538,10 @@ Bool AIUpdateInterface::processCollision(PhysicsBehavior *physics, Object *other
 	return false;
 #endif
 
-	if (m_ignoreCollisionsUntil > TheGameLogic->getFrame())
+	if (GXROW_AIUPDATEINTERFACE.ignoreCollisionsUntil > TheGameLogic->getFrame())
 		return FALSE;
 
-	if (m_canPathThroughUnits)
+	if (GXROW_AIUPDATEINTERFACE.canPathThroughUnits)
 		return FALSE;
 
 	AIUpdateInterface* aiOther = other->getAI();
@@ -1556,16 +1565,16 @@ Bool AIUpdateInterface::processCollision(PhysicsBehavior *physics, Object *other
 					return TRUE; // just bounce off of other humans.
 				}
 			}
-			m_isBlocked = TRUE; // we are blocked.
+			GXROW_AIUPDATEINTERFACE.isBlocked = TRUE; // we are blocked.
  			if (otherMoving && aiOther->isWaitingForPath())
 			{
 				return FALSE; // let them get their path;
 			}
 
 			Real maxSpeed = calculateMaxBlockedSpeed(other);
-			if (maxSpeed < m_curMaxBlockedSpeed)
+			if (maxSpeed < GXROW_AIUPDATEINTERFACE.curMaxBlockedSpeed)
 			{
-				m_curMaxBlockedSpeed = maxSpeed;
+				GXROW_AIUPDATEINTERFACE.curMaxBlockedSpeed = maxSpeed;
 			}
 
 			if (!aiOther->isMovingAwayFrom(getObject())) {
@@ -1583,8 +1592,8 @@ Bool AIUpdateInterface::processCollision(PhysicsBehavior *physics, Object *other
 				}
 #define dont_MOVE_AROUND // It just causes more problems than it fixes. jba.
 #ifdef MOVE_AROUND
-				if (m_curLocomotor!= nullptr && (other->isKindOf(KINDOF_INFANTRY)==getObject()->isKindOf(KINDOF_INFANTRY))) {
-					Real myMaxSpeed = m_curLocomotor->getMaxSpeedForCondition(getObject()->getBodyModule()->getDamageState());
+				if (GXROW_AIUPDATEINTERFACE.curLocomotor!= nullptr && (other->isKindOf(KINDOF_INFANTRY)==getObject()->isKindOf(KINDOF_INFANTRY))) {
+					Real myMaxSpeed = GXROW_AIUPDATEINTERFACE.curLocomotor->getMaxSpeedForCondition(getObject()->getBodyModule()->getDamageState());
 					Locomotor *hisLoco = aiOther->getCurLocomotor();
 					if (hisLoco) {
 						Real hisMaxSpeed = hisLoco->getMaxSpeedForCondition(other->getBodyModule()->getDamageState());
@@ -1598,7 +1607,7 @@ Bool AIUpdateInterface::processCollision(PhysicsBehavior *physics, Object *other
 			}
 
 			//DEBUG_LOG(("Blocked %s, %x, %s", getObject()->getTemplate()->getName().str(), getObject(), other->getTemplate()->getName().str()));
-			if (m_blockedFrames==0) m_blockedFrames = 1;
+			if (GXROW_AIUPDATEINTERFACE.blockedFrames==0) GXROW_AIUPDATEINTERFACE.blockedFrames = 1;
 			if (!needToRotate())
 			{
 				// If we are already pointing in the right direction, we may be stuck.
@@ -1606,7 +1615,7 @@ Bool AIUpdateInterface::processCollision(PhysicsBehavior *physics, Object *other
 				{
 					// Intense logging jba
 					// DEBUG_LOG(("Blocked&Stuck !otherMoving"));
-					m_isBlockedAndStuck = TRUE;
+					GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = TRUE;
 					return FALSE;
 				}
 
@@ -1620,7 +1629,7 @@ Bool AIUpdateInterface::processCollision(PhysicsBehavior *physics, Object *other
 						{
 							// get out of his way.
 							aiMoveAwayFromUnit(aiOther->getObject(), CMD_FROM_AI);
-							//m_isBlockedAndStuck = TRUE;
+							//GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = TRUE;
 							// Intense logging jba.
 							// DEBUG_LOG(("Blocked&Stuck other is blockedByUs, has higher priority"));
 						}
@@ -1634,7 +1643,7 @@ Bool AIUpdateInterface::processCollision(PhysicsBehavior *physics, Object *other
 			else
 			{
 				// We are rotating, so don't accumulate blocked frames.
-				m_blockedFrames = 1;
+				GXROW_AIUPDATEINTERFACE.blockedFrames = 1;
 			}
 		}
 	}
@@ -1689,7 +1698,7 @@ Bool AIUpdateInterface::canComputeQuickPath()
 	Bool landBound = FALSE;
 	// Note - if a truck happens to pop into the air and gets a move to command, it still
 	// needs to pathfind.  So only skip pathfinding for airborne things that can fly... jba.
-	if (!(m_locomotorSet.getValidSurfaces() & LOCOMOTORSURFACE_AIR))
+	if (!(GXROW_AIUPDATEINTERFACE.locomotorSet.getValidSurfaces() & LOCOMOTORSURFACE_AIR))
   {
 		landBound = TRUE;
 	}
@@ -1717,9 +1726,9 @@ Bool AIUpdateInterface::computeQuickPath( const Coord3D *destination )
 
 
 	// First, see if our path already goes to the destination.
-	if (m_path) {
+	if (GXROW_AIUPDATEINTERFACE.path) {
 		PathNode *closeNode = nullptr;
-		closeNode = m_path->getLastNode();
+		closeNode = GXROW_AIUPDATEINTERFACE.path->getLastNode();
 		if (closeNode && closeNode->getNextOptimized()==nullptr) {
 			Real dxSqr = destination->x - closeNode->getPosition()->x;
 			dxSqr *= dxSqr;
@@ -1735,27 +1744,27 @@ Bool AIUpdateInterface::computeQuickPath( const Coord3D *destination )
 	// destroy previous path
 	destroyPath();
 	if (getObject()->isKindOf(KINDOF_AIRCRAFT) && !getObject()->isKindOf(KINDOF_PROJECTILE)) {
-		m_path = TheAI->pathfinder()->getAircraftPath(getObject(), destination);
+		GXROW_AIUPDATEINTERFACE.path = TheAI->pathfinder()->getAircraftPath(getObject(), destination);
 	} else {
-		m_path = newInstance(Path);
-		m_path->prependNode( destination, LAYER_GROUND );
+		GXROW_AIUPDATEINTERFACE.path = newInstance(Path);
+		GXROW_AIUPDATEINTERFACE.path->prependNode( destination, LAYER_GROUND );
 		Coord3D pos = *getObject()->getPosition();
 		pos.z = destination->z;
-		m_path->prependNode( &pos, getObject()->getLayer() );
-		m_path->getFirstNode()->setNextOptimized(m_path->getFirstNode()->getNext());
+		GXROW_AIUPDATEINTERFACE.path->prependNode( &pos, getObject()->getLayer() );
+		GXROW_AIUPDATEINTERFACE.path->getFirstNode()->setNextOptimized(GXROW_AIUPDATEINTERFACE.path->getFirstNode()->getNext());
 
 		if (TheGlobalData->m_debugAI==AI_DEBUG_PATHS)
 		{
-			TheAI->pathfinder()->setDebugPath(m_path);
+			TheAI->pathfinder()->setDebugPath(GXROW_AIUPDATEINTERFACE.path);
 		}
 	}
 
 
 	// timestamp when the path was created
-	m_pathTimestamp = TheGameLogic->getFrame();
+	GXROW_AIUPDATEINTERFACE.pathTimestamp = TheGameLogic->getFrame();
 
-	m_blockedFrames = 0;
-	m_isBlockedAndStuck = FALSE;
+	GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+	GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 	return TRUE;
 }
 
@@ -1794,7 +1803,7 @@ static Bool gxFindSpotNearGoal(Object *obj, const LocomotorSet &locos, Coord3D *
 Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Coord3D *destination )
 {
 
-	if (!m_isBlockedAndStuck)	{
+	if (!GXROW_AIUPDATEINTERFACE.isBlockedAndStuck)	{
 		destroyPath();
 	}
 
@@ -1802,7 +1811,7 @@ Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Co
 	{
 		return computeQuickPath(destination);
 	}
-	m_retryPath = false;
+	GXROW_AIUPDATEINTERFACE.retryPath = false;
 	Region3D extent;
 	TheTerrainLogic->getMaximumPathfindExtent(&extent);
 	if (!extent.isInRegionNoZ(destination)) {
@@ -1815,7 +1824,7 @@ Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Co
 	}
 
 	// Special case of exit factory. jba.
-	if ((m_stateMachine->getCurrentStateID() == AI_FOLLOW_EXITPRODUCTION_PATH) && canPathThroughUnits()) {
+	if ((GXROW_AIUPDATEINTERFACE.stateMachine->getCurrentStateID() == AI_FOLLOW_EXITPRODUCTION_PATH) && canPathThroughUnits()) {
 		Bool ok = computeQuickPath(destination);
 		if (ok) {
 			TheAI->pathfinder()->moveAlliesAwayFromDestination(getObject(), *destination);
@@ -1831,53 +1840,53 @@ Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Co
 	Coord3D originalDestination = *destination;
 	// sanity check - if destination cell is invalid, don't bother pathing
 
-	LocomotorSurfaceTypeMask surfaces = m_locomotorSet.getValidSurfaces();
-	if (!m_isFinalGoal && TheAI->pathfinder()->isLinePassable( getObject(), surfaces,
+	LocomotorSurfaceTypeMask surfaces = GXROW_AIUPDATEINTERFACE.locomotorSet.getValidSurfaces();
+	if (!GXROW_AIUPDATEINTERFACE.isFinalGoal && TheAI->pathfinder()->isLinePassable( getObject(), surfaces,
 			getObject()->getLayer(), *getObject()->getPosition(), originalDestination, false, true)) {
 		return computeQuickPath(destination);
 	}
 
 	PathfindLayerEnum destinationLayer = TheTerrainLogic->getLayerForDestination(destination);
-	if (TheAI->pathfinder()->validMovementPosition( getObject()->getCrusherLevel()>0, destinationLayer, m_locomotorSet, destination ) == FALSE)
+	if (TheAI->pathfinder()->validMovementPosition( getObject()->getCrusherLevel()>0, destinationLayer, GXROW_AIUPDATEINTERFACE.locomotorSet, destination ) == FALSE)
 	{
 		theNewPath = nullptr;
 	}
 	else
 	{
 		// compute a ground-based path
-		if (m_isBlockedAndStuck) {
-			theNewPath = pathServices->patchPath( getObject(), m_locomotorSet,
-				getPath(), m_isBlockedAndStuck);
+		if (GXROW_AIUPDATEINTERFACE.isBlockedAndStuck) {
+			theNewPath = pathServices->patchPath( getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet,
+				getPath(), GXROW_AIUPDATEINTERFACE.isBlockedAndStuck);
 		}	else {
-			theNewPath = pathServices->findPath( getObject(), m_locomotorSet, getObject()->getPosition(),
+			theNewPath = pathServices->findPath( getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet, getObject()->getPosition(),
 				destination);
 		}
 	}
-	if (theNewPath==nullptr && m_path==nullptr && !m_isBlockedAndStuck && gxAiRule(8192))
+	if (theNewPath==nullptr && GXROW_AIUPDATEINTERFACE.path==nullptr && !GXROW_AIUPDATEINTERFACE.isBlockedAndStuck && gxAiRule(8192))
 	{
 		// sharedRoutes: a group sent to one point all ask for the same cell, so after the first unit
 		// takes it every other search fails and fell back to findClosestPath, which examines thousands
 		// of cells. Take a free spot near the goal instead (a short spiral) and plan to that; long
 		// routes then come from the shared flow field for the goal's area.
 		Coord3D nearGoal = *destination;
-		if (gxFindSpotNearGoal(getObject(), m_locomotorSet, &nearGoal))
+		if (gxFindSpotNearGoal(getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet, &nearGoal))
 		{
-			theNewPath = pathServices->findPath( getObject(), m_locomotorSet, getObject()->getPosition(), &nearGoal);
+			theNewPath = pathServices->findPath( getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet, getObject()->getPosition(), &nearGoal);
 			if (theNewPath)
-				m_retryPath = true;	// like the closest-path fallback: one more try for the real goal on arrival
+				GXROW_AIUPDATEINTERFACE.retryPath = true;	// like the closest-path fallback: one more try for the real goal on arrival
 		}
 	}
-	if (theNewPath==nullptr && m_path==nullptr) {
+	if (theNewPath==nullptr && GXROW_AIUPDATEINTERFACE.path==nullptr) {
 		Real pathCostFactor = 0.0f;
-		theNewPath = pathServices->findClosestPath( getObject(), m_locomotorSet, getObject()->getPosition(),
-			destination, m_isBlockedAndStuck, pathCostFactor, FALSE );
-		m_retryPath = true;
+		theNewPath = pathServices->findClosestPath( getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet, getObject()->getPosition(),
+			destination, GXROW_AIUPDATEINTERFACE.isBlockedAndStuck, pathCostFactor, FALSE );
+		GXROW_AIUPDATEINTERFACE.retryPath = true;
 	}
 	TheAI->pathfinder()->setIgnoreObstacleID( INVALID_ID );
 	if (theNewPath) {
 		// destroy previous path
 		destroyPath();
-		m_path = theNewPath;
+		GXROW_AIUPDATEINTERFACE.path = theNewPath;
 		if (getCurLocomotor() && getCurLocomotor()->isUltraAccurate()) {
 			// Move exactly to the destination.  Normal ground pathfinding moves to a gridded location.
 			theNewPath->updateLastNode(&originalDestination);
@@ -1887,7 +1896,7 @@ Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Co
 			TheAI->pathfinder()->moveAllies(getObject(), theNewPath);
 	} else {
 		// Keep using the old path.
- 		if (m_path && m_isBlockedAndStuck) {
+ 		if (GXROW_AIUPDATEINTERFACE.path && GXROW_AIUPDATEINTERFACE.isBlockedAndStuck) {
 			destroyPath();
 			// Stop and wait one second.
 
@@ -1899,17 +1908,17 @@ Bool AIUpdateInterface::computePath( PathfindServicesInterface *pathServices, Co
 			setFinalPosition(&goalPos);
 			setLocomotorGoalNone();
 
-			m_blockedFrames = 0;
-			m_isBlocked = FALSE;
-			m_isBlockedAndStuck = FALSE;
+			GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+			GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
+			GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 		}
 	}
 	// timestamp when the path was created
-	m_pathTimestamp = TheGameLogic->getFrame();
+	GXROW_AIUPDATEINTERFACE.pathTimestamp = TheGameLogic->getFrame();
 
-	m_blockedFrames = 0;
-	m_isBlockedAndStuck = FALSE;
-	if (m_path)
+	GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+	GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
+	if (GXROW_AIUPDATEINTERFACE.path)
 		return TRUE;
 
 	return FALSE;
@@ -1936,23 +1945,23 @@ Bool AIUpdateInterface::computeAttackPath( PathfindServicesInterface *pathServic
 {
 	//CRCDEBUG_LOG(("AIUpdateInterface::computeAttackPath() for object %d", getObject()->getID()));
 	// See if it has been too soon.
-	if (m_pathTimestamp >= TheGameLogic->getFrame()-2)
+	if (GXROW_AIUPDATEINTERFACE.pathTimestamp >= TheGameLogic->getFrame()-2)
 	{
 		// jba intense debug
-		//CRCDEBUG_LOG(("Info - RePathing very quickly %d, %d.", m_pathTimestamp, TheGameLogic->getFrame()));
-		if (m_path && m_isBlockedAndStuck)
+		//CRCDEBUG_LOG(("Info - RePathing very quickly %d, %d.", GXROW_AIUPDATEINTERFACE.pathTimestamp, TheGameLogic->getFrame()));
+		if (GXROW_AIUPDATEINTERFACE.path && GXROW_AIUPDATEINTERFACE.isBlockedAndStuck)
 		{
 			setIgnoreCollisionTime(2*LOGICFRAMES_PER_SECOND);
-			m_blockedFrames = 0;
-			m_isBlocked = FALSE;
-			m_isBlockedAndStuck = FALSE;
+			GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+			GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
+			GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 			return TRUE;
 		}
 	}
 	Bool landBound = FALSE;
 	// Note - if a truck happens to pop into the air and gets a move to command, it still
 	// needs to pathfind.  So only skip pathfinding for airborne things that can fly... jba.
-	if (!(m_locomotorSet.getValidSurfaces() & LOCOMOTORSURFACE_AIR))
+	if (!(GXROW_AIUPDATEINTERFACE.locomotorSet.getValidSurfaces() & LOCOMOTORSURFACE_AIR))
   {
 		landBound = TRUE;
 	}
@@ -2025,18 +2034,18 @@ Bool AIUpdateInterface::computeAttackPath( PathfindServicesInterface *pathServic
 			getCurLocomotor()->setNoSlowDownAsApproachingDest(TRUE);
 		}
 		Bool ok = computePath(pathServices, &tmp);
-		if (m_path==nullptr) return false;
+		if (GXROW_AIUPDATEINTERFACE.path==nullptr) return false;
 		Real dx, dy;
-		dx = victimPos->x - m_path->getLastNode()->getPosition()->x;
-		dy = victimPos->y - m_path->getLastNode()->getPosition()->y;
+		dx = victimPos->x - GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition()->x;
+		dy = victimPos->y - GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition()->y;
 		if (sqr(dx)+sqr(dy) < sqr(PATHFIND_CELL_SIZE_F*3)) {
-			if (m_path)
+			if (GXROW_AIUPDATEINTERFACE.path)
 			{
-				m_path->updateLastNode(victimPos); // jam in the coordinates of the target.
+				GXROW_AIUPDATEINTERFACE.path->updateLastNode(victimPos); // jam in the coordinates of the target.
 			}
 		}
-		dx = source->getPosition()->x - m_path->getLastNode()->getPosition()->x;
-		dy = source->getPosition()->y - m_path->getLastNode()->getPosition()->y;
+		dx = source->getPosition()->x - GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition()->x;
+		dy = source->getPosition()->y - GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition()->y;
 		if (sqr(dx)+sqr(dy) < sqr(PATHFIND_CELL_SIZE_F)) {
 			// Very short path - we can't get to the goal.
 			destroyPath();
@@ -2084,10 +2093,10 @@ Bool AIUpdateInterface::computeAttackPath( PathfindServicesInterface *pathServic
 		//	("position we just calced is not acceptable"));
 
 		// First, see if our path already goes to the destination.
-		if (m_path)
+		if (GXROW_AIUPDATEINTERFACE.path)
 		{
 			PathNode *startNode, *closeNode = nullptr;
-			startNode = m_path->getFirstNode();
+			startNode = GXROW_AIUPDATEINTERFACE.path->getFirstNode();
 			closeNode = startNode->getNextOptimized();
 			if (closeNode && closeNode->getNextOptimized()==nullptr) {
 				Real dxSqr = localVictimPos.x - closeNode->getPosition()->x;
@@ -2102,15 +2111,15 @@ Bool AIUpdateInterface::computeAttackPath( PathfindServicesInterface *pathServic
 		}
 		// destroy previous path
 		destroyPath();
-		m_path = newInstance(Path);
-		m_path->prependNode( &localVictimPos, LAYER_GROUND );
+		GXROW_AIUPDATEINTERFACE.path = newInstance(Path);
+		GXROW_AIUPDATEINTERFACE.path->prependNode( &localVictimPos, LAYER_GROUND );
 		Coord3D pos = *getObject()->getPosition();
 		pos.z = localVictimPos.z;
-		m_path->prependNode( &pos, LAYER_GROUND );
-		m_path->getFirstNode()->setNextOptimized(m_path->getFirstNode()->getNext());
+		GXROW_AIUPDATEINTERFACE.path->prependNode( &pos, LAYER_GROUND );
+		GXROW_AIUPDATEINTERFACE.path->getFirstNode()->setNextOptimized(GXROW_AIUPDATEINTERFACE.path->getFirstNode()->getNext());
 		if (TheGlobalData->m_debugAI==AI_DEBUG_PATHS)
 		{
-			TheAI->pathfinder()->setDebugPath(m_path);
+			TheAI->pathfinder()->setDebugPath(GXROW_AIUPDATEINTERFACE.path);
 		}
 	}
 	else
@@ -2121,10 +2130,10 @@ Bool AIUpdateInterface::computeAttackPath( PathfindServicesInterface *pathServic
 		TheAI->pathfinder()->setIgnoreObstacleID( getIgnoredObstacleID() );
 
 		// compute a ground-based path
-		m_path = pathServices->findAttackPath( getObject(), m_locomotorSet, getObject()->getPosition(),
+		GXROW_AIUPDATEINTERFACE.path = pathServices->findAttackPath( getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet, getObject()->getPosition(),
 			victim, &localVictimPos, weapon);
-		if (m_path) {
-			Coord3D goal = *m_path->getLastNode()->getPosition();
+		if (GXROW_AIUPDATEINTERFACE.path) {
+			Coord3D goal = *GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition();
 			if (!weapon->isGoalPosWithinAttackRange(getObject(), &goal, victim, &localVictimPos)) {
 				// We didn't actually find a path we can attack from. [8/14/2003]
 				// If the move is a short distance, just do a find closest path to our current
@@ -2133,32 +2142,32 @@ Bool AIUpdateInterface::computeAttackPath( PathfindServicesInterface *pathServic
 				goal.sub(&objPos);
 				if (goal.length()<3*PATHFIND_CELL_SIZE_F) {
 					destroyPath();
-					TheAI->pathfinder()->adjustDestination(getObject(), m_locomotorSet, &objPos);
-					m_path = pathServices->findClosestPath(getObject(), m_locomotorSet, getObject()->getPosition(),
+					TheAI->pathfinder()->adjustDestination(getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet, &objPos);
+					GXROW_AIUPDATEINTERFACE.path = pathServices->findClosestPath(getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet, getObject()->getPosition(),
 								&objPos, false, 0.2f, true );
 				}
-				if (m_path==nullptr) {
+				if (GXROW_AIUPDATEINTERFACE.path==nullptr) {
 					return false;
 				}
 			}
-			goal = *m_path->getLastNode()->getPosition();
+			goal = *GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition();
 			TheAI->pathfinder()->updateGoal(getObject(), &goal, TheTerrainLogic->getLayerForDestination(&goal));
-			if (m_path->getBlockedByAlly())
+			if (GXROW_AIUPDATEINTERFACE.path->getBlockedByAlly())
 			{
 	 			if( !getObject()->isKindOf(KINDOF_NO_COLLIDE))// If I don't collide with things, I don't need to tell them to get out of the way
-					TheAI->pathfinder()->moveAllies(getObject(), m_path);
+					TheAI->pathfinder()->moveAllies(getObject(), GXROW_AIUPDATEINTERFACE.path);
 			}
 		}
 		TheAI->pathfinder()->setIgnoreObstacleID( INVALID_ID );
 	}
 
 	// timestamp when the path was created
-	m_pathTimestamp = TheGameLogic->getFrame();
+	GXROW_AIUPDATEINTERFACE.pathTimestamp = TheGameLogic->getFrame();
 
-	m_blockedFrames = 0;
-	m_isBlockedAndStuck = FALSE;
+	GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+	GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 	//CRCDEBUG_LOG(("AIUpdateInterface::computeAttackPath() done"));
-	if (m_path)
+	if (GXROW_AIUPDATEINTERFACE.path)
 		return TRUE;
 
 	return FALSE;
@@ -2171,13 +2180,13 @@ Bool AIUpdateInterface::computeAttackPath( PathfindServicesInterface *pathServic
 void AIUpdateInterface::destroyPath()
 {
 	// destroy previous path
-	deleteInstance(m_path);
-	m_path = nullptr;
-	m_gxCoarse = FALSE;
+	deleteInstance(GXROW_AIUPDATEINTERFACE.path);
+	GXROW_AIUPDATEINTERFACE.path = nullptr;
+	GXROW_AIUPDATEINTERFACE.gxCoarse = FALSE;
 
-	m_waitingForPath = FALSE; // we no longer need it.
-	//CRCDEBUG_LOG(("AIUpdateInterface::destroyPath() - m_isAttackPath = FALSE for object %d", getObject()->getID()));
-	m_isAttackPath = FALSE;
+	GXROW_AIUPDATEINTERFACE.waitingForPath = FALSE; // we no longer need it.
+	//CRCDEBUG_LOG(("AIUpdateInterface::destroyPath() - GXROW_AIUPDATEINTERFACE.isAttackPath = FALSE for object %d", getObject()->getID()));
+	GXROW_AIUPDATEINTERFACE.isAttackPath = FALSE;
 	setLocomotorGoalNone();
 }
 
@@ -2187,10 +2196,10 @@ void AIUpdateInterface::destroyPath()
  */
 void AIUpdateInterface::friend_startingMove()
 {
-	m_movementComplete = FALSE; // we aren't finished moving.
-	m_isMoving = TRUE;
-	m_blockedFrames = 0;
-	m_isBlockedAndStuck = FALSE;
+	GXROW_AIUPDATEINTERFACE.movementComplete = FALSE; // we aren't finished moving.
+	GXROW_AIUPDATEINTERFACE.isMoving = TRUE;
+	GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+	GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2199,8 +2208,8 @@ void AIUpdateInterface::friend_startingMove()
  */
 void AIUpdateInterface::friend_endingMove()
 {
-	m_movementComplete = TRUE;
-	m_isMoving = FALSE;
+	GXROW_AIUPDATEINTERFACE.movementComplete = TRUE;
+	GXROW_AIUPDATEINTERFACE.isMoving = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2210,7 +2219,7 @@ void AIUpdateInterface::friend_endingMove()
 void AIUpdateInterface::friend_setPath(Path *path)
 {
 	destroyPath();
-	m_path = path;
+	GXROW_AIUPDATEINTERFACE.path = path;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2239,7 +2248,7 @@ Bool AIUpdateInterface::isPathAvailable( const Coord3D *destination ) const
 
 	const Coord3D *myPos = getObject()->getPosition();
 
-	return TheAI->pathfinder()->clientSafeQuickDoesPathExist( m_locomotorSet, myPos, destination );
+	return TheAI->pathfinder()->clientSafeQuickDoesPathExist( GXROW_AIUPDATEINTERFACE.locomotorSet, myPos, destination );
 
 }
 
@@ -2257,9 +2266,9 @@ Bool AIUpdateInterface::isQuickPathAvailable( const Coord3D *destination ) const
 	const Coord3D *myPos = getObject()->getPosition();
 
 #if RTS_GENERALS && RETAIL_COMPATIBLE_PATHFINDING
-	return TheAI->pathfinder()->clientSafeQuickDoesPathExist(m_locomotorSet, myPos, destination);
+	return TheAI->pathfinder()->clientSafeQuickDoesPathExist(GXROW_AIUPDATEINTERFACE.locomotorSet, myPos, destination);
 #else
-	return TheAI->pathfinder()->clientSafeQuickDoesPathExistForUI(m_locomotorSet, myPos, destination);
+	return TheAI->pathfinder()->clientSafeQuickDoesPathExistForUI(GXROW_AIUPDATEINTERFACE.locomotorSet, myPos, destination);
 #endif
 
 }
@@ -2270,7 +2279,7 @@ Bool AIUpdateInterface::isQuickPathAvailable( const Coord3D *destination ) const
 //-------------------------------------------------------------------------------------------------
 Bool AIUpdateInterface::isValidLocomotorPosition(const Coord3D* pos) const
 {
-	return TheAI->pathfinder()->validMovementPosition( getObject()->getCrusherLevel()>0, getObject()->getLayer(), m_locomotorSet, pos );
+	return TheAI->pathfinder()->validMovementPosition( getObject()->getCrusherLevel()>0, getObject()->getLayer(), GXROW_AIUPDATEINTERFACE.locomotorSet, pos );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2287,42 +2296,42 @@ UpdateSleepTime AIUpdateInterface::doLocomotor()
 
 	chooseGoodLocomotorFromCurrentSet();
 
-	if (m_isBlocked)
+	if (GXROW_AIUPDATEINTERFACE.isBlocked)
 	{
-		++m_blockedFrames;
+		++GXROW_AIUPDATEINTERFACE.blockedFrames;
 	}
 	else
 	{
-		m_blockedFrames = 0;
+		GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
 	}
 
-	m_isBlocked = FALSE;
+	GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
 
-	Bool blocked = m_blockedFrames > 0;
+	Bool blocked = GXROW_AIUPDATEINTERFACE.blockedFrames > 0;
 	Bool requiresConstantCalling = TRUE;	// assume the worst.
 
-	if (m_curLocomotor)
+	if (GXROW_AIUPDATEINTERFACE.curLocomotor)
 	{
-		m_curLocomotor->setPhysicsOptions(getObject());
+		GXROW_AIUPDATEINTERFACE.curLocomotor->setPhysicsOptions(getObject());
 
-		if (isAiInDeadState() && !m_curLocomotor->getLocomotorWorksWhenDead())
+		if (isAiInDeadState() && !GXROW_AIUPDATEINTERFACE.curLocomotor->getLocomotorWorksWhenDead())
 		{
 			// now it's over, I'm dead, and I haven't done anything that I want,
 			// or, I'm still alive, and there's nothing I want to do
 		}
 		else
 		{
-			switch (m_locomotorGoalType)
+			switch (GXROW_AIUPDATEINTERFACE.locomotorGoalType)
 			{
 				case POSITION_EXPLICIT:
 					{
-						Real speed = m_desiredSpeed;
-						Real myMaxSpeed = m_curLocomotor->getMaxSpeedForCondition(getObject()->getBodyModule()->getDamageState());
+						Real speed = GXROW_AIUPDATEINTERFACE.desiredSpeed;
+						Real myMaxSpeed = GXROW_AIUPDATEINTERFACE.curLocomotor->getMaxSpeedForCondition(getObject()->getBodyModule()->getDamageState());
 						if( speed == FAST_AS_POSSIBLE || speed > myMaxSpeed )
 							speed = myMaxSpeed;
-						m_curLocomotor->locoUpdate_moveTowardsPosition(getObject(),
-							m_locomotorGoalData, 0.0f, speed, &blocked);
-						m_doFinalPosition = FALSE;
+						GXROW_AIUPDATEINTERFACE.curLocomotor->locoUpdate_moveTowardsPosition(getObject(),
+							GXROW_AIUPDATEINTERFACE.locomotorGoalData, 0.0f, speed, &blocked);
+						GXROW_AIUPDATEINTERFACE.doFinalPosition = FALSE;
 					}
 					break;
 
@@ -2330,14 +2339,14 @@ UpdateSleepTime AIUpdateInterface::doLocomotor()
 					{
 						if (!getPath())
 						{
-							if (m_waitingForPath)
+							if (GXROW_AIUPDATEINTERFACE.waitingForPath)
 							{
 								return UPDATE_SLEEP_FOREVER;  // Can't move till we get our path.
 							}
 							DEBUG_LOG(("Dead %d, obj %s %x", isAiInDeadState(), getObject()->getTemplate()->getName().str(), getObject()));
 #ifdef STATE_MACHINE_DEBUG
-							DEBUG_LOG(("Waiting %d, state %s", m_waitingForPath, getStateMachine()->getCurrentStateName().str()));
-							m_stateMachine->setDebugOutput(1);
+							DEBUG_LOG(("Waiting %d, state %s", GXROW_AIUPDATEINTERFACE.waitingForPath, getStateMachine()->getCurrentStateName().str()));
+							GXROW_AIUPDATEINTERFACE.stateMachine->setDebugOutput(1);
 #endif
 							DEBUG_CRASH(("must have a path here (doLocomotor)"));
 							break;
@@ -2356,73 +2365,73 @@ UpdateSleepTime AIUpdateInterface::doLocomotor()
 							ClosestPointOnPathInfo info;
 							CRCDEBUG_LOG(("AIUpdateInterface::doLocomotor() - calling computePointOnPath() for %s",
 								DebugDescribeObject(getObject()).str()));
-							getPath()->computePointOnPath(getObject(), m_locomotorSet, *getObject()->getPosition(), info);
+							getPath()->computePointOnPath(getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet, *getObject()->getPosition(), info);
 							onPathDistToGoal = info.distAlongPath;
 							goalPos = info.posOnPath;
 							// layer is a possible bridge in the path.  Check & set the layer if applicable.
 							TheAI->pathfinder()->updateLayer(getObject(), info.layer);
 						}
 
-						Real speed = m_desiredSpeed;
-						Real myMaxSpeed = m_curLocomotor->getMaxSpeedForCondition(getObject()->getBodyModule()->getDamageState());
+						Real speed = GXROW_AIUPDATEINTERFACE.desiredSpeed;
+						Real myMaxSpeed = GXROW_AIUPDATEINTERFACE.curLocomotor->getMaxSpeedForCondition(getObject()->getBodyModule()->getDamageState());
 						if( speed == FAST_AS_POSSIBLE || speed > myMaxSpeed )
 							speed = myMaxSpeed;
 
-						if (blocked && speed>m_curMaxBlockedSpeed)
+						if (blocked && speed>GXROW_AIUPDATEINTERFACE.curMaxBlockedSpeed)
 						{
-							speed = m_curMaxBlockedSpeed;
-							if (m_bumpSpeedLimit>speed) {
-								m_bumpSpeedLimit = speed;
+							speed = GXROW_AIUPDATEINTERFACE.curMaxBlockedSpeed;
+							if (GXROW_AIUPDATEINTERFACE.bumpSpeedLimit>speed) {
+								GXROW_AIUPDATEINTERFACE.bumpSpeedLimit = speed;
 							}
-							m_bumpSpeedLimit *= 0.95f;
-							speed = m_bumpSpeedLimit;
+							GXROW_AIUPDATEINTERFACE.bumpSpeedLimit *= 0.95f;
+							speed = GXROW_AIUPDATEINTERFACE.bumpSpeedLimit;
 						}
 						else
 						{
 							blocked = FALSE;
-							if (m_bumpSpeedLimit<FAST_AS_POSSIBLE) {
-								if (m_bumpSpeedLimit<speed*0.2f) {
-									m_bumpSpeedLimit = speed*0.2f;
+							if (GXROW_AIUPDATEINTERFACE.bumpSpeedLimit<FAST_AS_POSSIBLE) {
+								if (GXROW_AIUPDATEINTERFACE.bumpSpeedLimit<speed*0.2f) {
+									GXROW_AIUPDATEINTERFACE.bumpSpeedLimit = speed*0.2f;
 								}
-								m_bumpSpeedLimit *= 1.05f;
+								GXROW_AIUPDATEINTERFACE.bumpSpeedLimit *= 1.05f;
 							}
-							if (speed>m_bumpSpeedLimit) {
-								speed = m_bumpSpeedLimit;
+							if (speed>GXROW_AIUPDATEINTERFACE.bumpSpeedLimit) {
+								speed = GXROW_AIUPDATEINTERFACE.bumpSpeedLimit;
 							}
 						}
 
-						m_curLocomotor->locoUpdate_moveTowardsPosition(getObject(), goalPos,
+						GXROW_AIUPDATEINTERFACE.curLocomotor->locoUpdate_moveTowardsPosition(getObject(), goalPos,
 							onPathDistToGoal+getPathExtraDistance(), speed, &blocked);
 
-						m_doFinalPosition = FALSE;
+						GXROW_AIUPDATEINTERFACE.doFinalPosition = FALSE;
 					}
 					break;
 
 				case ANGLE:
 					{
-						m_curLocomotor->locoUpdate_moveTowardsAngle(getObject(), m_locomotorGoalData.x);
-						m_doFinalPosition = FALSE;
+						GXROW_AIUPDATEINTERFACE.curLocomotor->locoUpdate_moveTowardsAngle(getObject(), GXROW_AIUPDATEINTERFACE.locomotorGoalData.x);
+						GXROW_AIUPDATEINTERFACE.doFinalPosition = FALSE;
 					}
 					break;
 
 				case NONE:
 					{
-						if (m_doFinalPosition)
+						if (GXROW_AIUPDATEINTERFACE.doFinalPosition)
 						{
 							Coord3D pos = *getObject()->getPosition();
 							Bool onGround = !getObject()->isAboveTerrain() && getObject()->getLayer() == LAYER_GROUND;
-							Real dx = m_finalPosition.x - pos.x;
-							Real dy = m_finalPosition.y - pos.y;
+							Real dx = GXROW_AIUPDATEINTERFACE.finalPosition.x - pos.x;
+							Real dy = GXROW_AIUPDATEINTERFACE.finalPosition.y - pos.y;
 							Real dSqr = dx*dx+dy*dy;
 							const Real DARN_CLOSE = 0.25f;
 							if (dSqr < DARN_CLOSE)
 							{
-								m_doFinalPosition = FALSE;
+								GXROW_AIUPDATEINTERFACE.doFinalPosition = FALSE;
 								if (onGround)
-									m_finalPosition.z = TheTerrainLogic->getGroundHeight( m_finalPosition.x, m_finalPosition.y );
+									GXROW_AIUPDATEINTERFACE.finalPosition.z = TheTerrainLogic->getGroundHeight( GXROW_AIUPDATEINTERFACE.finalPosition.x, GXROW_AIUPDATEINTERFACE.finalPosition.y );
 								else
-									m_finalPosition.z = pos.z;
-								getObject()->setPosition(&m_finalPosition);
+									GXROW_AIUPDATEINTERFACE.finalPosition.z = pos.z;
+								getObject()->setPosition(&GXROW_AIUPDATEINTERFACE.finalPosition);
 							}
 							else
 							{
@@ -2435,30 +2444,30 @@ UpdateSleepTime AIUpdateInterface::doLocomotor()
 								getObject()->setPosition(&pos);
 							}
 						}
-						requiresConstantCalling = m_curLocomotor->locoUpdate_maintainCurrentPosition(getObject());
+						requiresConstantCalling = GXROW_AIUPDATEINTERFACE.curLocomotor->locoUpdate_maintainCurrentPosition(getObject());
 					}
 					break;
 			}
 		}
 
-		if (!blocked && m_blockedFrames>1)
+		if (!blocked && GXROW_AIUPDATEINTERFACE.blockedFrames>1)
 		{
-			m_blockedFrames = 1;
+			GXROW_AIUPDATEINTERFACE.blockedFrames = 1;
 		}
 
 		// After our movement for the frame, update our AirborneTarget flag.
-		if(getObject()->getHeightAboveTerrain() > m_curLocomotor->getAirborneTargetingHeight() )
+		if(getObject()->getHeightAboveTerrain() > GXROW_AIUPDATEINTERFACE.curLocomotor->getAirborneTargetingHeight() )
 			getObject()->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_AIRBORNE_TARGET ) );
 		else
 			getObject()->clearStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_AIRBORNE_TARGET ) );
 
-		m_curMaxBlockedSpeed = FAST_AS_POSSIBLE;
+		GXROW_AIUPDATEINTERFACE.curMaxBlockedSpeed = FAST_AS_POSSIBLE;
 	}
 
-	if (m_curLocomotor != nullptr
-			&& m_locomotorGoalType == NONE
-			&& m_doFinalPosition == FALSE
-			&& m_isBlocked == FALSE
+	if (GXROW_AIUPDATEINTERFACE.curLocomotor != nullptr
+			&& GXROW_AIUPDATEINTERFACE.locomotorGoalType == NONE
+			&& GXROW_AIUPDATEINTERFACE.doFinalPosition == FALSE
+			&& GXROW_AIUPDATEINTERFACE.isBlocked == FALSE
 			&& requiresConstantCalling == FALSE)
 	{
 		return UPDATE_SLEEP_FOREVER;
@@ -2473,17 +2482,17 @@ UpdateSleepTime AIUpdateInterface::doLocomotor()
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::setLocomotorGoalPositionOnPath()
 {
-	m_locomotorGoalType = POSITION_ON_PATH;
-	m_locomotorGoalData.zero();
+	GXROW_AIUPDATEINTERFACE.locomotorGoalType = POSITION_ON_PATH;
+	GXROW_AIUPDATEINTERFACE.locomotorGoalData.zero();
 }
 
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::setLocomotorGoalPositionExplicit(const Coord3D& newPos)
 {
-	m_locomotorGoalType = POSITION_EXPLICIT;
-	m_locomotorGoalData = newPos;
+	GXROW_AIUPDATEINTERFACE.locomotorGoalType = POSITION_EXPLICIT;
+	GXROW_AIUPDATEINTERFACE.locomotorGoalData = newPos;
 #ifdef RTS_DEBUG
-if (_isnan(m_locomotorGoalData.x) || _isnan(m_locomotorGoalData.y) || _isnan(m_locomotorGoalData.z))
+if (_isnan(GXROW_AIUPDATEINTERFACE.locomotorGoalData.x) || _isnan(GXROW_AIUPDATEINTERFACE.locomotorGoalData.y) || _isnan(GXROW_AIUPDATEINTERFACE.locomotorGoalData.z))
 {
 	DEBUG_CRASH(("NAN in setLocomotorGoalPositionExplicit"));
 }
@@ -2493,10 +2502,10 @@ if (_isnan(m_locomotorGoalData.x) || _isnan(m_locomotorGoalData.y) || _isnan(m_l
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::setLocomotorGoalOrientation(Real angle)
 {
-	m_locomotorGoalType = ANGLE;
-	m_locomotorGoalData.x = angle;
+	GXROW_AIUPDATEINTERFACE.locomotorGoalType = ANGLE;
+	GXROW_AIUPDATEINTERFACE.locomotorGoalData.x = angle;
 #ifdef RTS_DEBUG
-if (_isnan(m_locomotorGoalData.x) || _isnan(m_locomotorGoalData.y) || _isnan(m_locomotorGoalData.z))
+if (_isnan(GXROW_AIUPDATEINTERFACE.locomotorGoalData.x) || _isnan(GXROW_AIUPDATEINTERFACE.locomotorGoalData.y) || _isnan(GXROW_AIUPDATEINTERFACE.locomotorGoalData.z))
 {
 	DEBUG_CRASH(("NAN in setLocomotorGoalOrientation"));
 }
@@ -2506,7 +2515,7 @@ if (_isnan(m_locomotorGoalData.x) || _isnan(m_locomotorGoalData.y) || _isnan(m_l
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::setLocomotorGoalNone()
 {
-	m_locomotorGoalType = NONE;
+	GXROW_AIUPDATEINTERFACE.locomotorGoalType = NONE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2519,18 +2528,18 @@ Bool AIUpdateInterface::isDoingGroundMovement() const
     return TRUE; // an unmanned helicopter gets grounded, eventually.
   }
 
-	if (m_locomotorSet.getValidSurfaces() == LOCOMOTORSURFACE_AIR)
+	if (GXROW_AIUPDATEINTERFACE.locomotorSet.getValidSurfaces() == LOCOMOTORSURFACE_AIR)
 	{
 		return FALSE;  // air only loco.
 	}
 
-	if (m_curLocomotor == nullptr)
+	if (GXROW_AIUPDATEINTERFACE.curLocomotor == nullptr)
 	{
 		return FALSE;	// No loco, so we aren't moving.
 	}
 
 	// Cur loco is air, so not ground.
-	if (m_curLocomotor->getLegalSurfaces() & LOCOMOTORSURFACE_AIR)
+	if (GXROW_AIUPDATEINTERFACE.curLocomotor->getLegalSurfaces() & LOCOMOTORSURFACE_AIR)
 	{
 		return FALSE;
 	}
@@ -2561,20 +2570,20 @@ destinations, and this routine identifies non-ground units that should unstack. 
 
 Bool AIUpdateInterface::isAircraftThatAdjustsDestination() const
 {
-	if (m_curLocomotor == nullptr)
+	if (GXROW_AIUPDATEINTERFACE.curLocomotor == nullptr)
 	{
 		return FALSE;	// No loco, so we aren't moving.
 	}
 
-	if (m_curLocomotor->getAppearance() == LOCO_HOVER)
+	if (GXROW_AIUPDATEINTERFACE.curLocomotor->getAppearance() == LOCO_HOVER)
 	{
 		return TRUE;	// Hover adjusts.
 	}
-	if (m_curLocomotor->getAppearance() == LOCO_WINGS)
+	if (GXROW_AIUPDATEINTERFACE.curLocomotor->getAppearance() == LOCO_WINGS)
 	{
 		return TRUE; // wings adjusts.
 	}
-	if (m_curLocomotor->getAppearance() == LOCO_THRUST)
+	if (GXROW_AIUPDATEINTERFACE.curLocomotor->getAppearance() == LOCO_THRUST)
 	{
 		return FALSE; // thrust doesn't adjust.
 	}
@@ -2591,7 +2600,7 @@ Bool AIUpdateInterface::getTreatAsAircraftForLocoDistToGoal() const
 		// We are following a waypoint or other multiple point path, so use the "easy" success criteria.
 		treatAsAircraft = TRUE;
 	}
-	if (m_curLocomotor && m_curLocomotor->getAppearance() == LOCO_HOVER)
+	if (GXROW_AIUPDATEINTERFACE.curLocomotor && GXROW_AIUPDATEINTERFACE.curLocomotor->getAppearance() == LOCO_HOVER)
 	{
 		// Hovercrafts are very sloppy.  So use aircraft tests for distance to goal.  jba.
 		treatAsAircraft = TRUE;
@@ -2602,7 +2611,7 @@ Bool AIUpdateInterface::getTreatAsAircraftForLocoDistToGoal() const
 //-------------------------------------------------------------------------------------------------
 Real AIUpdateInterface::getLocomotorDistanceToGoal()
 {
-	switch (m_locomotorGoalType)
+	switch (GXROW_AIUPDATEINTERFACE.locomotorGoalType)
 	{
 		case POSITION_EXPLICIT:
 			DEBUG_CRASH(("not yet implemented"));
@@ -2614,17 +2623,17 @@ Real AIUpdateInterface::getLocomotorDistanceToGoal()
 				DEBUG_CRASH(("must have a path here (getLocomotorDistanceToGoal)"));
 				return 0.0f;
 			}
-			else if (!m_curLocomotor)
+			else if (!GXROW_AIUPDATEINTERFACE.curLocomotor)
 			{
 				//DEBUG_LOG(("no locomotor here, so no dist. (this is ok.)"));
 				return 0.0f;
 			}
-			else if( m_curLocomotor->isCloseEnoughDist3D() || getObject()->isKindOf(KINDOF_PROJECTILE))
+			else if( GXROW_AIUPDATEINTERFACE.curLocomotor->isCloseEnoughDist3D() || getObject()->isKindOf(KINDOF_PROJECTILE))
 			{
 				const Object *me = getObject();
 				const Coord3D *dest = getGoalPosition();
-				if (m_path->getLastNode()) {
-					dest = m_path->getLastNode()->getPosition();
+				if (GXROW_AIUPDATEINTERFACE.path->getLastNode()) {
+					dest = GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition();
 				}
 				Real distance = ThePartitionManager->getDistanceSquared( me, dest, FROM_CENTER_3D );
 				return sqrt( distance );// Other paths return dots of normalized vectors, so one sqrt ain't so bad
@@ -2642,12 +2651,12 @@ Real AIUpdateInterface::getLocomotorDistanceToGoal()
 					// Ground based locomotor.
 					ClosestPointOnPathInfo info;
 					CRCDEBUG_LOG(("AIUpdateInterface::getLocomotorDistanceToGoal() - calling computePointOnPath() for object %d", getObject()->getID()));
-					getPath()->computePointOnPath(getObject(), m_locomotorSet, *getObject()->getPosition(), info);
+					getPath()->computePointOnPath(getObject(), GXROW_AIUPDATEINTERFACE.locomotorSet, *getObject()->getPosition(), info);
 					goalPos = info.posOnPath;
 					dist = info.distAlongPath;
 				}
-				if (m_path->getLastNode()) {
-					goalPos = *m_path->getLastNode()->getPosition();
+				if (GXROW_AIUPDATEINTERFACE.path->getLastNode()) {
+					goalPos = *GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition();
 				}
 				// We are trying to get to goal.  So,
 				// If the actual distance is farther, then use the actual distance so we get there.
@@ -3057,17 +3066,17 @@ void AIUpdateInterface::privateMoveToPosition( const Coord3D *pos, CommandSource
 		// Move for 20 seconds [8/19/2003]
 		// Things like attack state don't take kindly to being booted out unceremoniously. jba. [8/19/2003]
 		setGoalPositionClipped(pos, cmdSource);
-		m_blockedFrames = 0;
-		m_isBlocked = FALSE;
-		m_isBlockedAndStuck = FALSE;
+		GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+		GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
+		GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 		getStateMachine()->setTemporaryState(AI_MOVE_TO, LOGICFRAMES_PER_SECOND * 20);
 	} else {
 		// Normal user or script command, just do it. [8/19/2003]
 		getStateMachine()->clear();
 		setGoalPositionClipped(pos, cmdSource);
-		m_blockedFrames = 0;
-		m_isBlocked = FALSE;
-		m_isBlockedAndStuck = FALSE;
+		GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+		GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
+		GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 		setLastCommandSource( cmdSource );
 		getStateMachine()->setState( AI_MOVE_TO );
 	}
@@ -3081,7 +3090,7 @@ void AIUpdateInterface::privateMoveToPosition( const Coord3D *pos, CommandSource
 void AIUpdateInterface::privateMoveToObject( Object *obj, CommandSourceType cmdSource )
 {
 	// the dead don't listen very well
-	if (m_isAiDead)
+	if (GXROW_AIUPDATEINTERFACE.isAiDead)
 		return;
 
 	if (getObject()->isMobile() == FALSE)
@@ -3095,9 +3104,9 @@ void AIUpdateInterface::privateMoveToObject( Object *obj, CommandSourceType cmdS
 
 	getStateMachine()->clear();
 	getStateMachine()->setGoalObject( obj );
-	m_blockedFrames = 0;
-	m_isBlocked = FALSE;
-	m_isBlockedAndStuck = FALSE;
+	GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+	GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
+	GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 	setLastCommandSource( cmdSource );
 	getStateMachine()->setState( AI_MOVE_TO );
 
@@ -3121,9 +3130,9 @@ void AIUpdateInterface::privateFaceObject( Object *obj, CommandSourceType cmdSou
 
 	getStateMachine()->clear();
 	getStateMachine()->setGoalObject( obj );
-	m_blockedFrames = 0;
-	m_isBlocked = FALSE;
-	m_isBlockedAndStuck = FALSE;
+	GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+	GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
+	GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 	setLastCommandSource( cmdSource );
 	getStateMachine()->setState( AI_FACE_OBJECT );
 }
@@ -3146,9 +3155,9 @@ void AIUpdateInterface::privateFacePosition( const Coord3D *pos, CommandSourceTy
 
 	getStateMachine()->clear();
 	setGoalPositionClipped(pos, cmdSource);
-	m_blockedFrames = 0;
-	m_isBlocked = FALSE;
-	m_isBlockedAndStuck = FALSE;
+	GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+	GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
+	GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 	setLastCommandSource( cmdSource );
 	getStateMachine()->setState( AI_FACE_POSITION );
 }
@@ -3169,9 +3178,9 @@ void AIUpdateInterface::privateRappelInto( Object *target, const Coord3D& pos, C
 	getStateMachine()->clear();
 	getStateMachine()->setGoalObject( target );
 	setGoalPositionClipped(&pos, cmdSource);
-	m_blockedFrames = 0;
-	m_isBlocked = FALSE;
-	m_isBlockedAndStuck = FALSE;
+	GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+	GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
+	GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 	setLastCommandSource( cmdSource );
 	getStateMachine()->setState( AI_RAPPEL_INTO );
 }
@@ -3195,12 +3204,12 @@ void AIUpdateInterface::privateMoveToAndEvacuate( const Coord3D *pos, CommandSou
 
 	getStateMachine()->clear();
 	setGoalPositionClipped(pos, cmdSource);
-	m_blockedFrames = 0;
-	m_isBlocked = FALSE;
-	m_isBlockedAndStuck = FALSE;
+	GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+	GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
+	GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 	setLastCommandSource( cmdSource );
 
-	m_stateMachine->setState( AI_MOVE_AND_EVACUATE );
+	GXROW_AIUPDATEINTERFACE.stateMachine->setState( AI_MOVE_AND_EVACUATE );
 }
 
 //----------------------------------------------------------------------------------------
@@ -3221,9 +3230,9 @@ void AIUpdateInterface::privateMoveToAndEvacuateAndExit( const Coord3D *pos, Com
 
 	getStateMachine()->clear();
 	setGoalPositionClipped(pos, cmdSource);
-	m_blockedFrames = 0;
-	m_isBlocked = FALSE;
-	m_isBlockedAndStuck = FALSE;
+	GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+	GXROW_AIUPDATEINTERFACE.isBlocked = FALSE;
+	GXROW_AIUPDATEINTERFACE.isBlockedAndStuck = FALSE;
 	setLastCommandSource( cmdSource );
 
 	static NameKeyType key_DeliverPayloadAIUpdate = NAMEKEY("DeliverPayloadAIUpdate");
@@ -3335,9 +3344,9 @@ void AIUpdateInterface::privateTightenToPosition( const Coord3D *pos, CommandSou
 Bool AIUpdateInterface::isMovingAwayFrom(Object *obj)	 const
 {
 	ObjectID id = obj->getID();
-	if (m_stateMachine->getTemporaryState() == AI_MOVE_OUT_OF_THE_WAY) {
-		if (m_moveOutOfWay1 == id) return TRUE;
-		if (m_moveOutOfWay2 == id) return TRUE;
+	if (GXROW_AIUPDATEINTERFACE.stateMachine->getTemporaryState() == AI_MOVE_OUT_OF_THE_WAY) {
+		if (GXROW_AIUPDATEINTERFACE.moveOutOfWay1 == id) return TRUE;
+		if (GXROW_AIUPDATEINTERFACE.moveOutOfWay2 == id) return TRUE;
 	}
 	return FALSE;
 }
@@ -3350,10 +3359,10 @@ Bool AIUpdateInterface::isMoving() const
 	if (isIdle()) {
 		return false;
 	}
-	if (m_locomotorGoalType != NONE) {
+	if (GXROW_AIUPDATEINTERFACE.locomotorGoalType != NONE) {
 		return TRUE;
 	}
-	if (m_isMoving) {
+	if (GXROW_AIUPDATEINTERFACE.isMoving) {
 		return TRUE;
 	}
 	return FALSE;
@@ -3377,23 +3386,23 @@ void AIUpdateInterface::privateMoveAwayFromUnit( Object *unit, CommandSourceType
 		return;
 
 	ObjectID id = unit->getID();
-	if (m_stateMachine->getTemporaryState() == AI_MOVE_OUT_OF_THE_WAY) {
-		if (m_moveOutOfWay1 == id) {
-			if (m_isBlocked) {
+	if (GXROW_AIUPDATEINTERFACE.stateMachine->getTemporaryState() == AI_MOVE_OUT_OF_THE_WAY) {
+		if (GXROW_AIUPDATEINTERFACE.moveOutOfWay1 == id) {
+			if (GXROW_AIUPDATEINTERFACE.isBlocked) {
 				setIgnoreCollisionTime(LOGICFRAMES_PER_SECOND*2); // cheat for 2 seconds.
 			}
 			return;
 		}
-		if (m_moveOutOfWay2 == id) {
-			if (m_isBlocked) {
+		if (GXROW_AIUPDATEINTERFACE.moveOutOfWay2 == id) {
+			if (GXROW_AIUPDATEINTERFACE.isBlocked) {
 				setIgnoreCollisionTime(LOGICFRAMES_PER_SECOND*2); // cheat for 2 seconds.
 			}
 			return;
 		}
 	}
-	m_moveOutOfWay2 = m_moveOutOfWay1;
-	m_moveOutOfWay1 = id;
-	Object *obj2 = TheGameLogic->findObjectByID(m_moveOutOfWay2);
+	GXROW_AIUPDATEINTERFACE.moveOutOfWay2 = GXROW_AIUPDATEINTERFACE.moveOutOfWay1;
+	GXROW_AIUPDATEINTERFACE.moveOutOfWay1 = id;
+	Object *obj2 = TheGameLogic->findObjectByID(GXROW_AIUPDATEINTERFACE.moveOutOfWay2);
 	Path *path2 = nullptr;
 	if (obj2 && obj2->getAI()) {
 		path2 = obj2->getAI()->getPath();
@@ -3412,13 +3421,13 @@ void AIUpdateInterface::privateMoveAwayFromUnit( Object *unit, CommandSourceType
 
 	if (newPath) {
 		destroyPath();
-		m_path = newPath;
+		GXROW_AIUPDATEINTERFACE.path = newPath;
 		wakeUpNow();
-		m_stateMachine->setTemporaryState(AI_MOVE_OUT_OF_THE_WAY, 10*LOGICFRAMES_PER_SECOND);
-		if (m_path)
+		GXROW_AIUPDATEINTERFACE.stateMachine->setTemporaryState(AI_MOVE_OUT_OF_THE_WAY, 10*LOGICFRAMES_PER_SECOND);
+		if (GXROW_AIUPDATEINTERFACE.path)
 		{
 	 		if( !getObject()->isKindOf(KINDOF_NO_COLLIDE))// If I don't collide with things, I don't need to tell them to get out of the way
-				TheAI->pathfinder()->moveAllies(getObject(), m_path);
+				TheAI->pathfinder()->moveAllies(getObject(), GXROW_AIUPDATEINTERFACE.path);
 		}
 	}
 
@@ -3742,7 +3751,7 @@ void AIUpdateInterface::privateAttackPosition( const Coord3D *pos, Int maxShotsT
  */
 void AIUpdateInterface::privateAttackMoveToPosition( const Coord3D *pos, Int maxShotsToFire, CommandSourceType cmdSource )
 {
-	if (m_isAiDead || getObject()->isMobile() == FALSE)
+	if (GXROW_AIUPDATEINTERFACE.isAiDead || getObject()->isMobile() == FALSE)
 		return;
 
 	//Resetting the locomotor here was initially added for scripting purposes. It has been moved
@@ -3768,7 +3777,7 @@ void AIUpdateInterface::privateAttackMoveToPosition( const Coord3D *pos, Int max
  */
 void AIUpdateInterface::privateAttackFollowWaypointPath( const Waypoint *way, Int maxShotsToFire, Bool asTeam, CommandSourceType cmdSource )
 {
-	if (m_isAiDead || getObject()->isMobile() == FALSE)
+	if (GXROW_AIUPDATEINTERFACE.isAiDead || getObject()->isMobile() == FALSE)
 		return;
 
 	//Resetting the locomotor here was initially added for scripting purposes. It has been moved
@@ -3824,7 +3833,7 @@ void AIUpdateInterface::privateAttackArea( const PolygonTrigger *areaToGuard, Co
 	if (getObject()->isKindOf(KINDOF_PROJECTILE))
 		return;
 
-	m_areaToGuard = areaToGuard;
+	GXROW_AIUPDATEINTERFACE.areaToGuard = areaToGuard;
 
 	//Resetting the locomotor here was initially added for scripting purposes. It has been moved
 	//to the responsibility of the script to reset the locomotor before moving. This is needed because
@@ -4204,10 +4213,10 @@ void AIUpdateInterface::privateGuardPosition( const Coord3D *pos, GuardMode guar
 	if (getObject()->isKindOf(KINDOF_PROJECTILE))
 		return;
 
-	if (m_guardTargetType[1] == GUARDTARGET_NONE) {
-		m_guardTargetType[1] = GUARDTARGET_LOCATION;
+	if (GXROW_AIUPDATEINTERFACE.guardTargetType[1] == GUARDTARGET_NONE) {
+		GXROW_AIUPDATEINTERFACE.guardTargetType[1] = GUARDTARGET_LOCATION;
 	} else {
-		m_guardTargetType[0] = GUARDTARGET_LOCATION;
+		GXROW_AIUPDATEINTERFACE.guardTargetType[0] = GUARDTARGET_LOCATION;
 	}
 	Coord3D adjPos = *pos;
 	if (cmdSource==CMD_FROM_PLAYER) {
@@ -4217,8 +4226,8 @@ void AIUpdateInterface::privateGuardPosition( const Coord3D *pos, GuardMode guar
 		if (!r.isInRegionNoZ(&adjPos))
 			adjPos = TheTerrainLogic->findClosestEdgePoint(&adjPos);
 	}
-	m_locationToGuard = adjPos;
-	m_guardMode = guardMode;
+	GXROW_AIUPDATEINTERFACE.locationToGuard = adjPos;
+	GXROW_AIUPDATEINTERFACE.guardMode = guardMode;
 
 	getStateMachine()->clear();
 	setLastCommandSource( cmdSource );
@@ -4238,7 +4247,7 @@ void AIUpdateInterface::privateGuardTunnelNetwork( GuardMode guardMode, CommandS
 	if (getObject()->isKindOf(KINDOF_PROJECTILE))
 		return;
 
-	m_guardMode = guardMode;
+	GXROW_AIUPDATEINTERFACE.guardMode = guardMode;
 
 	getStateMachine()->clear();
 	setLastCommandSource( cmdSource );
@@ -4261,13 +4270,13 @@ void AIUpdateInterface::privateGuardObject( Object *objectToGuard, GuardMode gua
 	if (getObject()->isKindOf(KINDOF_PROJECTILE))
 		return;
 
-	if (m_guardTargetType[1] == GUARDTARGET_NONE) {
-		m_guardTargetType[1] = GUARDTARGET_OBJECT;
+	if (GXROW_AIUPDATEINTERFACE.guardTargetType[1] == GUARDTARGET_NONE) {
+		GXROW_AIUPDATEINTERFACE.guardTargetType[1] = GUARDTARGET_OBJECT;
 	} else {
-		m_guardTargetType[0] = GUARDTARGET_OBJECT;
+		GXROW_AIUPDATEINTERFACE.guardTargetType[0] = GUARDTARGET_OBJECT;
 	}
-	m_guardMode = guardMode;
-	m_objectToGuard = objectToGuard->getID();
+	GXROW_AIUPDATEINTERFACE.guardMode = guardMode;
+	GXROW_AIUPDATEINTERFACE.objectToGuard = objectToGuard->getID();
 
 	getStateMachine()->clear();
 	setLastCommandSource( cmdSource );
@@ -4287,18 +4296,18 @@ void AIUpdateInterface::privateGuardArea( const PolygonTrigger *areaToGuard, Gua
 	if (getObject()->isKindOf(KINDOF_PROJECTILE))
 		return;
 
-	if (m_guardTargetType[1] == GUARDTARGET_NONE) {
-		m_guardTargetType[1] = GUARDTARGET_AREA;
+	if (GXROW_AIUPDATEINTERFACE.guardTargetType[1] == GUARDTARGET_NONE) {
+		GXROW_AIUPDATEINTERFACE.guardTargetType[1] = GUARDTARGET_AREA;
 	} else {
-		m_guardTargetType[0] = GUARDTARGET_AREA;
+		GXROW_AIUPDATEINTERFACE.guardTargetType[0] = GUARDTARGET_AREA;
 	}
-	m_areaToGuard = areaToGuard;
-	m_guardMode = guardMode;
+	GXROW_AIUPDATEINTERFACE.areaToGuard = areaToGuard;
+	GXROW_AIUPDATEINTERFACE.guardMode = guardMode;
 
 	Coord3D pos;
-	m_areaToGuard->getCenterPoint(&pos);
-	m_locationToGuard = pos;
-	m_objectToGuard = INVALID_ID; //just in case.
+	GXROW_AIUPDATEINTERFACE.areaToGuard->getCenterPoint(&pos);
+	GXROW_AIUPDATEINTERFACE.locationToGuard = pos;
+	GXROW_AIUPDATEINTERFACE.objectToGuard = INVALID_ID; //just in case.
 	getStateMachine()->clear();
 	setLastCommandSource( cmdSource );
 	getStateMachine()->setState( AI_GUARD );
@@ -4331,8 +4340,8 @@ void AIUpdateInterface::transferAttack(ObjectID fromID, ObjectID toID)
 {
 	Object *newTarget = TheGameLogic->findObjectByID( toID );
 
-	if (m_currentVictimID == fromID)
-		m_currentVictimID = toID;
+	if (GXROW_AIUPDATEINTERFACE.currentVictimID == fromID)
+		GXROW_AIUPDATEINTERFACE.currentVictimID = toID;
 
 	Object* goalObj = getStateMachine()->getGoalObject();
 	if (goalObj && goalObj->getID() == fromID)
@@ -4359,10 +4368,10 @@ void AIUpdateInterface::setCurrentVictim( const Object *victim )
 	if (victim == nullptr)
 	{
 		// be paranoid, in case we are called from dtors, etc.
-		if (m_currentVictimID != INVALID_ID)
+		if (GXROW_AIUPDATEINTERFACE.currentVictimID != INVALID_ID)
 		{
 			Object* self = getObject();
-			Object* target = TheGameLogic->findObjectByID(m_currentVictimID);
+			Object* target = TheGameLogic->findObjectByID(GXROW_AIUPDATEINTERFACE.currentVictimID);
 			if (self != nullptr && target != nullptr)
 			{
 				AIUpdateInterface* targetAI = target->getAI();
@@ -4373,16 +4382,16 @@ void AIUpdateInterface::setCurrentVictim( const Object *victim )
 			}
 		}
 
-		m_currentVictimID = INVALID_ID;
+		GXROW_AIUPDATEINTERFACE.currentVictimID = INVALID_ID;
 	}
 	else
 	{
 		// we don't add a targeter here, since we usually want to defer
 		// that until we are actually aiming (as opposed to, say, approaching)
 		// the victim.
-		m_currentVictimID = victim->getID();
+		GXROW_AIUPDATEINTERFACE.currentVictimID = victim->getID();
 	}
-	TheGxUnitStore.setTarget(getObject(), (int)m_currentVictimID);	// store column (combat): the weapon-status pass looks at units with a target
+	TheGxUnitStore.setTarget(getObject(), (int)GXROW_AIUPDATEINTERFACE.currentVictimID);	// store column (combat): the weapon-status pass looks at units with a target
 }
 
 /**
@@ -4390,8 +4399,8 @@ void AIUpdateInterface::setCurrentVictim( const Object *victim )
  */
 Object *AIUpdateInterface::getCurrentVictim() const
 {
-	if (m_currentVictimID != INVALID_ID)
-		return TheGameLogic->findObjectByID( m_currentVictimID );
+	if (GXROW_AIUPDATEINTERFACE.currentVictimID != INVALID_ID)
+		return TheGameLogic->findObjectByID( GXROW_AIUPDATEINTERFACE.currentVictimID );
 
 	return nullptr;
 }
@@ -4401,7 +4410,7 @@ const Coord3D *AIUpdateInterface::getCurrentVictimPos() const
 {
 	if (getObject()->testStatus(OBJECT_STATUS_IS_ATTACKING))
 	{
-		if (m_currentVictimID == INVALID_ID)
+		if (GXROW_AIUPDATEINTERFACE.currentVictimID == INVALID_ID)
 		{
 			return getStateMachine()->getGoalPosition();
 		}
@@ -4416,7 +4425,7 @@ const Coord3D *AIUpdateInterface::getCurrentVictimPos() const
  */
 void AIUpdateInterface::setAttitude( AttitudeType tude )
 {
-	m_attitude = tude;
+	GXROW_AIUPDATEINTERFACE.attitude = tude;
 }
 
 /**
@@ -4424,7 +4433,7 @@ void AIUpdateInterface::setAttitude( AttitudeType tude )
  */
 AttitudeType AIUpdateInterface::getAttitude() const
 {
-	return m_attitude;
+	return GXROW_AIUPDATEINTERFACE.attitude;
 }
 
 /**
@@ -4438,19 +4447,19 @@ AIStateType AIUpdateInterface::getAIStateType() const
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::ignoreObstacle( const Object *obj )
 {
-	m_ignoreObstacleID = obj ? obj->getID() : INVALID_ID;
+	GXROW_AIUPDATEINTERFACE.ignoreObstacleID = obj ? obj->getID() : INVALID_ID;
 }
 
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::ignoreObstacleID( ObjectID id )
 {
-	m_ignoreObstacleID = id;
+	GXROW_AIUPDATEINTERFACE.ignoreObstacleID = id;
 }
 
 //-------------------------------------------------------------------------------------------------
 ObjectID AIUpdateInterface::getIgnoredObstacleID() const
 {
-	return m_ignoreObstacleID;
+	return GXROW_AIUPDATEINTERFACE.ignoreObstacleID;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4519,7 +4528,7 @@ UnsignedInt AIUpdateInterface::getMoodMatrixValue() const
 	}
 	else
 	{
-		if (m_turretAI[0] != nullptr)
+		if (GXROW_AIUPDATEINTERFACE.turretAI[0] != nullptr)
 		{
 			returnVal |= MM_UnitType_Turreted;
 		}
@@ -4621,8 +4630,8 @@ void AIUpdateInterface::wakeUpAndAttemptToTarget()
 	}
 
 	UnsignedInt now = TheGameLogic->getFrame();
-	m_nextMoodCheckTime = now;
-	m_randomlyOffsetMoodCheck = TRUE;
+	GXROW_AIUPDATEINTERFACE.nextMoodCheckTime = now;
+	GXROW_AIUPDATEINTERFACE.randomlyOffsetMoodCheck = TRUE;
 }
 
 //----------------------------------------------------------------------------------------------
@@ -4632,15 +4641,15 @@ void AIUpdateInterface::wakeUpAndAttemptToTarget()
 void AIUpdateInterface::resetNextMoodCheckTime()
 {
 	UnsignedInt now = TheGameLogic->getFrame();
-	m_nextMoodCheckTime = now + TheAI->getAiData()->m_forceIdleFramesCount;
-	m_randomlyOffsetMoodCheck = TRUE;
+	GXROW_AIUPDATEINTERFACE.nextMoodCheckTime = now + TheAI->getAiData()->m_forceIdleFramesCount;
+	GXROW_AIUPDATEINTERFACE.randomlyOffsetMoodCheck = TRUE;
 }
 
 //----------------------------------------------------------------------------------------------
 void AIUpdateInterface::setNextMoodCheckTime( UnsignedInt frame )
 {
-	m_nextMoodCheckTime = frame;
-	m_randomlyOffsetMoodCheck = false;
+	GXROW_AIUPDATEINTERFACE.nextMoodCheckTime = frame;
+	GXROW_AIUPDATEINTERFACE.randomlyOffsetMoodCheck = false;
 }
 
 
@@ -4724,21 +4733,21 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 			return teamVictim;
 	}
 
-	DEBUG_ASSERTCRASH(m_nextMoodCheckTime != 0, ("m_nextMoodCheckTime should never be zero here."));
+	DEBUG_ASSERTCRASH(GXROW_AIUPDATEINTERFACE.nextMoodCheckTime != 0, ("GXROW_AIUPDATEINTERFACE.nextMoodCheckTime should never be zero here."));
 
 	if (calledByAI)
 	{
 		// make sure it's time to check again.
-		if (now < m_nextMoodCheckTime)
+		if (now < GXROW_AIUPDATEINTERFACE.nextMoodCheckTime)
 			return nullptr;
 
 		Int checkRate = d->m_moodAttackCheckRate;
-		m_nextMoodCheckTime = now + checkRate;
-		if (m_randomlyOffsetMoodCheck)
+		GXROW_AIUPDATEINTERFACE.nextMoodCheckTime = now + checkRate;
+		if (GXROW_AIUPDATEINTERFACE.randomlyOffsetMoodCheck)
 		{
 			Int halfRate = checkRate >> 1;
-			m_nextMoodCheckTime = (UnsignedInt)((Int)m_nextMoodCheckTime + GameLogicRandomValue(-halfRate, halfRate));
-			m_randomlyOffsetMoodCheck = FALSE;
+			GXROW_AIUPDATEINTERFACE.nextMoodCheckTime = (UnsignedInt)((Int)GXROW_AIUPDATEINTERFACE.nextMoodCheckTime + GameLogicRandomValue(-halfRate, halfRate));
+			GXROW_AIUPDATEINTERFACE.randomlyOffsetMoodCheck = FALSE;
 		}
 	}
 
@@ -4811,7 +4820,7 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	// check interval before the next one. Changes the game, so it is a match rule (the host's setting
 	// in network games, the recorded one in replays).
 	if (!newVictim && calledByAI && gxAiRule(4096))
-		m_nextMoodCheckTime += d->m_moodAttackCheckRate;
+		GXROW_AIUPDATEINTERFACE.nextMoodCheckTime += d->m_moodAttackCheckRate;
 
 /*
 DEBUG_LOG(("GNMT frame %d: %s %08lx (con %s %08lx) uses range %f, flags %08lx, %s finds %s %08lx",
@@ -5001,14 +5010,14 @@ void AIUpdateInterface::evaluateNationalismBonus( Bool inHorde, Bool allowNation
 // ------------------------------------------------------------------------------------------------
 void AIUpdateInterface::setDemoralized( UnsignedInt durationInFrames )
 {
-	UnsignedInt prevDemoralizedFrames = m_demoralizedFramesLeft;
+	UnsignedInt prevDemoralizedFrames = GXROW_AIUPDATEINTERFACE.demoralizedFramesLeft;
 
 	// overwrite the previous demoralized time left
-	m_demoralizedFramesLeft = durationInFrames;
+	GXROW_AIUPDATEINTERFACE.demoralizedFramesLeft = durationInFrames;
 
 	// if we turned on or turned off we need to re-evaluate our bonus conditions
-	if( (prevDemoralizedFrames == 0 && m_demoralizedFramesLeft > 0) ||
-			(prevDemoralizedFrames > 0 && m_demoralizedFramesLeft == 0) )
+	if( (prevDemoralizedFrames == 0 && GXROW_AIUPDATEINTERFACE.demoralizedFramesLeft > 0) ||
+			(prevDemoralizedFrames > 0 && GXROW_AIUPDATEINTERFACE.demoralizedFramesLeft == 0) )
 	{
 		// evaluate demoralization, nationalism, and horde effect as they are all intertwined
 		Object *us = getObject();
@@ -5233,110 +5242,110 @@ void AIUpdateInterface::xfer( Xfer *xfer )
  // extend base class
   UpdateModule::xfer( xfer );
 
-	xfer->xferUnsignedInt(&m_priorWaypointID);
-	xfer->xferUnsignedInt(&m_currentWaypointID);
-	xfer->xferSnapshot(m_stateMachine);
-	xfer->xferBool(&m_isAiDead);
-	xfer->xferBool(&m_isRecruitable);
+	xfer->xferUnsignedInt(&GXROW_AIUPDATEINTERFACE.priorWaypointID);
+	xfer->xferUnsignedInt(&GXROW_AIUPDATEINTERFACE.currentWaypointID);
+	xfer->xferSnapshot(GXROW_AIUPDATEINTERFACE.stateMachine);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.isAiDead);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.isRecruitable);
 
-	xfer->xferUnsignedInt(&m_nextEnemyScanTime);
-	xfer->xferObjectID(&m_currentVictimID);
-	xfer->xferReal(&m_desiredSpeed);
+	xfer->xferUnsignedInt(&GXROW_AIUPDATEINTERFACE.nextEnemyScanTime);
+	xfer->xferObjectID(&GXROW_AIUPDATEINTERFACE.currentVictimID);
+	xfer->xferReal(&GXROW_AIUPDATEINTERFACE.desiredSpeed);
 	xfer->xferUser(&m_lastCommandSource, sizeof(m_lastCommandSource));
-	xfer->xferUser(&m_guardTargetType[0], sizeof(m_guardTargetType));
-	xfer->xferUser(&m_guardTargetType[1], sizeof(m_guardTargetType));
-	xfer->xferCoord3D(&m_locationToGuard);
+	xfer->xferUser(&GXROW_AIUPDATEINTERFACE.guardTargetType[0], sizeof(GXROW_AIUPDATEINTERFACE.guardTargetType));
+	xfer->xferUser(&GXROW_AIUPDATEINTERFACE.guardTargetType[1], sizeof(GXROW_AIUPDATEINTERFACE.guardTargetType));
+	xfer->xferCoord3D(&GXROW_AIUPDATEINTERFACE.locationToGuard);
 
-	xfer->xferObjectID(&m_objectToGuard);
+	xfer->xferObjectID(&GXROW_AIUPDATEINTERFACE.objectToGuard);
 
 	AsciiString triggerName;
-	if (m_areaToGuard) triggerName = m_areaToGuard->getTriggerName();
+	if (GXROW_AIUPDATEINTERFACE.areaToGuard) triggerName = GXROW_AIUPDATEINTERFACE.areaToGuard->getTriggerName();
 	xfer->xferAsciiString(&triggerName);
 	if (xfer->getXferMode() == XFER_LOAD)
 	{
 		if (triggerName.isNotEmpty()) {
-			m_areaToGuard = TheTerrainLogic->getTriggerAreaByName(triggerName);
+			GXROW_AIUPDATEINTERFACE.areaToGuard = TheTerrainLogic->getTriggerAreaByName(triggerName);
 		}
 	}
 
 	AsciiString attackName;
-	if (m_attackInfo) attackName = m_attackInfo->getName();
+	if (GXROW_AIUPDATEINTERFACE.attackInfo) attackName = GXROW_AIUPDATEINTERFACE.attackInfo->getName();
 	xfer->xferAsciiString(&attackName);
 	if (xfer->getXferMode() == XFER_LOAD)
 	{
 		if (attackName.isNotEmpty()) {
-			m_attackInfo = TheScriptEngine->getAttackInfo(attackName);
+			GXROW_AIUPDATEINTERFACE.attackInfo = TheScriptEngine->getAttackInfo(attackName);
 		}
 	}
 
-	xfer->xferInt(&m_waypointCount);
-	if (m_waypointCount<0 || m_waypointCount>MAX_WAYPOINTS) {
-		DEBUG_CRASH(("Invalid waypoint count %d, max = %d", m_waypointCount, MAX_WAYPOINTS));
+	xfer->xferInt(&GXROW_AIUPDATEINTERFACE.waypointCount);
+	if (GXROW_AIUPDATEINTERFACE.waypointCount<0 || GXROW_AIUPDATEINTERFACE.waypointCount>MAX_WAYPOINTS) {
+		DEBUG_CRASH(("Invalid waypoint count %d, max = %d", GXROW_AIUPDATEINTERFACE.waypointCount, MAX_WAYPOINTS));
 		throw SC_INVALID_DATA;
 	}
 	Int i;
-	for (i=0; i<m_waypointCount; i++) {
-		xfer->xferCoord3D(&m_waypointQueue[i]);
+	for (i=0; i<GXROW_AIUPDATEINTERFACE.waypointCount; i++) {
+		xfer->xferCoord3D(&GXROW_AIUPDATEINTERFACE.waypointQueue[i]);
 	}
-	xfer->xferInt(&m_waypointIndex);
-	xfer->xferBool(&m_executingWaypointQueue);
+	xfer->xferInt(&GXROW_AIUPDATEINTERFACE.waypointIndex);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.executingWaypointQueue);
 
 	UnsignedInt id = INVALID_WAYPOINT_ID;
-	if (m_completedWaypoint) {
-		id = m_completedWaypoint->getID();
+	if (GXROW_AIUPDATEINTERFACE.completedWaypoint) {
+		id = GXROW_AIUPDATEINTERFACE.completedWaypoint->getID();
 	}
 	xfer->xferUnsignedInt(&id);
 	if (xfer->getXferMode() == XFER_LOAD)
 	{
-		m_completedWaypoint = TheTerrainLogic->getWaypointByID(id);
+		GXROW_AIUPDATEINTERFACE.completedWaypoint = TheTerrainLogic->getWaypointByID(id);
 	}
 
-	xfer->xferBool(&m_waitingForPath);
-	Bool gotPath = (m_path != nullptr);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.waitingForPath);
+	Bool gotPath = (GXROW_AIUPDATEINTERFACE.path != nullptr);
 	xfer->xferBool(&gotPath);
 	if (xfer->getXferMode() == XFER_LOAD)	{
 		if (gotPath) {
-			m_path = newInstance(Path);
+			GXROW_AIUPDATEINTERFACE.path = newInstance(Path);
 		}
 	}
 	if (gotPath) {
-		xfer->xferSnapshot(m_path);
+		xfer->xferSnapshot(GXROW_AIUPDATEINTERFACE.path);
 	}
-	xfer->xferObjectID(&m_requestedVictimID);
-	xfer->xferCoord3D(&m_requestedDestination);
-	xfer->xferCoord3D(&m_requestedDestination2);
+	xfer->xferObjectID(&GXROW_AIUPDATEINTERFACE.requestedVictimID);
+	xfer->xferCoord3D(&GXROW_AIUPDATEINTERFACE.requestedDestination);
+	xfer->xferCoord3D(&GXROW_AIUPDATEINTERFACE.requestedDestination2);
 
 	// Not needed - we will recompute paths on load.
-	//xfer->xferUnsignedInt(&m_pathTimestamp);
+	//xfer->xferUnsignedInt(&GXROW_AIUPDATEINTERFACE.pathTimestamp);
 
-	xfer->xferObjectID(&m_ignoreObstacleID);
-	xfer->xferReal(&m_pathExtraDistance);
-	xfer->xferICoord2D(&m_pathfindGoalCell);
-	xfer->xferICoord2D(&m_pathfindCurCell);
+	xfer->xferObjectID(&GXROW_AIUPDATEINTERFACE.ignoreObstacleID);
+	xfer->xferReal(&GXROW_AIUPDATEINTERFACE.pathExtraDistance);
+	xfer->xferICoord2D(&GXROW_AIUPDATEINTERFACE.pathfindGoalCell);
+	xfer->xferICoord2D(&GXROW_AIUPDATEINTERFACE.pathfindCurCell);
 
 	// Not needed - jba.
-	//Int					m_blockedFrames;						///< Number of frames we've been blocked.
-	//Real				m_curMaxBlockedSpeed;				///< Max speed we can have and not run into blocking things.
-	//Bool				m_isBlocked;
-	//Bool				m_isBlockedAndStuck;				///< True if we are stuck & need to recompute path.
-	//Bool				m_isInUpdate;
-	//Bool				m_fixLocoInPostProcess;
+	//Int					GXROW_AIUPDATEINTERFACE.blockedFrames;						///< Number of frames we've been blocked.
+	//Real				GXROW_AIUPDATEINTERFACE.curMaxBlockedSpeed;				///< Max speed we can have and not run into blocking things.
+	//Bool				GXROW_AIUPDATEINTERFACE.isBlocked;
+	//Bool				GXROW_AIUPDATEINTERFACE.isBlockedAndStuck;				///< True if we are stuck & need to recompute path.
+	//Bool				GXROW_AIUPDATEINTERFACE.isInUpdate;
+	//Bool				GXROW_AIUPDATEINTERFACE.fixLocoInPostProcess;
 
-	xfer->xferUnsignedInt(&m_ignoreCollisionsUntil);
-	xfer->xferUnsignedInt(&m_queueForPathFrame);
-	xfer->xferCoord3D(&m_finalPosition);
-	xfer->xferBool(&m_doFinalPosition);
-	xfer->xferBool(&m_isAttackPath);
-	xfer->xferBool(&m_isFinalGoal);
-	xfer->xferBool(&m_isApproachPath);
-	xfer->xferBool(&m_isSafePath);
-	xfer->xferBool(&m_movementComplete);
-	xfer->xferBool(&m_isSafePath);
-	xfer->xferBool(&m_upgradedLocomotors);
-	xfer->xferBool(&m_canPathThroughUnits);
-	xfer->xferBool(&m_randomlyOffsetMoodCheck);
-	xfer->xferObjectID(&m_repulsor1);
-	xfer->xferObjectID(&m_repulsor2);
+	xfer->xferUnsignedInt(&GXROW_AIUPDATEINTERFACE.ignoreCollisionsUntil);
+	xfer->xferUnsignedInt(&GXROW_AIUPDATEINTERFACE.queueForPathFrame);
+	xfer->xferCoord3D(&GXROW_AIUPDATEINTERFACE.finalPosition);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.doFinalPosition);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.isAttackPath);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.isFinalGoal);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.isApproachPath);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.isSafePath);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.movementComplete);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.isSafePath);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.upgradedLocomotors);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.canPathThroughUnits);
+	xfer->xferBool(&GXROW_AIUPDATEINTERFACE.randomlyOffsetMoodCheck);
+	xfer->xferObjectID(&GXROW_AIUPDATEINTERFACE.repulsor1);
+	xfer->xferObjectID(&GXROW_AIUPDATEINTERFACE.repulsor2);
 
 	if (version < 3)
 	{
@@ -5344,23 +5353,23 @@ void AIUpdateInterface::xfer( Xfer *xfer )
 		xfer->xferInt(&lastFrameMoved);
 	}
 
-	xfer->xferObjectID(&m_moveOutOfWay1);
-	xfer->xferObjectID(&m_moveOutOfWay2);
+	xfer->xferObjectID(&GXROW_AIUPDATEINTERFACE.moveOutOfWay1);
+	xfer->xferObjectID(&GXROW_AIUPDATEINTERFACE.moveOutOfWay2);
 
 	if (xfer->getXferMode() == XFER_LOAD && version < 4)
 	{
 		// Read in from .ini
-		//LocomotorSet			m_locomotorSet;
+		//LocomotorSet			GXROW_AIUPDATEINTERFACE.locomotorSet;
 		AsciiString setName;
-		if (m_curLocomotorSet > LOCOMOTORSET_INVALID && m_curLocomotorSet < LOCOMOTORSET_COUNT)
-			setName = TheLocomotorSetNames[m_curLocomotorSet];
+		if (GXROW_AIUPDATEINTERFACE.curLocomotorSet > LOCOMOTORSET_INVALID && GXROW_AIUPDATEINTERFACE.curLocomotorSet < LOCOMOTORSET_COUNT)
+			setName = TheLocomotorSetNames[GXROW_AIUPDATEINTERFACE.curLocomotorSet];
 
 		xfer->xferAsciiString(&setName);
 
 		if (setName.isNotEmpty())
-			m_curLocomotorSet = (LocomotorSetType)INI::scanIndexList(setName.str(), TheLocomotorSetNames);
+			GXROW_AIUPDATEINTERFACE.curLocomotorSet = (LocomotorSetType)INI::scanIndexList(setName.str(), TheLocomotorSetNames);
 
-		m_fixLocoInPostProcess = TRUE;
+		GXROW_AIUPDATEINTERFACE.fixLocoInPostProcess = TRUE;
 	}
 	else
 	{
@@ -5370,37 +5379,37 @@ void AIUpdateInterface::xfer( Xfer *xfer )
 			// to simply clear out whatever we have here and allow
 			// xferSelfAndCurLocoPtr() to continue to require a pristine,
 			// empty set. (srj)
-			m_locomotorSet.clear();
-			m_curLocomotor = nullptr;
+			GXROW_AIUPDATEINTERFACE.locomotorSet.clear();
+			GXROW_AIUPDATEINTERFACE.curLocomotor = nullptr;
 		}
-		m_locomotorSet.xferSelfAndCurLocoPtr(xfer, &m_curLocomotor);
-		xfer->xferUser(&m_curLocomotorSet, sizeof(m_curLocomotorSet));
+		GXROW_AIUPDATEINTERFACE.locomotorSet.xferSelfAndCurLocoPtr(xfer, &GXROW_AIUPDATEINTERFACE.curLocomotor);
+		xfer->xferUser(&GXROW_AIUPDATEINTERFACE.curLocomotorSet, sizeof(GXROW_AIUPDATEINTERFACE.curLocomotorSet));
 	}
 
-	xfer->xferUser(&m_locomotorGoalType, sizeof(m_locomotorGoalType));
-	xfer->xferCoord3D(&m_locomotorGoalData);
+	xfer->xferUser(&GXROW_AIUPDATEINTERFACE.locomotorGoalType, sizeof(GXROW_AIUPDATEINTERFACE.locomotorGoalType));
+	xfer->xferCoord3D(&GXROW_AIUPDATEINTERFACE.locomotorGoalData);
 
 	for (i=0; i<MAX_TURRETS; i++) {
-		if (m_turretAI[i]) {
-			xfer->xferSnapshot(m_turretAI[i]);
+		if (GXROW_AIUPDATEINTERFACE.turretAI[i]) {
+			xfer->xferSnapshot(GXROW_AIUPDATEINTERFACE.turretAI[i]);
 		}
 	}
-	xfer->xferUser(&m_turretSyncFlag, sizeof(m_turretSyncFlag));
-	xfer->xferUser(&m_attitude, sizeof(m_attitude));
+	xfer->xferUser(&GXROW_AIUPDATEINTERFACE.turretSyncFlag, sizeof(GXROW_AIUPDATEINTERFACE.turretSyncFlag));
+	xfer->xferUser(&GXROW_AIUPDATEINTERFACE.attitude, sizeof(GXROW_AIUPDATEINTERFACE.attitude));
 
-	xfer->xferUnsignedInt(&m_nextMoodCheckTime);
+	xfer->xferUnsignedInt(&GXROW_AIUPDATEINTERFACE.nextMoodCheckTime);
 	if (version == 1)
 	{
 		// surrender + demoralize
 #ifdef ALLOW_DEMORALIZE
-		xfer->xferUnsignedInt(&m_demoralizedFramesLeft);
+		xfer->xferUnsignedInt(&GXROW_AIUPDATEINTERFACE.demoralizedFramesLeft);
 #else
 		UnsignedInt demoralizedFramesLeft = 0;
 		xfer->xferUnsignedInt(&demoralizedFramesLeft);
 #endif
 #ifdef ALLOW_SURRENDER
-		xfer->xferUnsignedInt(&m_surrenderedFramesLeft);
-		xfer->xferInt(&m_surrenderedPlayerIndex);
+		xfer->xferUnsignedInt(&GXROW_AIUPDATEINTERFACE.surrenderedFramesLeft);
+		xfer->xferInt(&GXROW_AIUPDATEINTERFACE.surrenderedPlayerIndex);
 #else
 		UnsignedInt surrenderedFramesLeft = 0;
 		Int surrenderedPlayerIndex = 0;
@@ -5415,7 +5424,7 @@ void AIUpdateInterface::xfer( Xfer *xfer )
 #endif
 		// demoralize only
 #ifdef ALLOW_DEMORALIZE
-		xfer->xferUnsignedInt(&m_demoralizedFramesLeft);
+		xfer->xferUnsignedInt(&GXROW_AIUPDATEINTERFACE.demoralizedFramesLeft);
 #else
 		UnsignedInt tmp0 = 0;
 		xfer->xferUnsignedInt(&tmp0);
@@ -5432,7 +5441,7 @@ void AIUpdateInterface::xfer( Xfer *xfer )
 #endif
 	}
 
-	xfer->xferObjectID(&m_crateCreated);
+	xfer->xferObjectID(&GXROW_AIUPDATEINTERFACE.crateCreated);
 	if (version < 3)
 	{
 		Int repulsorCountdown = 0;
@@ -5449,30 +5458,30 @@ void AIUpdateInterface::loadPostProcess()
 {
 	UpdateModule::loadPostProcess();
 
-	if (m_fixLocoInPostProcess && m_curLocomotorSet!=LOCOMOTORSET_INVALID)
+	if (GXROW_AIUPDATEINTERFACE.fixLocoInPostProcess && GXROW_AIUPDATEINTERFACE.curLocomotorSet!=LOCOMOTORSET_INVALID)
 	{
-		m_fixLocoInPostProcess = FALSE;
+		GXROW_AIUPDATEINTERFACE.fixLocoInPostProcess = FALSE;
 
-		LocomotorSetType lst = m_curLocomotorSet;
+		LocomotorSetType lst = GXROW_AIUPDATEINTERFACE.curLocomotorSet;
 		// Set the current to invalid, because chooseLocomotorSet aborts if it is already set to the desired value.
-		m_curLocomotorSet = LOCOMOTORSET_INVALID;
+		GXROW_AIUPDATEINTERFACE.curLocomotorSet = LOCOMOTORSET_INVALID;
 		chooseLocomotorSet(lst);
 	}
 
 	if (!isMoving()) {
-		m_pathfindGoalCell.x = -1;
-		m_pathfindGoalCell.y = -1;
+		GXROW_AIUPDATEINTERFACE.pathfindGoalCell.x = -1;
+		GXROW_AIUPDATEINTERFACE.pathfindGoalCell.y = -1;
 		TheAI->pathfinder()->updateGoal(getObject(), getObject()->getPosition(), getObject()->getLayer());
-		m_pathfindCurCell.x = -1;
-		m_pathfindCurCell.y = -1;
+		GXROW_AIUPDATEINTERFACE.pathfindCurCell.x = -1;
+		GXROW_AIUPDATEINTERFACE.pathfindCurCell.y = -1;
 		TheAI->pathfinder()->updatePos(getObject(), getObject()->getPosition());
 	}	else {
-		if (m_pathfindGoalCell.x >= 0 && m_pathfindGoalCell.y >= 0) {
+		if (GXROW_AIUPDATEINTERFACE.pathfindGoalCell.x >= 0 && GXROW_AIUPDATEINTERFACE.pathfindGoalCell.y >= 0) {
 			Coord3D goalPos;
-			goalPos.x = m_pathfindGoalCell.x * PATHFIND_CELL_SIZE_F + PATHFIND_CELL_SIZE_F*0.5f;
-			goalPos.y = m_pathfindGoalCell.y * PATHFIND_CELL_SIZE_F + PATHFIND_CELL_SIZE_F*0.5f;
-			m_pathfindGoalCell.x = -1;
-			m_pathfindGoalCell.y = -1;
+			goalPos.x = GXROW_AIUPDATEINTERFACE.pathfindGoalCell.x * PATHFIND_CELL_SIZE_F + PATHFIND_CELL_SIZE_F*0.5f;
+			goalPos.y = GXROW_AIUPDATEINTERFACE.pathfindGoalCell.y * PATHFIND_CELL_SIZE_F + PATHFIND_CELL_SIZE_F*0.5f;
+			GXROW_AIUPDATEINTERFACE.pathfindGoalCell.x = -1;
+			GXROW_AIUPDATEINTERFACE.pathfindGoalCell.y = -1;
 			TheAI->pathfinder()->updateGoal(getObject(), &goalPos, getObject()->getLayer());
 		}
 	}
@@ -5502,7 +5511,7 @@ Int AIUpdateInterface::friend_getWaypointGoalPathSize() const
 Bool AIUpdateInterface::hasLocomotorForSurface(LocomotorSurfaceType surfaceType)
 {
 	LocomotorSurfaceTypeMask surfaceMask = (LocomotorSurfaceTypeMask)surfaceType;
-	if (m_locomotorSet.findLocomotor(surfaceMask))
+	if (GXROW_AIUPDATEINTERFACE.locomotorSet.findLocomotor(surfaceMask))
 		return TRUE;
 	else
 		return FALSE;

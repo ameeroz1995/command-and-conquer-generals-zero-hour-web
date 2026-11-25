@@ -44,6 +44,12 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 
+// Web port (round 5, units are pure data): AutoHealBehavior's per-unit state is a row of TheGxAutoHealBehaviors;
+// GXROW_AUTOHEALBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAutoHealBehaviorRow> TheGxAutoHealBehaviors;
+#define GXROW_AUTOHEALBEHAVIOR (TheGxAutoHealBehaviors.at(m_gxAutoHealBehaviorRow))
+
+
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -89,11 +95,13 @@ static void checkForAutoHeal( Object *testObj, void *userData )
 //-------------------------------------------------------------------------------------------------
 AutoHealBehavior::AutoHealBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxAutoHealBehaviorRow = TheGxAutoHealBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
+
 	const AutoHealBehaviorModuleData *d = getAutoHealBehaviorModuleData();
 
-	m_radiusParticleSystemID = INVALID_PARTICLE_SYSTEM_ID;
+	GXROW_AUTOHEALBEHAVIOR.radiusParticleSystemID = INVALID_PARTICLE_SYSTEM_ID;
 	m_soonestHealFrame = 0;
-	m_stopped = false;
+	GXROW_AUTOHEALBEHAVIOR.stopped = false;
 	Object *obj = getObject();
 
 	{
@@ -105,7 +113,7 @@ AutoHealBehavior::AutoHealBehavior( Thing *thing, const ModuleData* moduleData )
 			if( particleSystem )
 			{
 				particleSystem->setPosition( obj->getPosition() );
-				m_radiusParticleSystemID = particleSystem->getSystemID();
+				GXROW_AUTOHEALBEHAVIOR.radiusParticleSystemID = particleSystem->getSystemID();
 			}
 		}
 	}
@@ -129,15 +137,16 @@ AutoHealBehavior::AutoHealBehavior( Thing *thing, const ModuleData* moduleData )
 AutoHealBehavior::~AutoHealBehavior()
 {
 
-	if( m_radiusParticleSystemID != INVALID_PARTICLE_SYSTEM_ID )
-		TheParticleSystemManager->destroyParticleSystemByID( m_radiusParticleSystemID );
+	if( GXROW_AUTOHEALBEHAVIOR.radiusParticleSystemID != INVALID_PARTICLE_SYSTEM_ID )
+		TheParticleSystemManager->destroyParticleSystemByID( GXROW_AUTOHEALBEHAVIOR.radiusParticleSystemID );
 
+	TheGxAutoHealBehaviors.release( m_gxAutoHealBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
 void AutoHealBehavior::stopHealing()
 {
-	m_stopped = true;
+	GXROW_AUTOHEALBEHAVIOR.stopped = true;
 	m_soonestHealFrame = FOREVER;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
@@ -154,7 +163,7 @@ void AutoHealBehavior::undoUpgrade()
 //-------------------------------------------------------------------------------------------------
 void AutoHealBehavior::onDamage( DamageInfo *damageInfo )
 {
-	if (m_stopped)
+	if (GXROW_AUTOHEALBEHAVIOR.stopped)
 		return;
 
 	const AutoHealBehaviorModuleData *d = getAutoHealBehaviorModuleData();
@@ -180,7 +189,7 @@ void AutoHealBehavior::onDamage( DamageInfo *damageInfo )
 //-------------------------------------------------------------------------------------------------
 UpdateSleepTime AutoHealBehavior::update()
 {
-	if (m_stopped)
+	if (GXROW_AUTOHEALBEHAVIOR.stopped)
 		return UPDATE_SLEEP_FOREVER;
 
 	Object *obj = getObject();
@@ -293,7 +302,7 @@ UpdateSleepTime AutoHealBehavior::update()
 //-------------------------------------------------------------------------------------------------
 void AutoHealBehavior::pulseHealObject( Object *obj )
 {
-	if (m_stopped)
+	if (GXROW_AUTOHEALBEHAVIOR.stopped)
 		return;
 
 	const AutoHealBehaviorModuleData *data = getAutoHealBehaviorModuleData();
@@ -351,13 +360,13 @@ void AutoHealBehavior::xfer( Xfer *xfer )
 	UpgradeMux::upgradeMuxXfer( xfer );
 
 	// particle system id
-	xfer->xferUser( &m_radiusParticleSystemID, sizeof( ParticleSystemID ) );
+	xfer->xferUser( &GXROW_AUTOHEALBEHAVIOR.radiusParticleSystemID, sizeof( ParticleSystemID ) );
 
 	// Timer safety
 	xfer->xferUnsignedInt( &m_soonestHealFrame );
 
 	// stopped
-	xfer->xferBool( &m_stopped );
+	xfer->xferBool( &GXROW_AUTOHEALBEHAVIOR.stopped );
 
 }
 

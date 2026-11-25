@@ -45,6 +45,12 @@
 #include "GameLogic/ExperienceTracker.h" //veterancy logic
 #include "GameLogic/Module/StealthUpdate.h"
 
+// Web port (round 5, units are pure data): SpawnBehavior's per-unit state is a row of TheGxSpawnBehaviors;
+// GXROW_SPAWNBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxSpawnBehaviorRow> TheGxSpawnBehaviors;
+#define GXROW_SPAWNBEHAVIOR (TheGxSpawnBehaviors.at(m_gxSpawnBehaviorRow))
+
+
 
 #define NONE_SPAWNED_YET (0xffffffff)
 
@@ -54,46 +60,48 @@
 
 #define SPAWN_DELAY_MIN_FRAMES (16) // about as rapidly as you'd expect people to successively exit through the same door
 //-------------------------------------------------------------------------------------------------
-SpawnBehavior::SpawnBehavior( Thing *thing, const ModuleData* moduleData )
-						 : UpdateModule( thing, moduleData )
+SpawnBehavior::SpawnBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxSpawnBehaviorRow = TheGxSpawnBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
+
 	const SpawnBehaviorModuleData* md = getSpawnBehaviorModuleData();
 
 	// GEE, THIS IS NEW...
 	// NOW, WE CAN HAVE A LIST OF TEMPLATE NAMES
 	m_templateNameIterator = md->m_spawnTemplateNameData.begin();
-	m_spawnTemplate = TheThingFactory->findTemplate( *m_templateNameIterator );
+	GXROW_SPAWNBEHAVIOR.spawnTemplate = TheThingFactory->findTemplate( *m_templateNameIterator );
 	//each time m_spawn template is used, it will increment m_templateNameIterator,
 	//thus scanning through the ordered list of template names
 	//looping back to the beginning
 
-	m_framesToWait = 0;
-	m_firstBatchCount = 0;
+	GXROW_SPAWNBEHAVIOR.framesToWait = 0;
+	GXROW_SPAWNBEHAVIOR.firstBatchCount = 0;
 	if( md->m_isOneShotData )
-		m_oneShotCountdown = md->m_spawnNumberData;
+		GXROW_SPAWNBEHAVIOR.oneShotCountdown = md->m_spawnNumberData;
 	else
-		m_oneShotCountdown = -1;
+		GXROW_SPAWNBEHAVIOR.oneShotCountdown = -1;
 
-	m_active = TRUE;
+	GXROW_SPAWNBEHAVIOR.active = TRUE;
 
-	m_replacementTimes.clear();
+	GXROW_SPAWNBEHAVIOR.replacementTimes.clear();
 	// The initializing of the initial bursters is handled in the first update @todo invent an object::postConstructionProcess() some day
-	m_initialBurstCountdown = md->m_initialBurst;
-	m_initialBurstTimesInited = FALSE;
+	GXROW_SPAWNBEHAVIOR.initialBurstCountdown = md->m_initialBurst;
+	GXROW_SPAWNBEHAVIOR.initialBurstTimesInited = FALSE;
 
 
 
-	m_aggregateHealth = md->m_aggregateHealth;
+	GXROW_SPAWNBEHAVIOR.aggregateHealth = md->m_aggregateHealth;
 
-	m_spawnCount = NONE_SPAWNED_YET;
-	m_active = TRUE;
-	m_selfTaskingSpawnCount = 0;
+	GXROW_SPAWNBEHAVIOR.spawnCount = NONE_SPAWNED_YET;
+	GXROW_SPAWNBEHAVIOR.active = TRUE;
+	GXROW_SPAWNBEHAVIOR.selfTaskingSpawnCount = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
 SpawnBehavior::~SpawnBehavior()
 {
-	m_replacementTimes.clear();
+	GXROW_SPAWNBEHAVIOR.replacementTimes.clear();
+	TheGxSpawnBehaviors.release( m_gxSpawnBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -106,7 +114,7 @@ void SpawnBehavior::onDelete()
 	{
 		Object *obj;
 
-		for( objectIDListIterator it = m_spawnIDs.begin(); it != m_spawnIDs.end(); /*empty*/ )
+		for( objectIDListIterator it = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); it != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); /*empty*/ )
 		{
 
 			// get object
@@ -139,8 +147,8 @@ void SpawnBehavior::onDie( const DamageInfo *damageInfo )
 	if( modData->m_dieMuxData.isDieApplicable( getObject(), damageInfo ) == FALSE )
 		return;
 
-	for( objectIDListIterator iter = m_spawnIDs.begin();
-				iter != m_spawnIDs.end();
+	for( objectIDListIterator iter = GXROW_SPAWNBEHAVIOR.spawnIDs.begin();
+				iter != GXROW_SPAWNBEHAVIOR.spawnIDs.end();
 				iter++
 					)
 	{
@@ -169,7 +177,7 @@ void SpawnBehavior::onDie( const DamageInfo *damageInfo )
 	{
 		Object *obj;
 
-		for( objectIDListIterator it = m_spawnIDs.begin(); it != m_spawnIDs.end(); /*emtpy*/ )
+		for( objectIDListIterator it = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); it != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); /*emtpy*/ )
 		{
 
 			// get object
@@ -194,19 +202,19 @@ UpdateSleepTime SpawnBehavior::update()
 /// @todo srj use SLEEPY_UPDATE here
 
 	//EVERY FRAME
-	if ( m_aggregateHealth )
+	if ( GXROW_SPAWNBEHAVIOR.aggregateHealth )
 	{
 		computeAggregateStates();
 	}
 
 	const SpawnBehaviorModuleData* md = getSpawnBehaviorModuleData();
-	if ( ! m_initialBurstTimesInited )
+	if ( ! GXROW_SPAWNBEHAVIOR.initialBurstTimesInited )
 	{
-		m_initialBurstTimesInited = TRUE;
+		GXROW_SPAWNBEHAVIOR.initialBurstTimesInited = TRUE;
 
 		Bool runtimeProduced = getObject()->getProducerID()!=INVALID_ID; //this was produced by a production module, rather than a script or worldbuilder
 		Int now = TheGameLogic->getFrame();
-		Int burstInitCount = m_initialBurstCountdown;
+		Int burstInitCount = GXROW_SPAWNBEHAVIOR.initialBurstCountdown;
 		for( int listIndex = 0; listIndex < md->m_spawnNumberData; listIndex++ )
 		{
 			if ( md->m_initialBurst > 0 )
@@ -217,22 +225,22 @@ UpdateSleepTime SpawnBehavior::update()
 					--burstInitCount;
 					birthFrame += (listIndex*SPAWN_DELAY_MIN_FRAMES);
 				}
-				m_replacementTimes.push_back( runtimeProduced  );// Set all spawns to be created in rapid succession
+				GXROW_SPAWNBEHAVIOR.replacementTimes.push_back( runtimeProduced  );// Set all spawns to be created in rapid succession
 			}
 			else
-				m_replacementTimes.push_back( listIndex );// Set all spawns to be created as soon as possible
+				GXROW_SPAWNBEHAVIOR.replacementTimes.push_back( listIndex );// Set all spawns to be created as soon as possible
 		}
 	}
 
 
 
 	//SPARSELY SOLVED
-	if (--m_framesToWait > 0)
+	if (--GXROW_SPAWNBEHAVIOR.framesToWait > 0)
 	{
 		return UPDATE_SLEEP_NONE;
 	}
 
-	m_framesToWait = SPAWN_UPDATE_RATE;
+	GXROW_SPAWNBEHAVIOR.framesToWait = SPAWN_UPDATE_RATE;
 
 	//Go through the list and make a spawn for each number that is less than now's frame
 	if( shouldTryToSpawn() )
@@ -241,8 +249,8 @@ UpdateSleepTime SpawnBehavior::update()
 		// Start at the beginning, and if you erase one, use the return
 		// value to manually step to the next.  Otherwise, step by yourself.
 		// begin == end means empty list, so no special check is needed.
-		intListIterator iterator = m_replacementTimes.begin();
-		while( iterator != m_replacementTimes.end() )
+		intListIterator iterator = GXROW_SPAWNBEHAVIOR.replacementTimes.begin();
+		while( iterator != GXROW_SPAWNBEHAVIOR.replacementTimes.end() )
 		{
 			Int replacementTime = *iterator;
 			UnsignedInt currentTime = TheGameLogic->getFrame();
@@ -250,7 +258,7 @@ UpdateSleepTime SpawnBehavior::update()
 			{
 				//If you create one, you pop the number off the list
 				if( createSpawn() )
-					iterator = m_replacementTimes.erase( iterator );
+					iterator = GXROW_SPAWNBEHAVIOR.replacementTimes.erase( iterator );
 				else
 					iterator++;
 			}
@@ -258,7 +266,7 @@ UpdateSleepTime SpawnBehavior::update()
 				iterator++;
 		}
 
-		if( md->m_isOneShotData  &&  (m_oneShotCountdown <= 0) )
+		if( md->m_isOneShotData  &&  (GXROW_SPAWNBEHAVIOR.oneShotCountdown <= 0) )
 			stopSpawning(); //I only trigger one batch.  ie on Creation.
 	}
 	return UPDATE_SLEEP_NONE;
@@ -267,7 +275,7 @@ UpdateSleepTime SpawnBehavior::update()
 // ------------------------------------------------------------------------------------------------
 Bool SpawnBehavior::maySpawnSelfTaskAI( Real maxSelfTaskersRatio )
 {
-	if ( m_spawnCount == 0)
+	if ( GXROW_SPAWNBEHAVIOR.spawnCount == 0)
 		return FALSE;
 	if ( maxSelfTaskersRatio == 0)
 		return FALSE;
@@ -289,7 +297,7 @@ Bool SpawnBehavior::maySpawnSelfTaskAI( Real maxSelfTaskersRatio )
 		return FALSE;
 
 
-	Real curSelfTaskersRatio = (Real)m_selfTaskingSpawnCount / (Real)m_spawnCount;
+	Real curSelfTaskersRatio = (Real)GXROW_SPAWNBEHAVIOR.selfTaskingSpawnCount / (Real)GXROW_SPAWNBEHAVIOR.spawnCount;
 
 	return ( curSelfTaskersRatio < maxSelfTaskersRatio );
 }
@@ -299,7 +307,7 @@ Object* SpawnBehavior::getClosestSlave( const Coord3D *pos )
 {
 	Object *closest = nullptr;
 	Real closestDistance;
-	for( objectIDListIterator it = m_spawnIDs.begin(); it != m_spawnIDs.end(); ++it )
+	for( objectIDListIterator it = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); it != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); ++it )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it );
 		if( obj )
@@ -319,7 +327,7 @@ Object* SpawnBehavior::getClosestSlave( const Coord3D *pos )
 // ------------------------------------------------------------------------------------------------
 void SpawnBehavior::orderSlavesToAttackTarget( Object *target, Int maxShotsToFire, CommandSourceType cmdSource )
 {
-	for( objectIDListIterator it = m_spawnIDs.begin(); it != m_spawnIDs.end(); ++it )
+	for( objectIDListIterator it = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); it != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); ++it )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it );
 		if( obj )
@@ -336,7 +344,7 @@ void SpawnBehavior::orderSlavesToAttackTarget( Object *target, Int maxShotsToFir
 // ------------------------------------------------------------------------------------------------
 void SpawnBehavior::orderSlavesToAttackPosition( const Coord3D *pos, Int maxShotsToFire, CommandSourceType cmdSource )
 {
-	for( objectIDListIterator it = m_spawnIDs.begin(); it != m_spawnIDs.end(); ++it )
+	for( objectIDListIterator it = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); it != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); ++it )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it );
 		if( obj )
@@ -353,7 +361,7 @@ void SpawnBehavior::orderSlavesToAttackPosition( const Coord3D *pos, Int maxShot
 // ------------------------------------------------------------------------------------------------
 void SpawnBehavior::orderSlavesToGoIdle( CommandSourceType cmdSource )
 {
-	for( objectIDListIterator it = m_spawnIDs.begin(); it != m_spawnIDs.end(); ++it )
+	for( objectIDListIterator it = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); it != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); ++it )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it );
 		if( obj )
@@ -370,7 +378,7 @@ void SpawnBehavior::orderSlavesToGoIdle( CommandSourceType cmdSource )
 // ------------------------------------------------------------------------------------------------
 void SpawnBehavior::orderSlavesDisabledUntil( DisabledType type, UnsignedInt frame )
 {
-	for( objectIDListIterator it = m_spawnIDs.begin(); it != m_spawnIDs.end(); ++it )
+	for( objectIDListIterator it = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); it != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); ++it )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it );
 		if( obj )
@@ -388,7 +396,7 @@ void SpawnBehavior::orderSlavesDisabledUntil( DisabledType type, UnsignedInt fra
 // ------------------------------------------------------------------------------------------------
 void SpawnBehavior::orderSlavesToClearDisabled( DisabledType type )
 {
-	for( objectIDListIterator it = m_spawnIDs.begin(); it != m_spawnIDs.end(); ++it )
+	for( objectIDListIterator it = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); it != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); ++it )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it );
 		if( obj )
@@ -402,7 +410,7 @@ void SpawnBehavior::orderSlavesToClearDisabled( DisabledType type )
 CanAttackResult SpawnBehavior::getCanAnySlavesAttackSpecificTarget( AbleToAttackType attackType, const Object *target, CommandSourceType cmdSource )
 {
 	Bool invalidShot = FALSE;
-	for( objectIDListIterator it = m_spawnIDs.begin(); it != m_spawnIDs.end(); ++it )
+	for( objectIDListIterator it = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); it != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); ++it )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it );
 		if( obj )
@@ -440,7 +448,7 @@ CanAttackResult SpawnBehavior::getCanAnySlavesAttackSpecificTarget( AbleToAttack
 CanAttackResult SpawnBehavior::getCanAnySlavesUseWeaponAgainstTarget( AbleToAttackType attackType, const Object *victim, const Coord3D *pos, CommandSourceType cmdSource )
 {
 	Bool invalidShot = FALSE;
-	for( objectIDListIterator it = m_spawnIDs.begin(); it != m_spawnIDs.end(); ++it )
+	for( objectIDListIterator it = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); it != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); ++it )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it );
 		if( obj )
@@ -477,7 +485,7 @@ CanAttackResult SpawnBehavior::getCanAnySlavesUseWeaponAgainstTarget( AbleToAtta
 // ------------------------------------------------------------------------------------------------
 void SpawnBehavior::giveSlavesStealthUpgrade( Bool grantStealth )
 {
-	for( objectIDListIterator it = m_spawnIDs.begin(); it != m_spawnIDs.end(); ++it )
+	for( objectIDListIterator it = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); it != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); ++it )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it );
 		if( obj )
@@ -490,7 +498,7 @@ void SpawnBehavior::giveSlavesStealthUpgrade( Bool grantStealth )
 // ------------------------------------------------------------------------------------------------
 Bool SpawnBehavior::canAnySlavesAttack()
 {
-	for( objectIDListIterator it = m_spawnIDs.begin(); it != m_spawnIDs.end(); ++it )
+	for( objectIDListIterator it = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); it != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); ++it )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it );
 		if( obj )
@@ -623,10 +631,10 @@ Bool SpawnBehavior::createSpawn()
 													// This assures that an orphan has not just been reclaimed,
 	if( newSpawn == nullptr )	// and that we really want a new spawn, here.
 	{
-		m_spawnTemplate = TheThingFactory->findTemplate( *m_templateNameIterator );
+		GXROW_SPAWNBEHAVIOR.spawnTemplate = TheThingFactory->findTemplate( *m_templateNameIterator );
 
-		//newSpawn = TheThingFactory->newObject( m_spawnTemplate, parent->getControllingPlayer()->getDefaultTeam() );
-		newSpawn = TheThingFactory->newObject( m_spawnTemplate, parent->getTeam() ); // just a little worried about this...
+		//newSpawn = TheThingFactory->newObject( GXROW_SPAWNBEHAVIOR.spawnTemplate, parent->getControllingPlayer()->getDefaultTeam() );
+		newSpawn = TheThingFactory->newObject( GXROW_SPAWNBEHAVIOR.spawnTemplate, parent->getTeam() ); // just a little worried about this...
 
 		// Count this unit towards our score.
 		newSpawn->getControllingPlayer()->onUnitCreated(parent, newSpawn);
@@ -658,7 +666,7 @@ Bool SpawnBehavior::createSpawn()
 		}
 	}
 
-	m_spawnIDs.push_back( newSpawn->getID() );
+	GXROW_SPAWNBEHAVIOR.spawnIDs.push_back( newSpawn->getID() );
 
 	if( reclaimedOrphan == FALSE )
 	{
@@ -667,7 +675,7 @@ Bool SpawnBehavior::createSpawn()
 
 			Bool barracksExitSuccess = FALSE;
 
-			if ( m_initialBurstCountdown > 0 )
+			if ( GXROW_SPAWNBEHAVIOR.initialBurstCountdown > 0 )
 			{
 				Object *barracks = TheGameLogic->findObjectByID( parent->getProducerID() );
 				if ( barracks && barracks->isKindOf( KINDOF_STRUCTURE ) )
@@ -678,7 +686,7 @@ Bool SpawnBehavior::createSpawn()
 						ExitDoorType barracksDoor = barracksExitInterface->reserveDoorForExit(nullptr, nullptr);
 						barracksExitInterface->exitObjectViaDoor( newSpawn, barracksDoor );
 						newSpawn->setProducer(parent);//let parents producer exit him, but he thinks it was me
-						--m_initialBurstCountdown;
+						--GXROW_SPAWNBEHAVIOR.initialBurstCountdown;
 						barracksExitSuccess = TRUE;
 					}
 
@@ -695,7 +703,7 @@ Bool SpawnBehavior::createSpawn()
 				Real tapeMeasure = 99999;
 				Real closest = 999999.9f; // 1000 * 1000
 				objectIDListIterator iter;
-				for( iter = m_spawnIDs.begin(); iter != m_spawnIDs.end(); iter++)
+				for( iter = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); iter != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); iter++)
 				{
 					curSpawn = TheGameLogic->findObjectByID( *iter );
 					if ( curSpawn )
@@ -726,16 +734,16 @@ Bool SpawnBehavior::createSpawn()
 		exitInterface->unreserveDoorForExit( exitDoor );
 
 	if( md->m_isOneShotData )
-		m_oneShotCountdown--;
+		GXROW_SPAWNBEHAVIOR.oneShotCountdown--;
 
 
-	if ( m_spawnCount == NONE_SPAWNED_YET )
+	if ( GXROW_SPAWNBEHAVIOR.spawnCount == NONE_SPAWNED_YET )
 	{
-		m_spawnCount = 1;
+		GXROW_SPAWNBEHAVIOR.spawnCount = 1;
 	}
 	else
 	{
-		++ m_spawnCount;
+		++ GXROW_SPAWNBEHAVIOR.spawnCount;
 	}
 
 
@@ -745,24 +753,24 @@ Bool SpawnBehavior::createSpawn()
 //-------------------------------------------------------------------------------------------------
 void SpawnBehavior::onSpawnDeath( ObjectID deadSpawn, DamageInfo *damageInfo )
 {
-	objectIDListIterator it = std::find(m_spawnIDs.begin(), m_spawnIDs.end(), deadSpawn);
+	objectIDListIterator it = std::find(GXROW_SPAWNBEHAVIOR.spawnIDs.begin(), GXROW_SPAWNBEHAVIOR.spawnIDs.end(), deadSpawn);
 
 	// If the iterator is at the end, we didn't find deadSpawn, so bail out.
 	// Otherwise, bad crash stuff will happen.
-	if (it == m_spawnIDs.end())
+	if (it == GXROW_SPAWNBEHAVIOR.spawnIDs.end())
 		return;
 
 	//When one dies, you push (now + delay) as the time a new one should be made
 	const SpawnBehaviorModuleData* md = getSpawnBehaviorModuleData();
 
 	Int replacementTime = md->m_spawnReplaceDelayData + TheGameLogic->getFrame();
-	m_replacementTimes.push_back( replacementTime );
+	GXROW_SPAWNBEHAVIOR.replacementTimes.push_back( replacementTime );
 
-	m_spawnIDs.erase( it );
+	GXROW_SPAWNBEHAVIOR.spawnIDs.erase( it );
 
-	--m_spawnCount;
+	--GXROW_SPAWNBEHAVIOR.spawnCount;
 
-	if ( (m_spawnCount == 0) && m_aggregateHealth) // I'm dead without my spawn
+	if ( (GXROW_SPAWNBEHAVIOR.spawnCount == 0) && GXROW_SPAWNBEHAVIOR.aggregateHealth) // I'm dead without my spawn
 	{
 		Object *killer = TheGameLogic->findObjectByID(damageInfo->in.m_sourceID);
 		if (killer != nullptr) {
@@ -777,13 +785,13 @@ void SpawnBehavior::onSpawnDeath( ObjectID deadSpawn, DamageInfo *damageInfo )
 //-------------------------------------------------------------------------------------------------
 void SpawnBehavior::stopSpawning()
 {
-	m_active = FALSE;
+	GXROW_SPAWNBEHAVIOR.active = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
 void SpawnBehavior::startSpawning()
 {
-	m_active = TRUE;
+	GXROW_SPAWNBEHAVIOR.active = TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -791,8 +799,8 @@ void SpawnBehavior::startSpawning()
 // ------------------------------------------------------------------------------------------------
 void SpawnBehavior::onDamage( DamageInfo *info )
 {
-	for( objectIDListIterator iter = m_spawnIDs.begin();
-				iter != m_spawnIDs.end();
+	for( objectIDListIterator iter = GXROW_SPAWNBEHAVIOR.spawnIDs.begin();
+				iter != GXROW_SPAWNBEHAVIOR.spawnIDs.end();
 				iter++
 					)
 	{
@@ -820,7 +828,7 @@ Bool SpawnBehavior::shouldTryToSpawn()
 	const SpawnBehaviorModuleData *modData = getSpawnBehaviorModuleData();
 
 	// Not if we are turned off
-	if( !m_active )
+	if( !GXROW_SPAWNBEHAVIOR.active )
 		return FALSE;
 	if( getObject()->getStatusBits().test( OBJECT_STATUS_RECONSTRUCTING ) && modData->m_isOneShotData )
 	{
@@ -854,7 +862,7 @@ Bool SpawnBehavior::shouldTryToSpawn()
 
 void SpawnBehavior::computeAggregateStates()
 {
-	if ( ! m_aggregateHealth ) // sanity
+	if ( ! GXROW_SPAWNBEHAVIOR.aggregateHealth ) // sanity
 		return;
 
 	Object* obj = getObject();
@@ -880,22 +888,22 @@ void SpawnBehavior::computeAggregateStates()
 	WeaponBonusConditionFlags spawnWeaponBonus;
 
 
-	m_selfTaskingSpawnCount = 0;
+	GXROW_SPAWNBEHAVIOR.selfTaskingSpawnCount = 0;
 
-	for( objectIDListIterator iter = m_spawnIDs.begin(); iter != m_spawnIDs.end(); iter++)
+	for( objectIDListIterator iter = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); iter != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); iter++)
 	{
 		currentSpawn = TheGameLogic->findObjectByID( (*iter) );
 
 		if( currentSpawn )
 		{
-			//m_selfTaskingSpawnCount += ( currentSpawn->isSelf);
+			//GXROW_SPAWNBEHAVIOR.selfTaskingSpawnCount += ( currentSpawn->isSelf);
 
 			for (BehaviorModule** update = currentSpawn->getBehaviorModules(); *update; ++update)
 			{
 				SlavedUpdateInterface* sdu = (*update)->getSlavedUpdateInterface();
 				if (sdu != nullptr)
 				{
-					m_selfTaskingSpawnCount += ( sdu->isSelfTasking());
+					GXROW_SPAWNBEHAVIOR.selfTaskingSpawnCount += ( sdu->isSelfTasking());
 					break;
 				}
 			}
@@ -951,7 +959,7 @@ void SpawnBehavior::computeAggregateStates()
 
 		if ( SomebodyIsNotSelected ) // lets select everybody
 		{
-			for( objectIDListIterator iter = m_spawnIDs.begin(); iter != m_spawnIDs.end(); iter++)
+			for( objectIDListIterator iter = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); iter != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); iter++)
 			{
 				currentSpawn = TheGameLogic->findObjectByID( (*iter) );
 
@@ -1017,7 +1025,7 @@ Bool SpawnBehavior::areAllSlavesStealthed() const
 {
 	Object *currentSpawn;
 
-	for( std::list<ObjectID>::const_iterator iter = m_spawnIDs.begin(); iter != m_spawnIDs.end(); iter++)
+	for( std::list<ObjectID>::const_iterator iter = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); iter != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); iter++)
 	{
 		currentSpawn = TheGameLogic->findObjectByID( (*iter) );
 		if( currentSpawn )
@@ -1038,7 +1046,7 @@ void SpawnBehavior::revealSlaves()
 {
 	Object *currentSpawn;
 
-	for( objectIDListIterator iter = m_spawnIDs.begin(); iter != m_spawnIDs.end(); iter++)
+	for( objectIDListIterator iter = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); iter != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); iter++)
 	{
 		currentSpawn = TheGameLogic->findObjectByID( (*iter) );
 		if( currentSpawn )
@@ -1090,25 +1098,25 @@ void SpawnBehavior::xfer( Xfer *xfer )
 
 
 	if (version >= 2) {
-		xfer->xferBool(&m_initialBurstTimesInited);
+		xfer->xferBool(&GXROW_SPAWNBEHAVIOR.initialBurstTimesInited);
 	}
 
 	if (version >= 3) {
-		xfer->xferUnsignedInt(&m_initialBurstCountdown);
+		xfer->xferUnsignedInt(&GXROW_SPAWNBEHAVIOR.initialBurstCountdown);
 	}
 
 	// spawn template
-	name = m_spawnTemplate ? m_spawnTemplate->getName() : AsciiString::TheEmptyString;
+	name = GXROW_SPAWNBEHAVIOR.spawnTemplate ? GXROW_SPAWNBEHAVIOR.spawnTemplate->getName() : AsciiString::TheEmptyString;
 	xfer->xferAsciiString( &name );
 	if( xfer->getXferMode() == XFER_LOAD )
 	{
 
-		m_spawnTemplate = nullptr;
+		GXROW_SPAWNBEHAVIOR.spawnTemplate = nullptr;
 		if( name.isEmpty() == FALSE )
 		{
 
-			m_spawnTemplate = TheThingFactory->findTemplate( name );
-			if( m_spawnTemplate == nullptr )
+			GXROW_SPAWNBEHAVIOR.spawnTemplate = TheThingFactory->findTemplate( name );
+			if( GXROW_SPAWNBEHAVIOR.spawnTemplate == nullptr )
 			{
 
 				DEBUG_CRASH(( "SpawnBehavior::xfer - Unable to find template '%s'", name.str() ));
@@ -1121,33 +1129,33 @@ void SpawnBehavior::xfer( Xfer *xfer )
 	}
 
 	// one shot countdown
-	xfer->xferInt( &m_oneShotCountdown );
+	xfer->xferInt( &GXROW_SPAWNBEHAVIOR.oneShotCountdown );
 
 	// frames to wait
-	xfer->xferInt( &m_framesToWait );
+	xfer->xferInt( &GXROW_SPAWNBEHAVIOR.framesToWait );
 
 	// first batch count
-	xfer->xferInt( &m_firstBatchCount );
+	xfer->xferInt( &GXROW_SPAWNBEHAVIOR.firstBatchCount );
 
 	// replacement times
 	if( xfer->getXferMode() == XFER_LOAD )
-		m_replacementTimes.clear();
-	xfer->xferSTLIntList( &m_replacementTimes );
+		GXROW_SPAWNBEHAVIOR.replacementTimes.clear();
+	xfer->xferSTLIntList( &GXROW_SPAWNBEHAVIOR.replacementTimes );
 
 	// spawn ids
-	xfer->xferSTLObjectIDList( &m_spawnIDs );
+	xfer->xferSTLObjectIDList( &GXROW_SPAWNBEHAVIOR.spawnIDs );
 
 	// active
-	xfer->xferBool( &m_active );
+	xfer->xferBool( &GXROW_SPAWNBEHAVIOR.active );
 
 	// aggregate health
-	xfer->xferBool( &m_aggregateHealth );
+	xfer->xferBool( &GXROW_SPAWNBEHAVIOR.aggregateHealth );
 
 	// spawn count
-	xfer->xferInt( &m_spawnCount );
+	xfer->xferInt( &GXROW_SPAWNBEHAVIOR.spawnCount );
 
 	// self tasking spawn count
-	xfer->xferUnsignedInt( &m_selfTaskingSpawnCount );
+	xfer->xferUnsignedInt( &GXROW_SPAWNBEHAVIOR.selfTaskingSpawnCount );
 
 }
 

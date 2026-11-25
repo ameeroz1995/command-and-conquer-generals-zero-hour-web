@@ -45,6 +45,12 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 
+// Web port (round 5, units are pure data): CaveContain's per-unit state is a row of TheGxCaveContains;
+// GXROW_CAVECONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxCaveContainRow> TheGxCaveContains;
+#define GXROW_CAVECONTAIN (TheGxCaveContains.at(m_gxCaveContainRow))
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // PUBLIC FUNCTIONS ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -53,20 +59,23 @@
 //-------------------------------------------------------------------------------------------------
 CaveContain::CaveContain( Thing *thing, const ModuleData* moduleData ) : OpenContain( thing, moduleData )
 {
-	m_needToRunOnBuildComplete = true;
-	m_caveIndex = 0;
-	m_originalTeam = nullptr;
+	m_gxCaveContainRow = TheGxCaveContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+	GXROW_CAVECONTAIN.needToRunOnBuildComplete = true;
+	GXROW_CAVECONTAIN.caveIndex = 0;
+	GXROW_CAVECONTAIN.originalTeam = nullptr;
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 CaveContain::~CaveContain()
 {
+	TheGxCaveContains.release( m_gxCaveContainRow );	// web port (round 5)
 }
 
 void CaveContain::addToContainList( Object *obj )
 {
-	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
+	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
 	myTracker->addToContainList( obj );
 }
 
@@ -86,7 +95,7 @@ void CaveContain::removeFromContain( Object *obj, Bool exposeStealthUnits )
 	// we can only remove this object from the contains list of this module if
 	// it is actually contained by this module
 	//
-	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
+	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
 
 	if( ! myTracker->isInContainer( obj ) )
 	{
@@ -112,7 +121,7 @@ void CaveContain::removeFromContain( Object *obj, Bool exposeStealthUnits )
 //-------------------------------------------------------------------------------------------------
 void CaveContain::removeAllContained( Bool exposeStealthUnits )
 {
-	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
+	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
 	const ContainedItemsList *fullList = myTracker->getContainedItemsList();
 
 	Object *obj;
@@ -131,7 +140,7 @@ void CaveContain::removeAllContained( Bool exposeStealthUnits )
 //-------------------------------------------------------------------------------------------------
 void CaveContain::iterateContained( ContainIterateFunc func, void *userData, Bool reverse )
 {
-	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
+	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
 	myTracker->iterateContained( func, userData, reverse );
 }
 
@@ -177,8 +186,8 @@ void CaveContain::onRemoving( Object *obj )
 		// the teams are no longer valid...)
 		if (getObject()->getTeam() != nullptr)
 		{
-			changeTeamOnAllConnectedCaves( m_originalTeam, FALSE );
-			m_originalTeam = nullptr;
+			changeTeamOnAllConnectedCaves( GXROW_CAVECONTAIN.originalTeam, FALSE );
+			GXROW_CAVECONTAIN.originalTeam = nullptr;
 		}
 
 		// change the state back from garrisoned
@@ -193,25 +202,25 @@ void CaveContain::onRemoving( Object *obj )
 
 Bool CaveContain::isValidContainerFor(const Object* obj, Bool checkCapacity) const
 {
-	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
+	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
 	return myTracker->isValidContainerFor( obj, checkCapacity );
 }
 
 UnsignedInt CaveContain::getContainCount() const
 {
-	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
+	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
 	return myTracker->getContainCount();
 }
 
 Int CaveContain::getContainMax() const
 {
-	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
+	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
 	return myTracker->getContainMax();
 }
 
 const ContainedItemsList* CaveContain::getContainedItemsList() const
 {
-	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
+	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
 	return myTracker->getContainedItemsList();
 }
 
@@ -227,9 +236,9 @@ void CaveContain::onDie( const DamageInfo * damageInfo )
 	if( getObject()->getStatusBits().test( OBJECT_STATUS_UNDER_CONSTRUCTION ) )
 		return;//it never registered itself as a tunnel
 
-	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
+	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
 
-	TheCaveSystem->unregisterCave( m_caveIndex );
+	TheCaveSystem->unregisterCave( GXROW_CAVECONTAIN.caveIndex );
 
 	myTracker->onTunnelDestroyed( getObject() );
 }
@@ -238,7 +247,7 @@ void CaveContain::onDie( const DamageInfo * damageInfo )
 //-------------------------------------------------------------------------------------------------
 void CaveContain::onCreate()
 {
-	m_caveIndex = getCaveContainModuleData()->m_caveIndexData;
+	GXROW_CAVECONTAIN.caveIndex = getCaveContainModuleData()->m_caveIndexData;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -247,11 +256,11 @@ void CaveContain::onBuildComplete()
 	if( ! shouldDoOnBuildComplete() )
 		return;
 
-	m_needToRunOnBuildComplete = false;
+	GXROW_CAVECONTAIN.needToRunOnBuildComplete = false;
 
-	TheCaveSystem->registerNewCave( m_caveIndex );
+	TheCaveSystem->registerNewCave( GXROW_CAVECONTAIN.caveIndex );
 
-	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
+	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
 
 	myTracker->onTunnelCreated( getObject() );
 }
@@ -259,16 +268,16 @@ void CaveContain::onBuildComplete()
 //-------------------------------------------------------------------------------------------------
 void CaveContain::tryToSetCaveIndex( Int newIndex )
 {
-	if( TheCaveSystem->canSwitchIndexToIndex( m_caveIndex, newIndex ) )
+	if( TheCaveSystem->canSwitchIndexToIndex( GXROW_CAVECONTAIN.caveIndex, newIndex ) )
 	{
-		TunnelTracker *myOldTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
-		TheCaveSystem->unregisterCave( m_caveIndex );
+		TunnelTracker *myOldTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
+		TheCaveSystem->unregisterCave( GXROW_CAVECONTAIN.caveIndex );
 		myOldTracker->onTunnelDestroyed( getObject() );
 
-		m_caveIndex = newIndex;
+		GXROW_CAVECONTAIN.caveIndex = newIndex;
 
-		TheCaveSystem->registerNewCave( m_caveIndex );
-		TunnelTracker *myNewTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
+		TheCaveSystem->registerNewCave( GXROW_CAVECONTAIN.caveIndex );
+		TunnelTracker *myNewTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
 		myNewTracker->onTunnelCreated( getObject() );
 	}
 }
@@ -278,16 +287,16 @@ void CaveContain::tryToSetCaveIndex( Int newIndex )
 void CaveContain::recalcApparentControllingPlayer()
 {
 	//Record original team first time through.
-	if( m_originalTeam == nullptr )
+	if( GXROW_CAVECONTAIN.originalTeam == nullptr )
 	{
-		m_originalTeam = getObject()->getTeam();
+		GXROW_CAVECONTAIN.originalTeam = getObject()->getTeam();
 	}
 
 	// (hokey trick: if our team is null, nuke originalTeam -- this
 	// usually means we are being called during game-teardown and
 	// the teams are no longer valid...)
 	if (getObject()->getTeam() == nullptr)
-		m_originalTeam = nullptr;
+		GXROW_CAVECONTAIN.originalTeam = nullptr;
 
 	// This is called from onContaining, so a one is the edge trigger to do capture stuff
 	if( getContainCount() == 1 )
@@ -304,7 +313,7 @@ void CaveContain::recalcApparentControllingPlayer()
 	else if( getContainCount() == 0 )
 	{
 		// And a 0 is the edge trigger to do uncapture stuff
-		changeTeamOnAllConnectedCaves( m_originalTeam, FALSE );
+		changeTeamOnAllConnectedCaves( GXROW_CAVECONTAIN.originalTeam, FALSE );
 	}
 
 	// Handle the team color that is rendered
@@ -333,7 +342,7 @@ static CaveInterface* findCave(Object* obj)
 /////////////////////////////////////////////////////////////////////////////////////
 void CaveContain::changeTeamOnAllConnectedCaves( Team *newTeam, Bool setOriginalTeams )
 {
-	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( m_caveIndex );
+	TunnelTracker *myTracker = TheCaveSystem->getTunnelTrackerForCaveIndex( GXROW_CAVECONTAIN.caveIndex );
 	const std::list<ObjectID> *allCaves = myTracker->getContainerList();
 	for( std::list<ObjectID>::const_iterator iter = allCaves->begin(); iter != allCaves->end(); iter++ )
 	{
@@ -362,7 +371,7 @@ void CaveContain::changeTeamOnAllConnectedCaves( Team *newTeam, Bool setOriginal
 /////////////////////////////////////////////////////////////////////////////////////
 void CaveContain::setOriginalTeam( Team *oldTeam )
 {
-	m_originalTeam = oldTeam;
+	GXROW_CAVECONTAIN.originalTeam = oldTeam;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -393,13 +402,13 @@ void CaveContain::xfer( Xfer *xfer )
 	OpenContain::xfer( xfer );
 
 	// need to run on build complete
-	xfer->xferBool( &m_needToRunOnBuildComplete );
+	xfer->xferBool( &GXROW_CAVECONTAIN.needToRunOnBuildComplete );
 
 	// cave index
-	xfer->xferInt( &m_caveIndex );
+	xfer->xferInt( &GXROW_CAVECONTAIN.caveIndex );
 
 	// original team
-	TeamID teamID = m_originalTeam ? m_originalTeam->getID() : TEAM_ID_INVALID;
+	TeamID teamID = GXROW_CAVECONTAIN.originalTeam ? GXROW_CAVECONTAIN.originalTeam->getID() : TEAM_ID_INVALID;
 	xfer->xferUser( &teamID, sizeof( TeamID ) );
 	if( xfer->getXferMode() == XFER_LOAD )
 	{
@@ -407,8 +416,8 @@ void CaveContain::xfer( Xfer *xfer )
 		if( teamID != TEAM_ID_INVALID )
 		{
 
-			m_originalTeam = TheTeamFactory->findTeamByID( teamID );
-			if( m_originalTeam == nullptr )
+			GXROW_CAVECONTAIN.originalTeam = TheTeamFactory->findTeamByID( teamID );
+			if( GXROW_CAVECONTAIN.originalTeam == nullptr )
 			{
 
 				DEBUG_CRASH(( "CaveContain::xfer - Unable to find original team by id" ));
@@ -418,7 +427,7 @@ void CaveContain::xfer( Xfer *xfer )
 
 		}
 		else
-			m_originalTeam = nullptr;
+			GXROW_CAVECONTAIN.originalTeam = nullptr;
 
 	}
 

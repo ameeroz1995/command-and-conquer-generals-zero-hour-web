@@ -60,7 +60,7 @@ static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 13421
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // Fourth switch word (round 5: units as pure data). Bits by owner: collide 0-5, ai 6-11, query 12-17,
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
-static int g_PageSwitches4 = 0;
+static int g_PageSwitches4 = 0 | 64;
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -473,7 +473,8 @@ void GLES3_Begin_Scene() {
         });
         g_PageSwitches4 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
-            return 0;   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+            return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+                 | (o.dataBehaviors === false ? 0 : 64);   // bit 6: behaviours as data: lookups made per frame by name done once (Behavior/*.cpp; same game)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
