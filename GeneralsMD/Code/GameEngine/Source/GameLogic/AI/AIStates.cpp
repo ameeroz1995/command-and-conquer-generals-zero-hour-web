@@ -69,6 +69,186 @@
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Module/StealthUpdate.h"
 
+// Web port (round 5, units are pure data): AIWanderState's per-unit state is a row of TheGxAIWanderStates;
+// GXROW_AIWANDERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIWanderStateRow> TheGxAIWanderStates;
+#define GXROW_AIWANDERSTATE (TheGxAIWanderStates.at(m_gxAIWanderStateRow))
+
+
+// Web port (round 5, units are pure data): AIWanderInPlaceState's per-unit state is a row of TheGxAIWanderInPlaceStates;
+// GXROW_AIWANDERINPLACESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIWanderInPlaceStateRow> TheGxAIWanderInPlaceStates;
+#define GXROW_AIWANDERINPLACESTATE (TheGxAIWanderInPlaceStates.at(m_gxAIWanderInPlaceStateRow))
+
+
+// Web port (round 5, units are pure data): AITunnelNetworkGuardState's per-unit state is a row of TheGxAITunnelNetworkGuardStates;
+// GXROW_AITUNNELNETWORKGUARDSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAITunnelNetworkGuardStateRow> TheGxAITunnelNetworkGuardStates;
+#define GXROW_AITUNNELNETWORKGUARDSTATE (TheGxAITunnelNetworkGuardStates.at(m_gxAITunnelNetworkGuardStateRow))
+
+
+// Web port (round 5, units are pure data): AIRappelState's per-unit state is a row of TheGxAIRappelStates;
+// GXROW_AIRAPPELSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIRappelStateRow> TheGxAIRappelStates;
+#define GXROW_AIRAPPELSTATE (TheGxAIRappelStates.at(m_gxAIRappelStateRow))
+
+
+// Web port (round 5, units are pure data): AIPanicState's per-unit state is a row of TheGxAIPanicStates;
+// GXROW_AIPANICSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIPanicStateRow> TheGxAIPanicStates;
+#define GXROW_AIPANICSTATE (TheGxAIPanicStates.at(m_gxAIPanicStateRow))
+
+
+// Web port (round 5, units are pure data): AIMoveToState's per-unit state is a row of TheGxAIMoveToStates;
+// GXROW_AIMOVETOSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIMoveToStateRow> TheGxAIMoveToStates;
+#define GXROW_AIMOVETOSTATE (TheGxAIMoveToStates.at(m_gxAIMoveToStateRow))
+
+
+// Web port (round 5, units are pure data): AIMoveAndEvacuateState's per-unit state is a row of TheGxAIMoveAndEvacuateStates;
+// GXROW_AIMOVEANDEVACUATESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIMoveAndEvacuateStateRow> TheGxAIMoveAndEvacuateStates;
+#define GXROW_AIMOVEANDEVACUATESTATE (TheGxAIMoveAndEvacuateStates.at(m_gxAIMoveAndEvacuateStateRow))
+
+
+// Web port (round 5, units are pure data): AIMoveAndDeleteState's per-unit state is a row of TheGxAIMoveAndDeleteStates;
+// GXROW_AIMOVEANDDELETESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIMoveAndDeleteStateRow> TheGxAIMoveAndDeleteStates;
+#define GXROW_AIMOVEANDDELETESTATE (TheGxAIMoveAndDeleteStates.at(m_gxAIMoveAndDeleteStateRow))
+
+
+// Web port (round 5, units are pure data): AIIdleState's per-unit state is a row of TheGxAIIdleStates;
+// GXROW_AIIDLESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIIdleStateRow> TheGxAIIdleStates;
+#define GXROW_AIIDLESTATE (TheGxAIIdleStates.at(m_gxAIIdleStateRow))
+
+
+// Web port (round 5, units are pure data): AIHuntState's per-unit state is a row of TheGxAIHuntStates;
+// GXROW_AIHUNTSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIHuntStateRow> TheGxAIHuntStates;
+#define GXROW_AIHUNTSTATE (TheGxAIHuntStates.at(m_gxAIHuntStateRow))
+
+
+// Web port (round 5, units are pure data): AIGuardState's per-unit state is a row of TheGxAIGuardStates;
+// GXROW_AIGUARDSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIGuardStateRow> TheGxAIGuardStates;
+#define GXROW_AIGUARDSTATE (TheGxAIGuardStates.at(m_gxAIGuardStateRow))
+
+
+// Web port (round 5, units are pure data): AIGuardRetaliateState's per-unit state is a row of TheGxAIGuardRetaliateStates;
+// GXROW_AIGUARDRETALIATESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIGuardRetaliateStateRow> TheGxAIGuardRetaliateStates;
+#define GXROW_AIGUARDRETALIATESTATE (TheGxAIGuardRetaliateStates.at(m_gxAIGuardRetaliateStateRow))
+
+
+// Web port (round 5, units are pure data): AIFollowWaypointPathExactState's per-unit state is a row of TheGxAIFollowWaypointPathExactStates;
+// GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIFollowWaypointPathExactStateRow> TheGxAIFollowWaypointPathExactStates;
+#define GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE (TheGxAIFollowWaypointPathExactStates.at(m_gxAIFollowWaypointPathExactStateRow))
+
+
+// Web port (round 5, units are pure data): AIFollowPathState's per-unit state is a row of TheGxAIFollowPathStates;
+// GXROW_AIFOLLOWPATHSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIFollowPathStateRow> TheGxAIFollowPathStates;
+#define GXROW_AIFOLLOWPATHSTATE (TheGxAIFollowPathStates.at(m_gxAIFollowPathStateRow))
+
+
+// Web port (round 5, units are pure data): AIFaceState's per-unit state is a row of TheGxAIFaceStates;
+// GXROW_AIFACESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIFaceStateRow> TheGxAIFaceStates;
+#define GXROW_AIFACESTATE (TheGxAIFaceStates.at(m_gxAIFaceStateRow))
+
+
+// Web port (round 5, units are pure data): AIExitState's per-unit state is a row of TheGxAIExitStates;
+// GXROW_AIEXITSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIExitStateRow> TheGxAIExitStates;
+#define GXROW_AIEXITSTATE (TheGxAIExitStates.at(m_gxAIExitStateRow))
+
+
+// Web port (round 5, units are pure data): AIExitInstantlyState's per-unit state is a row of TheGxAIExitInstantlyStates;
+// GXROW_AIEXITINSTANTLYSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIExitInstantlyStateRow> TheGxAIExitInstantlyStates;
+#define GXROW_AIEXITINSTANTLYSTATE (TheGxAIExitInstantlyStates.at(m_gxAIExitInstantlyStateRow))
+
+
+// Web port (round 5, units are pure data): AIDockState's per-unit state is a row of TheGxAIDockStates;
+// GXROW_AIDOCKSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIDockStateRow> TheGxAIDockStates;
+#define GXROW_AIDOCKSTATE (TheGxAIDockStates.at(m_gxAIDockStateRow))
+
+
+// Web port (round 5, units are pure data): AIAttackState's per-unit state is a row of TheGxAIAttackStates;
+// GXROW_AIATTACKSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIAttackStateRow> TheGxAIAttackStates;
+#define GXROW_AIATTACKSTATE (TheGxAIAttackStates.at(m_gxAIAttackStateRow))
+
+
+// Web port (round 5, units are pure data): AIAttackSquadState's per-unit state is a row of TheGxAIAttackSquadStates;
+// GXROW_AIATTACKSQUADSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIAttackSquadStateRow> TheGxAIAttackSquadStates;
+#define GXROW_AIATTACKSQUADSTATE (TheGxAIAttackSquadStates.at(m_gxAIAttackSquadStateRow))
+
+
+// Web port (round 5, units are pure data): AIAttackPursueTargetState's per-unit state is a row of TheGxAIAttackPursueTargetStates;
+// GXROW_AIATTACKPURSUETARGETSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIAttackPursueTargetStateRow> TheGxAIAttackPursueTargetStates;
+#define GXROW_AIATTACKPURSUETARGETSTATE (TheGxAIAttackPursueTargetStates.at(m_gxAIAttackPursueTargetStateRow))
+
+
+// Web port (round 5, units are pure data): AIAttackFollowWaypointPathState's per-unit state is a row of TheGxAIAttackFollowWaypointPathStates;
+// GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIAttackFollowWaypointPathStateRow> TheGxAIAttackFollowWaypointPathStates;
+#define GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE (TheGxAIAttackFollowWaypointPathStates.at(m_gxAIAttackFollowWaypointPathStateRow))
+
+
+// Web port (round 5, units are pure data): AIAttackAreaState's per-unit state is a row of TheGxAIAttackAreaStates;
+// GXROW_AIATTACKAREASTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIAttackAreaStateRow> TheGxAIAttackAreaStates;
+#define GXROW_AIATTACKAREASTATE (TheGxAIAttackAreaStates.at(m_gxAIAttackAreaStateRow))
+
+
+// Web port (round 5, units are pure data): AIAttackApproachTargetState's per-unit state is a row of TheGxAIAttackApproachTargetStates;
+// GXROW_AIATTACKAPPROACHTARGETSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIAttackApproachTargetStateRow> TheGxAIAttackApproachTargetStates;
+#define GXROW_AIATTACKAPPROACHTARGETSTATE (TheGxAIAttackApproachTargetStates.at(m_gxAIAttackApproachTargetStateRow))
+
+
+// Web port (round 5, units are pure data): AIAttackAimAtTargetState's per-unit state is a row of TheGxAIAttackAimAtTargetStates;
+// GXROW_AIATTACKAIMATTARGETSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIAttackAimAtTargetStateRow> TheGxAIAttackAimAtTargetStates;
+#define GXROW_AIATTACKAIMATTARGETSTATE (TheGxAIAttackAimAtTargetStates.at(m_gxAIAttackAimAtTargetStateRow))
+
+
+// Web port (round 5, units are pure data): AIEnterState's per-unit state is a row of TheGxAIEnterStates;
+// GXROW_AIENTERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIEnterStateRow> TheGxAIEnterStates;
+#define GXROW_AIENTERSTATE (TheGxAIEnterStates.at(m_gxAIEnterStateRow))
+
+
+// Web port (round 5, units are pure data): AIPickUpCrateState's per-unit state is a row of TheGxAIPickUpCrateStates;
+// GXROW_AIPICKUPCRATESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIPickUpCrateStateRow> TheGxAIPickUpCrateStates;
+#define GXROW_AIPICKUPCRATESTATE (TheGxAIPickUpCrateStates.at(m_gxAIPickUpCrateStateRow))
+
+
+// Web port (round 5, units are pure data): AIMoveAndTightenState's per-unit state is a row of TheGxAIMoveAndTightenStates;
+// GXROW_AIMOVEANDTIGHTENSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIMoveAndTightenStateRow> TheGxAIMoveAndTightenStates;
+#define GXROW_AIMOVEANDTIGHTENSTATE (TheGxAIMoveAndTightenStates.at(m_gxAIMoveAndTightenStateRow))
+
+
+// Web port (round 5, units are pure data): AIFollowWaypointPathState's per-unit state is a row of TheGxAIFollowWaypointPathStates;
+// GXROW_AIFOLLOWWAYPOINTPATHSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIFollowWaypointPathStateRow> TheGxAIFollowWaypointPathStates;
+#define GXROW_AIFOLLOWWAYPOINTPATHSTATE (TheGxAIFollowWaypointPathStates.at(m_gxAIFollowWaypointPathStateRow))
+
+
+// Web port (round 5, units are pure data): AIInternalMoveToState's per-unit state is a row of TheGxAIInternalMoveToStates;
+// GXROW_AIINTERNALMOVETOSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIInternalMoveToStateRow> TheGxAIInternalMoveToStates;
+#define GXROW_AIINTERNALMOVETOSTATE (TheGxAIInternalMoveToStates.at(m_gxAIInternalMoveToStateRow))
+
+
 
 static Bool cannotPossiblyAttackObject( State *thisState, void* userData );
 
@@ -465,6 +645,8 @@ static Int killEnemiesInContainer(Object* killer, Object* bldg, Int maxToKill)
 //-----------------------------------------------------------------------------------------------------------
 AIRappelState::AIRappelState( StateMachine *machine ) : State( machine, "AIRappelState" )
 {
+	m_gxAIRappelStateRow = TheGxAIRappelStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
 }
 
 //-----------------------------------------------------------------------------------------------------------
@@ -485,9 +667,9 @@ void AIRappelState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferReal(&m_rappelRate);
-	xfer->xferReal(&m_destZ);
-	xfer->xferBool(&m_targetIsBldg);
+	xfer->xferReal(&GXROW_AIRAPPELSTATE.rappelRate);
+	xfer->xferReal(&GXROW_AIRAPPELSTATE.destZ);
+	xfer->xferBool(&GXROW_AIRAPPELSTATE.targetIsBldg);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -511,24 +693,24 @@ StateReturnType AIRappelState::onEnter()
 //obj->setHeld();
 	obj->getPhysics()->resetDynamicPhysics();
 
-	m_targetIsBldg = true;
+	GXROW_AIRAPPELSTATE.targetIsBldg = true;
 	Object* bldg = getMachineGoalObject();
 	if (bldg == nullptr || bldg->isEffectivelyDead() || !bldg->isKindOf(KINDOF_STRUCTURE))
-		m_targetIsBldg = false;
+		GXROW_AIRAPPELSTATE.targetIsBldg = false;
 
 	const Coord3D* pos = obj->getPosition();
 
 	const Bool onlyHealthyBridges = true;	// ignore dead bridges.
 	PathfindLayerEnum layerAtDest = TheTerrainLogic->getHighestLayerForDestination(pos, onlyHealthyBridges);
-	m_destZ = TheTerrainLogic->getLayerHeight(pos->x, pos->y, layerAtDest);
-	if (m_targetIsBldg)
-		m_destZ += bldg->getGeometryInfo().getMaxHeightAbovePosition();
+	GXROW_AIRAPPELSTATE.destZ = TheTerrainLogic->getLayerHeight(pos->x, pos->y, layerAtDest);
+	if (GXROW_AIRAPPELSTATE.targetIsBldg)
+		GXROW_AIRAPPELSTATE.destZ += bldg->getGeometryInfo().getMaxHeightAbovePosition();
 	else
 		obj->setLayer(layerAtDest);
 
 	AIUpdateInterface *ai = obj->getAI();
 	Real MAX_RAPPEL_RATE = fabs(TheGlobalData->m_gravity) * LOGICFRAMES_PER_SECOND * 2.5f;
-	m_rappelRate = -min(ai->getDesiredSpeed(), MAX_RAPPEL_RATE);
+	GXROW_AIRAPPELSTATE.rappelRate = -min(ai->getDesiredSpeed(), MAX_RAPPEL_RATE);
 
 	return STATE_CONTINUE;
 }
@@ -544,32 +726,32 @@ StateReturnType AIRappelState::update()
 	const Coord3D* pos = obj->getPosition();
 
 	Object* bldg = getMachineGoalObject();
-	if (m_targetIsBldg && (bldg == nullptr || bldg->isEffectivelyDead()))
+	if (GXROW_AIRAPPELSTATE.targetIsBldg && (bldg == nullptr || bldg->isEffectivelyDead()))
 	{
 		// if bldg is destroyed, just head for the ground
 		// BGC - bldg could be destroyed as they are heading down the rope.
-		m_targetIsBldg = false;
-		m_destZ = TheTerrainLogic->getGroundHeight(pos->x, pos->y);
+		GXROW_AIRAPPELSTATE.targetIsBldg = false;
+		GXROW_AIRAPPELSTATE.destZ = TheTerrainLogic->getGroundHeight(pos->x, pos->y);
 	}
 
 	// nuke 2d speed...
 	obj->getPhysics()->scrubVelocity2D(0);
 	// and clamp z speed to rappel rate (gravity will have accelerated us)
-	obj->getPhysics()->scrubVelocityZ(m_rappelRate);
+	obj->getPhysics()->scrubVelocityZ(GXROW_AIRAPPELSTATE.rappelRate);
 
-	if (!m_targetIsBldg)
+	if (!GXROW_AIRAPPELSTATE.targetIsBldg)
 	{
 		// if heading for ground, do this every frame... since jitter at the very start
 		// can move us slightly, and on uneven ground it might matter.
-		m_destZ = TheTerrainLogic->getLayerHeight(pos->x, pos->y, obj->getLayer());
+		GXROW_AIRAPPELSTATE.destZ = TheTerrainLogic->getLayerHeight(pos->x, pos->y, obj->getLayer());
 	}
-	if (pos->z <= m_destZ)
+	if (pos->z <= GXROW_AIRAPPELSTATE.destZ)
 	{
 		Coord3D tmp = *pos;
-		tmp.z = m_destZ;
+		tmp.z = GXROW_AIRAPPELSTATE.destZ;
 		obj->setPosition(&tmp);
 
-		if (m_targetIsBldg)
+		if (GXROW_AIRAPPELSTATE.targetIsBldg)
 		{
 			DEBUG_ASSERTCRASH(TheActionManager->canEnterObject(obj, bldg, obj->getAI()->getLastCommandSource(), COMBATDROP_INTO), ("Hmm, this seems unlikely"));
 			// if there are enemies... kill up to two. if we kill two, then we die ourselves,
@@ -1262,12 +1444,13 @@ static Bool cannotPossiblyAttackObject( State *thisState, void* userData )
 const UnsignedInt IDLE_COUNTDOWN_DELAY = (LOGICFRAMES_PER_SECOND * 2);
 
 //----------------------------------------------------------------------------------------------
-AIIdleState::AIIdleState( StateMachine *machine, AIIdleState::AIIdleTargetingType shouldLookForTargets ) :
-	State( machine,"AIIdleState"),
-	m_shouldLookForTargets(shouldLookForTargets == AIIdleState::LOOK_FOR_TARGETS)
+AIIdleState::AIIdleState( StateMachine *machine, AIIdleState::AIIdleTargetingType shouldLookForTargets ) : State( machine,"AIIdleState")
 {
-		m_inited = FALSE;
-		m_initialSleepOffset = -1;
+	m_gxAIIdleStateRow = TheGxAIIdleStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIIDLESTATE.shouldLookForTargets = shouldLookForTargets == AIIdleState::LOOK_FOR_TARGETS;
+
+		GXROW_AIIDLESTATE.inited = FALSE;
+		GXROW_AIIDLESTATE.initialSleepOffset = -1;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1287,9 +1470,9 @@ void AIIdleState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedShort(&m_initialSleepOffset);
-	xfer->xferBool(&m_shouldLookForTargets);
-	xfer->xferBool(&m_inited);
+	xfer->xferUnsignedShort(&GXROW_AIIDLESTATE.initialSleepOffset);
+	xfer->xferBool(&GXROW_AIIDLESTATE.shouldLookForTargets);
+	xfer->xferBool(&GXROW_AIIDLESTATE.inited);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1313,11 +1496,11 @@ StateReturnType AIIdleState::onEnter()
 	if (ai)
 		ai->resetNextMoodCheckTime();
 
-	m_inited = true;
+	GXROW_AIIDLESTATE.inited = true;
 
 	// reset the idle countdown so that we don't do expensive checks too often,
 	// randomized so we avoid spikes
-	m_initialSleepOffset = (UnsignedShort)GameLogicRandomValue(0, IDLE_COUNTDOWN_DELAY);
+	GXROW_AIIDLESTATE.initialSleepOffset = (UnsignedShort)GameLogicRandomValue(0, IDLE_COUNTDOWN_DELAY);
 
 	// never sleep at the start, since we have to do checkGoalPos first time thru
 	return STATE_CONTINUE;
@@ -1328,10 +1511,10 @@ void AIIdleState::doInitIdleState()
 {
 	// Only do it once, but do it in the update cause onEnter for idle is called during object creation.  jba.
 
-	if (!m_inited)
+	if (!GXROW_AIIDLESTATE.inited)
 		return;
 
-	m_inited = false;
+	GXROW_AIIDLESTATE.inited = false;
 
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
@@ -1388,13 +1571,13 @@ StateReturnType AIIdleState::update()
 
 	doInitIdleState();
 
-	UnsignedInt timeToSleep = IDLE_COUNTDOWN_DELAY + m_initialSleepOffset;
-	UnsignedInt oldSleepOffset = m_initialSleepOffset;
-	m_initialSleepOffset = 0;
+	UnsignedInt timeToSleep = IDLE_COUNTDOWN_DELAY + GXROW_AIIDLESTATE.initialSleepOffset;
+	UnsignedInt oldSleepOffset = GXROW_AIIDLESTATE.initialSleepOffset;
+	GXROW_AIIDLESTATE.initialSleepOffset = 0;
 
 	// This state is used internally some places, so we don't necessarily want to be looking for targets
 	// Places that use AI_IDLE internally should set this to false in the constructor. jkmcd
-	if ( m_shouldLookForTargets && !getMachine()->isLocked() )
+	if ( GXROW_AIIDLESTATE.shouldLookForTargets && !getMachine()->isLocked() )
 	{
 		// if we are here, it's time to check again
 		Object *obj = getMachineOwner();
@@ -1454,7 +1637,7 @@ StateReturnType AIIdleState::update()
 			{
 				timeToSleep = moodSleep;
 				// if we do this, save the random sleep offset for next time.
-				m_initialSleepOffset = oldSleepOffset;
+				GXROW_AIIDLESTATE.initialSleepOffset = oldSleepOffset;
 			}
 		}
 	}
@@ -1556,13 +1739,13 @@ void AIInternalMoveToState::xfer( Xfer *xfer )
   xfer->xferVersion( &version, currentVersion );
 
  // extend base class
-	xfer->xferCoord3D(&m_goalPosition);
-	xfer->xferUser(&m_goalLayer, sizeof(m_goalLayer));
-	xfer->xferBool(&m_waitingForPath);
-	xfer->xferCoord3D(&m_pathGoalPosition);
-	xfer->xferUnsignedInt(&m_pathTimestamp);
-	xfer->xferUnsignedInt(&m_blockedRepathTimestamp);
-	xfer->xferBool(&m_adjustDestinations);
+	xfer->xferCoord3D(&GXROW_AIINTERNALMOVETOSTATE.goalPosition);
+	xfer->xferUser(&GXROW_AIINTERNALMOVETOSTATE.goalLayer, sizeof(GXROW_AIINTERNALMOVETOSTATE.goalLayer));
+	xfer->xferBool(&GXROW_AIINTERNALMOVETOSTATE.waitingForPath);
+	xfer->xferCoord3D(&GXROW_AIINTERNALMOVETOSTATE.pathGoalPosition);
+	xfer->xferUnsignedInt(&GXROW_AIINTERNALMOVETOSTATE.pathTimestamp);
+	xfer->xferUnsignedInt(&GXROW_AIINTERNALMOVETOSTATE.blockedRepathTimestamp);
+	xfer->xferBool(&GXROW_AIINTERNALMOVETOSTATE.adjustDestinations);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1583,7 +1766,7 @@ Bool AIInternalMoveToState::getAdjustsDestination() const
 	if (ai && !ai->isAllowedToAdjustDestination())
 		return false;
 
-	return m_adjustDestinations;
+	return GXROW_AIINTERNALMOVETOSTATE.adjustDestinations;
 }
 
 /**
@@ -1595,8 +1778,8 @@ Bool AIInternalMoveToState::computePath()
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
 
-	m_waitingForPath = true;
-	ai->requestPath(&m_goalPosition, getAdjustsDestination());
+	GXROW_AIINTERNALMOVETOSTATE.waitingForPath = true;
+	ai->requestPath(&GXROW_AIINTERNALMOVETOSTATE.goalPosition, getAdjustsDestination());
 	ai->friend_startingMove();
 	return true;
 }
@@ -1607,10 +1790,10 @@ Bool AIInternalMoveToState::computePath()
  */
 StateReturnType AIInternalMoveToState::onEnter()
 {
-	m_ambientPlayingHandle = AHSV_Error;
+	GXROW_AIINTERNALMOVETOSTATE.ambientPlayingHandle = AHSV_Error;
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
-	m_waitingForPath = ai->isWaitingForPath();
+	GXROW_AIINTERNALMOVETOSTATE.waitingForPath = ai->isWaitingForPath();
 
 	if( obj->testStatus( OBJECT_STATUS_IMMOBILE ) )
 	{
@@ -1624,7 +1807,7 @@ StateReturnType AIInternalMoveToState::onEnter()
 			setAdjustsDestination(false); // if we're being ultra accurate, we can't adjust the destination. jba.
 		}
 	}
-	m_tryOneMoreRepath = true;  // We may try one more repath after the first one is finished.
+	GXROW_AIINTERNALMOVETOSTATE.tryOneMoreRepath = true;  // We may try one more repath after the first one is finished.
 	ai->friend_startingMove();
 
 	// get object physics state
@@ -1653,11 +1836,11 @@ StateReturnType AIInternalMoveToState::onEnter()
 
 	if( getAdjustsDestination() && !obj->testStatus( OBJECT_STATUS_RIDER8 ) )
 	{
-		if (!TheAI->pathfinder()->adjustDestination(obj, ai->getLocomotorSet(), &m_goalPosition))
+		if (!TheAI->pathfinder()->adjustDestination(obj, ai->getLocomotorSet(), &GXROW_AIINTERNALMOVETOSTATE.goalPosition))
 		{
-			TheAI->pathfinder()->snapClosestGoalPosition(obj, &m_goalPosition);
+			TheAI->pathfinder()->snapClosestGoalPosition(obj, &GXROW_AIINTERNALMOVETOSTATE.goalPosition);
 		}
-		TheAI->pathfinder()->updateGoal(obj, &m_goalPosition, TheTerrainLogic->getLayerForDestination(&m_goalPosition));
+		TheAI->pathfinder()->updateGoal(obj, &GXROW_AIINTERNALMOVETOSTATE.goalPosition, TheTerrainLogic->getLayerForDestination(&GXROW_AIINTERNALMOVETOSTATE.goalPosition));
 	}
 
 	// request a path to the destination
@@ -1697,7 +1880,7 @@ void AIInternalMoveToState::startMoveSound()
 			if (!soundEventMoveDamaged.getEventName().isEmpty())
 			{
 				soundEventMoveDamaged.setObjectID(obj->getID());
-				m_ambientPlayingHandle = TheAudio->addAudioEvent( &soundEventMoveDamaged );
+				GXROW_AIINTERNALMOVETOSTATE.ambientPlayingHandle = TheAudio->addAudioEvent( &soundEventMoveDamaged );
 			}
 		}
 	}
@@ -1716,7 +1899,7 @@ void AIInternalMoveToState::startMoveSound()
 			soundEventMove.setObjectID(obj->getID());
 			if (!soundEventMove.getEventName().isEmpty())
 			{
-				m_ambientPlayingHandle = TheAudio->addAudioEvent( &soundEventMove );
+				GXROW_AIINTERNALMOVETOSTATE.ambientPlayingHandle = TheAudio->addAudioEvent( &soundEventMove );
 			}
 		}
 	}
@@ -1732,7 +1915,7 @@ void AIInternalMoveToState::onExit( StateExitType status )
 	AIUpdateInterface *ai = obj->getAI();
 
 	// stop ambient sound associated with movement
-	TheAudio->removeAudioEvent( m_ambientPlayingHandle );
+	TheAudio->removeAudioEvent( GXROW_AIINTERNALMOVETOSTATE.ambientPlayingHandle );
 
  	// If this onExit is the result of the state machine being deleted, then there is no AI.
 	// (This is why destructors should not do game logic)
@@ -1741,12 +1924,12 @@ void AIInternalMoveToState::onExit( StateExitType status )
 		DEBUG_ASSERTLOG(obj->getTeam(), ("AIInternalMoveToState::onExit obj has null team."));
 		if (obj->getTeam() && ai->isDoingGroundMovement() && ai->getCurLocomotor() &&
 								ai->getCurLocomotor()->isUltraAccurate()) {
-			Real dx = m_goalPosition.x-obj->getPosition()->x;
-			Real dy = m_goalPosition.y-obj->getPosition()->y;
+			Real dx = GXROW_AIINTERNALMOVETOSTATE.goalPosition.x-obj->getPosition()->x;
+			Real dy = GXROW_AIINTERNALMOVETOSTATE.goalPosition.y-obj->getPosition()->y;
 			if (dx*dx+dy*dy<PATHFIND_CELL_SIZE_F*PATHFIND_CELL_SIZE_F)
 			{
 				// We are doing accurate ground movement, so make sure we end exactly at the goal.
-				ai->setFinalPosition(&m_goalPosition);
+				ai->setFinalPosition(&GXROW_AIINTERNALMOVETOSTATE.goalPosition);
 			}
 		}
 	}
@@ -1776,10 +1959,10 @@ StateReturnType AIInternalMoveToState::update()
 	//}
 
 	Path *thePath = ai->getPath();
-	if (m_waitingForPath)
+	if (GXROW_AIINTERNALMOVETOSTATE.waitingForPath)
 	{
 		// bump the timer.
-		m_pathTimestamp = TheGameLogic->getFrame();
+		GXROW_AIINTERNALMOVETOSTATE.pathTimestamp = TheGameLogic->getFrame();
 		if (ai->isWaitingForPath()) {
 			/// @todo srj -- find a way to sleep for a number of frames here, if possible
 			if (!ai->gxOnCoarsePath())	// web port (match rule coarseStart): keep moving on the zone-level route
@@ -1796,15 +1979,15 @@ StateReturnType AIInternalMoveToState::update()
 			}
 			return STATE_FAILURE;
 		}
-		m_waitingForPath = false;
-		m_pathGoalPosition = m_goalPosition;
+		GXROW_AIINTERNALMOVETOSTATE.waitingForPath = false;
+		GXROW_AIINTERNALMOVETOSTATE.pathGoalPosition = GXROW_AIINTERNALMOVETOSTATE.goalPosition;
 		if (this->getAdjustsDestination()) {
 				TheAI->pathfinder()->updateGoal(obj, thePath->getLastNode()->getPosition(), thePath->getLastNode()->getLayer());
 		} else {
 				TheAI->pathfinder()->removeGoal(obj);
 		}
 		if (!ai->getRetryPath()) {
-			m_tryOneMoreRepath = false;
+			GXROW_AIINTERNALMOVETOSTATE.tryOneMoreRepath = false;
 		}
 		}
 	}
@@ -1817,7 +2000,7 @@ StateReturnType AIInternalMoveToState::update()
 	if (ai->isBlockedAndStuck() || ai->getNumFramesBlocked()>2*LOGICFRAMES_PER_SECOND) {
 		forceRecompute = true;
 		blocked = true;
-		m_blockedRepathTimestamp = TheGameLogic->getFrame();
+		GXROW_AIINTERNALMOVETOSTATE.blockedRepathTimestamp = TheGameLogic->getFrame();
 		// Intense debug logging jba.
 		//DEBUG_LOG(("Info - Blocked - recomputing."));
 	}
@@ -1864,7 +2047,7 @@ StateReturnType AIInternalMoveToState::update()
 
 	if (ai->canComputeQuickPath()) {
 		if (obj->isKindOf(KINDOF_PROJECTILE)) {
-			m_pathTimestamp = 0; // We can compute paths cheap, so don't delay to recompute.  jba.
+			GXROW_AIINTERNALMOVETOSTATE.pathTimestamp = 0; // We can compute paths cheap, so don't delay to recompute.  jba.
 			forceRecompute = true;
 		}
 	}
@@ -1886,9 +2069,9 @@ StateReturnType AIInternalMoveToState::update()
 	}
 
 	// if our goal has moved, recompute our path
-	if (forceRecompute || TheGameLogic->getFrame() - m_pathTimestamp > MIN_REPATH_TIME)
+	if (forceRecompute || TheGameLogic->getFrame() - GXROW_AIINTERNALMOVETOSTATE.pathTimestamp > MIN_REPATH_TIME)
 	{
-		if (forceRecompute || !isSamePosition(obj->getPosition(), &m_pathGoalPosition, &m_goalPosition ))
+		if (forceRecompute || !isSamePosition(obj->getPosition(), &GXROW_AIINTERNALMOVETOSTATE.pathGoalPosition, &GXROW_AIINTERNALMOVETOSTATE.goalPosition ))
 		{
 			// goal moved - repath
 			if (!computePath())
@@ -1922,7 +2105,7 @@ StateReturnType AIInternalMoveToState::update()
 		if (ai->isDoingGroundMovement()) {
 			// sanity check
 			Coord3D delta;
-			Coord3D goalPos = m_goalPosition;
+			Coord3D goalPos = GXROW_AIINTERNALMOVETOSTATE.goalPosition;
 			if (ai->getPath()->getLastNode()) {
 				goalPos = *ai->getPath()->getLastNode()->getPosition();
 			}
@@ -2022,9 +2205,12 @@ AIAttackMoveStateMachine::~AIAttackMoveStateMachine()
 // note - has no crc/xfer as has no member vars. jba.
 
 //-------------------------------------------------------------------------------------------------
-AIMoveToState::AIMoveToState(StateMachine *machine) : m_isMoveTo(true), AIInternalMoveToState( machine, "AIMoveToState" )
+AIMoveToState::AIMoveToState(StateMachine *machine) : AIInternalMoveToState( machine, "AIMoveToState" )
 {
-	// m_isMoveTo is a boolean that specifies that this thing is ACTUALLY A MOVE TO.
+	m_gxAIMoveToStateRow = TheGxAIMoveToStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIMOVETOSTATE.isMoveTo = true;
+
+	// GXROW_AIMOVETOSTATE.isMoveTo is a boolean that specifies that this thing is ACTUALLY A MOVE TO.
 	// child classes should set it false. (We don't have or want RTTI, so...)
 }
 
@@ -2053,16 +2239,16 @@ StateReturnType AIMoveToState::onEnter()
 
 	// if we have a goal object, move to it, otherwise move to goal position
 	if (getMachineGoalObject())	{
-		m_goalPosition = *getMachineGoalObject()->getPosition();
+		AIInternalMoveToState::gxRow().goalPosition = *getMachineGoalObject()->getPosition();
 		if (getMachineOwner()->isKindOf(KINDOF_PROJECTILE)) {
 			Real halfHeight = getMachineGoalObject()->getGeometryInfo().getMaxHeightAbovePosition()/2.0f;
-			m_goalPosition.z += halfHeight;
-			if (getMachineGoalObject()->getPosition()->z < m_goalPosition.z) {
-				m_goalPosition.z += halfHeight;
+			AIInternalMoveToState::gxRow().goalPosition.z += halfHeight;
+			if (getMachineGoalObject()->getPosition()->z < AIInternalMoveToState::gxRow().goalPosition.z) {
+				AIInternalMoveToState::gxRow().goalPosition.z += halfHeight;
 			}
 		}
 	} else
-		m_goalPosition = *getMachineGoalPosition();
+		AIInternalMoveToState::gxRow().goalPosition = *getMachineGoalPosition();
 
 	StateReturnType ret = AIInternalMoveToState::onEnter();
 	if (getMachineOwner()->getFormationID() != NO_FORMATION_ID) {
@@ -2094,51 +2280,51 @@ StateReturnType AIMoveToState::update()
 	}
 
 	UnsignedInt adjustment = ai->getMoodMatrixActionAdjustment(MM_Action_Move);
-	if (m_isMoveTo && (adjustment & MAA_Action_To_AttackMove))
-		ai->aiAttackMoveToPosition(&m_goalPosition, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
+	if (GXROW_AIMOVETOSTATE.isMoveTo && (adjustment & MAA_Action_To_AttackMove))
+		ai->aiAttackMoveToPosition(&AIInternalMoveToState::gxRow().goalPosition, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
 
 	// if we have a goal object, move to it, as it may have moved
 	Object* goalObj = getMachineGoalObject();
 	Object *obj = getMachineOwner();
 	if (goalObj)
 	{
-		m_goalPosition = *goalObj->getPosition();
+		AIInternalMoveToState::gxRow().goalPosition = *goalObj->getPosition();
 		Bool gotPhysics = obj->getPhysics()!=nullptr && goalObj->getPhysics()!=nullptr;
 		Bool isMissile = obj->isKindOf(KINDOF_PROJECTILE);
 		if (isMissile) {
 			Real halfHeight = getMachineGoalObject()->getGeometryInfo().getMaxHeightAbovePosition()/2.0f;
-			m_goalPosition.z += halfHeight;
-			Real zDelta = m_goalPosition.z - obj->getPosition()->z;
+			AIInternalMoveToState::gxRow().goalPosition.z += halfHeight;
+			Real zDelta = AIInternalMoveToState::gxRow().goalPosition.z - obj->getPosition()->z;
 			if (zDelta>0) {
-				m_goalPosition.z += zDelta;
+				AIInternalMoveToState::gxRow().goalPosition.z += zDelta;
 			}
 		}
 		//gotPhysics = false;
 		if (gotPhysics && isMissile && !goalObj->isKindOf(KINDOF_IMMOBILE)) {
 			Coord3D ourPos = *obj->getPosition();
 			Coord3D delta;
-			delta.x = m_goalPosition.x - ourPos.x;
-			delta.y = m_goalPosition.y - ourPos.y;
-			delta.z = m_goalPosition.z - ourPos.z;
+			delta.x = AIInternalMoveToState::gxRow().goalPosition.x - ourPos.x;
+			delta.y = AIInternalMoveToState::gxRow().goalPosition.y - ourPos.y;
+			delta.z = AIInternalMoveToState::gxRow().goalPosition.z - ourPos.z;
 			Real mySpeed = obj->getPhysics()->getVelocityMagnitude();
 			Real goalSpeed = goalObj->getPhysics()->getVelocityMagnitude();
 			if (mySpeed<5.0f) mySpeed = 5.0f; // avoid divide by 0.
 			Real leadDistance = (0.5*delta.length()) * goalSpeed / mySpeed;
 			Coord3D dir;
 			goalObj->getUnitDirectionVector3D(dir);
-			m_goalPosition.x += dir.x*leadDistance;
-			m_goalPosition.y += dir.y*leadDistance;
-			m_goalPosition.z += dir.z*leadDistance;
+			AIInternalMoveToState::gxRow().goalPosition.x += dir.x*leadDistance;
+			AIInternalMoveToState::gxRow().goalPosition.y += dir.y*leadDistance;
+			AIInternalMoveToState::gxRow().goalPosition.z += dir.z*leadDistance;
 		}
-		//DEBUG_LOG(("update goal pos to %f %f %f",m_goalPosition.x,m_goalPosition.y,m_goalPosition.z));
+		//DEBUG_LOG(("update goal pos to %f %f %f",AIInternalMoveToState::gxRow().goalPosition.x,AIInternalMoveToState::gxRow().goalPosition.y,AIInternalMoveToState::gxRow().goalPosition.z));
 	} else {
 		Bool isMissile = obj->isKindOf(KINDOF_PROJECTILE);
 		if (isMissile) {
 			// When missiles are moving uphill, they need to start up quickly to clear hills.  jba.
-			m_goalPosition = *getMachineGoalPosition();
-			Real zDelta = m_goalPosition.z - obj->getPosition()->z;
+			AIInternalMoveToState::gxRow().goalPosition = *getMachineGoalPosition();
+			Real zDelta = AIInternalMoveToState::gxRow().goalPosition.z - obj->getPosition()->z;
 			if (zDelta>0) {
-				m_goalPosition.z += zDelta;
+				AIInternalMoveToState::gxRow().goalPosition.z += zDelta;
 			}
 		}
 
@@ -2165,7 +2351,7 @@ StateReturnType AIMoveOutOfTheWayState::onEnter()
 		// Must have existing path.
 		return STATE_FAILURE;
 	}
-	m_goalPosition = *ai->getPath()->getLastNode()->getPosition();
+	AIInternalMoveToState::gxRow().goalPosition = *ai->getPath()->getLastNode()->getPosition();
 	return AIInternalMoveToState::onEnter();
 }
 
@@ -2174,7 +2360,7 @@ Bool AIMoveOutOfTheWayState::computePath()
 {
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
-	m_waitingForPath = true;
+	AIInternalMoveToState::gxRow().waitingForPath = true;
 	if (ai->isBlockedAndStuck()) {
 		ai->setCanPathThroughUnits(true);
 		return true; // don't repath, just stop.
@@ -2228,8 +2414,8 @@ void AIMoveAndTightenState::xfer( Xfer *xfer )
 
  // extend base class
 	AIInternalMoveToState::xfer(xfer);
-	xfer->xferInt(&m_okToRepathTimes);
-	xfer->xferBool(&m_checkForPath);
+	xfer->xferInt(&GXROW_AIMOVEANDTIGHTENSTATE.okToRepathTimes);
+	xfer->xferBool(&GXROW_AIMOVEANDTIGHTENSTATE.checkForPath);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -2246,24 +2432,24 @@ StateReturnType AIMoveAndTightenState::onEnter()
 	setAdjustsDestination(false);
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
-	m_okToRepathTimes = 1;
-	m_checkForPath = true;
+	GXROW_AIMOVEANDTIGHTENSTATE.okToRepathTimes = 1;
+	GXROW_AIMOVEANDTIGHTENSTATE.checkForPath = true;
 	TheAI->pathfinder()->removeGoal(obj);
-	m_goalPosition = *getMachineGoalPosition();
-	ai->requestApproachPath(&m_goalPosition);
+	AIInternalMoveToState::gxRow().goalPosition = *getMachineGoalPosition();
+	ai->requestApproachPath(&AIInternalMoveToState::gxRow().goalPosition);
 	return AIInternalMoveToState::onEnter();
 }
 
 //----------------------------------------------------------------------------------------------------------
 StateReturnType AIMoveAndTightenState::update()
 {
-	if (m_checkForPath) {
+	if (GXROW_AIMOVEANDTIGHTENSTATE.checkForPath) {
 		Object *obj = getMachineOwner();
 		AIUpdateInterface *ai = obj->getAI();
 		Path *thePath = ai->getPath();
 		if (thePath && !ai->isWaitingForPath()) {
 			setAdjustsDestination(true);
-			m_checkForPath = false;
+			GXROW_AIMOVEANDTIGHTENSTATE.checkForPath = false;
 		}
 	}
 	return AIInternalMoveToState::update();
@@ -2275,10 +2461,10 @@ Bool AIMoveAndTightenState::computePath()
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
 	if (ai->isBlockedAndStuck()) {
-		if (m_okToRepathTimes>0) {
-			m_okToRepathTimes--;
-			m_waitingForPath = true;
-			ai->requestPath(&m_goalPosition, true);
+		if (GXROW_AIMOVEANDTIGHTENSTATE.okToRepathTimes>0) {
+			GXROW_AIMOVEANDTIGHTENSTATE.okToRepathTimes--;
+			AIInternalMoveToState::gxRow().waitingForPath = true;
+			ai->requestPath(&AIInternalMoveToState::gxRow().goalPosition, true);
 			return true;
 		}
 		//DEBUG_LOG(("AIMoveAndTightenState::computePath - stuck, failing."));
@@ -2308,8 +2494,8 @@ StateReturnType AIMoveAwayFromRepulsorsState::onEnter()
 	{
 		obj->setModelConditionState(MODELCONDITION_PANICKING);
 	}
-	m_okToRepathTimes = 1;
-	m_checkForPath = true;
+	AIMoveAndTightenState::gxRow().okToRepathTimes = 1;
+	AIMoveAndTightenState::gxRow().checkForPath = true;
 	TheAI->pathfinder()->removeGoal(obj);
 	ai->requestSafePath(enemy->getID());
 	return AIInternalMoveToState::onEnter();
@@ -2318,14 +2504,14 @@ StateReturnType AIMoveAwayFromRepulsorsState::onEnter()
 //----------------------------------------------------------------------------------------------------------
 StateReturnType AIMoveAwayFromRepulsorsState::update()
 {
-	if (m_checkForPath) {
+	if (AIMoveAndTightenState::gxRow().checkForPath) {
 		Object *obj = getMachineOwner();
 		AIUpdateInterface *ai = obj->getAI();
 		Path *thePath = ai->getPath();
 		if (thePath && !ai->isWaitingForPath()) {
-			m_goalPosition = *thePath->getLastNode()->getPosition();
+			AIInternalMoveToState::gxRow().goalPosition = *thePath->getLastNode()->getPosition();
 			setAdjustsDestination(false);
-			m_checkForPath = false;
+			AIMoveAndTightenState::gxRow().checkForPath = false;
 		}
 	}
 	return AIInternalMoveToState::update();
@@ -2334,8 +2520,8 @@ StateReturnType AIMoveAwayFromRepulsorsState::update()
 //----------------------------------------------------------------------------------------------------------
 Bool AIMoveAwayFromRepulsorsState::computePath()
 {
-	if (m_okToRepathTimes>0) {
-		m_okToRepathTimes--;
+	if (AIMoveAndTightenState::gxRow().okToRepathTimes>0) {
+		AIMoveAndTightenState::gxRow().okToRepathTimes--;
 		return true;
 	}
 	return false;  // don't recompute path, just stop moving.
@@ -2434,7 +2620,7 @@ Bool AIAttackApproachTargetState::computePath()
 		// Intense logging. jba
 		//CRCDEBUG_LOG(("AIAttackApproachTargetState::computePath - stuck, recomputing for object %d", getMachineOwner()->getID()));
 	}
-	if (m_waitingForPath) return true;
+	if (AIInternalMoveToState::gxRow().waitingForPath) return true;
 
 	if (!forceRepath && ai->getPath()==nullptr && !ai->isWaitingForPath())
 	{
@@ -2443,13 +2629,13 @@ Bool AIAttackApproachTargetState::computePath()
 
 	// force minimum time between recomputation
 	/// @todo Unify recomputation conditions & account for obj ID so everyone doesn't compute on the same frame (MSB)
-	if (!forceRepath && TheGameLogic->getFrame() - m_approachTimestamp < MIN_RECOMPUTE_TIME)
+	if (!forceRepath && TheGameLogic->getFrame() - GXROW_AIATTACKAPPROACHTARGETSTATE.approachTimestamp < MIN_RECOMPUTE_TIME)
 	{
 		//CRCDEBUG_LOG(("AIAttackApproachTargetState::computePath - bailing because of min time for object %d", getMachineOwner()->getID()));
 		return true;
 	}
 
-	m_approachTimestamp = TheGameLogic->getFrame();
+	GXROW_AIATTACKAPPROACHTARGETSTATE.approachTimestamp = TheGameLogic->getFrame();
 
 	// if we have a goal object, move to it, otherwise move to goal position
 	if (getMachineGoalObject())
@@ -2457,7 +2643,7 @@ Bool AIAttackApproachTargetState::computePath()
 
 		Object* source = getMachineOwner();
 		// if our victim's position hasn't changed, don't re-path
-		if (!forceRepath && isSamePosition(source->getPosition(), &m_prevVictimPos, getMachineGoalObject()->getPosition() ))
+		if (!forceRepath && isSamePosition(source->getPosition(), &GXROW_AIATTACKAPPROACHTARGETSTATE.prevVictimPos, getMachineGoalObject()->getPosition() ))
 		{
 			CRCDEBUG_LOG(("AIAttackApproachTargetState::computePath - bailing because victim in same place for object %d", getMachineOwner()->getID()));
 			return true;
@@ -2472,7 +2658,7 @@ Bool AIAttackApproachTargetState::computePath()
 
 		// remember where we think our victim is, so if it moves, we can re-path
 		Object *victim = getMachineGoalObject();
-		m_prevVictimPos = *victim->getPosition();
+		GXROW_AIATTACKAPPROACHTARGETSTATE.prevVictimPos = *victim->getPosition();
 		if (canPursue(source, weapon, victim))
 		{
 			return false;  // break out, and do the pursuit state.
@@ -2486,15 +2672,15 @@ Bool AIAttackApproachTargetState::computePath()
 			ai->setPathExtraDistance(10*PATHFIND_CELL_SIZE_F); // We don't want it to slow down.
 		}
 
-		m_goalPosition = m_prevVictimPos;
-		m_waitingForPath = true;
+		AIInternalMoveToState::gxRow().goalPosition = GXROW_AIATTACKAPPROACHTARGETSTATE.prevVictimPos;
+		AIInternalMoveToState::gxRow().waitingForPath = true;
 
 		Coord3D pos;
 		victim->getGeometryInfo().getCenterPosition( *victim->getPosition(), pos );
 
 		CRCDEBUG_LOG(("AIAttackApproachTargetState::computePath - requestAttackPath() for object %d", getMachineOwner()->getID()));
 		ai->requestAttackPath(victim->getID(), &pos );
-		m_stopIfInRange = false; // we have calculated a position to shoot from, so go there.
+		GXROW_AIATTACKAPPROACHTARGETSTATE.stopIfInRange = false; // we have calculated a position to shoot from, so go there.
 
 		CRCDEBUG_LOG(("AIAttackApproachTargetState::computePath - bailing after repathing for object %d", getMachineOwner()->getID()));
 		return true;
@@ -2503,16 +2689,16 @@ Bool AIAttackApproachTargetState::computePath()
 	{
 		// goal position.
 		setAdjustsDestination(true);
-		m_stopIfInRange = false; // Attack position is used by missiles, and they hit the position.
-		m_goalPosition = *getMachineGoalPosition();
+		GXROW_AIATTACKAPPROACHTARGETSTATE.stopIfInRange = false; // Attack position is used by missiles, and they hit the position.
+		AIInternalMoveToState::gxRow().goalPosition = *getMachineGoalPosition();
 		if (!forceRepath)
 		{
 			CRCDEBUG_LOG(("AIAttackApproachTargetState::computePath - bailing because we're aiming for a fixed position for object %d", getMachineOwner()->getID()));
 			return true; // fixed positions don't move.
 		}
 		// must use computeAttackPath so that min ranges are considered.
-		m_waitingForPath = true;
-		ai->requestAttackPath(INVALID_ID, &m_goalPosition);
+		AIInternalMoveToState::gxRow().waitingForPath = true;
+		ai->requestAttackPath(INVALID_ID, &AIInternalMoveToState::gxRow().goalPosition);
 		CRCDEBUG_LOG(("AIAttackApproachTargetState::computePath - bailing after repathing at a fixed position for object %d", getMachineOwner()->getID()));
 		return true;
 	}
@@ -2543,12 +2729,12 @@ void AIAttackApproachTargetState::xfer( Xfer *xfer )
  // extend base class
   AIInternalMoveToState::xfer( xfer );
 
-	xfer->xferCoord3D(&m_prevVictimPos);
-	xfer->xferUnsignedInt(&m_approachTimestamp);
-	xfer->xferBool(&m_follow);
-	xfer->xferBool(&m_isAttackingObject);
-	xfer->xferBool(&m_stopIfInRange);
-	xfer->xferBool(&m_isInitialApproach);
+	xfer->xferCoord3D(&GXROW_AIATTACKAPPROACHTARGETSTATE.prevVictimPos);
+	xfer->xferUnsignedInt(&GXROW_AIATTACKAPPROACHTARGETSTATE.approachTimestamp);
+	xfer->xferBool(&GXROW_AIATTACKAPPROACHTARGETSTATE.follow);
+	xfer->xferBool(&GXROW_AIATTACKAPPROACHTARGETSTATE.isAttackingObject);
+	xfer->xferBool(&GXROW_AIATTACKAPPROACHTARGETSTATE.stopIfInRange);
+	xfer->xferBool(&GXROW_AIATTACKAPPROACHTARGETSTATE.isInitialApproach);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -2585,11 +2771,11 @@ StateReturnType AIAttackApproachTargetState::onEnter()
 //		return STATE_SUCCESS;
 //	}
 
-	m_prevVictimPos.x = 0.0f;
-	m_prevVictimPos.y = 0.0f;
-	m_prevVictimPos.z = 0.0f;
+	GXROW_AIATTACKAPPROACHTARGETSTATE.prevVictimPos.x = 0.0f;
+	GXROW_AIATTACKAPPROACHTARGETSTATE.prevVictimPos.y = 0.0f;
+	GXROW_AIATTACKAPPROACHTARGETSTATE.prevVictimPos.z = 0.0f;
 
-	m_approachTimestamp = -MIN_RECOMPUTE_TIME;
+	GXROW_AIATTACKAPPROACHTARGETSTATE.approachTimestamp = -MIN_RECOMPUTE_TIME;
 
 	// See if we're close enough.
 	Object *victim = getMachineGoalObject();
@@ -2648,9 +2834,9 @@ StateReturnType AIAttackApproachTargetState::onEnter()
 	WhichTurretType tur = ai->getWhichTurretForCurWeapon();
 	if (tur != TURRET_INVALID)
 	{
-		if (m_isAttackingObject)
+		if (GXROW_AIATTACKAPPROACHTARGETSTATE.isAttackingObject)
 		{
-			ai->setTurretTargetObject(tur, victim, m_isForceAttacking);
+			ai->setTurretTargetObject(tur, victim, GXROW_AIATTACKAPPROACHTARGETSTATE.isForceAttacking);
 		}
 		else
 		{
@@ -2680,7 +2866,7 @@ StateReturnType AIAttackApproachTargetState::updateInternal()
 		ai->setCurrentVictim(nullptr);
 		return STATE_FAILURE;
 	}
-	m_stopIfInRange = !ai->isAttackPath();
+	GXROW_AIATTACKAPPROACHTARGETSTATE.stopIfInRange = !ai->isAttackPath();
 
 	StateReturnType code = STATE_FAILURE;
  	Object* source = getMachineOwner();
@@ -2717,7 +2903,7 @@ StateReturnType AIAttackApproachTargetState::updateInternal()
 		{
 			return STATE_SUCCESS;
 		}
-		if (m_stopIfInRange && weapon && weapon->isWithinAttackRange(source, victim))
+		if (GXROW_AIATTACKAPPROACHTARGETSTATE.stopIfInRange && weapon && weapon->isWithinAttackRange(source, victim))
 		{
 			Bool viewBlocked = false;
 			if (victim && ai->isDoingGroundMovement() && !victim->isSignificantlyAboveTerrain())
@@ -2747,12 +2933,12 @@ StateReturnType AIAttackApproachTargetState::updateInternal()
 		// Attacking a position.
 		// find a good spot to shoot from
 		//CRCDEBUG_LOG(("AIAttackApproachTargetState::updateInternal() - calling computePath() to position for object %d", getMachineOwner()->getID()));
-		if (m_stopIfInRange && weapon && weapon->isWithinAttackRange(source, &m_goalPosition))
+		if (GXROW_AIATTACKAPPROACHTARGETSTATE.stopIfInRange && weapon && weapon->isWithinAttackRange(source, &AIInternalMoveToState::gxRow().goalPosition))
 		{
 			Bool viewBlocked = false;
 			if ( ai->isDoingGroundMovement() )
 			{
-				viewBlocked = TheAI->pathfinder()->isAttackViewBlockedByObstacle(source, *source->getPosition(), nullptr, m_goalPosition);
+				viewBlocked = TheAI->pathfinder()->isAttackViewBlockedByObstacle(source, *source->getPosition(), nullptr, AIInternalMoveToState::gxRow().goalPosition);
 			}
 			if (!viewBlocked)
 			{
@@ -2775,7 +2961,7 @@ StateReturnType AIAttackApproachTargetState::update()
 	Object* source = getMachineOwner();
 	AIUpdateInterface *ai = source->getAI();
 
-	if (m_follow && m_isAttackingObject)
+	if (GXROW_AIATTACKAPPROACHTARGETSTATE.follow && GXROW_AIATTACKAPPROACHTARGETSTATE.isAttackingObject)
 	{
 		// Basically, if the object is alive, we continue, in case the target moves.
 		Object* victim = getMachineGoalObject();
@@ -2783,7 +2969,7 @@ StateReturnType AIAttackApproachTargetState::update()
 		{
 			if (code != STATE_CONTINUE)
 			{
-				m_isInitialApproach = false;
+				GXROW_AIATTACKAPPROACHTARGETSTATE.isInitialApproach = false;
 			}
 			// Object is still alive (and so are we)
 			// It could move (and so can we), so just continue & keep checking.
@@ -2791,7 +2977,7 @@ StateReturnType AIAttackApproachTargetState::update()
 		}
 	}
 
-	if (m_isInitialApproach)
+	if (GXROW_AIATTACKAPPROACHTARGETSTATE.isInitialApproach)
 	{
 		WhichTurretType tur = ai->getWhichTurretForCurWeapon();
 		if (tur != TURRET_INVALID)
@@ -2799,7 +2985,7 @@ StateReturnType AIAttackApproachTargetState::update()
 			Object *temporaryTarget = ai->getNextMoodTarget( true, false );
 			if (temporaryTarget)
 			{
-				ai->setTurretTargetObject(tur, temporaryTarget, m_isForceAttacking);
+				ai->setTurretTargetObject(tur, temporaryTarget, GXROW_AIATTACKAPPROACHTARGETSTATE.isForceAttacking);
 			}
 		}
 	}
@@ -2829,17 +3015,17 @@ void AIAttackApproachTargetState::onExit( StateExitType status )
 				ai->getCurLocomotor()->setUsePreciseZPos(false);
 		}
 		if (ai->isDoingGroundMovement()) {
-			Real dx = m_goalPosition.x-obj->getPosition()->x;
-			Real dy = m_goalPosition.y-obj->getPosition()->y;
+			Real dx = AIInternalMoveToState::gxRow().goalPosition.x-obj->getPosition()->x;
+			Real dy = AIInternalMoveToState::gxRow().goalPosition.y-obj->getPosition()->y;
 			if (dx*dx+dy*dy<PATHFIND_CELL_SIZE_F*PATHFIND_CELL_SIZE_F*0.125)
 			{
 				// We are doing accurate ground movement, so make sure we end exactly at the goal.
-				obj->setPosition(&m_goalPosition);
+				obj->setPosition(&AIInternalMoveToState::gxRow().goalPosition);
 			}
 		}
 	}
 
-	m_isInitialApproach = false;	// We only want to allow turreted things to fire at enemies during their
+	GXROW_AIATTACKAPPROACHTARGETSTATE.isInitialApproach = false;	// We only want to allow turreted things to fire at enemies during their
 																// first approach
 }
 
@@ -2869,7 +3055,7 @@ Bool AIAttackPursueTargetState::computePath()
 	{
 		return false;
 	}
-	if (m_waitingForPath) return true;
+	if (AIInternalMoveToState::gxRow().waitingForPath) return true;
 
 	if (!forceRepath && ai->getPath()==nullptr && !ai->isWaitingForPath())
 	{
@@ -2878,12 +3064,12 @@ Bool AIAttackPursueTargetState::computePath()
 
 	// force minimum time between recomputation
 	/// @todo Unify recomputation conditions & account for obj ID so everyone doesn't compute on the same frame (MSB)
-	if (!forceRepath && TheGameLogic->getFrame() - m_approachTimestamp < MIN_RECOMPUTE_TIME)
+	if (!forceRepath && TheGameLogic->getFrame() - GXROW_AIATTACKPURSUETARGETSTATE.approachTimestamp < MIN_RECOMPUTE_TIME)
 	{
 		return true;
 	}
 
-	m_approachTimestamp = TheGameLogic->getFrame();
+	GXROW_AIATTACKPURSUETARGETSTATE.approachTimestamp = TheGameLogic->getFrame();
 
 	DEBUG_ASSERTLOG(getMachineGoalObject(), ("***************************Should only be pursuing objects.  jba"));
 	// if we have a goal object, move to it, otherwise fail & continue to AIAttackApproachTargetState
@@ -2892,7 +3078,7 @@ Bool AIAttackPursueTargetState::computePath()
 
 		Object* source = getMachineOwner();
 		// if our victim's position hasn't changed, don't re-path
-		if (!forceRepath && isSamePosition(source->getPosition(), &m_prevVictimPos, getMachineGoalObject()->getPosition() ))
+		if (!forceRepath && isSamePosition(source->getPosition(), &GXROW_AIATTACKPURSUETARGETSTATE.prevVictimPos, getMachineGoalObject()->getPosition() ))
 			return true;
 
 		Weapon* weapon = source->getCurrentWeapon();
@@ -2906,14 +3092,14 @@ Bool AIAttackPursueTargetState::computePath()
 
 		// remember where we think our victim is, so if it moves, we can re-path
 		Object *victim = getMachineGoalObject();
-		m_prevVictimPos = *victim->getPosition();
+		GXROW_AIATTACKPURSUETARGETSTATE.prevVictimPos = *victim->getPosition();
 
 		setAdjustsDestination(true);
 
-		m_goalPosition = m_prevVictimPos;
-		m_waitingForPath = true;
-		ai->requestPath(&m_goalPosition, false);
-		m_stopIfInRange = false; // we have calculated a position to shoot from, so go there.
+		AIInternalMoveToState::gxRow().goalPosition = GXROW_AIATTACKPURSUETARGETSTATE.prevVictimPos;
+		AIInternalMoveToState::gxRow().waitingForPath = true;
+		ai->requestPath(&AIInternalMoveToState::gxRow().goalPosition, false);
+		GXROW_AIATTACKPURSUETARGETSTATE.stopIfInRange = false; // we have calculated a position to shoot from, so go there.
 		return true;
 	}
 
@@ -2942,12 +3128,12 @@ void AIAttackPursueTargetState::xfer( Xfer *xfer )
  // extend base class
   AIInternalMoveToState::xfer( xfer );
 
-	xfer->xferCoord3D(&m_prevVictimPos);
-	xfer->xferUnsignedInt(&m_approachTimestamp);
-	xfer->xferBool(&m_follow);
-	xfer->xferBool(&m_isAttackingObject);
-	xfer->xferBool(&m_stopIfInRange);
-	xfer->xferBool(&m_isInitialApproach);
+	xfer->xferCoord3D(&GXROW_AIATTACKPURSUETARGETSTATE.prevVictimPos);
+	xfer->xferUnsignedInt(&GXROW_AIATTACKPURSUETARGETSTATE.approachTimestamp);
+	xfer->xferBool(&GXROW_AIATTACKPURSUETARGETSTATE.follow);
+	xfer->xferBool(&GXROW_AIATTACKPURSUETARGETSTATE.isAttackingObject);
+	xfer->xferBool(&GXROW_AIATTACKPURSUETARGETSTATE.stopIfInRange);
+	xfer->xferBool(&GXROW_AIATTACKPURSUETARGETSTATE.isInitialApproach);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -2978,7 +3164,7 @@ StateReturnType AIAttackPursueTargetState::onEnter()
 		//CRCDEBUG_LOG(("AIAttackPursueTargetState::onEnter() - goal object is destroyed for object %d (%s)", getMachineOwner()->getID(), getMachineOwner()->getTemplate()->getName().str()));
 		return STATE_SUCCESS; // Already killed victim.
 	}
-	if (!m_isAttackingObject)	{
+	if (!GXROW_AIATTACKPURSUETARGETSTATE.isAttackingObject)	{
 		//CRCDEBUG_LOG(("AIAttackPursueTargetState::onEnter() - not attacking for object %d (%s)", getMachineOwner()->getID(), getMachineOwner()->getTemplate()->getName().str()));
 		return STATE_SUCCESS; // only pursue objects - positions don't move.
 	}
@@ -3000,11 +3186,11 @@ StateReturnType AIAttackPursueTargetState::onEnter()
 		}
 	}
 
-	m_prevVictimPos.x = 0.0f;
-	m_prevVictimPos.y = 0.0f;
-	m_prevVictimPos.z = 0.0f;
+	GXROW_AIATTACKPURSUETARGETSTATE.prevVictimPos.x = 0.0f;
+	GXROW_AIATTACKPURSUETARGETSTATE.prevVictimPos.y = 0.0f;
+	GXROW_AIATTACKPURSUETARGETSTATE.prevVictimPos.z = 0.0f;
 
-	m_approachTimestamp = -MIN_RECOMPUTE_TIME;
+	GXROW_AIATTACKPURSUETARGETSTATE.approachTimestamp = -MIN_RECOMPUTE_TIME;
 
 	// See if we're close enough.
 	Object *victim = getMachineGoalObject();
@@ -3027,7 +3213,7 @@ StateReturnType AIAttackPursueTargetState::onEnter()
 	WhichTurretType tur = ai->getWhichTurretForCurWeapon();
 	if (tur != TURRET_INVALID)
 	{
-		ai->setTurretTargetObject(tur, victim, m_isForceAttacking);
+		ai->setTurretTargetObject(tur, victim, GXROW_AIATTACKPURSUETARGETSTATE.isForceAttacking);
 	} else {
 		//CRCDEBUG_LOG(("AIAttackPursueTargetState::onEnter() - no turret for object %d (%s)", getMachineOwner()->getID(), getMachineOwner()->getTemplate()->getName().str()));
 		return STATE_SUCCESS; // we only pursue with turrets, as non-turreted weapons can't fire on the run.
@@ -3050,7 +3236,7 @@ StateReturnType AIAttackPursueTargetState::updateInternal()
 		ai->setCurrentVictim(nullptr);
 		return STATE_FAILURE;
 	}
-	m_stopIfInRange = false;
+	GXROW_AIATTACKPURSUETARGETSTATE.stopIfInRange = false;
 
 	Object* source = getMachineOwner();
 	StateReturnType code = STATE_FAILURE;
@@ -3091,9 +3277,9 @@ StateReturnType AIAttackPursueTargetState::updateInternal()
 		}
 		if (!viewBlocked && victim->getPhysics() && weapon->isWithinAttackRange(source, victim)) {
 			// If we have a turret, start aiming.
-			ai->setTurretTargetObject(tur, victim, m_isForceAttacking);
+			ai->setTurretTargetObject(tur, victim, GXROW_AIATTACKPURSUETARGETSTATE.isForceAttacking);
 			//  match speeds;
-			m_isInitialApproach = false;
+			GXROW_AIATTACKPURSUETARGETSTATE.isInitialApproach = false;
 			Real victimSpeed = victim->getPhysics()->getForwardSpeed2D();
 			if (weapon->isGoalPosWithinAttackRange(source, source->getPosition(), victim, victim->getPosition())){
 				victimSpeed *= 0.95f;
@@ -3120,7 +3306,7 @@ StateReturnType AIAttackPursueTargetState::update()
 	Object* source = getMachineOwner();
 	AIUpdateInterface *ai = source->getAI();
 
-	if (m_isInitialApproach)
+	if (GXROW_AIATTACKPURSUETARGETSTATE.isInitialApproach)
 	{
 		WhichTurretType tur = ai->getWhichTurretForCurWeapon();
 		if (tur != TURRET_INVALID)
@@ -3128,7 +3314,7 @@ StateReturnType AIAttackPursueTargetState::update()
 			Object *temporaryTarget = ai->getNextMoodTarget( true, false );
 			if (temporaryTarget)
 			{
-				ai->setTurretTargetObject(tur, temporaryTarget, m_isForceAttacking);
+				ai->setTurretTargetObject(tur, temporaryTarget, GXROW_AIATTACKPURSUETARGETSTATE.isForceAttacking);
 			}
 		}
 	}
@@ -3143,7 +3329,7 @@ void AIAttackPursueTargetState::onExit( StateExitType status )
 	//CRCDEBUG_LOG(("AIAttackPursueTargetState::onExit() for object %d (%s)", getMachineOwner()->getID(), getMachineOwner()->getTemplate()->getName().str()));
 	AIInternalMoveToState::onExit( status );
 
-	m_isInitialApproach = false;	// We only want to allow turreted things to fire at enemies during their
+	GXROW_AIATTACKPURSUETARGETSTATE.isInitialApproach = false;	// We only want to allow turreted things to fire at enemies during their
 																// first approach
 }
 
@@ -3178,8 +3364,8 @@ void AIPickUpCrateState::xfer( Xfer *xfer )
  // extend base class
   AIInternalMoveToState::xfer( xfer );
 
-	xfer->xferInt(&m_delayCounter);
-	xfer->xferCoord3D(&m_goalPosition);
+	xfer->xferInt(&GXROW_AIPICKUPCRATESTATE.delayCounter);
+	xfer->xferCoord3D(&AIInternalMoveToState::gxRow().goalPosition);
 
 }
 
@@ -3200,8 +3386,8 @@ StateReturnType AIPickUpCrateState::onEnter()
 		return STATE_FAILURE;
 	}
 	setAdjustsDestination(true);
-	m_goalPosition = *goalObj->getPosition();
-	m_delayCounter = 3;
+	AIInternalMoveToState::gxRow().goalPosition = *goalObj->getPosition();
+	GXROW_AIPICKUPCRATESTATE.delayCounter = 3;
 	return STATE_CONTINUE;
 
 }
@@ -3218,9 +3404,9 @@ StateReturnType AIPickUpCrateState::update()
 {
 			/// @todo srj -- find a way to sleep for a number of frames here, if possible
 
-	if (m_delayCounter) {
-		m_delayCounter--;
-		if (m_delayCounter == 0) {
+	if (GXROW_AIPICKUPCRATESTATE.delayCounter) {
+		GXROW_AIPICKUPCRATESTATE.delayCounter--;
+		if (GXROW_AIPICKUPCRATESTATE.delayCounter == 0) {
 			return AIInternalMoveToState::onEnter();
 		}
 		return STATE_CONTINUE;
@@ -3255,9 +3441,9 @@ void AIFollowPathState::xfer( Xfer *xfer )
 
 	AIInternalMoveToState::xfer(xfer);
 
-	xfer->xferInt(&m_index);
-	xfer->xferBool(&m_adjustFinal);
-	xfer->xferBool(&m_adjustFinalOverride);
+	xfer->xferInt(&GXROW_AIFOLLOWPATHSTATE.index);
+	xfer->xferBool(&GXROW_AIFOLLOWPATHSTATE.adjustFinal);
+	xfer->xferBool(&GXROW_AIFOLLOWPATHSTATE.adjustFinalOverride);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -3274,26 +3460,26 @@ StateReturnType AIFollowPathState::onEnter()
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
 
-	m_index = 0;
-	const Coord3D *pos = ai->friend_getGoalPathPosition( m_index );
+	GXROW_AIFOLLOWPATHSTATE.index = 0;
+	const Coord3D *pos = ai->friend_getGoalPathPosition( GXROW_AIFOLLOWPATHSTATE.index );
 
 	if (pos == nullptr)
 		return STATE_FAILURE;
 
 	// set initial movement goal
-	m_goalPosition = *pos;
- 	const Coord3D *nextPos = ai->friend_getGoalPathPosition( m_index+1 );
-	m_adjustFinal = true;
+	AIInternalMoveToState::gxRow().goalPosition = *pos;
+ 	const Coord3D *nextPos = ai->friend_getGoalPathPosition( GXROW_AIFOLLOWPATHSTATE.index+1 );
+	GXROW_AIFOLLOWPATHSTATE.adjustFinal = true;
 
 	//Assign this value to the AIUpdateInterface so object's can access this value while
 	//determine which waypoints to plot in the waypoint renderer.
-	ai->friend_setCurrentGoalPathIndex( m_index );
+	ai->friend_setCurrentGoalPathIndex( GXROW_AIFOLLOWPATHSTATE.index );
 
 
  	if (getID() == AI_FOLLOW_EXITPRODUCTION_PATH) {
 		ai->setCanPathThroughUnits(true);
 		setAdjustsDestination(false);
-		m_adjustFinal = true;
+		GXROW_AIFOLLOWPATHSTATE.adjustFinal = true;
 	}
 	StateReturnType ret = AIInternalMoveToState::onEnter();
 	if (obj->getFormationID() != NO_FORMATION_ID) {
@@ -3309,7 +3495,7 @@ StateReturnType AIFollowPathState::onEnter()
 		delta.x = nextPos->x - pos->x;
 		delta.y = nextPos->y - pos->y;
 		Real offset = delta.length();
- 		const Coord3D *followingPos = ai->friend_getGoalPathPosition( m_index+2 );
+ 		const Coord3D *followingPos = ai->friend_getGoalPathPosition( GXROW_AIFOLLOWPATHSTATE.index+2 );
 		if (followingPos) offset += 4*PATHFIND_CELL_SIZE_F;
 		ai->setPathExtraDistance(offset);
 		// We are in the middle of a path, so don't set the final goal location yet.
@@ -3317,7 +3503,7 @@ StateReturnType AIFollowPathState::onEnter()
 	}
 	else
 	{
-		setAdjustsDestination(m_adjustFinal);
+		setAdjustsDestination(GXROW_AIFOLLOWPATHSTATE.adjustFinal);
 		ai->setPathExtraDistance(0);
 
 		// urg. hacky. if we are a projectile on the last segment, turn on precise z-pos.
@@ -3350,7 +3536,7 @@ void AIFollowPathState::onExit( StateExitType status )
 //----------------------------------------------------------------------------------------------------------
 StateReturnType AIFollowPathState::update()
 {
-	getMachine()->setGoalPosition(&m_goalPosition);
+	getMachine()->setGoalPosition(&AIInternalMoveToState::gxRow().goalPosition);
 	// do movement
 	StateReturnType status = AIInternalMoveToState::update();
 	// if move to has finished, move to next point on path
@@ -3358,13 +3544,13 @@ StateReturnType AIFollowPathState::update()
 	{
 		Object *obj = getMachineOwner();
 		AIUpdateInterface *ai = obj->getAI();
-		if (status == STATE_FAILURE && m_retryCount>0) {
+		if (status == STATE_FAILURE && GXROW_AIFOLLOWPATHSTATE.retryCount>0) {
 			// If we failed, & haven't reached retry limit, try again.  jba.
-			m_retryCount--;
+			GXROW_AIFOLLOWPATHSTATE.retryCount--;
 		}	else {
-			++m_index;
+			++GXROW_AIFOLLOWPATHSTATE.index;
 		}
-		const Coord3D *pos = ai->friend_getGoalPathPosition( m_index );
+		const Coord3D *pos = ai->friend_getGoalPathPosition( GXROW_AIFOLLOWPATHSTATE.index );
 
 		Bool tooClose=true;
 		while (pos && tooClose) {
@@ -3375,15 +3561,15 @@ StateReturnType AIFollowPathState::update()
 				tooClose = true;
 			}
 			if (tooClose) {
-				m_index++;
-				pos = ai->friend_getGoalPathPosition(m_index);
+				GXROW_AIFOLLOWPATHSTATE.index++;
+				pos = ai->friend_getGoalPathPosition(GXROW_AIFOLLOWPATHSTATE.index);
 			}
 		}
 
 
 		//Assign this value to the AIUpdateInterface so object's can access this value while
 		//determine which waypoints to plot in the waypoint renderer.
-		ai->friend_setCurrentGoalPathIndex( m_index );
+		ai->friend_setCurrentGoalPathIndex( GXROW_AIFOLLOWPATHSTATE.index );
 		ai->ignoreObstacleID(INVALID_ID); // we have exited whatever object we are leaving, if any.  jba.
 		if (pos == nullptr)
 		{
@@ -3393,8 +3579,8 @@ StateReturnType AIFollowPathState::update()
 
 		ai->friend_startingMove();
 		// set next movement goal
-		m_goalPosition = *pos;
- 		const Coord3D *nextPos = ai->friend_getGoalPathPosition( m_index+1 );
+		AIInternalMoveToState::gxRow().goalPosition = *pos;
+ 		const Coord3D *nextPos = ai->friend_getGoalPathPosition( GXROW_AIFOLLOWPATHSTATE.index+1 );
 
  		if (nextPos)
 		{
@@ -3402,7 +3588,7 @@ StateReturnType AIFollowPathState::update()
 			delta.x = nextPos->x - pos->x;
 			delta.y = nextPos->y - pos->y;
 			Real offset = delta.length();
- 			const Coord3D *followingPos = ai->friend_getGoalPathPosition( m_index+2 );
+ 			const Coord3D *followingPos = ai->friend_getGoalPathPosition( GXROW_AIFOLLOWPATHSTATE.index+2 );
 			if (followingPos) offset += 4*PATHFIND_CELL_SIZE_F;
 			ai->setPathExtraDistance(offset);
 			// We are in the middle of a path, so don't set the final goal location yet.
@@ -3410,13 +3596,13 @@ StateReturnType AIFollowPathState::update()
 		}
 		else
 		{
-			setAdjustsDestination(m_adjustFinal && (m_adjustFinalOverride || ai->isDoingGroundMovement()));
+			setAdjustsDestination(GXROW_AIFOLLOWPATHSTATE.adjustFinal && (GXROW_AIFOLLOWPATHSTATE.adjustFinalOverride || ai->isDoingGroundMovement()));
 			if (getAdjustsDestination())
 			{
-				if (!TheAI->pathfinder()->adjustDestination(getMachineOwner(), ai->getLocomotorSet(), &m_goalPosition)) {
+				if (!TheAI->pathfinder()->adjustDestination(getMachineOwner(), ai->getLocomotorSet(), &AIInternalMoveToState::gxRow().goalPosition)) {
 					return STATE_FAILURE;
 				}
-				TheAI->pathfinder()->updateGoal(getMachineOwner(), &m_goalPosition, TheTerrainLogic->getLayerForDestination(&m_goalPosition));
+				TheAI->pathfinder()->updateGoal(getMachineOwner(), &AIInternalMoveToState::gxRow().goalPosition, TheTerrainLogic->getLayerForDestination(&AIInternalMoveToState::gxRow().goalPosition));
 			}
 
 			// urg. hacky. if we are a projectile on the last segment, turn on precise z-pos.
@@ -3457,7 +3643,7 @@ void AIMoveAndEvacuateState::xfer( Xfer *xfer )
 
 	AIInternalMoveToState::xfer(xfer);
 
-	xfer->xferCoord3D(&m_origin);
+	xfer->xferCoord3D(&GXROW_AIMOVEANDEVACUATESTATE.origin);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -3475,14 +3661,14 @@ StateReturnType AIMoveAndEvacuateState::onEnter()
 
 	getMachine()->lock("AIMoveAndEvacuateState::onEnter");		// This state is not user interruptable.
 
-	m_origin = *obj->getPosition();
+	GXROW_AIMOVEANDEVACUATESTATE.origin = *obj->getPosition();
 	setAdjustsDestination(true);
 
 	// if we have a goal object, move to it, otherwise move to goal position
 	if (getMachine()->getGoalObject())
-		m_goalPosition = *getMachine()->getGoalObject()->getPosition();
+		AIInternalMoveToState::gxRow().goalPosition = *getMachine()->getGoalObject()->getPosition();
 	else
-		m_goalPosition = *getMachine()->getGoalPosition();
+		AIInternalMoveToState::gxRow().goalPosition = *getMachine()->getGoalPosition();
 	return AIInternalMoveToState::onEnter();
 }
 
@@ -3517,7 +3703,7 @@ StateReturnType AIMoveAndEvacuateState::update()
 void AIMoveAndEvacuateState::onExit( StateExitType status )
 {
 	getMachine()->unlock();
-	getMachine()->setGoalPosition(&m_origin); // In case we follow with a AIMoveAndDeleteState.
+	getMachine()->setGoalPosition(&GXROW_AIMOVEANDEVACUATESTATE.origin); // In case we follow with a AIMoveAndDeleteState.
 	AIInternalMoveToState::onExit( status );
 }
 
@@ -3531,7 +3717,7 @@ AIAttackMoveToState::AIAttackMoveToState( StateMachine *machine ) : AIMoveToStat
 #ifdef STATE_MACHINE_DEBUG
 	setName("AIAttackMoveToState");
 #endif	// set up the state
-	m_isMoveTo = false;
+	AIMoveToState::gxRow().isMoveTo = false;
 	m_frameToSleepUntil = 0;
 	m_retryCount = ATTACK_RETRY_COUNT;
 	m_attackMoveMachine = newInstance(AIAttackMoveStateMachine)(getMachineOwner(), "AIAttackMoveMachine");
@@ -3687,7 +3873,7 @@ StateReturnType AIAttackMoveToState::update()
 	if (ret != STATE_CONTINUE) {
 		if (m_retryCount<1) return ret;
 		/* check for close enough. */
-		Real distSqr = sqr(owner->getPosition()->x - m_pathGoalPosition.x) + sqr(owner->getPosition()->y-m_pathGoalPosition.y);
+		Real distSqr = sqr(owner->getPosition()->x - AIInternalMoveToState::gxRow().pathGoalPosition.x) + sqr(owner->getPosition()->y-AIInternalMoveToState::gxRow().pathGoalPosition.y);
 		if (distSqr < sqr(ATTACK_CLOSE_ENOUGH_CELLS*PATHFIND_CELL_SIZE_F)) {
 			return ret;
 		}
@@ -3726,7 +3912,7 @@ void AIMoveAndDeleteState::xfer( Xfer *xfer )
 
 	AIInternalMoveToState::xfer(xfer);
 
-	xfer->xferBool(&m_appendGoalPosition);
+	xfer->xferBool(&GXROW_AIMOVEANDDELETESTATE.appendGoalPosition);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -3744,10 +3930,10 @@ StateReturnType AIMoveAndDeleteState::onEnter()
 	getMachine()->lock("AIMoveAndDeleteState::onEnter");
 	// if we have a goal object, move to it, otherwise move to goal position
 	if (getMachine()->getGoalObject())
-		m_goalPosition = *getMachine()->getGoalObject()->getPosition();
+		AIInternalMoveToState::gxRow().goalPosition = *getMachine()->getGoalObject()->getPosition();
 	else
-		m_goalPosition = *getMachine()->getGoalPosition();
-	m_appendGoalPosition = true; // We may be moving off the map.
+		AIInternalMoveToState::gxRow().goalPosition = *getMachine()->getGoalPosition();
+	GXROW_AIMOVEANDDELETESTATE.appendGoalPosition = true; // We may be moving off the map.
 	return AIInternalMoveToState::onEnter();
 }
 
@@ -3765,14 +3951,14 @@ StateReturnType AIMoveAndDeleteState::update()
 	{
 		ai->getCurLocomotor()->setAllowInvalidPosition(true);
 	}
-	if (m_appendGoalPosition)
+	if (GXROW_AIMOVEANDDELETESTATE.appendGoalPosition)
 	{
 		Path *thePath = ai->getPath();
 		if (!ai->isWaitingForPath() && ai->getPath())
 		{
-			m_goalPosition.z = TheTerrainLogic->getGroundHeight(m_goalPosition.x, m_goalPosition.y);
-			thePath->appendNode( &m_goalPosition, LAYER_GROUND);
-			m_appendGoalPosition = false; // just did it.
+			AIInternalMoveToState::gxRow().goalPosition.z = TheTerrainLogic->getGroundHeight(AIInternalMoveToState::gxRow().goalPosition.x, AIInternalMoveToState::gxRow().goalPosition.y);
+			thePath->appendNode( &AIInternalMoveToState::gxRow().goalPosition, LAYER_GROUND);
+			GXROW_AIMOVEANDDELETESTATE.appendGoalPosition = false; // just did it.
 		}
 	}
 	StateReturnType status = AIInternalMoveToState::update();
@@ -3801,23 +3987,23 @@ void AIMoveAndDeleteState::onExit( StateExitType status )
 const Waypoint * AIFollowWaypointPathState::getNextWaypoint()
 {
 #ifdef ALLOW_BACKTRACK
-	Int linkCount = m_currentWaypoint->getNumLinks();
+	Int linkCount = GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getNumLinks();
 	Int which = GameLogicRandomValue( 0, linkCount-1 );
-	const Waypoint *nextWay = m_currentWaypoint->getLink( which );
-	m_priorWaypoint = m_currentWaypoint;
+	const Waypoint *nextWay = GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getLink( which );
+	GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint = GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint;
 
-	getMachine()->setGoalPosition(m_currentWaypoint->getLocation());// THANKS, JOHN
+	getMachine()->setGoalPosition(GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getLocation());// THANKS, JOHN
 	return nextWay;
 #else
 	if (!hasNextWaypoint()) {
-		m_priorWaypoint = m_currentWaypoint;
+		GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint = GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint;
 		return nullptr;
 	}
 	Int skip = -1;
 	Int i;
-	Int linkCount = m_currentWaypoint->getNumLinks();
+	Int linkCount = GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getNumLinks();
 	for (i=0; i<linkCount; i++) {
-		if (m_priorWaypoint == m_currentWaypoint->getLink(i)) {
+		if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint == GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getLink(i)) {
 			skip = i;
 			break;
 		}
@@ -3830,8 +4016,8 @@ const Waypoint * AIFollowWaypointPathState::getNextWaypoint()
 		// pick a random link
 		which = GameLogicRandomValue( 0, linkCount-1 );
 	}
-	const Waypoint *nextWay = m_currentWaypoint->getLink( which );
-	m_priorWaypoint = m_currentWaypoint;
+	const Waypoint *nextWay = GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getLink( which );
+	GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint = GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint;
 	return nextWay;
 #endif
 }
@@ -3840,20 +4026,20 @@ const Waypoint * AIFollowWaypointPathState::getNextWaypoint()
 Bool AIFollowWaypointPathState::hasNextWaypoint()
 {
 #ifdef ALLOW_BACKTRACK
-	return m_currentWaypoint->getNumLinks()>0;
+	return GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getNumLinks()>0;
 #else
-	if (m_currentWaypoint->getNumLinks()==0) {
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getNumLinks()==0) {
 		return false; // no links, no next.
 	}
-	if (m_priorWaypoint==nullptr) {
-		return m_currentWaypoint->getNumLinks()>0;
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint==nullptr) {
+		return GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getNumLinks()>0;
 	}
-	if (m_currentWaypoint->getNumLinks()>1) {
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getNumLinks()>1) {
 		// Two links, always works.
 		return true;
 	}
 	// We have a prior waypoint, and 1 link.
-	if (m_priorWaypoint == m_currentWaypoint->getLink(0)) {
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint == GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getLink(0)) {
 		return false; // don't go back to same waypoint.
 	}
 	return true;
@@ -3864,7 +4050,7 @@ Bool AIFollowWaypointPathState::hasNextWaypoint()
 Real AIFollowWaypointPathState::calcExtraPathDistance()
 {
 	Real extra = PATHFIND_CELL_SIZE_F/10.0f;
-	const Waypoint *curWay = m_currentWaypoint;
+	const Waypoint *curWay = GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint;
 	Int limit = 5; // just look ahead 5, in case of circular paths.  jba
 	while (curWay && limit>0) {
 		limit--;
@@ -3884,19 +4070,19 @@ Real AIFollowWaypointPathState::calcExtraPathDistance()
 //----------------------------------------------------------------------------------------------------------
 void AIFollowWaypointPathState::computeGoal(Bool useGroupOffsets)
 {
-	if (m_currentWaypoint == nullptr)
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint == nullptr)
 		return;
 
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
-	Coord3D dest = *m_currentWaypoint->getLocation();
+	Coord3D dest = *GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getLocation();
 
-	m_goalLayer = LAYER_GROUND; // waypoints are always on the ground.
+	AIInternalMoveToState::gxRow().goalLayer = LAYER_GROUND; // waypoints are always on the ground.
 
 	if (TheAI->pathfinder()->isPointOnWall(&dest)) {
 		// except when they're on the wall.  jba.
 		dest.z = TheAI->pathfinder()->getWallHeight();
-		m_goalLayer = LAYER_WALL;
+		AIInternalMoveToState::gxRow().goalLayer = LAYER_WALL;
 	}
 
 	ai->setPathExtraDistance(calcExtraPathDistance());
@@ -3915,63 +4101,63 @@ void AIFollowWaypointPathState::computeGoal(Bool useGroupOffsets)
 
 #define NO_ROTATE_OFFSETS
 #ifdef ROTATE_OFFSETS
-	Real dx = (dest.x) - (obj->getPosition()->x - m_groupOffset.x);
-	Real dy = (dest.y) - (obj->getPosition()->y - m_groupOffset.y);
+	Real dx = (dest.x) - (obj->getPosition()->x - GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.x);
+	Real dy = (dest.y) - (obj->getPosition()->y - GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.y);
 	Real angle;
-	if (m_priorWaypoint) {
-		dx = dest.x - m_priorWaypoint->getLocation()->x;
-		dy = dest.y - m_priorWaypoint->getLocation()->y;
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint) {
+		dx = dest.x - GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint->getLocation()->x;
+		dy = dest.y - GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint->getLocation()->y;
 		angle = atan2(dy, dx);
-		Real deltaAngle = angle - m_angle;
+		Real deltaAngle = angle - GXROW_AIFOLLOWWAYPOINTPATHSTATE.angle;
 		Real s = sin(deltaAngle);
 		Real c = cos(deltaAngle);
-		Real x = m_groupOffset.x * c - m_groupOffset.y * s;
-		Real y = m_groupOffset.y * c + m_groupOffset.x * s;
-		m_groupOffset.x = x;
-		m_groupOffset.y = y;
+		Real x = GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.x * c - GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.y * s;
+		Real y = GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.y * c + GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.x * s;
+		GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.x = x;
+		GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.y = y;
 	}	else {
 		angle = atan2(dy, dx);
 	}
-	m_angle = angle;
+	GXROW_AIFOLLOWWAYPOINTPATHSTATE.angle = angle;
 #endif
 
 
-	m_goalPosition = dest;
-	m_goalPosition.x += m_groupOffset.x;
-	m_goalPosition.y += m_groupOffset.y;
-	if (m_goalLayer == LAYER_WALL) {
-		if (!TheAI->pathfinder()->isPointOnWall(&m_goalPosition)) {
-			m_goalPosition = dest;
+	AIInternalMoveToState::gxRow().goalPosition = dest;
+	AIInternalMoveToState::gxRow().goalPosition.x += GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.x;
+	AIInternalMoveToState::gxRow().goalPosition.y += GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.y;
+	if (AIInternalMoveToState::gxRow().goalLayer == LAYER_WALL) {
+		if (!TheAI->pathfinder()->isPointOnWall(&AIInternalMoveToState::gxRow().goalPosition)) {
+			AIInternalMoveToState::gxRow().goalPosition = dest;
 		}
 	} else {
-		m_goalPosition.z = TheTerrainLogic->getGroundHeight(m_goalPosition.x, m_goalPosition.y);
+		AIInternalMoveToState::gxRow().goalPosition.z = TheTerrainLogic->getGroundHeight(AIInternalMoveToState::gxRow().goalPosition.x, AIInternalMoveToState::gxRow().goalPosition.y);
 	}
 	Region3D extent;
 	TheTerrainLogic->getMaximumPathfindExtent(&extent);
 
 	if (extent.isInRegionNoZ(&dest)) {
 		// The waypoint is on the map.  Check & see if the adjusted position is off map [8/28/2003]
-		if (!extent.isInRegionNoZ(&m_goalPosition)) {
+		if (!extent.isInRegionNoZ(&AIInternalMoveToState::gxRow().goalPosition)) {
 			// clamp to in region. [8/28/2003]
-			if (m_goalPosition.x < extent.lo.x+PATHFIND_CELL_SIZE_F) {
-				m_goalPosition.x = extent.lo.x+PATHFIND_CELL_SIZE_F;
+			if (AIInternalMoveToState::gxRow().goalPosition.x < extent.lo.x+PATHFIND_CELL_SIZE_F) {
+				AIInternalMoveToState::gxRow().goalPosition.x = extent.lo.x+PATHFIND_CELL_SIZE_F;
 			}
-			if (m_goalPosition.y < extent.lo.y+PATHFIND_CELL_SIZE_F) {
-				m_goalPosition.y = extent.lo.y+PATHFIND_CELL_SIZE_F;
+			if (AIInternalMoveToState::gxRow().goalPosition.y < extent.lo.y+PATHFIND_CELL_SIZE_F) {
+				AIInternalMoveToState::gxRow().goalPosition.y = extent.lo.y+PATHFIND_CELL_SIZE_F;
 			}
-			if (m_goalPosition.x > extent.hi.x-PATHFIND_CELL_SIZE_F) {
-				m_goalPosition.x = extent.hi.x-PATHFIND_CELL_SIZE_F;
+			if (AIInternalMoveToState::gxRow().goalPosition.x > extent.hi.x-PATHFIND_CELL_SIZE_F) {
+				AIInternalMoveToState::gxRow().goalPosition.x = extent.hi.x-PATHFIND_CELL_SIZE_F;
 			}
-			if (m_goalPosition.y > extent.hi.y-PATHFIND_CELL_SIZE_F) {
-				m_goalPosition.y = extent.hi.y-PATHFIND_CELL_SIZE_F;
+			if (AIInternalMoveToState::gxRow().goalPosition.y > extent.hi.y-PATHFIND_CELL_SIZE_F) {
+				AIInternalMoveToState::gxRow().goalPosition.y = extent.hi.y-PATHFIND_CELL_SIZE_F;
 			}
 		}
 	}
 
-	if (!extent.isInRegionNoZ(&m_goalPosition)) {
+	if (!extent.isInRegionNoZ(&AIInternalMoveToState::gxRow().goalPosition)) {
 		setAdjustsDestination(false); // moving off the map.
 		ai->getCurLocomotor()->setAllowInvalidPosition(true); // allow it to move off the map.
-		m_appendGoalPosition = true; // Moving off the map.
+		GXROW_AIFOLLOWWAYPOINTPATHSTATE.appendGoalPosition = true; // Moving off the map.
 	}
 }
 
@@ -3995,30 +4181,30 @@ void AIFollowWaypointPathState::xfer( Xfer *xfer )
 
 	AIInternalMoveToState::xfer(xfer);
 
-	xfer->xferCoord2D(&m_groupOffset);
-	xfer->xferReal(&m_angle);
-	xfer->xferInt(&m_framesSleeping);
+	xfer->xferCoord2D(&GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset);
+	xfer->xferReal(&GXROW_AIFOLLOWWAYPOINTPATHSTATE.angle);
+	xfer->xferInt(&GXROW_AIFOLLOWWAYPOINTPATHSTATE.framesSleeping);
 
 	UnsignedInt id = INVALID_WAYPOINT_ID;
-	if (m_currentWaypoint) {
-		id = m_currentWaypoint->getID();
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint) {
+		id = GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getID();
 	}
 	xfer->xferUnsignedInt(&id);
 	if (xfer->getXferMode() == XFER_LOAD)
 	{
-		m_currentWaypoint = TheTerrainLogic->getWaypointByID(id);
+		GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint = TheTerrainLogic->getWaypointByID(id);
 	}
 	id = INVALID_WAYPOINT_ID;
-	if (m_priorWaypoint) {
-		id = m_priorWaypoint->getID();
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint) {
+		id = GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint->getID();
 	}
 	xfer->xferUnsignedInt(&id);
 	if (xfer->getXferMode() == XFER_LOAD)
 	{
-		m_priorWaypoint = TheTerrainLogic->getWaypointByID(id);
+		GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint = TheTerrainLogic->getWaypointByID(id);
 	}
 
-	xfer->xferBool(&m_appendGoalPosition);
+	xfer->xferBool(&GXROW_AIFOLLOWWAYPOINTPATHSTATE.appendGoalPosition);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -4032,22 +4218,22 @@ void AIFollowWaypointPathState::loadPostProcess()
 //----------------------------------------------------------------------------------------------------------
 StateReturnType AIFollowWaypointPathState::onEnter()
 {
-	m_appendGoalPosition = false; // not moving off the map at this point.
-	m_priorWaypoint = nullptr;
-	m_currentWaypoint = ((AIStateMachine *)getMachine())->getGoalWaypoint();
+	GXROW_AIFOLLOWWAYPOINTPATHSTATE.appendGoalPosition = false; // not moving off the map at this point.
+	GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint = nullptr;
+	GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint = ((AIStateMachine *)getMachine())->getGoalWaypoint();
 	AIUpdateInterface *ai = getMachineOwner()->getAI();
 
-	if (m_currentWaypoint == nullptr && !m_moveAsGroup)		return STATE_FAILURE;
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint == nullptr && !GXROW_AIFOLLOWWAYPOINTPATHSTATE.moveAsGroup)		return STATE_FAILURE;
 
-	getMachine()->setGoalPosition(m_currentWaypoint->getLocation());
+	getMachine()->setGoalPosition(GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getLocation());
 
-	m_framesSleeping = 0;
-	m_groupOffset.x = m_groupOffset.y = 0;
+	GXROW_AIFOLLOWWAYPOINTPATHSTATE.framesSleeping = 0;
+	GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.x = GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.y = 0;
 
 	Object *obj = getMachineOwner();
 /*	Interesting thought experiment.  Didn't work well. jba
 	Real distSqrLimit = 9*obj->getGeometryInfo().getMajorRadius()*obj->getGeometryInfo().getMajorRadius();
-	const Waypoint *way = m_currentWaypoint;
+	const Waypoint *way = GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint;
 	Bool doPrecise = false;
 	while (way) {
 		if (way->getNext()) {
@@ -4067,23 +4253,23 @@ StateReturnType AIFollowWaypointPathState::onEnter()
 
 
 	Real speed = FAST_AS_POSSIBLE;
-	if (m_moveAsGroup && m_currentWaypoint) {
-		obj->getTeam()->setCurrentWaypoint(m_currentWaypoint);
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.moveAsGroup && GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint) {
+		obj->getTeam()->setCurrentWaypoint(GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint);
 		AIGroup *group = ai->getGroup();
 		if (group) {
 			speed = group->getSpeed();
 			Coord3D center;
 
 			group->getCenter( &center );
-			m_groupOffset.x = obj->getPosition()->x - center.x;
-			m_groupOffset.y = obj->getPosition()->y - center.y;
+			GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.x = obj->getPosition()->x - center.x;
+			GXROW_AIFOLLOWWAYPOINTPATHSTATE.groupOffset.y = obj->getPosition()->y - center.y;
 		}
 	}
-	if (m_currentWaypoint==nullptr && m_moveAsGroup) {
-		m_currentWaypoint = obj->getTeam()->getCurrentWaypoint();
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint==nullptr && GXROW_AIFOLLOWWAYPOINTPATHSTATE.moveAsGroup) {
+		GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint = obj->getTeam()->getCurrentWaypoint();
 	}
 	// set initial movement goal
-	computeGoal(m_moveAsGroup);
+	computeGoal(GXROW_AIFOLLOWWAYPOINTPATHSTATE.moveAsGroup);
 	StateReturnType ret = AIInternalMoveToState::onEnter();
 
 	ai->setDesiredSpeed(speed);
@@ -4096,11 +4282,11 @@ StateReturnType AIFollowWaypointPathState::onEnter()
 	} else {
 		setAdjustsDestination(ai->isDoingGroundMovement());
 		if (getAdjustsDestination()) {
-			if (!TheAI->pathfinder()->adjustDestination(getMachineOwner(), ai->getLocomotorSet(), &m_goalPosition)) {
+			if (!TheAI->pathfinder()->adjustDestination(getMachineOwner(), ai->getLocomotorSet(), &AIInternalMoveToState::gxRow().goalPosition)) {
 				DEBUG_LOG(("Breaking out of follow waypoint path"));
 				return STATE_FAILURE;
 			}
-			TheAI->pathfinder()->updateGoal(getMachineOwner(), &m_goalPosition, m_goalLayer);
+			TheAI->pathfinder()->updateGoal(getMachineOwner(), &AIInternalMoveToState::gxRow().goalPosition, AIInternalMoveToState::gxRow().goalLayer);
 		}
 		// urg. hacky. if we are a projectile on the last segment, turn on precise z-pos.
 		if (obj->isKindOf(KINDOF_PROJECTILE))
@@ -4131,47 +4317,47 @@ void AIFollowWaypointPathState::onExit( StateExitType status )
 //----------------------------------------------------------------------------------------------------------
 StateReturnType AIFollowWaypointPathState::update()
 {
-	if (m_framesSleeping>0) {
-		m_framesSleeping--;
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.framesSleeping>0) {
+		GXROW_AIFOLLOWWAYPOINTPATHSTATE.framesSleeping--;
 		return STATE_CONTINUE;
 	}
 	Object *obj = getMachineOwner();
  	AIUpdateInterface *ai = obj->getAI();
 
 
-	getMachine()->setGoalPosition(m_currentWaypoint->getLocation());
+	getMachine()->setGoalPosition(GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getLocation());
 
 	UnsignedInt adjustment = ai->getMoodMatrixActionAdjustment(MM_Action_Move);
-	if (m_isFollowWaypointPathState && (adjustment & MAA_Action_To_AttackMove))	{
-		if (m_moveAsGroup) {
-			ai->aiAttackFollowWaypointPathAsTeam(m_currentWaypoint, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.isFollowWaypointPathState && (adjustment & MAA_Action_To_AttackMove))	{
+		if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.moveAsGroup) {
+			ai->aiAttackFollowWaypointPathAsTeam(GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
 		}	else {
-			ai->aiAttackFollowWaypointPath(m_currentWaypoint, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
+			ai->aiAttackFollowWaypointPath(GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
 		}
 	}
 
-	if (m_appendGoalPosition) {
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.appendGoalPosition) {
 		Path *thePath = ai->getPath();
 		if (!ai->isWaitingForPath() && ai->getPath()) {
 			//Coord3D pathEnd = *thePath->getLastNode()->getPosition();
-			thePath->appendNode(&m_goalPosition, LAYER_GROUND);	// waypoints are always on the ground.
-			m_appendGoalPosition = false; // just did it.
+			thePath->appendNode(&AIInternalMoveToState::gxRow().goalPosition, LAYER_GROUND);	// waypoints are always on the ground.
+			GXROW_AIFOLLOWWAYPOINTPATHSTATE.appendGoalPosition = false; // just did it.
 		}
 	}
-	if (m_moveAsGroup && m_currentWaypoint != obj->getTeam()->getCurrentWaypoint()) {
-		m_priorWaypoint = m_currentWaypoint;
-		m_currentWaypoint = obj->getTeam()->getCurrentWaypoint();
-		if (m_currentWaypoint == nullptr) {
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.moveAsGroup && GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint != obj->getTeam()->getCurrentWaypoint()) {
+		GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint = GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint;
+		GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint = obj->getTeam()->getCurrentWaypoint();
+		if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint == nullptr) {
 			return STATE_SUCCESS;
 		}
 		computeGoal(false);
 		if (getAdjustsDestination() && ai->isDoingGroundMovement()) {
-			if (!TheAI->pathfinder()->adjustDestination(obj, ai->getLocomotorSet(), &m_goalPosition)) {
-				if (m_currentWaypoint) {
+			if (!TheAI->pathfinder()->adjustDestination(obj, ai->getLocomotorSet(), &AIInternalMoveToState::gxRow().goalPosition)) {
+				if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint) {
 // TheSuperHackers @info helmutbuhler 05/05/2025 This debug mutates the code to become CRC incompatible
 #if defined(RTS_DEBUG) || !RETAIL_COMPATIBLE_CRC
 					DEBUG_LOG(("Breaking out of follow waypoint path %s of %s",
-					m_currentWaypoint->getName().str(), m_currentWaypoint->getPathLabel1().str()));
+					GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getName().str(), GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getPathLabel1().str()));
 #endif
 				}
 				return STATE_FAILURE;
@@ -4180,7 +4366,7 @@ StateReturnType AIFollowWaypointPathState::update()
 		ai->friend_startingMove();
 		computePath();
 		if (getAdjustsDestination()) {
-			TheAI->pathfinder()->updateGoal(obj, &m_goalPosition, m_goalLayer);
+			TheAI->pathfinder()->updateGoal(obj, &AIInternalMoveToState::gxRow().goalPosition, AIInternalMoveToState::gxRow().goalLayer);
 		}
 	}
 
@@ -4190,7 +4376,7 @@ StateReturnType AIFollowWaypointPathState::update()
 	// We may want to allow ourselves to bail out of this one early. In order to do this, we check and
 	// see if we're moving as a group, and then if our team is owned by an AI Skirmish player.
 	// If it is, then we compute the group centroid, and see if it is within some distance of the
-	if (m_moveAsGroup) {
+	if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.moveAsGroup) {
 		if (obj->getControllingPlayer()->isSkirmishAIPlayer()) {
 			Team *team = obj->getTeam();
 			AIGroupPtr group = TheAI->createGroup();
@@ -4203,8 +4389,8 @@ StateReturnType AIFollowWaypointPathState::update()
 			Coord3D pos;
 			group->getCenter(&pos);
 
-			pos.x -= m_goalPosition.x;
-			pos.y -= m_goalPosition.y;
+			pos.x -= AIInternalMoveToState::gxRow().goalPosition.x;
+			pos.y -= AIInternalMoveToState::gxRow().goalPosition.y;
 			pos.z = 0;
 
 			Int numInGroup = group->getCount();
@@ -4218,37 +4404,37 @@ StateReturnType AIFollowWaypointPathState::update()
 	// if move to has finished, move to next point on waypoint path
 	if (status != STATE_CONTINUE)
 	{
-		m_currentWaypoint = getNextWaypoint();
+		GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint = getNextWaypoint();
 
 		//LORENZEN ADDED LORENZEN ADDED LORENZEN ADDED
 		Object *obj = getMachineOwner();
 		AIUpdateInterface *ai = obj->getAI();
-		if ( m_priorWaypoint )
-			ai->setPriorWaypointID( m_priorWaypoint->getID() );
-		if ( m_currentWaypoint )
-			ai->setCurrentWaypointID( m_currentWaypoint->getID() );
+		if ( GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint )
+			ai->setPriorWaypointID( GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint->getID() );
+		if ( GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint )
+			ai->setCurrentWaypointID( GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getID() );
 		//LORENZEN ADDED LORENZEN ADDED LORENZEN ADDED
 
 
 
 		// if there are no links from this waypoint, we're done
-		if (m_currentWaypoint==nullptr)	{
+		if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint==nullptr)	{
 			/// Trigger "end of waypoint path" scripts (jba)
-			ai->setCompletedWaypoint(m_priorWaypoint);
+			ai->setCompletedWaypoint(GXROW_AIFOLLOWWAYPOINTPATHSTATE.priorWaypoint);
 			return STATE_SUCCESS;
 		}
-		if (m_moveAsGroup) {
-			obj->getTeam()->setCurrentWaypoint(m_currentWaypoint);
+		if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.moveAsGroup) {
+			obj->getTeam()->setCurrentWaypoint(GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint);
 		}
 
 		computeGoal(false);
 		if (getAdjustsDestination() && ai->isDoingGroundMovement()) {
-			if (!TheAI->pathfinder()->adjustDestination(obj, ai->getLocomotorSet(), &m_goalPosition)) {
-				if (m_currentWaypoint) {
+			if (!TheAI->pathfinder()->adjustDestination(obj, ai->getLocomotorSet(), &AIInternalMoveToState::gxRow().goalPosition)) {
+				if (GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint) {
 // TheSuperHackers @info helmutbuhler 05/05/2025 This debug mutates the code to become CRC incompatible
 #if defined(RTS_DEBUG) || !RETAIL_COMPATIBLE_CRC
 					DEBUG_LOG(("Breaking out of follow waypoint path %s of %s",
-					m_currentWaypoint->getName().str(), m_currentWaypoint->getPathLabel1().str()));
+					GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getName().str(), GXROW_AIFOLLOWWAYPOINTPATHSTATE.currentWaypoint->getPathLabel1().str()));
 #endif
 				}
 				return STATE_FAILURE;
@@ -4257,7 +4443,7 @@ StateReturnType AIFollowWaypointPathState::update()
 		ai->friend_startingMove();
 		computePath();
 		if (getAdjustsDestination()) {
-			TheAI->pathfinder()->updateGoal(obj, &m_goalPosition, m_goalLayer);
+			TheAI->pathfinder()->updateGoal(obj, &AIInternalMoveToState::gxRow().goalPosition, AIInternalMoveToState::gxRow().goalLayer);
 		}
 
 		return STATE_CONTINUE;
@@ -4294,13 +4480,13 @@ void AIFollowWaypointPathExactState::xfer( Xfer *xfer )
 
 	AIInternalMoveToState::xfer(xfer);
 	UnsignedInt id = INVALID_WAYPOINT_ID;
-	if (m_lastWaypoint) {
-		id = m_lastWaypoint->getID();
+	if (GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.lastWaypoint) {
+		id = GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.lastWaypoint->getID();
 	}
 	xfer->xferUnsignedInt(&id);
 	if (xfer->getXferMode() == XFER_LOAD)
 	{
-		m_lastWaypoint = TheTerrainLogic->getWaypointByID(id);
+		GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.lastWaypoint = TheTerrainLogic->getWaypointByID(id);
 	}
 }
 
@@ -4328,7 +4514,7 @@ StateReturnType AIFollowWaypointPathExactState::onEnter()
 	Object *obj = getMachineOwner();
 
 	Real speed = FAST_AS_POSSIBLE;
-	if (m_moveAsGroup) {
+	if (GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.moveAsGroup) {
 		AIGroup *group = ai->getGroup();
 		if (group) {
 			speed = group->getSpeed();
@@ -4344,15 +4530,15 @@ StateReturnType AIFollowWaypointPathExactState::onEnter()
 	// set initial movement goal
 	StateReturnType ret = AIInternalMoveToState::onEnter();
 	ai->setPathFromWaypoint(currentWaypoint, &groupOffset);
-	m_lastWaypoint = currentWaypoint;
+	GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.lastWaypoint = currentWaypoint;
 	ai->getCurLocomotor()->setAllowInvalidPosition(true); // allow it to move off the map.
 
 	//Kris: October 4, 2002 -- Commented out by guidance of John A.
 	//			Artist couldn't load his map, and turned out that it was because
 	//			there was a waypoint path that pointed to itself (2 point path).
 	//			John said that this code only needs "a" point, not the "last" point.
-	//while (m_lastWaypoint && m_lastWaypoint->getLink(0)) {
-	//	m_lastWaypoint = m_lastWaypoint->getLink(0);
+	//while (GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.lastWaypoint && GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.lastWaypoint->getLink(0)) {
+	//	GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.lastWaypoint = GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.lastWaypoint->getLink(0);
 	//}
 	ai->setDesiredSpeed(speed);
 
@@ -4367,7 +4553,7 @@ void AIFollowWaypointPathExactState::onExit( StateExitType status )
 	// turn off precision-z-pos when we exit, just in case.
 	AIUpdateInterface *ai = getMachineOwner()->getAI();
 	if (ai) {
-		ai->setCompletedWaypoint(m_lastWaypoint);
+		ai->setCompletedWaypoint(GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.lastWaypoint);
 		ai->setCanPathThroughUnits(false);
 		ai->getCurLocomotor()->setAllowInvalidPosition(false); // turn off allow it to move off the map.
 	}
@@ -4393,20 +4579,22 @@ StateReturnType AIFollowWaypointPathExactState::update()
 //-------------------------------------------------------------------------------------------------
 
 //-------------------------------------------------------------------------------------------------
-AIAttackFollowWaypointPathState::AIAttackFollowWaypointPathState ( StateMachine *machine, Bool asGroup ) :
-AIFollowWaypointPathState ( machine, asGroup, false )
+AIAttackFollowWaypointPathState::AIAttackFollowWaypointPathState( StateMachine *machine, Bool asGroup ) : AIFollowWaypointPathState ( machine, asGroup, false )
 {
+	m_gxAIAttackFollowWaypointPathStateRow = TheGxAIAttackFollowWaypointPathStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
 #ifdef STATE_MACHINE_DEBUG
 	setName("AIAttackFollowWaypointPathState");
 #endif
-	m_attackFollowMachine = newInstance(AIAttackMoveStateMachine)(getMachineOwner(), "AIAttackFollowMachine");
-	m_attackFollowMachine->initDefaultState();
+	GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine = newInstance(AIAttackMoveStateMachine)(getMachineOwner(), "AIAttackFollowMachine");
+	GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->initDefaultState();
 }
 
 //-------------------------------------------------------------------------------------------------
 AIAttackFollowWaypointPathState::~AIAttackFollowWaypointPathState()
 {
-	deleteInstance(m_attackFollowMachine);
+	deleteInstance(GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine);
+	TheGxAIAttackFollowWaypointPathStates.release( m_gxAIAttackFollowWaypointPathStateRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -4429,7 +4617,7 @@ void AIAttackFollowWaypointPathState::xfer( Xfer *xfer )
  // extend base class
   AIFollowWaypointPathState::xfer( xfer );
 
-	xfer->xferSnapshot(m_attackFollowMachine);
+	xfer->xferSnapshot(GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -4445,8 +4633,8 @@ AsciiString AIAttackFollowWaypointPathState::getName(  ) const
 {
 	AsciiString name = m_name;
 	name.concat("/");
-	if (m_attackFollowMachine) name.concat(m_attackFollowMachine->getCurrentStateName());
-	else name.concat("*null m_attackFollowMachine");
+	if (GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine) name.concat(GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->getCurrentStateName());
+	else name.concat("*null GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine");
 	return name;
 }
 #endif
@@ -4454,8 +4642,8 @@ AsciiString AIAttackFollowWaypointPathState::getName(  ) const
 //-------------------------------------------------------------------------------------------------
 StateReturnType AIAttackFollowWaypointPathState ::onEnter()
 {
-	m_attackFollowMachine->clear();
-	m_attackFollowMachine->setState( AI_IDLE );
+	GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->clear();
+	GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->setState( AI_IDLE );
 
 	return AIFollowWaypointPathState::onEnter();
 }
@@ -4469,14 +4657,14 @@ StateReturnType AIAttackFollowWaypointPathState::update()
 
 	Bool forceRetargetThisFrame = false;
 	Bool shouldRepathThisFrame = false;
-	if (!m_attackFollowMachine->isInIdleState())
+	if (!GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->isInIdleState())
 	{
 		ai->setLocomotorGoalNone();
 		owner->clearModelConditionState(MODELCONDITION_MOVING);
-		m_attackFollowMachine->updateStateMachine();
+		GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->updateStateMachine();
 
 		// if the machine is now idling, then we need to attempt to get a new target
-		if (m_attackFollowMachine->isInIdleState())
+		if (GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->isInIdleState())
 		{
 			forceRetargetThisFrame = true;
 			shouldRepathThisFrame = true;
@@ -4487,14 +4675,14 @@ StateReturnType AIAttackFollowWaypointPathState::update()
 		}
 	}
 
-	if (m_attackFollowMachine->isInIdleState())
+	if (GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->isInIdleState())
 	{
 		// Check to see if we have created a crate we need to pick up.
 		Object* crate = ai->checkForCrateToPickup();
 		if (crate)
 		{
-			m_attackFollowMachine->setGoalObject(crate);
-			m_attackFollowMachine->setState( AI_PICK_UP_CRATE );
+			GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->setGoalObject(crate);
+			GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->setState( AI_PICK_UP_CRATE );
 			return STATE_CONTINUE;
 		}
 
@@ -4505,8 +4693,8 @@ StateReturnType AIAttackFollowWaypointPathState::update()
 		}
 		if (nextObjectToAttack != nullptr)
 		{
-			m_attackFollowMachine->setGoalObject(nextObjectToAttack);
-			m_attackFollowMachine->setState( AI_ATTACK_OBJECT );
+			GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->setGoalObject(nextObjectToAttack);
+			GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->setState( AI_ATTACK_OBJECT );
 			shouldRepathThisFrame = false;	// we're about to drop out of this function, but this is semantic emphasis.
 
 			// we don't want an update to take place 'till next frame.
@@ -4517,7 +4705,7 @@ StateReturnType AIAttackFollowWaypointPathState::update()
 	if (shouldRepathThisFrame)
 	{
 		// Update the goal waypoint if we've moved along the path.
-		computeGoal(m_moveAsGroup);
+		computeGoal(AIFollowWaypointPathState::gxRow().moveAsGroup);
 		computePath();
 	}
 
@@ -4527,7 +4715,7 @@ StateReturnType AIAttackFollowWaypointPathState::update()
 //-------------------------------------------------------------------------------------------------
 void AIAttackFollowWaypointPathState ::onExit( StateExitType status )
 {
-	m_attackFollowMachine->setState(AI_IDLE);
+	GXROW_AIATTACKFOLLOWWAYPOINTPATHSTATE.attackFollowMachine->setState(AI_IDLE);
 	AIFollowWaypointPathState::onExit(status);
 }
 
@@ -4562,8 +4750,8 @@ void AIWanderState::xfer( Xfer *xfer )
 
 	AIFollowWaypointPathState::xfer(xfer);
 
-	xfer->xferInt(&m_waitFrames);
-	xfer->xferInt(&m_timer);
+	xfer->xferInt(&GXROW_AIWANDERSTATE.waitFrames);
+	xfer->xferInt(&GXROW_AIWANDERSTATE.timer);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -4578,22 +4766,22 @@ void AIWanderState::loadPostProcess()
 // ------------------------------------------------------------------------------------------------
 StateReturnType AIWanderState::onEnter()
 {
-	m_currentWaypoint = ((AIStateMachine *)getMachine())->getGoalWaypoint();
+	AIFollowWaypointPathState::gxRow().currentWaypoint = ((AIStateMachine *)getMachine())->getGoalWaypoint();
 
 	AIUpdateInterface *ai = getMachineOwner()->getAI();
-	m_priorWaypoint = nullptr;
-	if (m_currentWaypoint == nullptr || ai==nullptr)
+	AIFollowWaypointPathState::gxRow().priorWaypoint = nullptr;
+	if (AIFollowWaypointPathState::gxRow().currentWaypoint == nullptr || ai==nullptr)
 		return STATE_FAILURE;
-	m_groupOffset.x = m_groupOffset.y = 0;
+	AIFollowWaypointPathState::gxRow().groupOffset.x = AIFollowWaypointPathState::gxRow().groupOffset.y = 0;
 	Locomotor* curLoco = ai->getCurLocomotor();
 	if (curLoco && curLoco->getWanderWidthFactor() > 0.0f) {
 		Int delta = REAL_TO_INT_FLOOR(curLoco->getWanderWidthFactor()+0.5f);
 		if (delta<1) delta = 1;
-		m_groupOffset.x = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
-		m_groupOffset.y = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
+		AIFollowWaypointPathState::gxRow().groupOffset.x = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
+		AIFollowWaypointPathState::gxRow().groupOffset.y = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
 	}
-	m_timer = 0;
-	m_waitFrames = 10 + (getMachineOwner()->getID() & 0x7);
+	GXROW_AIWANDERSTATE.timer = 0;
+	GXROW_AIWANDERSTATE.waitFrames = 10 + (getMachineOwner()->getID() & 0x7);
 	// set initial movement goal
 	computeGoal(false);
 	StateReturnType ret = AIInternalMoveToState::onEnter();
@@ -4609,9 +4797,9 @@ StateReturnType AIWanderState::update()
 	Object *obj = getMachineOwner();
 	StateReturnType status = AIInternalMoveToState::update();
 	if (obj->isKindOf(KINDOF_CAN_BE_REPULSED)) {
-		m_timer--;
-		if (m_timer<0) {
-			m_timer = m_waitFrames;
+		GXROW_AIWANDERSTATE.timer--;
+		if (GXROW_AIWANDERSTATE.timer<0) {
+			GXROW_AIWANDERSTATE.timer = GXROW_AIWANDERSTATE.waitFrames;
 			Object* enemy = TheAI->findClosestRepulsor(getMachineOwner(), obj->getVisionRange());
 			if (enemy) {
 				return STATE_FAILURE;
@@ -4623,11 +4811,11 @@ StateReturnType AIWanderState::update()
 	{
 		AIUpdateInterface *ai = obj->getAI();
 
-		m_currentWaypoint = getNextWaypoint();
+		AIFollowWaypointPathState::gxRow().currentWaypoint = getNextWaypoint();
 		// if there are no links from this waypoint, we're done
-		if (m_currentWaypoint == nullptr)	{
+		if (AIFollowWaypointPathState::gxRow().currentWaypoint == nullptr)	{
 			/// Trigger "end of waypoint path" scripts (jba)
-			ai->setCompletedWaypoint(m_priorWaypoint);
+			ai->setCompletedWaypoint(AIFollowWaypointPathState::gxRow().priorWaypoint);
 
 			return STATE_SUCCESS;
 		}
@@ -4636,8 +4824,8 @@ StateReturnType AIWanderState::update()
 		if (curLoco && curLoco->getWanderWidthFactor() > 0.0f) {
 			Int delta = REAL_TO_INT_FLOOR(curLoco->getWanderWidthFactor()+0.5f);
 			if (delta<1) delta = 1;
-			m_groupOffset.x = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
-			m_groupOffset.y = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
+			AIFollowWaypointPathState::gxRow().groupOffset.x = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
+			AIFollowWaypointPathState::gxRow().groupOffset.y = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
 		}
 		computeGoal(false);
 		computePath();
@@ -4684,9 +4872,9 @@ void AIWanderInPlaceState::xfer( Xfer *xfer )
 
 	AIInternalMoveToState::xfer(xfer);
 
-	xfer->xferCoord3D(&m_origin);
-	xfer->xferInt(&m_waitFrames);
-	xfer->xferInt(&m_timer);
+	xfer->xferCoord3D(&GXROW_AIWANDERINPLACESTATE.origin);
+	xfer->xferInt(&GXROW_AIWANDERINPLACESTATE.waitFrames);
+	xfer->xferInt(&GXROW_AIWANDERINPLACESTATE.timer);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -4700,7 +4888,7 @@ void AIWanderInPlaceState::loadPostProcess()
 // ------------------------------------------------------------------------------------------------
 StateReturnType AIWanderInPlaceState::onEnter()
 {
-	m_origin = *getMachineOwner()->getPosition();
+	GXROW_AIWANDERINPLACESTATE.origin = *getMachineOwner()->getPosition();
 
 	AIUpdateInterface *ai = getMachineOwner()->getAI();
 	if (ai) {
@@ -4714,11 +4902,11 @@ StateReturnType AIWanderInPlaceState::onEnter()
 	Coord3D offset;
 	offset.x = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
 	offset.y = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
-	m_goalPosition = m_origin;
-	m_goalPosition.x += offset.x;
-	m_goalPosition.y += offset.y;
-	m_timer = 0;
-	m_waitFrames = 10 + (getMachineOwner()->getID() & 0x7);
+	AIInternalMoveToState::gxRow().goalPosition = GXROW_AIWANDERINPLACESTATE.origin;
+	AIInternalMoveToState::gxRow().goalPosition.x += offset.x;
+	AIInternalMoveToState::gxRow().goalPosition.y += offset.y;
+	GXROW_AIWANDERINPLACESTATE.timer = 0;
+	GXROW_AIWANDERINPLACESTATE.waitFrames = 10 + (getMachineOwner()->getID() & 0x7);
 	StateReturnType ret = AIInternalMoveToState::onEnter();
 	return ret;
 }
@@ -4734,9 +4922,9 @@ StateReturnType AIWanderInPlaceState::update()
 	AIUpdateInterface *ai = getMachineOwner()->getAI();
 	if (!ai) return STATE_FAILURE;
 	if (obj->isKindOf(KINDOF_CAN_BE_REPULSED)) {
-		m_timer--;
-		if (m_timer<0) {
-			m_timer = m_waitFrames;
+		GXROW_AIWANDERINPLACESTATE.timer--;
+		if (GXROW_AIWANDERINPLACESTATE.timer<0) {
+			GXROW_AIWANDERINPLACESTATE.timer = GXROW_AIWANDERINPLACESTATE.waitFrames;
 			Object* enemy = TheAI->findClosestRepulsor(getMachineOwner(), obj->getVisionRange());
 			if (enemy) {
 				return STATE_FAILURE;
@@ -4753,9 +4941,9 @@ StateReturnType AIWanderInPlaceState::update()
 		Coord3D offset;
 		offset.x = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
 		offset.y = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
-		m_goalPosition = m_origin;
-		m_goalPosition.x += offset.x;
-		m_goalPosition.y += offset.y;
+		AIInternalMoveToState::gxRow().goalPosition = GXROW_AIWANDERINPLACESTATE.origin;
+		AIInternalMoveToState::gxRow().goalPosition.x += offset.x;
+		AIInternalMoveToState::gxRow().goalPosition.y += offset.y;
 		AIInternalMoveToState::onEnter();
 		return STATE_CONTINUE;
 	}
@@ -4794,8 +4982,8 @@ void AIPanicState::xfer( Xfer *xfer )
 
 	AIFollowWaypointPathState::xfer(xfer);
 
-	xfer->xferInt(&m_waitFrames);
-	xfer->xferInt(&m_timer);
+	xfer->xferInt(&GXROW_AIPANICSTATE.waitFrames);
+	xfer->xferInt(&GXROW_AIPANICSTATE.timer);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -4811,25 +4999,25 @@ void AIPanicState::loadPostProcess()
  */
 StateReturnType AIPanicState::onEnter()
 {
-	m_currentWaypoint = ((AIStateMachine *)getMachine())->getGoalWaypoint();
+	AIFollowWaypointPathState::gxRow().currentWaypoint = ((AIStateMachine *)getMachine())->getGoalWaypoint();
 
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
-	if (m_currentWaypoint == nullptr)
+	if (AIFollowWaypointPathState::gxRow().currentWaypoint == nullptr)
 		return STATE_FAILURE;
 	// set initial movement goal
 	Locomotor* curLoco = ai->getCurLocomotor();
 	if (curLoco && curLoco->getWanderWidthFactor() > 0.0f) {
 		Int delta = REAL_TO_INT_FLOOR(curLoco->getWanderWidthFactor()+0.5f);
 		if (delta<1) delta = 1;
-		m_groupOffset.x = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
-		m_groupOffset.y = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
+		AIFollowWaypointPathState::gxRow().groupOffset.x = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
+		AIFollowWaypointPathState::gxRow().groupOffset.y = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
 	}
 	computeGoal(false);
 	StateReturnType ret = AIInternalMoveToState::onEnter();
 
-	m_timer = 0;
-	m_waitFrames = 10 + (getMachineOwner()->getID() & 0x7);
+	GXROW_AIPANICSTATE.timer = 0;
+	GXROW_AIPANICSTATE.waitFrames = 10 + (getMachineOwner()->getID() & 0x7);
 	// Update the extra path distance.   AIInternalMoveToState::onEnter resets it.
 	ai->setPathExtraDistance(calcExtraPathDistance());
 	if (obj)
@@ -4848,9 +5036,9 @@ StateReturnType AIPanicState::update()
 
 	Object *obj = getMachineOwner();
 	if (obj->isKindOf(KINDOF_CAN_BE_REPULSED)) {
-		m_timer--;
-		if (m_timer<0) {
-			m_timer = m_waitFrames;
+		GXROW_AIPANICSTATE.timer--;
+		if (GXROW_AIPANICSTATE.timer<0) {
+			GXROW_AIPANICSTATE.timer = GXROW_AIPANICSTATE.waitFrames;
 			Object* enemy = TheAI->findClosestRepulsor(getMachineOwner(), obj->getVisionRange());
 			if (enemy) {
 				return STATE_FAILURE;
@@ -4864,11 +5052,11 @@ StateReturnType AIPanicState::update()
 		Object *obj = getMachineOwner();
 		AIUpdateInterface *ai = obj->getAI();
 
-		m_currentWaypoint = getNextWaypoint();
+		AIFollowWaypointPathState::gxRow().currentWaypoint = getNextWaypoint();
 		// if there are no links from this waypoint, we're done
-		if (m_currentWaypoint == nullptr)	{
+		if (AIFollowWaypointPathState::gxRow().currentWaypoint == nullptr)	{
 			/// Trigger "end of waypoint path" scripts (jba)
-			ai->setCompletedWaypoint(m_priorWaypoint);
+			ai->setCompletedWaypoint(AIFollowWaypointPathState::gxRow().priorWaypoint);
 
 			return STATE_SUCCESS;
 		}
@@ -4876,8 +5064,8 @@ StateReturnType AIPanicState::update()
 		if (curLoco && curLoco->getWanderWidthFactor() > 0.0f) {
 			Int delta = REAL_TO_INT_FLOOR(curLoco->getWanderWidthFactor()+0.5f);
 			if (delta<1) delta = 1;
-			m_groupOffset.x = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
-			m_groupOffset.y = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
+			AIFollowWaypointPathState::gxRow().groupOffset.x = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
+			AIFollowWaypointPathState::gxRow().groupOffset.y = GameLogicRandomValue(-delta, delta)*PATHFIND_CELL_SIZE_F;
 		}
 		computeGoal(false);
 		computePath();
@@ -4917,8 +5105,8 @@ void AIAttackAimAtTargetState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferBool(&m_canTurnInPlace);
-	xfer->xferBool(&m_setLocomotor);
+	xfer->xferBool(&GXROW_AIATTACKAIMATTARGETSTATE.canTurnInPlace);
+	xfer->xferBool(&GXROW_AIATTACKAIMATTARGETSTATE.setLocomotor);
 
 }
 
@@ -4941,7 +5129,7 @@ StateReturnType AIAttackAimAtTargetState::onEnter()
 	AIUpdateInterface* victimAI = victim ? victim->getAI() : nullptr;
 
 	Locomotor* curLoco = sourceAI->getCurLocomotor();
-	m_canTurnInPlace = curLoco ? curLoco->getMinSpeed() == 0.0f : false;
+	GXROW_AIATTACKAIMATTARGETSTATE.canTurnInPlace = curLoco ? curLoco->getMinSpeed() == 0.0f : false;
 
 
 //	if (!victim)
@@ -4984,9 +5172,9 @@ StateReturnType AIAttackAimAtTargetState::onEnter()
 		//Order all turrets to attack.
 		for( Int i = 0; i < MAX_TURRETS; i++ )
 		{
-			if( m_isAttackingObject )
+			if( GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject )
 			{
-				sourceAI->setTurretTargetObject( (WhichTurretType)i, victim, m_isForceAttacking );
+				sourceAI->setTurretTargetObject( (WhichTurretType)i, victim, GXROW_AIATTACKAIMATTARGETSTATE.isForceAttacking );
 			}
 			else
 			{
@@ -5000,9 +5188,9 @@ StateReturnType AIAttackAimAtTargetState::onEnter()
 		if (tur != TURRET_INVALID)
 		{
 			//Order specific turret to attack.
-			if (m_isAttackingObject)
+			if (GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject)
 			{
-				sourceAI->setTurretTargetObject(tur, victim, m_isForceAttacking);
+				sourceAI->setTurretTargetObject(tur, victim, GXROW_AIATTACKAIMATTARGETSTATE.isForceAttacking);
 			}
 			else
 			{
@@ -5021,7 +5209,7 @@ StateReturnType AIAttackAimAtTargetState::onEnter()
 				return STATE_SUCCESS;
 		}
 	}
-	m_setLocomotor = false;
+	GXROW_AIATTACKAIMATTARGETSTATE.setLocomotor = false;
 
 	source->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_IS_AIMING_WEAPON ) );
 	return STATE_CONTINUE;
@@ -5042,7 +5230,7 @@ StateReturnType AIAttackAimAtTargetState::update()
 		return STATE_FAILURE;
 
 	Object* victim = getMachineGoalObject();
-	if (m_isAttackingObject)
+	if (GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject)
 	{
 		if (!victim || victim->isEffectivelyDead())
 			return STATE_FAILURE;	// can't aim at dead things
@@ -5051,9 +5239,9 @@ StateReturnType AIAttackAimAtTargetState::update()
 	WhichTurretType tur = sourceAI->getWhichTurretForCurWeapon();
 	if (tur != TURRET_INVALID)
 	{
-		if (m_isAttackingObject)
+		if (GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject)
 		{
-			sourceAI->setTurretTargetObject(tur, victim, m_isForceAttacking);
+			sourceAI->setTurretTargetObject(tur, victim, GXROW_AIATTACKAIMATTARGETSTATE.isForceAttacking);
 		}
 		else
 		{
@@ -5067,7 +5255,7 @@ StateReturnType AIAttackAimAtTargetState::update()
 			// The Body can never return Success if the weapon is on the turret, or else we end
 			// up shooting the current weapon (which is on the turret) in the wrong direction.
 			// We always say Continue, so the Turret can do its own Aiming state.
-//			if (m_isAttackingObject && source->canCrushOrSquish(victim)) {
+//			if (GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject && source->canCrushOrSquish(victim)) {
 //				return STATE_SUCCESS;
 //			}
 			return STATE_CONTINUE;
@@ -5078,7 +5266,7 @@ StateReturnType AIAttackAimAtTargetState::update()
 
 	// no else here!
 	{
-		Real relAngle = m_isAttackingObject ?
+		Real relAngle = GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject ?
 											ThePartitionManager->getRelativeAngle2D( source, victim ) :
 											ThePartitionManager->getRelativeAngle2D( source, getMachineGoalPosition() );
 
@@ -5093,18 +5281,18 @@ StateReturnType AIAttackAimAtTargetState::update()
 		}
 
 		//DEBUG_LOG(("AIM: desired %f, actual %f, delta %f, aimDelta %f, goalpos %f %f",rad2deg(obj->getOrientation() + relAngle),rad2deg(obj->getOrientation()),rad2deg(relAngle),rad2deg(aimDelta),victim->getPosition()->x,victim->getPosition()->y));
-		if (m_canTurnInPlace)
+		if (GXROW_AIATTACKAIMATTARGETSTATE.canTurnInPlace)
 		{
 			if (fabs(relAngle) > aimDelta)
 			{
 				Real desiredAngle = source->getOrientation() + relAngle;
 				sourceAI->setLocomotorGoalOrientation(desiredAngle);
-				m_setLocomotor = true;
+				GXROW_AIATTACKAIMATTARGETSTATE.setLocomotor = true;
 			}
 		}
 		else
 		{
-			sourceAI->setLocomotorGoalPositionExplicit(m_isAttackingObject ? *victim->getPosition() : *getMachineGoalPosition());
+			sourceAI->setLocomotorGoalPositionExplicit(GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject ? *victim->getPosition() : *getMachineGoalPosition());
 		}
 
 		if (fabs(relAngle) < aimDelta /*&& !m_preAttackFrames*/ )
@@ -5139,10 +5327,10 @@ StateReturnType AIAttackAimAtTargetState::update()
 
 		// NO BAD WRONG!!! How can this be the one spot to convert an Object to a center pos?  We have
 		// an attack object check for a reason!  The center and the edge can be very far apart.
-//		const Coord3D *pos = m_isAttackingObject ? victim->getPosition() : getMachineGoalPosition();
+//		const Coord3D *pos = GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject ? victim->getPosition() : getMachineGoalPosition();
 
 		Bool inRange = FALSE;
-		if( m_isAttackingObject )
+		if( GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject )
 			inRange = weapon ? weapon->isWithinAttackRange(source, victim) : FALSE;
 		else
 			inRange = weapon ? weapon->isWithinAttackRange(source, getMachineGoalPosition()) : FALSE;
@@ -5162,11 +5350,11 @@ StateReturnType AIAttackAimAtTargetState::update()
 void AIAttackAimAtTargetState::onExit( StateExitType status )
 {
 	// contained by AIAttackState, so no separate timer
-	if (m_canTurnInPlace)
+	if (GXROW_AIATTACKAIMATTARGETSTATE.canTurnInPlace)
 	{
 		AIUpdateInterface* sourceAI = getMachineOwner()->getAI();
 		// Tell the ai we are done moving, if we set the locomotor goal.
-		if (sourceAI && m_setLocomotor)
+		if (sourceAI && GXROW_AIATTACKAIMATTARGETSTATE.setLocomotor)
 			sourceAI->setLocomotorGoalNone();
 	}
 	else
@@ -5384,17 +5572,18 @@ StateReturnType AIWaitState::update()
 //----------------------------------------------------------------------------------------------------------
 
 //----------------------------------------------------------------------------------------------------------
-AIAttackState::AIAttackState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking, AttackExitConditionsInterface* attackParameters) :
-	State( machine , "AIAttackState"),
-	m_attackMachine(nullptr),
-	m_attackParameters(attackParameters),
-	m_lockedWeaponOnEnter(nullptr),
-	m_follow(follow),
-	m_isAttackingObject(attackingObject),
-	m_isForceAttacking(forceAttacking),
-	m_victimTeam( nullptr )
+AIAttackState::AIAttackState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking, AttackExitConditionsInterface* attackParameters) : State( machine , "AIAttackState")
 {
-	m_originalVictimPos.zero();
+	m_gxAIAttackStateRow = TheGxAIAttackStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIATTACKSTATE.attackMachine = nullptr;
+	GXROW_AIATTACKSTATE.attackParameters = attackParameters;
+	GXROW_AIATTACKSTATE.lockedWeaponOnEnter = nullptr;
+	GXROW_AIATTACKSTATE.follow = follow;
+	GXROW_AIATTACKSTATE.isAttackingObject = attackingObject;
+	GXROW_AIATTACKSTATE.isForceAttacking = forceAttacking;
+	GXROW_AIATTACKSTATE.victimTeam = nullptr;
+
+	GXROW_AIATTACKSTATE.originalVictimPos.zero();
 #ifdef STATE_MACHINE_DEBUG
 	if (machine->getWantsDebugOutput()) {
 		DEBUG_LOG(("Creating attack state follow %d, attacking object %d, force attacking %d",
@@ -5411,11 +5600,12 @@ AIAttackState::~AIAttackState()
 	// turn it off when we do setCurrentVictim(nullptr).
 	//addSelfAsTargeter(false);
 
-	if (m_attackMachine)
+	if (GXROW_AIATTACKSTATE.attackMachine)
 	{
-		m_attackMachine->halt();
-		deleteInstance(m_attackMachine);
+		GXROW_AIATTACKSTATE.attackMachine->halt();
+		deleteInstance(GXROW_AIATTACKSTATE.attackMachine);
 	}
+	TheGxAIAttackStates.release( m_gxAIAttackStateRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -5435,23 +5625,23 @@ void AIAttackState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	Bool hasMachine = m_attackMachine!=nullptr;
+	Bool hasMachine = GXROW_AIATTACKSTATE.attackMachine!=nullptr;
 
 	xfer->xferBool(&hasMachine);
-	xfer->xferCoord3D(&m_originalVictimPos);
+	xfer->xferCoord3D(&GXROW_AIATTACKSTATE.originalVictimPos);
 
-	if (hasMachine && m_attackMachine==nullptr)	{
+	if (hasMachine && GXROW_AIATTACKSTATE.attackMachine==nullptr)	{
 		// create new state machine for attack behavior
-		m_attackMachine = newInstance(AttackStateMachine)(getMachineOwner(), this, "AIAttackMachine", m_follow, m_isAttackingObject, m_isForceAttacking  );
+		GXROW_AIATTACKSTATE.attackMachine = newInstance(AttackStateMachine)(getMachineOwner(), this, "AIAttackMachine", GXROW_AIATTACKSTATE.follow, GXROW_AIATTACKSTATE.isAttackingObject, GXROW_AIATTACKSTATE.isForceAttacking  );
 	}
 	if (hasMachine) {
-		xfer->xferSnapshot(m_attackMachine);						///< state sub-machine for attack behavior
+		xfer->xferSnapshot(GXROW_AIATTACKSTATE.attackMachine);						///< state sub-machine for attack behavior
 	}
 	/* Not saved or loaded - passed in on creation.
-	Bool										m_follow;
-	Bool										m_isAttackingObject;								// if false, attacking position
-	AttackExitConditionsInterface*	m_attackParameters;					///< these are not owned by this, and will not be deleted on destruction
-	Bool										m_isForceAttacking
+	Bool										GXROW_AIATTACKSTATE.follow;
+	Bool										GXROW_AIATTACKSTATE.isAttackingObject;								// if false, attacking position
+	AttackExitConditionsInterface*	GXROW_AIATTACKSTATE.attackParameters;					///< these are not owned by this, and will not be deleted on destruction
+	Bool										GXROW_AIATTACKSTATE.isForceAttacking
 	*/
 }
 
@@ -5463,10 +5653,10 @@ void AIAttackState::loadPostProcess()
 	Object* victim = getMachineGoalObject();
 	if (victim)
 	{
-		m_victimTeam = victim->getTeam();
+		GXROW_AIATTACKSTATE.victimTeam = victim->getTeam();
 	}
 	Object* source = getMachineOwner();
-	m_lockedWeaponOnEnter = source->isCurWeaponLocked() ? source->getCurrentWeapon() : nullptr;
+	GXROW_AIATTACKSTATE.lockedWeaponOnEnter = source->isCurWeaponLocked() ? source->getCurrentWeapon() : nullptr;
 }
 
 #ifdef STATE_MACHINE_DEBUG
@@ -5475,8 +5665,8 @@ AsciiString AIAttackState::getName(  ) const
 {
 	AsciiString name = m_name;
 	name.concat("/");
-	if (m_attackMachine) name.concat(m_attackMachine->getCurrentStateName());
-	else name.concat("*null m_attackMachine");
+	if (GXROW_AIATTACKSTATE.attackMachine) name.concat(GXROW_AIATTACKSTATE.attackMachine->getCurrentStateName());
+	else name.concat("*null GXROW_AIATTACKSTATE.attackMachine");
 	return name;
 }
 #endif
@@ -5485,7 +5675,7 @@ AsciiString AIAttackState::getName(  ) const
 Bool AIAttackState::chooseWeapon()
 {
 	Object* victim = getMachineGoalObject();
-	if (m_isAttackingObject && !victim)
+	if (GXROW_AIATTACKSTATE.isAttackingObject && !victim)
 		return FALSE;
 
 	Object* source = getMachineOwner();
@@ -5507,10 +5697,10 @@ Bool AIAttackState::chooseWeapon()
 //----------------------------------------------------------------------------------------------------------
 void AIAttackState::notifyNewVictimChosen(Object* victim)
 {
-	// do NOT update m_originalVictimPos here. It's a new victim, not the original!
+	// do NOT update GXROW_AIATTACKSTATE.originalVictimPos here. It's a new victim, not the original!
 	getMachine()->setGoalObject(victim);
-	if (m_attackMachine)
-		m_attackMachine->setGoalObject(victim);
+	if (GXROW_AIATTACKSTATE.attackMachine)
+		GXROW_AIATTACKSTATE.attackMachine->setGoalObject(victim);
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -5530,8 +5720,8 @@ StateReturnType AIAttackState::onEnter()
 	if ((ai->getMoodMatrixActionAdjustment(MM_Action_Attack) & MAA_Action_Ok) == 0)
 		return STATE_SUCCESS;
 
-	// if we've met the conditions specified by m_attackParameters, we consider ourselves "successful."
-	if (m_attackParameters && m_attackParameters->shouldExit(getMachine()))
+	// if we've met the conditions specified by GXROW_AIATTACKSTATE.attackParameters, we consider ourselves "successful."
+	if (GXROW_AIATTACKSTATE.attackParameters && GXROW_AIATTACKSTATE.attackParameters->shouldExit(getMachine()))
 		return STATE_SUCCESS;
 
 	//Kris: Jan 12, 2005
@@ -5549,13 +5739,13 @@ StateReturnType AIAttackState::onEnter()
 
 	// create new state machine for attack behavior
 	//CRCDEBUG_LOG(("AIAttackState::onEnter() - constructing state machine for object %d", getMachineOwner()->getID()));
-	m_attackMachine = newInstance(AttackStateMachine)(source, this, "AIAttackMachine", m_follow, m_isAttackingObject, m_isForceAttacking  );
+	GXROW_AIATTACKSTATE.attackMachine = newInstance(AttackStateMachine)(source, this, "AIAttackMachine", GXROW_AIATTACKSTATE.follow, GXROW_AIATTACKSTATE.isAttackingObject, GXROW_AIATTACKSTATE.isForceAttacking  );
 
 #ifdef STATE_MACHINE_DEBUG
-	m_attackMachine->setDebugOutput(getMachine()->getWantsDebugOutput());
+	GXROW_AIATTACKSTATE.attackMachine->setDebugOutput(getMachine()->getWantsDebugOutput());
 #endif
 	// tell the attack machine who the victim of the attack is
-	if (m_isAttackingObject)
+	if (GXROW_AIATTACKSTATE.isAttackingObject)
 	{
 		Object* victim = getMachineGoalObject();
 		if (victim == nullptr || victim->isEffectivelyDead())
@@ -5563,14 +5753,14 @@ StateReturnType AIAttackState::onEnter()
 			ai->notifyVictimIsDead();
 			return STATE_FAILURE;	// we have nothing to attack!
 		}
-		m_victimTeam = victim->getTeam();
-		m_attackMachine->setGoalObject( victim );
-		m_originalVictimPos = *victim->getPosition();
+		GXROW_AIATTACKSTATE.victimTeam = victim->getTeam();
+		GXROW_AIATTACKSTATE.attackMachine->setGoalObject( victim );
+		GXROW_AIATTACKSTATE.originalVictimPos = *victim->getPosition();
 	}
 	else
 	{
-		m_attackMachine->setGoalPosition(getMachineGoalPosition());
-		m_originalVictimPos = *getMachineGoalPosition();
+		GXROW_AIATTACKSTATE.attackMachine->setGoalPosition(getMachineGoalPosition());
+		GXROW_AIATTACKSTATE.originalVictimPos = *getMachineGoalPosition();
 	}
 
 	// Something can happen to make none of our weapons work.  Return failure, or we will start shooting
@@ -5588,9 +5778,9 @@ StateReturnType AIAttackState::onEnter()
 			source->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_IGNORING_STEALTH ) );
 	}
 
-	m_lockedWeaponOnEnter = source->isCurWeaponLocked() ? curWeapon : nullptr;
+	GXROW_AIATTACKSTATE.lockedWeaponOnEnter = source->isCurWeaponLocked() ? curWeapon : nullptr;
 
-	StateReturnType retType = m_attackMachine->initDefaultState();
+	StateReturnType retType = GXROW_AIATTACKSTATE.attackMachine->initDefaultState();
 	if( retType == STATE_CONTINUE )
 	{
 		source->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_IS_ATTACKING ) );
@@ -5607,8 +5797,8 @@ StateReturnType AIAttackState::onEnter()
 StateReturnType AIAttackState::update()
 {
 	USE_PERF_TIMER(AIAttackState)
-	// if we've met the conditions specified by m_attackParameters, we consider ourselves "successful."
-	if (m_attackParameters && m_attackParameters->shouldExit(getMachine()))
+	// if we've met the conditions specified by GXROW_AIATTACKSTATE.attackParameters, we consider ourselves "successful."
+	if (GXROW_AIATTACKSTATE.attackParameters && GXROW_AIATTACKSTATE.attackParameters->shouldExit(getMachine()))
 	{
 		return STATE_SUCCESS;
 	}
@@ -5622,7 +5812,7 @@ StateReturnType AIAttackState::update()
 		return STATE_FAILURE;
 	}
 
-	if (m_isAttackingObject)
+	if (GXROW_AIATTACKSTATE.isAttackingObject)
 	{
 		Object* victim = getMachineGoalObject();
 
@@ -5637,7 +5827,7 @@ StateReturnType AIAttackState::update()
 			source->getAI()->setCurrentVictim(victim);
 		}
 
-		if( victim->getTeam() != m_victimTeam )
+		if( victim->getTeam() != GXROW_AIATTACKSTATE.victimTeam )
 		{
 			// If, while I have been attacking my victim, it has lost its ability to attack
 			//(a recently de-garrisoned building) I should bail here...
@@ -5679,10 +5869,10 @@ StateReturnType AIAttackState::update()
 			}
 		}
 
-		if (victim != m_attackMachine->getGoalObject())
+		if (victim != GXROW_AIATTACKSTATE.attackMachine->getGoalObject())
 		{
 			// Our parent machine has changed the goal.  We need to reset to the new goal.  jba.
-			m_attackMachine->setGoalObject( victim );
+			GXROW_AIATTACKSTATE.attackMachine->setGoalObject( victim );
 		}
 	}
 
@@ -5699,7 +5889,7 @@ StateReturnType AIAttackState::update()
 	// if we entered with a locked weapon (ie, a special weapon), then we will
 	// only keep attacking as long as that weapon remains the cur weapon...
 	// if anything ever changes that weapon, we exit attack mode immediately.
-	if (m_lockedWeaponOnEnter != nullptr && m_lockedWeaponOnEnter != curWeapon)
+	if (GXROW_AIATTACKSTATE.lockedWeaponOnEnter != nullptr && GXROW_AIATTACKSTATE.lockedWeaponOnEnter != curWeapon)
 		return STATE_FAILURE;
 
 	// we've shot as many times as we are allowed to
@@ -5714,7 +5904,7 @@ StateReturnType AIAttackState::update()
 	 * Note the use of CONVERT_SLEEP_TO_CONTINUE; even if the sub-machine
 	 * sleeps, we still need to be called every frame.
 	 */
-	return CONVERT_SLEEP_TO_CONTINUE(m_attackMachine->updateStateMachine());
+	return CONVERT_SLEEP_TO_CONTINUE(GXROW_AIATTACKSTATE.attackMachine->updateStateMachine());
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -5727,8 +5917,8 @@ void AIAttackState::onExit( StateExitType status )
 	//addSelfAsTargeter(false);
 
 	// destroy the attack machine
-	deleteInstance(m_attackMachine);
-	m_attackMachine = nullptr;
+	deleteInstance(GXROW_AIATTACKSTATE.attackMachine);
+	GXROW_AIATTACKSTATE.attackMachine = nullptr;
 
 	Object *obj = getMachineOwner();
 	obj->clearStatus( MAKE_OBJECT_STATUS_MASK4( OBJECT_STATUS_IS_FIRING_WEAPON,
@@ -5818,10 +6008,11 @@ AIAttackThenIdleStateMachine::~AIAttackThenIdleStateMachine()
 //----------------------------------------------------------------------------------------------------------
 AIAttackSquadState::~AIAttackSquadState()
 {
-	if (m_attackSquadMachine)	{
-		m_attackSquadMachine->halt();
-		deleteInstance(m_attackSquadMachine);
+	if (GXROW_AIATTACKSQUADSTATE.attackSquadMachine)	{
+		GXROW_AIATTACKSQUADSTATE.attackSquadMachine->halt();
+		deleteInstance(GXROW_AIATTACKSQUADSTATE.attackSquadMachine);
 	}
+	TheGxAIAttackSquadStates.release( m_gxAIAttackSquadStateRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -5841,17 +6032,17 @@ void AIAttackSquadState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	Bool hasMachine = m_attackSquadMachine!=nullptr;
+	Bool hasMachine = GXROW_AIATTACKSQUADSTATE.attackSquadMachine!=nullptr;
 
 	xfer->xferBool(&hasMachine);
 
-	if (hasMachine && m_attackSquadMachine==nullptr)	{
+	if (hasMachine && GXROW_AIATTACKSQUADSTATE.attackSquadMachine==nullptr)	{
 		// create new state machine for attack behavior
-		m_attackSquadMachine = newInstance(AIAttackThenIdleStateMachine)( getMachineOwner(), "AIAttackMachine"  );
+		GXROW_AIATTACKSQUADSTATE.attackSquadMachine = newInstance(AIAttackThenIdleStateMachine)( getMachineOwner(), "AIAttackMachine"  );
 	}
 
 	if (hasMachine) {
-		xfer->xferSnapshot(m_attackSquadMachine);
+		xfer->xferSnapshot(GXROW_AIATTACKSQUADSTATE.attackSquadMachine);
 	}
 }
 
@@ -5868,8 +6059,8 @@ AsciiString AIAttackSquadState::getName(  ) const
 {
 	AsciiString name = m_name;
 	name.concat("/");
-	if (m_attackSquadMachine) name.concat(m_attackSquadMachine->getCurrentStateName());
-	else name.concat("*null m_attackSquadMachine");
+	if (GXROW_AIATTACKSQUADSTATE.attackSquadMachine) name.concat(GXROW_AIATTACKSQUADSTATE.attackSquadMachine->getCurrentStateName());
+	else name.concat("*null GXROW_AIATTACKSQUADSTATE.attackSquadMachine");
 	return name;
 }
 #endif
@@ -5882,14 +6073,14 @@ AsciiString AIAttackSquadState::getName(  ) const
 StateReturnType AIAttackSquadState::onEnter()
 {
 	// create new state machine for attack behavior
-	m_attackSquadMachine = newInstance(AIAttackThenIdleStateMachine)( getMachineOwner(), "AIAttackMachine"  );
+	GXROW_AIATTACKSQUADSTATE.attackSquadMachine = newInstance(AIAttackThenIdleStateMachine)( getMachineOwner(), "AIAttackMachine"  );
 
 	Object *victim = chooseVictim();
 	// tell the attack machine who the victim of the attack is
-	m_attackSquadMachine->setGoalObject( victim );
+	GXROW_AIATTACKSQUADSTATE.attackSquadMachine->setGoalObject( victim );
 
 	// initial state of attack state machine
-	return m_attackSquadMachine->initDefaultState();
+	return GXROW_AIATTACKSQUADSTATE.attackSquadMachine->initDefaultState();
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -5900,7 +6091,7 @@ StateReturnType AIAttackSquadState::onEnter()
 StateReturnType AIAttackSquadState::update()
 {
 
-	if( !m_attackSquadMachine )
+	if( !GXROW_AIATTACKSQUADSTATE.attackSquadMachine )
 	{
 		return STATE_FAILURE;
 	}
@@ -5909,10 +6100,10 @@ StateReturnType AIAttackSquadState::update()
 		Note the use of CONVERT_SLEEP_TO_CONTINUE; even if the sub-machine
 		sleeps, we still need to be called every frame.
 	*/
-	StateReturnType attackStatus = CONVERT_SLEEP_TO_CONTINUE(m_attackSquadMachine->updateStateMachine());
+	StateReturnType attackStatus = CONVERT_SLEEP_TO_CONTINUE(GXROW_AIATTACKSQUADSTATE.attackSquadMachine->updateStateMachine());
 
 	// if we're in attack state,
-	if (m_attackSquadMachine->getCurrentStateID() != AI_IDLE)
+	if (GXROW_AIATTACKSQUADSTATE.attackSquadMachine->getCurrentStateID() != AI_IDLE)
 	{
 		return attackStatus;
 	}
@@ -5922,8 +6113,8 @@ StateReturnType AIAttackSquadState::update()
 	Object* crate = ai->checkForCrateToPickup();
 	if (crate)
 	{
-		m_attackSquadMachine->setGoalObject(crate);
-		m_attackSquadMachine->setState( AI_PICK_UP_CRATE );
+		GXROW_AIATTACKSQUADSTATE.attackSquadMachine->setGoalObject(crate);
+		GXROW_AIATTACKSQUADSTATE.attackSquadMachine->setState( AI_PICK_UP_CRATE );
 		return STATE_CONTINUE;
 	}
 
@@ -5934,8 +6125,8 @@ StateReturnType AIAttackSquadState::update()
 		return STATE_SUCCESS;
 	}
 
-	m_attackSquadMachine->setGoalObject( victim );
-	m_attackSquadMachine->setState(AI_ATTACK_OBJECT);
+	GXROW_AIATTACKSQUADSTATE.attackSquadMachine->setGoalObject( victim );
+	GXROW_AIATTACKSQUADSTATE.attackSquadMachine->setState(AI_ATTACK_OBJECT);
 	return STATE_CONTINUE;
 }
 
@@ -5943,8 +6134,8 @@ StateReturnType AIAttackSquadState::update()
 void AIAttackSquadState::onExit( StateExitType status )
 {
 	// destroy the attack machine
-	deleteInstance(m_attackSquadMachine);
-	m_attackSquadMachine = nullptr;
+	deleteInstance(GXROW_AIATTACKSQUADSTATE.attackSquadMachine);
+	GXROW_AIATTACKSQUADSTATE.attackSquadMachine = nullptr;
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -6052,10 +6243,11 @@ Object *AIAttackSquadState::chooseVictim()
 //----------------------------------------------------------------------------------------------------------
 AIDockState::~AIDockState()
 {
-	if (m_dockMachine) {
-		m_dockMachine->halt();
-		deleteInstance(m_dockMachine);
+	if (GXROW_AIDOCKSTATE.dockMachine) {
+		GXROW_AIDOCKSTATE.dockMachine->halt();
+		deleteInstance(GXROW_AIDOCKSTATE.dockMachine);
 	}
+	TheGxAIDockStates.release( m_gxAIDockStateRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -6075,18 +6267,18 @@ void AIDockState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	Bool hasMachine = m_dockMachine!=nullptr;
+	Bool hasMachine = GXROW_AIDOCKSTATE.dockMachine!=nullptr;
 
 	xfer->xferBool(&hasMachine);
 
-	if (hasMachine && m_dockMachine==nullptr)	{
+	if (hasMachine && GXROW_AIDOCKSTATE.dockMachine==nullptr)	{
 		// create new state machine for attack behavior
-		m_dockMachine = newInstance(AIDockMachine)( getMachineOwner());
+		GXROW_AIDOCKSTATE.dockMachine = newInstance(AIDockMachine)( getMachineOwner());
 	}
 	if (hasMachine) {
-		xfer->xferSnapshot(m_dockMachine);
+		xfer->xferSnapshot(GXROW_AIDOCKSTATE.dockMachine);
 	}
-	xfer->xferBool(&m_usingPrecisionMovement);
+	xfer->xferBool(&GXROW_AIDOCKSTATE.usingPrecisionMovement);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -6102,8 +6294,8 @@ AsciiString AIDockState::getName(  ) const
 {
 	AsciiString name = m_name;
 	name.concat("/");
-	if (m_dockMachine) name.concat(m_dockMachine->getCurrentStateName());
-	else name.concat("*null m_dockMachine");
+	if (GXROW_AIDOCKSTATE.dockMachine) name.concat(GXROW_AIDOCKSTATE.dockMachine->getCurrentStateName());
+	else name.concat("*null GXROW_AIDOCKSTATE.dockMachine");
 	return name;
 }
 #endif
@@ -6141,12 +6333,12 @@ StateReturnType AIDockState::onEnter()
 	}
 
 	// create new state machine for attack behavior
-	m_dockMachine = newInstance(AIDockMachine)( getMachineOwner());
+	GXROW_AIDOCKSTATE.dockMachine = newInstance(AIDockMachine)( getMachineOwner());
 
 	// tell the docking machine what it is docking with
-	m_dockMachine->setGoalObject( dockWithMe );
+	GXROW_AIDOCKSTATE.dockMachine->setGoalObject( dockWithMe );
 	// now that essential parameters are set, set the machine's initial state
-	return m_dockMachine->initDefaultState();
+	return GXROW_AIDOCKSTATE.dockMachine->initDefaultState();
 }
 
 /**
@@ -6156,10 +6348,10 @@ StateReturnType AIDockState::onEnter()
 void AIDockState::onExit( StateExitType status )
 {
 	// destroy the dock machine
-	if (m_dockMachine) {
-		m_dockMachine->halt();// GS, you have to halt before you delete to do cleanup.
-		deleteInstance(m_dockMachine);
-		m_dockMachine = nullptr;
+	if (GXROW_AIDOCKSTATE.dockMachine) {
+		GXROW_AIDOCKSTATE.dockMachine->halt();// GS, you have to halt before you delete to do cleanup.
+		deleteInstance(GXROW_AIDOCKSTATE.dockMachine);
+		GXROW_AIDOCKSTATE.dockMachine = nullptr;
 	}	else {
 		DEBUG_LOG(("Dock exited immediately"));
 	}
@@ -6202,7 +6394,7 @@ StateReturnType AIDockState::update()
 		Note the use of CONVERT_SLEEP_TO_CONTINUE; even if the sub-machine
 		sleeps, we still need to be called every frame.
 	*/
-	return CONVERT_SLEEP_TO_CONTINUE(m_dockMachine->updateStateMachine());
+	return CONVERT_SLEEP_TO_CONTINUE(GXROW_AIDOCKSTATE.dockMachine->updateStateMachine());
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -6229,7 +6421,7 @@ void AIEnterState::xfer( Xfer *xfer )
 
 	AIInternalMoveToState::xfer(xfer);
 
-	xfer->xferObjectID(&m_entryToClear);
+	xfer->xferObjectID(&GXROW_AIENTERSTATE.entryToClear);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -6243,7 +6435,7 @@ void AIEnterState::loadPostProcess()
 //----------------------------------------------------------------------------------------------------------
 StateReturnType AIEnterState::onEnter()
 {
-	m_entryToClear = INVALID_ID;
+	GXROW_AIENTERSTATE.entryToClear = INVALID_ID;
 
 	Object* obj = getMachineOwner();
 	Object* goal = getMachineGoalObject();
@@ -6252,13 +6444,13 @@ StateReturnType AIEnterState::onEnter()
 		if( !TheActionManager->canEnterObject( obj, goal, obj->getAI()->getLastCommandSource(), CHECK_CAPACITY ) )
 			return STATE_FAILURE;
 
-		m_goalPosition = *goal->getPosition();
+		AIInternalMoveToState::gxRow().goalPosition = *goal->getPosition();
 
 		ContainModuleInterface* contain = goal->getContain();
 		if (contain)
 		{
 			contain->onObjectWantsToEnterOrExit(obj, WANTS_TO_ENTER);
-			m_entryToClear = goal->getID();
+			GXROW_AIENTERSTATE.entryToClear = goal->getID();
 		}
 	}
 	else
@@ -6297,9 +6489,9 @@ void AIEnterState::onExit( StateExitType status )
 
 	// use this, rather than getMachineGoalObject, in case the goal
 	// is killed while we were waiting...
-	if (m_entryToClear != INVALID_ID)
+	if (GXROW_AIENTERSTATE.entryToClear != INVALID_ID)
 	{
-		Object* goal = TheGameLogic->findObjectByID(m_entryToClear);
+		Object* goal = TheGameLogic->findObjectByID(GXROW_AIENTERSTATE.entryToClear);
 		if (goal)
 		{
 			ContainModuleInterface* contain = goal->getContain();
@@ -6339,7 +6531,7 @@ StateReturnType AIEnterState::update()
 			return STATE_FAILURE;
 		}
 
-		m_goalPosition = *goal->getPosition();
+		AIInternalMoveToState::gxRow().goalPosition = *goal->getPosition();
 		obj->getAI()->friend_setGoalObject(goal);
 		if (!TheActionManager->canEnterObject(obj, goal, obj->getAI()->getLastCommandSource(), CHECK_CAPACITY))
 		{
@@ -6450,7 +6642,7 @@ void AIExitState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferObjectID(&m_entryToClear);
+	xfer->xferObjectID(&GXROW_AIEXITSTATE.entryToClear);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -6463,7 +6655,7 @@ void AIExitState::loadPostProcess()
 //----------------------------------------------------------------------------------------------------------
 StateReturnType AIExitState::onEnter()
 {
-	m_entryToClear = INVALID_ID;
+	GXROW_AIEXITSTATE.entryToClear = INVALID_ID;
 
 	Object* obj = getMachineOwner();
 	Object* goal = getMachineGoalObject();
@@ -6473,7 +6665,7 @@ StateReturnType AIExitState::onEnter()
 		if (contain)
 		{
 			contain->onObjectWantsToEnterOrExit(obj, WANTS_TO_EXIT);
-			m_entryToClear = goal->getID();
+			GXROW_AIEXITSTATE.entryToClear = goal->getID();
 		}
 		return STATE_CONTINUE;
 	}
@@ -6530,9 +6722,9 @@ void AIExitState::onExit( StateExitType status )
 
 	// use this, rather than getMachineGoalObject, in case the goal
 	// is killed while we were waiting...
-	if (m_entryToClear != INVALID_ID)
+	if (GXROW_AIEXITSTATE.entryToClear != INVALID_ID)
 	{
-		Object* goal = TheGameLogic->findObjectByID(m_entryToClear);
+		Object* goal = TheGameLogic->findObjectByID(GXROW_AIEXITSTATE.entryToClear);
 		if (goal)
 		{
 			ContainModuleInterface* contain = goal->getContain();
@@ -6565,7 +6757,7 @@ void AIExitInstantlyState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferObjectID(&m_entryToClear);
+	xfer->xferObjectID(&GXROW_AIEXITINSTANTLYSTATE.entryToClear);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -6578,7 +6770,7 @@ void AIExitInstantlyState::loadPostProcess()
 //----------------------------------------------------------------------------------------------------------
 StateReturnType AIExitInstantlyState::onEnter()
 {
-	m_entryToClear = INVALID_ID;
+	GXROW_AIEXITINSTANTLYSTATE.entryToClear = INVALID_ID;
 
 	Object* obj = getMachineOwner();
 	Object* goal = getMachineGoalObject();
@@ -6588,7 +6780,7 @@ StateReturnType AIExitInstantlyState::onEnter()
 		if (contain)
 		{
 			contain->onObjectWantsToEnterOrExit(obj, WANTS_TO_EXIT);
-			m_entryToClear = goal->getID();
+			GXROW_AIEXITINSTANTLYSTATE.entryToClear = goal->getID();
 		}
 
 		DEBUG_ASSERTCRASH(obj, ("obj must not be null here"));
@@ -6626,9 +6818,9 @@ void AIExitInstantlyState::onExit( StateExitType status )
 
 	// use this, rather than getMachineGoalObject, in case the goal
 	// is killed while we were waiting...
-	if (m_entryToClear != INVALID_ID)
+	if (GXROW_AIEXITINSTANTLYSTATE.entryToClear != INVALID_ID)
 	{
-		Object* goal = TheGameLogic->findObjectByID(m_entryToClear);
+		Object* goal = TheGameLogic->findObjectByID(GXROW_AIEXITINSTANTLYSTATE.entryToClear);
 		if (goal)
 		{
 			ContainModuleInterface* contain = goal->getContain();
@@ -6647,10 +6839,11 @@ void AIExitInstantlyState::onExit( StateExitType status )
 //----------------------------------------------------------------------------------------------------------
 AIGuardState::~AIGuardState()
 {
-	if (m_guardMachine)	{
-		m_guardMachine->halt();
-		deleteInstance(m_guardMachine);
+	if (GXROW_AIGUARDSTATE.guardMachine)	{
+		GXROW_AIGUARDSTATE.guardMachine->halt();
+		deleteInstance(GXROW_AIGUARDSTATE.guardMachine);
 	}
+	TheGxAIGuardStates.release( m_gxAIGuardStateRow );	// web port (round 5)
 }
 
 
@@ -6660,7 +6853,7 @@ AsciiString AIGuardState::getName(  ) const
 {
 	AsciiString name = m_name;
 	name.concat("/");
-	if (m_guardMachine) name.concat(m_guardMachine->getCurrentStateName());
+	if (GXROW_AIGUARDSTATE.guardMachine) name.concat(GXROW_AIGUARDSTATE.guardMachine->getCurrentStateName());
 	else name.concat("*null guardMachine");
 	return name;
 }
@@ -6682,16 +6875,16 @@ void AIGuardState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	Bool hasMachine = m_guardMachine!=nullptr;
+	Bool hasMachine = GXROW_AIGUARDSTATE.guardMachine!=nullptr;
 
 	xfer->xferBool(&hasMachine);
 
-	if (hasMachine && m_guardMachine==nullptr)	{
+	if (hasMachine && GXROW_AIGUARDSTATE.guardMachine==nullptr)	{
 		// create new state machine for guard behavior
-		m_guardMachine = newInstance(AIGuardMachine)( getMachineOwner());
+		GXROW_AIGUARDSTATE.guardMachine = newInstance(AIGuardMachine)( getMachineOwner());
 	}
 	if (hasMachine) {
-		xfer->xferSnapshot(m_guardMachine);
+		xfer->xferSnapshot(GXROW_AIGUARDSTATE.guardMachine);
 	}
 
 }
@@ -6708,9 +6901,9 @@ void AIGuardState::loadPostProcess()
 //Is our guard state in an attack sub-state?
 Bool AIGuardState::isAttack() const
 {
-	if( m_guardMachine )
+	if( GXROW_AIGUARDSTATE.guardMachine )
 	{
-		return m_guardMachine->isInAttackState();
+		return GXROW_AIGUARDSTATE.guardMachine->isInAttackState();
 	}
 	return FALSE;
 }
@@ -6719,9 +6912,9 @@ Bool AIGuardState::isAttack() const
 //Is our guard state in guard-idle?
 Bool AIGuardState::isGuardIdle() const
 {
-	if( m_guardMachine )
+	if( GXROW_AIGUARDSTATE.guardMachine )
 	{
-		return m_guardMachine->isInGuardIdleState();
+		return GXROW_AIGUARDSTATE.guardMachine->isInGuardIdleState();
 	}
 	return FALSE;
 }
@@ -6737,21 +6930,21 @@ StateReturnType AIGuardState::onEnter()
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
 
-	m_guardMachine = newInstance(AIGuardMachine)( getMachineOwner());
+	GXROW_AIGUARDSTATE.guardMachine = newInstance(AIGuardMachine)( getMachineOwner());
 
 	// tell the guarding machine what it is guarding with
 	switch(ai->getGuardTargetType())
 	{
-		case GUARDTARGET_LOCATION: m_guardMachine->setTargetPositionToGuard( ai->getGuardLocation() ); break;
-		case GUARDTARGET_OBJECT: m_guardMachine->setTargetToGuard( TheGameLogic->findObjectByID(ai->getGuardObject()) ); break;
-		case GUARDTARGET_AREA: m_guardMachine->setAreaToGuard( ai->getAreaToGuard() ); break;
+		case GUARDTARGET_LOCATION: GXROW_AIGUARDSTATE.guardMachine->setTargetPositionToGuard( ai->getGuardLocation() ); break;
+		case GUARDTARGET_OBJECT: GXROW_AIGUARDSTATE.guardMachine->setTargetToGuard( TheGameLogic->findObjectByID(ai->getGuardObject()) ); break;
+		case GUARDTARGET_AREA: GXROW_AIGUARDSTATE.guardMachine->setAreaToGuard( ai->getAreaToGuard() ); break;
 	}
-	m_guardMachine->setGuardMode(ai->getGuardMode());
+	GXROW_AIGUARDSTATE.guardMachine->setGuardMode(ai->getGuardMode());
 
 	// now that essential parameters are set, set the machine's initial state
-	if (m_guardMachine->initDefaultState() == STATE_FAILURE)
+	if (GXROW_AIGUARDSTATE.guardMachine->initDefaultState() == STATE_FAILURE)
 		return STATE_FAILURE;
-	return m_guardMachine->setState(AI_GUARD_RETURN);
+	return GXROW_AIGUARDSTATE.guardMachine->setState(AI_GUARD_RETURN);
 
 	obj->getControllingPlayer()->getAcademyStats()->recordGuardAbilityUsed();
 }
@@ -6759,8 +6952,8 @@ StateReturnType AIGuardState::onEnter()
 //----------------------------------------------------------------------------------------------------------
 void AIGuardState::onExit( StateExitType status )
 {
-	deleteInstance(m_guardMachine);
-	m_guardMachine = nullptr;
+	deleteInstance(GXROW_AIGUARDSTATE.guardMachine);
+	GXROW_AIGUARDSTATE.guardMachine = nullptr;
 
 	Object *obj = getMachineOwner();
 	obj->getAI()->clearGuardTargetType();
@@ -6771,7 +6964,7 @@ StateReturnType AIGuardState::update()
 {
 	//DEBUG_LOG(("AIGuardState frame %d: %08lx",TheGameLogic->getFrame(),getMachineOwner()));
 
-	if (m_guardMachine == nullptr)
+	if (GXROW_AIGUARDSTATE.guardMachine == nullptr)
 	{
 		return STATE_FAILURE; // We actually already exited.
 	}
@@ -6786,7 +6979,7 @@ StateReturnType AIGuardState::update()
 	}
 
 	getMachine()->lock("AIGuardState::update");	// We don't want to switch out of guard during the update.
-	StateReturnType ret = m_guardMachine->updateStateMachine();
+	StateReturnType ret = GXROW_AIGUARDSTATE.guardMachine->updateStateMachine();
 	getMachine()->unlock();
 	return ret;
 }
@@ -6798,10 +6991,11 @@ StateReturnType AIGuardState::update()
 //----------------------------------------------------------------------------------------------------------
 AIGuardRetaliateState::~AIGuardRetaliateState()
 {
-	if (m_guardRetaliateMachine)	{
-		m_guardRetaliateMachine->halt();
-		deleteInstance(m_guardRetaliateMachine);
+	if (GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine)	{
+		GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine->halt();
+		deleteInstance(GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine);
 	}
+	TheGxAIGuardRetaliateStates.release( m_gxAIGuardRetaliateStateRow );	// web port (round 5)
 }
 
 
@@ -6811,9 +7005,9 @@ AsciiString AIGuardRetaliateState::getName(  ) const
 {
 	AsciiString name = m_name;
 	name.concat("/");
-	if( m_guardRetaliateMachine )
+	if( GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine )
 	{
-		name.concat(m_guardRetaliateMachine->getCurrentStateName());
+		name.concat(GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine->getCurrentStateName());
 	}
 	else
 	{
@@ -6839,18 +7033,18 @@ void AIGuardRetaliateState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	Bool hasMachine = m_guardRetaliateMachine!=nullptr;
+	Bool hasMachine = GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine!=nullptr;
 
 	xfer->xferBool(&hasMachine);
 
-	if (hasMachine && m_guardRetaliateMachine==nullptr)
+	if (hasMachine && GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine==nullptr)
 	{
 		// create new state machine for guard behavior
-		m_guardRetaliateMachine = newInstance(AIGuardRetaliateMachine)( getMachineOwner());
+		GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine = newInstance(AIGuardRetaliateMachine)( getMachineOwner());
 	}
 	if (hasMachine)
 	{
-		xfer->xferSnapshot(m_guardRetaliateMachine);
+		xfer->xferSnapshot(GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine);
 	}
 
 }
@@ -6867,9 +7061,9 @@ void AIGuardRetaliateState::loadPostProcess()
 //Is our retaliate state in an attack sub-state?
 Bool AIGuardRetaliateState::isAttack() const
 {
-	if( m_guardRetaliateMachine )
+	if( GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine )
 	{
-		return m_guardRetaliateMachine->isInAttackState();
+		return GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine->isInAttackState();
 	}
 	return FALSE;
 }
@@ -6886,28 +7080,28 @@ StateReturnType AIGuardRetaliateState::onEnter()
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
 
-	m_guardRetaliateMachine = newInstance(AIGuardRetaliateMachine)( getMachineOwner());
+	GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine = newInstance(AIGuardRetaliateMachine)( getMachineOwner());
 #ifdef STATE_MACHINE_DEBUG
-	m_guardRetaliateMachine->setDebugOutput(getMachine()->getWantsDebugOutput());
+	GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine->setDebugOutput(getMachine()->getWantsDebugOutput());
 #endif
 	// tell the guarding machine what it is guarding with
-	m_guardRetaliateMachine->setTargetPositionToGuard( ai->getGoalPosition() );
+	GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine->setTargetPositionToGuard( ai->getGoalPosition() );
 
 	Object *goalObject = ai->getGoalObject();
 	if( goalObject )
 	{
-		m_guardRetaliateMachine->setNemesisID( goalObject->getID() );
+		GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine->setNemesisID( goalObject->getID() );
 	}
 
 	// now that essential parameters are set, set the machine's initial state
-	return m_guardRetaliateMachine->initDefaultState();
+	return GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine->initDefaultState();
 }
 
 //----------------------------------------------------------------------------------------------------------
 void AIGuardRetaliateState::onExit( StateExitType status )
 {
-	deleteInstance(m_guardRetaliateMachine);
-	m_guardRetaliateMachine = nullptr;
+	deleteInstance(GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine);
+	GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine = nullptr;
 
 	Object *obj = getMachineOwner();
 	obj->getAI()->clearGuardTargetType();
@@ -6918,7 +7112,7 @@ StateReturnType AIGuardRetaliateState::update()
 {
 	//DEBUG_LOG(("AIGuardRetaliateState frame %d: %08lx",TheGameLogic->getFrame(),getMachineOwner()));
 
-	if (m_guardRetaliateMachine == nullptr)
+	if (GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine == nullptr)
 	{
 		return STATE_FAILURE; // We actually already exited.
 	}
@@ -6932,7 +7126,7 @@ StateReturnType AIGuardRetaliateState::update()
 		return STATE_FAILURE;
 	}
 
-	StateReturnType ret = m_guardRetaliateMachine->updateStateMachine();
+	StateReturnType ret = GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine->updateStateMachine();
 	return ret;
 }
 
@@ -6943,10 +7137,11 @@ StateReturnType AIGuardRetaliateState::update()
 //----------------------------------------------------------------------------------------------------------
 AITunnelNetworkGuardState::~AITunnelNetworkGuardState()
 {
-	if (m_guardMachine)	{
-		m_guardMachine->halt();
-		deleteInstance(m_guardMachine);
+	if (GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine)	{
+		GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine->halt();
+		deleteInstance(GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine);
 	}
+	TheGxAITunnelNetworkGuardStates.release( m_gxAITunnelNetworkGuardStateRow );	// web port (round 5)
 }
 
 
@@ -6956,7 +7151,7 @@ AsciiString AITunnelNetworkGuardState::getName(  ) const
 {
 	AsciiString name = m_name;
 	name.concat("/");
-	if (m_guardMachine) name.concat(m_guardMachine->getCurrentStateName());
+	if (GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine) name.concat(GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine->getCurrentStateName());
 	else name.concat("*null guardMachine");
 	return name;
 }
@@ -6978,16 +7173,16 @@ void AITunnelNetworkGuardState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	Bool hasMachine = m_guardMachine!=nullptr;
+	Bool hasMachine = GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine!=nullptr;
 
 	xfer->xferBool(&hasMachine);
 
-	if (hasMachine && m_guardMachine==nullptr)	{
+	if (hasMachine && GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine==nullptr)	{
 		// create new state machine for guard behavior
-		m_guardMachine = newInstance(AITNGuardMachine)( getMachineOwner());
+		GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine = newInstance(AITNGuardMachine)( getMachineOwner());
 	}
 	if (hasMachine) {
-		xfer->xferSnapshot(m_guardMachine);
+		xfer->xferSnapshot(GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine);
 	}
 
 }
@@ -7004,9 +7199,9 @@ void AITunnelNetworkGuardState::loadPostProcess()
 //Is our guard tunnel network state in an attack sub-state?
 Bool AITunnelNetworkGuardState::isAttack() const
 {
-	if( m_guardMachine )
+	if( GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine )
 	{
-		return m_guardMachine->isInAttackState();
+		return GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine->isInAttackState();
 	}
 	return FALSE;
 }
@@ -7022,23 +7217,23 @@ StateReturnType AITunnelNetworkGuardState::onEnter()
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
 
-	m_guardMachine = newInstance(AITNGuardMachine)( getMachineOwner());
+	GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine = newInstance(AITNGuardMachine)( getMachineOwner());
 
 	// tell the guarding machine what it is guarding with
-	m_guardMachine->setTargetPositionToGuard( ai->getGuardLocation() );
-	m_guardMachine->setGuardMode(ai->getGuardMode());
+	GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine->setTargetPositionToGuard( ai->getGuardLocation() );
+	GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine->setGuardMode(ai->getGuardMode());
 
 	// now that essential parameters are set, set the machine's initial state
-	if (m_guardMachine->initDefaultState() == STATE_FAILURE)
+	if (GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine->initDefaultState() == STATE_FAILURE)
 		return STATE_FAILURE;
-	return m_guardMachine->setState(AI_GUARD_RETURN);
+	return GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine->setState(AI_GUARD_RETURN);
 }
 
 //----------------------------------------------------------------------------------------------------------
 void AITunnelNetworkGuardState::onExit( StateExitType status )
 {
-	deleteInstance(m_guardMachine);
-	m_guardMachine = nullptr;
+	deleteInstance(GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine);
+	GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine = nullptr;
 
 	Object *obj = getMachineOwner();
 	obj->getAI()->clearGuardTargetType();
@@ -7049,7 +7244,7 @@ StateReturnType AITunnelNetworkGuardState::update()
 {
 	//DEBUG_LOG(("AITunnelNetworkGuardState frame %d: %08lx",TheGameLogic->getFrame(),getMachineOwner()));
 
-	if (m_guardMachine == nullptr)
+	if (GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine == nullptr)
 	{
 		return STATE_FAILURE; // We actually already exited.
 	}
@@ -7064,7 +7259,7 @@ StateReturnType AITunnelNetworkGuardState::update()
 	}
 
 	getMachine()->lock("AITunnelNetworkGuardState::update");	// We don't want to switch out of guard during the update.
-	StateReturnType ret = m_guardMachine->updateStateMachine();
+	StateReturnType ret = GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine->updateStateMachine();
 	getMachine()->unlock();
 	return ret;
 }
@@ -7080,11 +7275,12 @@ StateReturnType AITunnelNetworkGuardState::update()
 //----------------------------------------------------------------------------------------------------------
 AIHuntState::~AIHuntState()
 {
-	if (m_huntMachine)
+	if (GXROW_AIHUNTSTATE.huntMachine)
 	{
-		m_huntMachine->halt();
-		deleteInstance(m_huntMachine);
+		GXROW_AIHUNTSTATE.huntMachine->halt();
+		deleteInstance(GXROW_AIHUNTSTATE.huntMachine);
 	}
+	TheGxAIHuntStates.release( m_gxAIHuntStateRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -7104,18 +7300,18 @@ void AIHuntState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	Bool hasMachine = m_huntMachine!=nullptr;
+	Bool hasMachine = GXROW_AIHUNTSTATE.huntMachine!=nullptr;
 
 	xfer->xferBool(&hasMachine);
 
-	if (hasMachine && m_huntMachine==nullptr)	{
+	if (hasMachine && GXROW_AIHUNTSTATE.huntMachine==nullptr)	{
 		// create new state machine for hunt behavior
-		m_huntMachine = newInstance(AIAttackThenIdleStateMachine)( getMachineOwner(), "AIAttackThenIdleStateMachine");
+		GXROW_AIHUNTSTATE.huntMachine = newInstance(AIAttackThenIdleStateMachine)( getMachineOwner(), "AIAttackThenIdleStateMachine");
 	}
 	if (hasMachine) {
-		xfer->xferSnapshot(m_huntMachine);
+		xfer->xferSnapshot(GXROW_AIHUNTSTATE.huntMachine);
 	}
-	xfer->xferUnsignedInt(&m_nextEnemyScanTime);
+	xfer->xferUnsignedInt(&GXROW_AIHUNTSTATE.nextEnemyScanTime);
 
 }
 
@@ -7130,9 +7326,9 @@ void AIHuntState::loadPostProcess()
 //Is our hunt state in an attack sub-state?
 Bool AIHuntState::isAttack() const
 {
-	if( m_huntMachine )
+	if( GXROW_AIHUNTSTATE.huntMachine )
 	{
-		return m_huntMachine->isInAttackState();
+		return GXROW_AIHUNTSTATE.huntMachine->isInAttackState();
 	}
 	return FALSE;
 }
@@ -7145,24 +7341,24 @@ Bool AIHuntState::isAttack() const
 StateReturnType AIHuntState::onEnter()
 {
 	// create new state machine for hunt behavior
-	m_huntMachine = newInstance(AIAttackThenIdleStateMachine)( getMachineOwner(), "AIAttackThenIdleStateMachine");
+	GXROW_AIHUNTSTATE.huntMachine = newInstance(AIAttackThenIdleStateMachine)( getMachineOwner(), "AIAttackThenIdleStateMachine");
 
 	// first time thru, use a random amount so that everyone doesn't scan on the same frame,
 	// to avoid "spikes".
 	UnsignedInt sleepTime = GameLogicRandomValue(0, ENEMY_SCAN_RATE);
 	UnsignedInt now = TheGameLogic->getFrame();
-	m_nextEnemyScanTime = now + sleepTime;
+	GXROW_AIHUNTSTATE.nextEnemyScanTime = now + sleepTime;
 
 	// initial state of hunt state machine
-	return m_huntMachine->initDefaultState();
+	return GXROW_AIHUNTSTATE.huntMachine->initDefaultState();
 }
 
 //----------------------------------------------------------------------------------------------------------
 void AIHuntState::onExit( StateExitType status )
 {
 	// destroy the hunt machine
-	deleteInstance(m_huntMachine);
-	m_huntMachine = nullptr;
+	deleteInstance(GXROW_AIHUNTSTATE.huntMachine);
+	GXROW_AIHUNTSTATE.huntMachine = nullptr;
 
 	Object *obj = getMachineOwner();
 	if (obj)
@@ -7177,7 +7373,7 @@ AsciiString AIHuntState::getName(  ) const
 {
 	AsciiString name = m_name;
 	name.concat("/");
-	if (m_huntMachine) name.concat(m_huntMachine->getCurrentStateName());
+	if (GXROW_AIHUNTSTATE.huntMachine) name.concat(GXROW_AIHUNTSTATE.huntMachine->getCurrentStateName());
 	else name.concat("*null huntMachine");
 	return name;
 }
@@ -7189,7 +7385,7 @@ StateReturnType AIHuntState::update()
 
 	// look around for better victims every so often
 	UnsignedInt now = TheGameLogic->getFrame();
-	if (now >= m_nextEnemyScanTime)
+	if (now >= GXROW_AIHUNTSTATE.nextEnemyScanTime)
 	{
 		Object* owner = getMachineOwner();
 
@@ -7203,12 +7399,12 @@ StateReturnType AIHuntState::update()
 		Object* crate = ai->checkForCrateToPickup();
 		if (crate)
 		{
-			m_huntMachine->setGoalObject(crate);
-			m_huntMachine->setState( AI_PICK_UP_CRATE );
+			GXROW_AIHUNTSTATE.huntMachine->setGoalObject(crate);
+			GXROW_AIHUNTSTATE.huntMachine->setState( AI_PICK_UP_CRATE );
 			return STATE_CONTINUE;
 		}
 
-		m_nextEnemyScanTime = now + ENEMY_SCAN_RATE;
+		GXROW_AIHUNTSTATE.nextEnemyScanTime = now + ENEMY_SCAN_RATE;
 
 		const AttackPriorityInfo *info = nullptr;
 		info = ai->getAttackInfo();
@@ -7254,15 +7450,15 @@ StateReturnType AIHuntState::update()
 				owner->getTeam()->setTeamTargetObject(victim);
 			}
 		}
-		m_huntMachine->setGoalObject( victim );
+		GXROW_AIHUNTSTATE.huntMachine->setGoalObject( victim );
 
-		if (m_huntMachine->getCurrentStateID() == AI_IDLE && victim)
+		if (GXROW_AIHUNTSTATE.huntMachine->getCurrentStateID() == AI_IDLE && victim)
 		{
-			m_huntMachine->setState( AI_ATTACK_OBJECT );
+			GXROW_AIHUNTSTATE.huntMachine->setState( AI_ATTACK_OBJECT );
 		}
 		if (owner->getControllingPlayer() && owner->getControllingPlayer()->getUnitsShouldHunt()==FALSE) {
 			// If we are not doing an all hunt, then exit hunt state - no more victims.
-			if (m_huntMachine->getCurrentStateID() == AI_IDLE && victim==nullptr) {
+			if (GXROW_AIHUNTSTATE.huntMachine->getCurrentStateID() == AI_IDLE && victim==nullptr) {
 				return STATE_SUCCESS; // we killed everything :) jba.
 			}
 		}
@@ -7275,7 +7471,7 @@ StateReturnType AIHuntState::update()
 		sleeps, we still need to be called every frame.
 	*/
 			/// @todo srj -- find a way to sleep for a number of frames here, if possible
-	StateReturnType ret = CONVERT_SLEEP_TO_CONTINUE(m_huntMachine->updateStateMachine());
+	StateReturnType ret = CONVERT_SLEEP_TO_CONTINUE(GXROW_AIHUNTSTATE.huntMachine->updateStateMachine());
 	getMachine()->unlock();
 	return ret;
 }
@@ -7288,10 +7484,11 @@ StateReturnType AIHuntState::update()
 //----------------------------------------------------------------------------------------------------------
 AIAttackAreaState::~AIAttackAreaState()
 {
-	if (m_attackMachine) {
-		m_attackMachine->halt();
-		deleteInstance(m_attackMachine);
+	if (GXROW_AIATTACKAREASTATE.attackMachine) {
+		GXROW_AIATTACKAREASTATE.attackMachine->halt();
+		deleteInstance(GXROW_AIATTACKAREASTATE.attackMachine);
 	}
+	TheGxAIAttackAreaStates.release( m_gxAIAttackAreaStateRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -7311,18 +7508,18 @@ void AIAttackAreaState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	Bool hasMachine = m_attackMachine!=nullptr;
+	Bool hasMachine = GXROW_AIATTACKAREASTATE.attackMachine!=nullptr;
 
 	xfer->xferBool(&hasMachine);
 
-	if (hasMachine && m_attackMachine==nullptr)	{
+	if (hasMachine && GXROW_AIATTACKAREASTATE.attackMachine==nullptr)	{
 		// create new state machine for hunt behavior
-		m_attackMachine = newInstance(AIAttackThenIdleStateMachine)( getMachineOwner(), "AIAttackThenIdleStateMachine");
+		GXROW_AIATTACKAREASTATE.attackMachine = newInstance(AIAttackThenIdleStateMachine)( getMachineOwner(), "AIAttackThenIdleStateMachine");
 	}
 	if (hasMachine) {
-		xfer->xferSnapshot(m_attackMachine);
+		xfer->xferSnapshot(GXROW_AIATTACKAREASTATE.attackMachine);
 	}
-	xfer->xferUnsignedInt(&m_nextEnemyScanTime);
+	xfer->xferUnsignedInt(&GXROW_AIATTACKAREASTATE.nextEnemyScanTime);
 
 }
 
@@ -7339,8 +7536,8 @@ AsciiString AIAttackAreaState::getName(  ) const
 {
 	AsciiString name = m_name;
 	name.concat("/");
-	if (m_attackMachine) name.concat(m_attackMachine->getCurrentStateName());
-	else name.concat("*null m_attackMachine");
+	if (GXROW_AIATTACKAREASTATE.attackMachine) name.concat(GXROW_AIATTACKAREASTATE.attackMachine->getCurrentStateName());
+	else name.concat("*null GXROW_AIATTACKAREASTATE.attackMachine");
 	return name;
 }
 #endif
@@ -7350,23 +7547,23 @@ StateReturnType AIAttackAreaState::onEnter()
 {
 
 	// create new state machine for hunt behavior
-	m_attackMachine = newInstance(AIAttackThenIdleStateMachine)( getMachineOwner(), "AIAttackThenIdleStateMachine");
+	GXROW_AIATTACKAREASTATE.attackMachine = newInstance(AIAttackThenIdleStateMachine)( getMachineOwner(), "AIAttackThenIdleStateMachine");
 
 	// first time thru, use a random amount so that everyone doesn't scan on the same frame,
 	// to avoid "spikes".
 	UnsignedInt now = TheGameLogic->getFrame();
-	m_nextEnemyScanTime = now + GameLogicRandomValue(0, ENEMY_SCAN_RATE);
+	GXROW_AIATTACKAREASTATE.nextEnemyScanTime = now + GameLogicRandomValue(0, ENEMY_SCAN_RATE);
 
 	// initial state of hunt state machine
-	return m_attackMachine->initDefaultState();
+	return GXROW_AIATTACKAREASTATE.attackMachine->initDefaultState();
 }
 
 //----------------------------------------------------------------------------------------------------------
 void AIAttackAreaState::onExit( StateExitType status )
 {
 	// destroy the hunt machine
-	deleteInstance(m_attackMachine);
-	m_attackMachine = nullptr;
+	deleteInstance(GXROW_AIATTACKAREASTATE.attackMachine);
+	GXROW_AIATTACKAREASTATE.attackMachine = nullptr;
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -7374,7 +7571,7 @@ StateReturnType AIAttackAreaState::update()
 {
 	// look around for better victims every so often
 	UnsignedInt now = TheGameLogic->getFrame();
-	if (now >= m_nextEnemyScanTime)
+	if (now >= GXROW_AIATTACKAREASTATE.nextEnemyScanTime)
 	{
 		Object* owner = getMachineOwner();
 
@@ -7387,7 +7584,7 @@ StateReturnType AIAttackAreaState::update()
 		// to avoid "spikes". Note that this implementation ensures that this unit checks immediately
 		// upon entering this state, then wait a possibly-longer-than-usual time (due to randomness),
 		// then settle into a regular schedule.
-		m_nextEnemyScanTime = now + ENEMY_SCAN_RATE;
+		GXROW_AIATTACKAREASTATE.nextEnemyScanTime = now + ENEMY_SCAN_RATE;
 
 		AIUpdateInterface *ai = owner->getAI();
 		if (ai->getAreaToGuard() == nullptr)
@@ -7399,11 +7596,11 @@ StateReturnType AIAttackAreaState::update()
 
 		// do NOT do line of sight check - we want to find everything
 		Object *victim = TheAI->findClosestEnemy( owner, 9999.9f, AI::CAN_ATTACK, info, &polyFilter );
-		m_attackMachine->setGoalObject( victim );
+		GXROW_AIATTACKAREASTATE.attackMachine->setGoalObject( victim );
 
-		if (m_attackMachine->getCurrentStateID() == AI_IDLE && victim)
+		if (GXROW_AIATTACKAREASTATE.attackMachine->getCurrentStateID() == AI_IDLE && victim)
 		{
-			m_attackMachine->setState( AI_ATTACK_OBJECT );
+			GXROW_AIATTACKAREASTATE.attackMachine->setState( AI_ATTACK_OBJECT );
 		}
 		if (victim==nullptr) {
 			return STATE_SUCCESS;
@@ -7417,7 +7614,7 @@ StateReturnType AIAttackAreaState::update()
 		sleeps, we still need to be called every frame.
 	*/
 			/// @todo srj -- find a way to sleep for a number of frames here, if possible
-	StateReturnType ret = CONVERT_SLEEP_TO_CONTINUE(m_attackMachine->updateStateMachine());
+	StateReturnType ret = CONVERT_SLEEP_TO_CONTINUE(GXROW_AIATTACKAREASTATE.attackMachine->updateStateMachine());
 	getMachine()->unlock();
 	return ret;
 }
@@ -7445,7 +7642,7 @@ void AIFaceState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferBool(&m_canTurnInPlace);
+	xfer->xferBool(&GXROW_AIFACESTATE.canTurnInPlace);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -7463,10 +7660,10 @@ StateReturnType AIFaceState::onEnter()
 
 	AIUpdateInterface* ai = source->getAI();
 	Locomotor* curLoco = ai->getCurLocomotor();
-	m_canTurnInPlace = curLoco ? curLoco->getMinSpeed() == 0.0f : false;
+	GXROW_AIFACESTATE.canTurnInPlace = curLoco ? curLoco->getMinSpeed() == 0.0f : false;
 
 	Object* target = getMachineGoalObject();
-	if (m_obj && target == nullptr )
+	if (GXROW_AIFACESTATE.obj && target == nullptr )
 	{
 		// Nothing to face...
 		return STATE_FAILURE;
@@ -7488,7 +7685,7 @@ StateReturnType AIFaceState::update()
 	AIUpdateInterface *ai = obj->getAI();
 
 	const Coord3D* pos = getMachineGoalPosition();
-	if (m_obj)
+	if (GXROW_AIFACESTATE.obj)
 	{
 		Object *target = getMachineGoalObject();
 		if (!target)
@@ -7508,7 +7705,7 @@ StateReturnType AIFaceState::update()
 
 	// turnDelta = yawRate()	NO, do not get this, it is not useful. (srj)
 
-	if (m_canTurnInPlace)
+	if (GXROW_AIFACESTATE.canTurnInPlace)
 	{
 		Real desiredAngle = obj->getOrientation() + relAngle;
 		ai->setLocomotorGoalOrientation( desiredAngle );
@@ -7519,4 +7716,330 @@ StateReturnType AIFaceState::update()
 	}
 
 	return STATE_CONTINUE;
+}
+
+AIInternalMoveToState::AIInternalMoveToState( StateMachine *machine, AsciiString name ) : State( machine, name ),
+	m_gxAIInternalMoveToStateRow( TheGxAIInternalMoveToStates.alloc( nullptr ) )	// web port (round 5): this unit's row (zeroed, like the module was)
+{
+
+		gxRow().goalPosition.zero();
+		gxRow().pathGoalPosition.zero();
+		gxRow().pathTimestamp = 0;
+		gxRow().blockedRepathTimestamp = 0;
+		gxRow().adjustDestinations = true;
+		gxRow().goalLayer = LAYER_INVALID;
+	}
+
+AIInternalMoveToState::~AIInternalMoveToState()
+{
+	TheGxAIInternalMoveToStates.release( m_gxAIInternalMoveToStateRow );	// web port (round 5)
+}
+
+AIFollowWaypointPathState::AIFollowWaypointPathState( StateMachine *machine, Bool asGroup ) : AIInternalMoveToState( machine, "AIFollowWaypointPathState" )
+{
+	m_gxAIFollowWaypointPathStateRow = TheGxAIFollowWaypointPathStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIFOLLOWWAYPOINTPATHSTATE.isFollowWaypointPathState = true;
+	GXROW_AIFOLLOWWAYPOINTPATHSTATE.moveAsGroup = asGroup;
+
+		gxRow().angle = 0.0f;
+	}
+
+AIFollowWaypointPathState::AIFollowWaypointPathState( StateMachine *machine, Bool asGroup, Bool isFollow) : AIInternalMoveToState( machine,
+																"AIFollowWaypointPathState" )
+{
+	m_gxAIFollowWaypointPathStateRow = TheGxAIFollowWaypointPathStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIFOLLOWWAYPOINTPATHSTATE.isFollowWaypointPathState = isFollow;
+	GXROW_AIFOLLOWWAYPOINTPATHSTATE.moveAsGroup = asGroup;
+
+		gxRow().angle = 0.0f;
+	}
+
+AIFollowWaypointPathState::~AIFollowWaypointPathState()
+{
+	TheGxAIFollowWaypointPathStates.release( m_gxAIFollowWaypointPathStateRow );	// web port (round 5)
+}
+
+AIMoveAndTightenState::AIMoveAndTightenState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIMoveAndTightenState" )
+{
+	m_gxAIMoveAndTightenStateRow = TheGxAIMoveAndTightenStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+		gxRow().checkForPath = false;
+		gxRow().okToRepathTimes = 0;
+	}
+
+AIMoveAndTightenState::AIMoveAndTightenState( StateMachine *machine, const char *name ) : AIInternalMoveToState( machine, name )
+{
+	m_gxAIMoveAndTightenStateRow = TheGxAIMoveAndTightenStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+		gxRow().checkForPath = false;
+		gxRow().okToRepathTimes = 0;
+	}
+
+AIMoveAndTightenState::~AIMoveAndTightenState()
+{
+	TheGxAIMoveAndTightenStates.release( m_gxAIMoveAndTightenStateRow );	// web port (round 5)
+}
+
+AIPickUpCrateState::AIPickUpCrateState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIAttackPickUpCrateState" )
+{
+	m_gxAIPickUpCrateStateRow = TheGxAIPickUpCrateStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+		// we're setting m_isInitialApproach to true in the constructor because we want the first pass
+		// through this state to allow a unit to attack incidental targets (if it is turreted)
+	}
+
+AIPickUpCrateState::~AIPickUpCrateState()
+{
+	TheGxAIPickUpCrateStates.release( m_gxAIPickUpCrateStateRow );	// web port (round 5)
+}
+
+AIEnterState::AIEnterState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIEnterState" )
+{
+	m_gxAIEnterStateRow = TheGxAIEnterStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+ }
+
+AIEnterState::~AIEnterState()
+{
+	TheGxAIEnterStates.release( m_gxAIEnterStateRow );	// web port (round 5)
+}
+
+AIAttackAimAtTargetState::AIAttackAimAtTargetState( StateMachine *machine, Bool attackingObject, Bool forceAttacking ) : State( machine, "AIAttackAimAtTargetState" )
+{
+	m_gxAIAttackAimAtTargetStateRow = TheGxAIAttackAimAtTargetStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject = attackingObject;
+	GXROW_AIATTACKAIMATTARGETSTATE.canTurnInPlace = false;
+	GXROW_AIATTACKAIMATTARGETSTATE.isForceAttacking = forceAttacking;
+	GXROW_AIATTACKAIMATTARGETSTATE.setLocomotor = false;
+
+	}
+
+AIAttackAimAtTargetState::~AIAttackAimAtTargetState()
+{
+	TheGxAIAttackAimAtTargetStates.release( m_gxAIAttackAimAtTargetStateRow );	// web port (round 5)
+}
+
+AIAttackApproachTargetState::AIAttackApproachTargetState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking ) : AIInternalMoveToState( machine, "AIAttackApproachTargetState" )
+{
+	m_gxAIAttackApproachTargetStateRow = TheGxAIAttackApproachTargetStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIATTACKAPPROACHTARGETSTATE.follow = follow;
+	GXROW_AIATTACKAPPROACHTARGETSTATE.isAttackingObject = attackingObject;
+	GXROW_AIATTACKAPPROACHTARGETSTATE.isInitialApproach = true;
+	GXROW_AIATTACKAPPROACHTARGETSTATE.isForceAttacking = forceAttacking;
+
+		// we're setting gxRow().isInitialApproach to true in the constructor because we want the first pass
+		// through this state to allow a unit to attack incidental targets (if it is turreted)
+	}
+
+AIAttackApproachTargetState::~AIAttackApproachTargetState()
+{
+	TheGxAIAttackApproachTargetStates.release( m_gxAIAttackApproachTargetStateRow );	// web port (round 5)
+}
+
+AIAttackAreaState::AIAttackAreaState( StateMachine *machine ) : State( machine, "AIAttackAreaState" )
+{
+	m_gxAIAttackAreaStateRow = TheGxAIAttackAreaStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIATTACKAREASTATE.attackMachine = nullptr;
+	GXROW_AIATTACKAREASTATE.nextEnemyScanTime = 0;
+ }
+
+AIAttackPursueTargetState::AIAttackPursueTargetState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking ) : AIInternalMoveToState( machine, "AIAttackPursueTargetState" )
+{
+	m_gxAIAttackPursueTargetStateRow = TheGxAIAttackPursueTargetStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIATTACKPURSUETARGETSTATE.follow = follow;
+	GXROW_AIATTACKPURSUETARGETSTATE.isAttackingObject = attackingObject;
+	GXROW_AIATTACKPURSUETARGETSTATE.isInitialApproach = true;
+	GXROW_AIATTACKPURSUETARGETSTATE.isForceAttacking = forceAttacking;
+	GXROW_AIATTACKPURSUETARGETSTATE.approachTimestamp = 0;
+	GXROW_AIATTACKPURSUETARGETSTATE.stopIfInRange = false;
+
+		// we're setting gxRow().isInitialApproach to true in the constructor because we want the first pass
+		// through this state to allow a unit to attack incidental targets (if it is turreted)
+	}
+
+AIAttackPursueTargetState::~AIAttackPursueTargetState()
+{
+	TheGxAIAttackPursueTargetStates.release( m_gxAIAttackPursueTargetStateRow );	// web port (round 5)
+}
+
+AIAttackSquadState::AIAttackSquadState( StateMachine *machine, AttackExitConditionsInterface *attackParameters) : State( machine , "AIAttackSquadState")
+{
+	m_gxAIAttackSquadStateRow = TheGxAIAttackSquadStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	}
+
+AIDockState::AIDockState( StateMachine *machine ) : State( machine, "AIDockState" )
+{
+	m_gxAIDockStateRow = TheGxAIDockStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIDOCKSTATE.dockMachine = nullptr;
+	GXROW_AIDOCKSTATE.usingPrecisionMovement = FALSE;
+ }
+
+AIExitInstantlyState::AIExitInstantlyState( StateMachine *machine ) : State( machine, "AIExitInstantlyState" )
+{
+	m_gxAIExitInstantlyStateRow = TheGxAIExitInstantlyStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+ }
+
+AIExitInstantlyState::~AIExitInstantlyState()
+{
+	TheGxAIExitInstantlyStates.release( m_gxAIExitInstantlyStateRow );	// web port (round 5)
+}
+
+AIExitState::AIExitState( StateMachine *machine ) : State( machine, "AIExitState" )
+{
+	m_gxAIExitStateRow = TheGxAIExitStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+ }
+
+AIExitState::~AIExitState()
+{
+	TheGxAIExitStates.release( m_gxAIExitStateRow );	// web port (round 5)
+}
+
+AIFaceState::AIFaceState( StateMachine *machine, Bool obj ) : State( machine, "AIFaceState" )
+{
+	m_gxAIFaceStateRow = TheGxAIFaceStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIFACESTATE.canTurnInPlace = false;
+	GXROW_AIFACESTATE.obj = obj;
+ }
+
+AIFaceState::~AIFaceState()
+{
+	TheGxAIFaceStates.release( m_gxAIFaceStateRow );	// web port (round 5)
+}
+
+AIFollowPathState::AIFollowPathState( StateMachine *machine, AsciiString name) : AIInternalMoveToState( machine, name )
+{
+	m_gxAIFollowPathStateRow = TheGxAIFollowPathStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIFOLLOWPATHSTATE.adjustFinal = true;
+	GXROW_AIFOLLOWPATHSTATE.adjustFinalOverride = false;
+	GXROW_AIFOLLOWPATHSTATE.index = 0;
+	GXROW_AIFOLLOWPATHSTATE.retryCount = 10;
+ }
+
+AIFollowPathState::~AIFollowPathState()
+{
+	TheGxAIFollowPathStates.release( m_gxAIFollowPathStateRow );	// web port (round 5)
+}
+
+AIFollowWaypointPathExactState::AIFollowWaypointPathExactState( StateMachine *machine, Bool asGroup ) : AIInternalMoveToState( machine, "AIFollowWaypointPathExactState" )
+{
+	m_gxAIFollowWaypointPathExactStateRow = TheGxAIFollowWaypointPathExactStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.moveAsGroup = asGroup;
+	GXROW_AIFOLLOWWAYPOINTPATHEXACTSTATE.lastWaypoint = nullptr;
+ }
+
+AIFollowWaypointPathExactState::~AIFollowWaypointPathExactState()
+{
+	TheGxAIFollowWaypointPathExactStates.release( m_gxAIFollowWaypointPathExactStateRow );	// web port (round 5)
+}
+
+AIGuardRetaliateState::AIGuardRetaliateState( StateMachine *machine ) : State( machine, "AIGuardRetaliateState" )
+{
+	m_gxAIGuardRetaliateStateRow = TheGxAIGuardRetaliateStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIGUARDRETALIATESTATE.guardRetaliateMachine = nullptr;
+}
+
+AIGuardState::AIGuardState( StateMachine *machine ) : State( machine, "AIGuardState" )
+{
+	m_gxAIGuardStateRow = TheGxAIGuardStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIGUARDSTATE.guardMachine = nullptr;
+
+		gxRow().guardMachine = nullptr;
+	}
+
+AIHuntState::AIHuntState( StateMachine *machine ) : State( machine, "AIHuntState" )
+{
+	m_gxAIHuntStateRow = TheGxAIHuntStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIHUNTSTATE.huntMachine = nullptr;
+
+		gxRow().nextEnemyScanTime = 0;
+	}
+
+AIIdleState::~AIIdleState()
+{
+	TheGxAIIdleStates.release( m_gxAIIdleStateRow );	// web port (round 5)
+}
+
+AIMoveAndDeleteState::AIMoveAndDeleteState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIMoveAndDeleteState" )
+{
+	m_gxAIMoveAndDeleteStateRow = TheGxAIMoveAndDeleteStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+		gxRow().appendGoalPosition = FALSE;
+	}
+
+AIMoveAndDeleteState::~AIMoveAndDeleteState()
+{
+	TheGxAIMoveAndDeleteStates.release( m_gxAIMoveAndDeleteStateRow );	// web port (round 5)
+}
+
+AIMoveAndEvacuateState::AIMoveAndEvacuateState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIMoveAndEvacuateState" )
+{
+	m_gxAIMoveAndEvacuateStateRow = TheGxAIMoveAndEvacuateStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+		gxRow().origin.zero();
+	}
+
+AIMoveAndEvacuateState::~AIMoveAndEvacuateState()
+{
+	TheGxAIMoveAndEvacuateStates.release( m_gxAIMoveAndEvacuateStateRow );	// web port (round 5)
+}
+
+AIMoveToState::~AIMoveToState()
+{
+	TheGxAIMoveToStates.release( m_gxAIMoveToStateRow );	// web port (round 5)
+}
+
+AIPanicState::AIPanicState( StateMachine *machine ) : AIFollowWaypointPathState( machine, false)
+{
+	m_gxAIPanicStateRow = TheGxAIPanicStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+#ifdef STATE_MACHINE_DEBUG
+		setName("AIPanicState");
+#endif
+	}
+
+AIPanicState::~AIPanicState()
+{
+	TheGxAIPanicStates.release( m_gxAIPanicStateRow );	// web port (round 5)
+}
+
+AIRappelState::~AIRappelState()
+{
+	TheGxAIRappelStates.release( m_gxAIRappelStateRow );	// web port (round 5)
+}
+
+AITunnelNetworkGuardState::AITunnelNetworkGuardState( StateMachine *machine ) : State( machine, "AITunnelNetworkGuardState" )
+{
+	m_gxAITunnelNetworkGuardStateRow = TheGxAITunnelNetworkGuardStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AITUNNELNETWORKGUARDSTATE.guardMachine = nullptr;
+
+		gxRow().guardMachine = nullptr;
+	}
+
+AIWanderInPlaceState::AIWanderInPlaceState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIWanderInPlaceState" )
+{
+	m_gxAIWanderInPlaceStateRow = TheGxAIWanderInPlaceStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+		gxRow().origin.zero();
+		gxRow().waitFrames = 0;
+		gxRow().timer = 0;
+	}
+
+AIWanderInPlaceState::~AIWanderInPlaceState()
+{
+	TheGxAIWanderInPlaceStates.release( m_gxAIWanderInPlaceStateRow );	// web port (round 5)
+}
+
+AIWanderState::AIWanderState( StateMachine *machine ) : AIFollowWaypointPathState( machine, false )
+{
+	m_gxAIWanderStateRow = TheGxAIWanderStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+#ifdef STATE_MACHINE_DEBUG
+		setName("AIWanderState");
+#endif
+		gxRow().timer = 0;
+		gxRow().waitFrames = 0;
+	}
+
+AIWanderState::~AIWanderState()
+{
+	TheGxAIWanderStates.release( m_gxAIWanderStateRow );	// web port (round 5)
 }

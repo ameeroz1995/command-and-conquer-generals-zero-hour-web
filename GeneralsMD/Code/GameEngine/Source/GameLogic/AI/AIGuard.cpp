@@ -53,6 +53,48 @@
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/PolygonTrigger.h"
 
+// Web port (round 5, units are pure data): ExitConditions's per-unit state is a row of TheGxExitConditionss;
+// GXROW_EXITCONDITIONS is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxExitConditionsRow> TheGxExitConditionss;
+#define GXROW_EXITCONDITIONS (TheGxExitConditionss.at(m_gxExitConditionsRow))
+
+
+// Web port (round 5, units are pure data): AIGuardReturnState's per-unit state is a row of TheGxAIGuardReturnStates;
+// GXROW_AIGUARDRETURNSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIGuardReturnStateRow> TheGxAIGuardReturnStates;
+#define GXROW_AIGUARDRETURNSTATE (TheGxAIGuardReturnStates.at(m_gxAIGuardReturnStateRow))
+
+
+// Web port (round 5, units are pure data): AIGuardOuterState's per-unit state is a row of TheGxAIGuardOuterStates;
+// GXROW_AIGUARDOUTERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIGuardOuterStateRow> TheGxAIGuardOuterStates;
+#define GXROW_AIGUARDOUTERSTATE (TheGxAIGuardOuterStates.at(m_gxAIGuardOuterStateRow))
+
+
+// Web port (round 5, units are pure data): AIGuardMachine's per-unit state is a row of TheGxAIGuardMachines;
+// GXROW_AIGUARDMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIGuardMachineRow> TheGxAIGuardMachines;
+#define GXROW_AIGUARDMACHINE (TheGxAIGuardMachines.at(m_gxAIGuardMachineRow))
+
+
+// Web port (round 5, units are pure data): AIGuardInnerState's per-unit state is a row of TheGxAIGuardInnerStates;
+// GXROW_AIGUARDINNERSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIGuardInnerStateRow> TheGxAIGuardInnerStates;
+#define GXROW_AIGUARDINNERSTATE (TheGxAIGuardInnerStates.at(m_gxAIGuardInnerStateRow))
+
+
+// Web port (round 5, units are pure data): AIGuardIdleState's per-unit state is a row of TheGxAIGuardIdleStates;
+// GXROW_AIGUARDIDLESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIGuardIdleStateRow> TheGxAIGuardIdleStates;
+#define GXROW_AIGUARDIDLESTATE (TheGxAIGuardIdleStates.at(m_gxAIGuardIdleStateRow))
+
+
+// Web port (round 5, units are pure data): AIGuardAttackAggressorState's per-unit state is a row of TheGxAIGuardAttackAggressorStates;
+// GXROW_AIGUARDATTACKAGGRESSORSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxAIGuardAttackAggressorStateRow> TheGxAIGuardAttackAggressorStates;
+#define GXROW_AIGUARDATTACKAGGRESSORSTATE (TheGxAIGuardAttackAggressorStates.at(m_gxAIGuardAttackAggressorStateRow))
+
+
 const Real CLOSE_ENOUGH = (25.0f);
 
 
@@ -115,7 +157,7 @@ Bool ExitConditions::shouldExit(const StateMachine* machine) const
 {
 	if (!machine->getGoalObject())
 	{
-		if (m_conditionsToConsider & ATTACK_ExitIfNoUnitFound)
+		if (GXROW_EXITCONDITIONS.conditionsToConsider & ATTACK_ExitIfNoUnitFound)
 		{
 			return true;
 		}
@@ -125,28 +167,28 @@ Bool ExitConditions::shouldExit(const StateMachine* machine) const
 		}
 	}
 
-	if (m_conditionsToConsider & ATTACK_ExitIfExpiredDuration)
+	if (GXROW_EXITCONDITIONS.conditionsToConsider & ATTACK_ExitIfExpiredDuration)
 	{
-		if (TheGameLogic->getFrame() >= m_attackGiveUpFrame)
+		if (TheGameLogic->getFrame() >= GXROW_EXITCONDITIONS.attackGiveUpFrame)
 		{
 			return true;
 		}
 	}
 
-	if (m_conditionsToConsider & ATTACK_ExitIfOutsideRadius)
+	if (GXROW_EXITCONDITIONS.conditionsToConsider & ATTACK_ExitIfOutsideRadius)
 	{
 		Coord3D deltaAggressor;
 		Coord3D objPos = *machine->getGoalObject()->getPosition();
-		deltaAggressor.x = objPos.x - m_center.x;
-		deltaAggressor.y = objPos.y - m_center.y;
-//	deltaAggressor.z = objPos.z - m_center.z;
+		deltaAggressor.x = objPos.x - GXROW_EXITCONDITIONS.center.x;
+		deltaAggressor.y = objPos.y - GXROW_EXITCONDITIONS.center.y;
+//	deltaAggressor.z = objPos.z - GXROW_EXITCONDITIONS.center.z;
 		deltaAggressor.z = 0; // BGC - when we search for a target we don't account for Z, so why should we here?
 													// changing this fixed a crash where a GLARebelInfantry would be in GuardReturnState, find
 													// a target that is within range, then not be able to attack because its actually out of range.
 													// then it would look for a new target, get the same one, and proceed in an infinite recursive
 													// loop that eventually blew the stack.
 
-		if (deltaAggressor.lengthSqr() > m_radiusSqr)
+		if (deltaAggressor.lengthSqr() > GXROW_EXITCONDITIONS.radiusSqr)
 		{
 			return true;
 		}
@@ -158,14 +200,15 @@ Bool ExitConditions::shouldExit(const StateMachine* machine) const
 
 //-- AIGuardMachine -------------------------------------------------------------------------------
 //--------------------------------------------------------------------------------------
-AIGuardMachine::AIGuardMachine( Object *owner ) :
-	StateMachine(owner, "AIGuardMachine"),
-	m_targetToGuard(INVALID_ID),
-	m_areaToGuard(nullptr),
-	m_nemesisToAttack(INVALID_ID),
-	m_guardMode(GUARDMODE_NORMAL)
+AIGuardMachine::AIGuardMachine( Object *owner ) : StateMachine(owner, "AIGuardMachine")
 {
-	m_positionToGuard.zero();
+	m_gxAIGuardMachineRow = TheGxAIGuardMachines.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_AIGUARDMACHINE.targetToGuard = INVALID_ID;
+	GXROW_AIGUARDMACHINE.areaToGuard = nullptr;
+	GXROW_AIGUARDMACHINE.nemesisToAttack = INVALID_ID;
+	GXROW_AIGUARDMACHINE.guardMode = GUARDMODE_NORMAL;
+
+	GXROW_AIGUARDMACHINE.positionToGuard.zero();
 
 	static const StateConditionInfo attackAggressors[] =
 	{
@@ -190,6 +233,7 @@ AIGuardMachine::AIGuardMachine( Object *owner ) :
 //--------------------------------------------------------------------------------------
 AIGuardMachine::~AIGuardMachine()
 {
+	TheGxAIGuardMachines.release( m_gxAIGuardMachineRow );	// web port (round 5)
 }
 
 //--------------------------------------------------------------------------------------
@@ -326,17 +370,17 @@ void AIGuardMachine::xfer( Xfer *xfer )
 		StateMachine::xfer(xfer);	// Forgot this in initial implementation.  jba.
 	}
 
-	xfer->xferObjectID(&m_targetToGuard);
-	xfer->xferObjectID(&m_nemesisToAttack);
-	xfer->xferCoord3D(&m_positionToGuard);
+	xfer->xferObjectID(&GXROW_AIGUARDMACHINE.targetToGuard);
+	xfer->xferObjectID(&GXROW_AIGUARDMACHINE.nemesisToAttack);
+	xfer->xferCoord3D(&GXROW_AIGUARDMACHINE.positionToGuard);
 
 	AsciiString triggerName;
-	if (m_areaToGuard) triggerName = m_areaToGuard->getTriggerName();
+	if (GXROW_AIGUARDMACHINE.areaToGuard) triggerName = GXROW_AIGUARDMACHINE.areaToGuard->getTriggerName();
 	xfer->xferAsciiString(&triggerName);
 	if (xfer->getXferMode() == XFER_LOAD)
 	{
 		if (triggerName.isNotEmpty()) {
-			m_areaToGuard = TheTerrainLogic->getTriggerAreaByName(triggerName);
+			GXROW_AIGUARDMACHINE.areaToGuard = TheTerrainLogic->getTriggerAreaByName(triggerName);
 		}
 	}
 
@@ -380,8 +424,9 @@ void AIGuardInnerState::loadPostProcess()
 // ------------------------------------------------------------------------------------------------
 AIGuardInnerState::~AIGuardInnerState()
 {
-	deleteInstance(m_attackState);
-	deleteInstance(m_enterState);
+	deleteInstance(GXROW_AIGUARDINNERSTATE.attackState);
+	deleteInstance(GXROW_AIGUARDINNERSTATE.enterState);
+	TheGxAIGuardInnerStates.release( m_gxAIGuardInnerStateRow );	// web port (round 5)
 }
 
 //--------------------------------------------------------------------------------------
@@ -396,11 +441,11 @@ StateReturnType AIGuardInnerState::onEnter()
 			DEBUG_LOG(("Unexpected null nemesis in AIGuardInnerState."));
 			return STATE_SUCCESS;
 		}
-		m_enterState = newInstance(AIEnterState)(getMachine());
+		GXROW_AIGUARDINNERSTATE.enterState = newInstance(AIEnterState)(getMachine());
 
-		m_enterState->getMachine()->setGoalObject(nemesis);
+		GXROW_AIGUARDINNERSTATE.enterState->getMachine()->setGoalObject(nemesis);
 
-		StateReturnType returnVal = m_enterState->onEnter();
+		StateReturnType returnVal = GXROW_AIGUARDINNERSTATE.enterState->onEnter();
 		if (returnVal == STATE_CONTINUE) {
 			return STATE_CONTINUE;
 		}
@@ -416,16 +461,16 @@ StateReturnType AIGuardInnerState::onEnter()
 			DEBUG_LOG(("Unexpected null nemesis in AIGuardInnerState."));
 			return STATE_SUCCESS;
 		}
-		m_exitConditions.m_center = pos;
-		m_exitConditions.m_radiusSqr = sqr(AIGuardMachine::getStdGuardRange(getMachineOwner()));
-		m_exitConditions.m_conditionsToConsider = (ExitConditions::ATTACK_ExitIfOutsideRadius |
+		GXROW_AIGUARDINNERSTATE.exitConditions.gxRow().center = pos;
+		GXROW_AIGUARDINNERSTATE.exitConditions.gxRow().radiusSqr = sqr(AIGuardMachine::getStdGuardRange(getMachineOwner()));
+		GXROW_AIGUARDINNERSTATE.exitConditions.gxRow().conditionsToConsider = (ExitConditions::ATTACK_ExitIfOutsideRadius |
 																								ExitConditions::ATTACK_ExitIfNoUnitFound);
 
-		m_attackState = newInstance(AIAttackState)(getMachine(), false, true, false, &m_exitConditions);
+		GXROW_AIGUARDINNERSTATE.attackState = newInstance(AIAttackState)(getMachine(), false, true, false, &GXROW_AIGUARDINNERSTATE.exitConditions);
 
-		m_attackState->getMachine()->setGoalObject(nemesis);
+		GXROW_AIGUARDINNERSTATE.attackState->getMachine()->setGoalObject(nemesis);
 
-		StateReturnType returnVal = m_attackState->onEnter();
+		StateReturnType returnVal = GXROW_AIGUARDINNERSTATE.attackState->onEnter();
 		if (returnVal == STATE_CONTINUE) {
 			return STATE_CONTINUE;
 		}
@@ -438,20 +483,20 @@ StateReturnType AIGuardInnerState::onEnter()
 //--------------------------------------------------------------------------------------
 StateReturnType AIGuardInnerState::update()
 {
-	if (m_attackState)
+	if (GXROW_AIGUARDINNERSTATE.attackState)
 	{
 		// if the position has moved (IE we're guarding an object), move with it.
 		Object* targetToGuard = getGuardMachine()->findTargetToGuardByID();
 		if (targetToGuard)
 		{
-			m_exitConditions.m_center = *targetToGuard->getPosition();
+			GXROW_AIGUARDINNERSTATE.exitConditions.gxRow().center = *targetToGuard->getPosition();
 		}
 
-		return m_attackState->update();
+		return GXROW_AIGUARDINNERSTATE.attackState->update();
 	}
-	else if (m_enterState)
+	else if (GXROW_AIGUARDINNERSTATE.enterState)
 	{
-		return m_enterState->update();
+		return GXROW_AIGUARDINNERSTATE.enterState->update();
 	}
 
 	return STATE_SUCCESS;
@@ -461,17 +506,17 @@ StateReturnType AIGuardInnerState::update()
 void AIGuardInnerState::onExit( StateExitType status )
 {
 	Object *obj = getMachineOwner();
-	if (m_attackState)
+	if (GXROW_AIGUARDINNERSTATE.attackState)
 	{
-		m_attackState->onExit(status);
-		deleteInstance(m_attackState);
-		m_attackState = nullptr;
+		GXROW_AIGUARDINNERSTATE.attackState->onExit(status);
+		deleteInstance(GXROW_AIGUARDINNERSTATE.attackState);
+		GXROW_AIGUARDINNERSTATE.attackState = nullptr;
 	}
-	else if (m_enterState)
+	else if (GXROW_AIGUARDINNERSTATE.enterState)
 	{
-		m_enterState->onExit(status);
-		deleteInstance(m_enterState);
-		m_enterState = nullptr;
+		GXROW_AIGUARDINNERSTATE.enterState->onExit(status);
+		deleteInstance(GXROW_AIGUARDINNERSTATE.enterState);
+		GXROW_AIGUARDINNERSTATE.enterState = nullptr;
 	}
 
 	if (obj->getTeam())
@@ -511,7 +556,8 @@ void AIGuardOuterState::loadPostProcess()
 // ------------------------------------------------------------------------------------------------
 AIGuardOuterState::~AIGuardOuterState()
 {
-	deleteInstance(m_attackState);
+	deleteInstance(GXROW_AIGUARDOUTERSTATE.attackState);
+	TheGxAIGuardOuterStates.release( m_gxAIGuardOuterStateRow );	// web port (round 5)
 }
 
 //--------------------------------------------------------------------------------------
@@ -543,17 +589,17 @@ StateReturnType AIGuardOuterState::onEnter()
 			range = area->getRadius();
 		area->getCenterPoint(&pos);
 	}
-	m_exitConditions.m_center = pos;
-	m_exitConditions.m_radiusSqr = sqr(range);
-	m_exitConditions.m_attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
-	m_exitConditions.m_conditionsToConsider = (ExitConditions::ATTACK_ExitIfExpiredDuration |
+	GXROW_AIGUARDOUTERSTATE.exitConditions.gxRow().center = pos;
+	GXROW_AIGUARDOUTERSTATE.exitConditions.gxRow().radiusSqr = sqr(range);
+	GXROW_AIGUARDOUTERSTATE.exitConditions.gxRow().attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
+	GXROW_AIGUARDOUTERSTATE.exitConditions.gxRow().conditionsToConsider = (ExitConditions::ATTACK_ExitIfExpiredDuration |
 																								ExitConditions::ATTACK_ExitIfOutsideRadius |
 																								ExitConditions::ATTACK_ExitIfNoUnitFound);
 
-	m_attackState = newInstance(AIAttackState)(getMachine(), false, true, false, &m_exitConditions);
-	m_attackState->getMachine()->setGoalObject(nemesis);
+	GXROW_AIGUARDOUTERSTATE.attackState = newInstance(AIAttackState)(getMachine(), false, true, false, &GXROW_AIGUARDOUTERSTATE.exitConditions);
+	GXROW_AIGUARDOUTERSTATE.attackState->getMachine()->setGoalObject(nemesis);
 
-	StateReturnType returnVal = m_attackState->onEnter();
+	StateReturnType returnVal = GXROW_AIGUARDOUTERSTATE.attackState->onEnter();
 	if (returnVal == STATE_CONTINUE) {
 		return STATE_CONTINUE;
 	}
@@ -565,41 +611,41 @@ StateReturnType AIGuardOuterState::onEnter()
 //--------------------------------------------------------------------------------------
 StateReturnType AIGuardOuterState::update()
 {
-	if (m_attackState==nullptr) return STATE_SUCCESS;
+	if (GXROW_AIGUARDOUTERSTATE.attackState==nullptr) return STATE_SUCCESS;
 
 	// if the position has moved (IE we're guarding an object), move with it.
 	Object* targetToGuard = getGuardMachine()->findTargetToGuardByID();
 	if (targetToGuard)
 	{
-		m_exitConditions.m_center = *targetToGuard->getPosition();
+		GXROW_AIGUARDOUTERSTATE.exitConditions.gxRow().center = *targetToGuard->getPosition();
 	}
 
-	Object* goalObj = m_attackState->getMachineGoalObject();
+	Object* goalObj = GXROW_AIGUARDOUTERSTATE.attackState->getMachineGoalObject();
 	if (goalObj)
 	{
 		Coord3D deltaAggr;
-		deltaAggr.x = m_exitConditions.m_center.x - goalObj->getPosition()->x;
-		deltaAggr.y = m_exitConditions.m_center.y - goalObj->getPosition()->y;
-		deltaAggr.z = m_exitConditions.m_center.z - goalObj->getPosition()->z;
+		deltaAggr.x = GXROW_AIGUARDOUTERSTATE.exitConditions.gxRow().center.x - goalObj->getPosition()->x;
+		deltaAggr.y = GXROW_AIGUARDOUTERSTATE.exitConditions.gxRow().center.y - goalObj->getPosition()->y;
+		deltaAggr.z = GXROW_AIGUARDOUTERSTATE.exitConditions.gxRow().center.z - goalObj->getPosition()->z;
 		Real visionSqr = sqr(AIGuardMachine::getStdGuardRange(getMachineOwner()));
 		if (deltaAggr.lengthSqr() <= visionSqr)
 		{
 			// reset the counter
-			m_exitConditions.m_attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
+			GXROW_AIGUARDOUTERSTATE.exitConditions.gxRow().attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
 		}
 	}
 
-	return m_attackState->update();
+	return GXROW_AIGUARDOUTERSTATE.attackState->update();
 }
 
 //--------------------------------------------------------------------------------------
 void AIGuardOuterState::onExit( StateExitType status )
 {
-	if (m_attackState)
+	if (GXROW_AIGUARDOUTERSTATE.attackState)
 	{
-		m_attackState->onExit(status);
-		deleteInstance(m_attackState);
-		m_attackState = nullptr;
+		GXROW_AIGUARDOUTERSTATE.attackState->onExit(status);
+		deleteInstance(GXROW_AIGUARDOUTERSTATE.attackState);
+		GXROW_AIGUARDOUTERSTATE.attackState = nullptr;
 	}
 }
 
@@ -621,7 +667,7 @@ void AIGuardReturnState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_nextReturnScanTime);
+	xfer->xferUnsignedInt(&GXROW_AIGUARDRETURNSTATE.nextReturnScanTime);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -635,24 +681,24 @@ void AIGuardReturnState::loadPostProcess()
 StateReturnType AIGuardReturnState::onEnter()
 {
 	UnsignedInt now = TheGameLogic->getFrame();
-	m_nextReturnScanTime = now + GameLogicRandomValue(0, TheAI->getAiData()->m_guardEnemyReturnScanRate);
+	GXROW_AIGUARDRETURNSTATE.nextReturnScanTime = now + GameLogicRandomValue(0, TheAI->getAiData()->m_guardEnemyReturnScanRate);
 
 // no, no, no, don't do this in onEnter, unless you like really slow maps. (srj)
 //	if (getGuardMachine()->lookForInnerTarget())
 //		return STATE_FAILURE; // early termination because we found a target.
 
 	Object* targetToGuard = getGuardMachine()->findTargetToGuardByID();
-	m_goalPosition = targetToGuard ? *targetToGuard->getPosition() : *getGuardMachine()->getPositionToGuard();
+	AIInternalMoveToState::gxRow().goalPosition = targetToGuard ? *targetToGuard->getPosition() : *getGuardMachine()->getPositionToGuard();
 
 	const PolygonTrigger *area = getGuardMachine()->getAreaToGuard();
 	if (area)
 	{
-		area->getCenterPoint(&m_goalPosition);
+		area->getCenterPoint(&AIInternalMoveToState::gxRow().goalPosition);
 	}
 	AIUpdateInterface *ai = getMachineOwner()->getAIUpdateInterface();
 	if (ai && ai->isDoingGroundMovement())
 	{
-		TheAI->pathfinder()->adjustDestination(getMachineOwner(), ai->getLocomotorSet(), &m_goalPosition);
+		TheAI->pathfinder()->adjustDestination(getMachineOwner(), ai->getLocomotorSet(), &AIInternalMoveToState::gxRow().goalPosition);
 	}
 	setAdjustsDestination(true);
 	return AIInternalMoveToState::onEnter();
@@ -662,9 +708,9 @@ StateReturnType AIGuardReturnState::onEnter()
 StateReturnType AIGuardReturnState::update()
 {
 	UnsignedInt now = TheGameLogic->getFrame();
-	if (now >= m_nextReturnScanTime)
+	if (now >= GXROW_AIGUARDRETURNSTATE.nextReturnScanTime)
 	{
-		m_nextReturnScanTime = now + TheAI->getAiData()->m_guardEnemyReturnScanRate;
+		GXROW_AIGUARDRETURNSTATE.nextReturnScanTime = now + TheAI->getAiData()->m_guardEnemyReturnScanRate;
 		if (getGuardMachine()->lookForInnerTarget())
 			return STATE_FAILURE; // early termination because we found a target.
 	}
@@ -697,7 +743,7 @@ void AIGuardIdleState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_nextEnemyScanTime);
+	xfer->xferUnsignedInt(&GXROW_AIGUARDIDLESTATE.nextEnemyScanTime);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -713,7 +759,7 @@ StateReturnType AIGuardIdleState::onEnter()
 	// first time thru, use a random amount so that everyone doesn't scan on the same frame,
 	// to avoid "spikes".
 	UnsignedInt now = TheGameLogic->getFrame();
-	m_nextEnemyScanTime = now + GameLogicRandomValue(0, TheAI->getAiData()->m_guardEnemyScanRate);
+	GXROW_AIGUARDIDLESTATE.nextEnemyScanTime = now + GameLogicRandomValue(0, TheAI->getAiData()->m_guardEnemyScanRate);
 
 	return STATE_CONTINUE;
 }
@@ -724,10 +770,10 @@ StateReturnType AIGuardIdleState::update()
 	//DEBUG_LOG(("AIGuardIdleState frame %d: %08lx",TheGameLogic->getFrame(),getMachineOwner()));
 
 	UnsignedInt now = TheGameLogic->getFrame();
-	if (now < m_nextEnemyScanTime)
-		return STATE_SLEEP(m_nextEnemyScanTime - now);
+	if (now < GXROW_AIGUARDIDLESTATE.nextEnemyScanTime)
+		return STATE_SLEEP(GXROW_AIGUARDIDLESTATE.nextEnemyScanTime - now);
 
-	m_nextEnemyScanTime = now + TheAI->getAiData()->m_guardEnemyScanRate;
+	GXROW_AIGUARDIDLESTATE.nextEnemyScanTime = now + TheAI->getAiData()->m_guardEnemyScanRate;
 
 #ifdef STATE_MACHINE_DEBUG
 	//getMachine()->setDebugOutput(true);
@@ -738,7 +784,7 @@ StateReturnType AIGuardIdleState::update()
 	if (ai->getCrateID() != INVALID_ID)
 	{
 		getMachine()->setState(AI_GUARD_GET_CRATE);
-		return STATE_SLEEP(m_nextEnemyScanTime - now);
+		return STATE_SLEEP(GXROW_AIGUARDIDLESTATE.nextEnemyScanTime - now);
 	}
 
 	// if anyone is in the inner area, return success.
@@ -752,18 +798,18 @@ StateReturnType AIGuardIdleState::update()
 	if (targetToGuard)
 	{
 		Coord3D pos = *targetToGuard->getPosition();
-		Real delta = m_guardeePos.x-pos.x;
+		Real delta = GXROW_AIGUARDIDLESTATE.guardeePos.x-pos.x;
 		if (delta*delta > 4*PATHFIND_CELL_SIZE_F*PATHFIND_CELL_SIZE_F) {
-			m_guardeePos = pos;
+			GXROW_AIGUARDIDLESTATE.guardeePos = pos;
 			return STATE_FAILURE; // goes to AIGuardReturnState.
 		}
-		delta = m_guardeePos.y-pos.y;
+		delta = GXROW_AIGUARDIDLESTATE.guardeePos.y-pos.y;
 		if (delta*delta > 4*PATHFIND_CELL_SIZE_F*PATHFIND_CELL_SIZE_F) {
-			m_guardeePos = pos;
+			GXROW_AIGUARDIDLESTATE.guardeePos = pos;
 			return STATE_FAILURE; // goes to AIGuardReturnState.
 		}
 	}
-	return STATE_SLEEP(m_nextEnemyScanTime - now);
+	return STATE_SLEEP(GXROW_AIGUARDIDLESTATE.nextEnemyScanTime - now);
 }
 
 //--------------------------------------------------------------------------------------
@@ -811,16 +857,18 @@ void AIGuardPickUpCrateState::onExit( StateExitType status )
 
 //-- AIGuardAttackAggressorState ------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-AIGuardAttackAggressorState::AIGuardAttackAggressorState( StateMachine *machine ) :
-	State( machine, "AIGuardAttackAggressorState" )
+AIGuardAttackAggressorState::AIGuardAttackAggressorState( StateMachine *machine ) : State( machine, "AIGuardAttackAggressorState" )
 {
-	m_attackState = nullptr;
+	m_gxAIGuardAttackAggressorStateRow = TheGxAIGuardAttackAggressorStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+	GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState = nullptr;
 }
 
 // ------------------------------------------------------------------------------------------------
 AIGuardAttackAggressorState::~AIGuardAttackAggressorState()
 {
-	deleteInstance(m_attackState);
+	deleteInstance(GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState);
+	TheGxAIGuardAttackAggressorStates.release( m_gxAIGuardAttackAggressorStateRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -844,17 +892,17 @@ StateReturnType AIGuardAttackAggressorState::onEnter()
 	Object* targetToGuard = getGuardMachine()->findTargetToGuardByID();
 	Coord3D pos = targetToGuard ? *targetToGuard->getPosition() : *getGuardMachine()->getPositionToGuard();
 	//Don't allow guarding units to leave their guard radius!
-	m_exitConditions.m_center = pos;
-	m_exitConditions.m_radiusSqr = sqr(AIGuardMachine::getStdGuardRange(getMachineOwner()));
-	m_exitConditions.m_attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
-	m_exitConditions.m_conditionsToConsider = (ExitConditions::ATTACK_ExitIfExpiredDuration |
+	GXROW_AIGUARDATTACKAGGRESSORSTATE.exitConditions.gxRow().center = pos;
+	GXROW_AIGUARDATTACKAGGRESSORSTATE.exitConditions.gxRow().radiusSqr = sqr(AIGuardMachine::getStdGuardRange(getMachineOwner()));
+	GXROW_AIGUARDATTACKAGGRESSORSTATE.exitConditions.gxRow().attackGiveUpFrame = TheGameLogic->getFrame() + TheAI->getAiData()->m_guardChaseUnitFrames;
+	GXROW_AIGUARDATTACKAGGRESSORSTATE.exitConditions.gxRow().conditionsToConsider = (ExitConditions::ATTACK_ExitIfExpiredDuration |
 																						 ExitConditions::ATTACK_ExitIfNoUnitFound |
 																						 ExitConditions::ATTACK_ExitIfOutsideRadius );
 
-	m_attackState = newInstance(AIAttackState)(getMachine(), true, true, false, &m_exitConditions);
-	m_attackState->getMachine()->setGoalObject(nemesis);
+	GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState = newInstance(AIAttackState)(getMachine(), true, true, false, &GXROW_AIGUARDATTACKAGGRESSORSTATE.exitConditions);
+	GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState->getMachine()->setGoalObject(nemesis);
 
-	StateReturnType returnVal = m_attackState->onEnter();
+	StateReturnType returnVal = GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState->onEnter();
 	if (returnVal == STATE_CONTINUE) {
 		return STATE_CONTINUE;
 	}
@@ -866,26 +914,26 @@ StateReturnType AIGuardAttackAggressorState::onEnter()
 //-------------------------------------------------------------------------------------------------
 StateReturnType AIGuardAttackAggressorState::update()
 {
-	if (m_attackState==nullptr) return STATE_SUCCESS;
+	if (GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState==nullptr) return STATE_SUCCESS;
 	// if the position has moved (IE we're guarding an object), move with it.
 	Object* targetToGuard = getGuardMachine()->findTargetToGuardByID();
 	if (targetToGuard)
 	{
-		m_exitConditions.m_center = *targetToGuard->getPosition();
+		GXROW_AIGUARDATTACKAGGRESSORSTATE.exitConditions.gxRow().center = *targetToGuard->getPosition();
 	}
 
-	return m_attackState->update();
+	return GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState->update();
 }
 
 //-------------------------------------------------------------------------------------------------
 void AIGuardAttackAggressorState::onExit( StateExitType status )
 {
 	Object *obj = getMachineOwner();
-	if (m_attackState)
+	if (GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState)
 	{
-		m_attackState->onExit(status);
-		deleteInstance(m_attackState);
-		m_attackState = nullptr;
+		GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState->onExit(status);
+		deleteInstance(GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState);
+		GXROW_AIGUARDATTACKAGGRESSORSTATE.attackState = nullptr;
 	}
 
 	if (obj->getTeam())
@@ -914,5 +962,57 @@ void AIGuardAttackAggressorState::xfer( Xfer *xfer )
 void AIGuardAttackAggressorState::loadPostProcess()
 {
 	onEnter();
+}
+
+AIGuardIdleState::AIGuardIdleState( StateMachine *machine ) : State( machine, "AIGuardIdleState" )
+{
+	m_gxAIGuardIdleStateRow = TheGxAIGuardIdleStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+ }
+
+AIGuardIdleState::~AIGuardIdleState()
+{
+	TheGxAIGuardIdleStates.release( m_gxAIGuardIdleStateRow );	// web port (round 5)
+}
+
+AIGuardInnerState::AIGuardInnerState( StateMachine *machine ) : State( machine, "AIGuardInner" )
+{
+	m_gxAIGuardInnerStateRow = TheGxAIGuardInnerStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+		gxRow().attackState = nullptr;
+		gxRow().enterState = nullptr;
+	}
+
+AIGuardOuterState::AIGuardOuterState( StateMachine *machine ) : State( machine, "AIGuardOuter" )
+{
+	m_gxAIGuardOuterStateRow = TheGxAIGuardOuterStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+		gxRow().attackState = nullptr;
+	}
+
+AIGuardReturnState::AIGuardReturnState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIGuardReturn" )
+{
+	m_gxAIGuardReturnStateRow = TheGxAIGuardReturnStates.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+		gxRow().nextReturnScanTime = 0;
+	}
+
+AIGuardReturnState::~AIGuardReturnState()
+{
+	TheGxAIGuardReturnStates.release( m_gxAIGuardReturnStateRow );	// web port (round 5)
+}
+
+ExitConditions::ExitConditions()
+{
+	m_gxExitConditionsRow = TheGxExitConditionss.alloc( nullptr );	// web port (round 5): this unit's row (zeroed, like the module was)
+	GXROW_EXITCONDITIONS.attackGiveUpFrame = 0;
+	GXROW_EXITCONDITIONS.conditionsToConsider = 0;
+	GXROW_EXITCONDITIONS.radiusSqr = 0.0f;
+
+		gxRow().center.zero();
+	}
+
+ExitConditions::~ExitConditions()
+{
+	TheGxExitConditionss.release( m_gxExitConditionsRow );	// web port (round 5)
 }
 

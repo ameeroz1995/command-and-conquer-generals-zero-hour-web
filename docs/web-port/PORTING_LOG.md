@@ -3954,3 +3954,52 @@ ai's per-kind hook lands, the range kernel is a loop of these calls over the kin
 - Query hooks: search ms, searches / cells / entries / units opened / SIMD-culled; fog reveal ms, circles,
   cells touched (stamp and span paths alike), fog status calls / recomputes / kept.
 - Other lanes: add ids to the enums in GxTime.h; one logic timer for everyone (GameEngine.cpp).
+## 2026-11-25 — Round 5 (units are pure data), logic-ai: component tables for my families
+
+Merged origin/perf/low-end f8473f1 first.
+
+Pattern (GameLogic/GxComponents.h, `GxComponentTable<Row>`): a module family's per-unit state is a
+row in a table owned by the family, not fields of the module object. Rows live in a deque (never
+move), are built in place (zeroed, like the memory-pool objects they replace) and are visited by
+forEach in object-ID order. The module keeps one pointer to its row; its class is a facade (INI
+data, the engine's calls, xfer/CRC reading and writing the row's fields in the old order, so saves
+and CRCs are unchanged). Conversions are mechanical (tools/web-port/gx_rowify.py,
+gx_inline_out.py, gx_base_rewrite.py): members -> row fields; member uses inside the class's own
+functions -> the row; inline header methods that touch the row moved after the row type; subclass
+uses of base members -> Base::gxRow().x. Every-frame updates already run as passes over the store's
+lists in object-ID order through the updatePasses dispatch table (round 4); the module's update is the
+per-row step of that pass.
+
+Converted (per-unit state now in tables):
+- Behavior/ (24 with state): AutoHeal, BattleBusSlowDeath, Bridge, BridgeScaffold, BridgeTower,
+  BunkerBuster, Countermeasures, DumbProjectile, FireWeaponWhenDamaged, FlightDeck, GenerateMinefield,
+  GrantStealth, JetSlowDeath, Minefield, Overcharge, ParkingPlace, Poisoned, PropagandaTower,
+  RebuildHole, SlowDeath, Spawn, SupplyWarehouseCrippling. Stateless already (nothing per unit):
+  BehaviorModule, FireWeaponWhenDead, InstantDeath, POWTruck, TechBuilding. Compiled out
+  (ALLOW_SURRENDER): Prison, PropagandaCenter.
+- Contain/ (10 with state): OpenContain (base), Garrison, Transport, Cave, Helix, MobNexus, Overlord,
+  Parachute, RiderChange, Tunnel; stateless: Heal, InternetHack, RailedTransport.
+- Create/: CreateModule (base, the only state); the 7 others are stateless.
+- Upgrade/: UpgradeMux (every upgrade's "executed" flag) and GrantScienceUpgrade; the 19 others are
+  stateless.
+- AIUpdateInterface (75 fields); AI state machines: 25 AIStates classes, the guard / retaliate /
+  tunnel-guard machines and states, dock machine and states, TurretAI and its states. The three
+  *ExitConditions classes (held by value inside state rows) are converted too (ai-23, after rows were
+  made to be built in place, never copied). Not converted: TurretAIAimTurretState (its only field is
+  compiled out), TurretAIData (per-type INI data).
+- No edit in other agents' files: JetAIUpdate.cpp (paths) still uses `m_goalPosition`,
+  `m_waitingForPath` and `m_path` of its bases, which are now reference names for the row fields.
+- dataBehaviors (fourth word bit 6, same game, on): GenerateMinefieldBehavior looked up the EMP-mines
+  upgrade by name every frame (~140 units); now once (verify mode compares with the lookup).
+Checks: referee replay matches (builds ai-19, ai-20, ai-21, ai-22); a recording made with
+updatePasses on replays to a match on each; verify mode shows no mismatch from these changes (the only
+mismatch lines on perf/low-end come from the "laser scan" check, objects 829/832/1624/1643).
+Timing (under timing.lock; started at load 7.5, other agents' builds pushed it to 11-17), work ms,
+ai-17 (merged base) / ai-22 (converted):
+- run 1: ai-17 at load 7.5: armies 42.9, strikes 73.4, aftermath 81.7; ai-22 at load 16: 77.4, 112.2, 78.1
+- run 2: ai-17 at load 15: 79.6, 116.5, 86.0; ai-22 at load 16->11: 56.0, 86.0, 52.3
+At matched load the converted build is level or faster; run 1's gap follows the load. Not slower within
+what this machine can show; it is the same game, so it stays on (there is no switch for where the
+data lives; dataBehaviors only gates the minefield's cached lookup).
+- ai-23 (ExitConditions converted): referee replay matches, the updatePasses recording replays to a
+  match, verify mode clean (only the laser-scan lines).

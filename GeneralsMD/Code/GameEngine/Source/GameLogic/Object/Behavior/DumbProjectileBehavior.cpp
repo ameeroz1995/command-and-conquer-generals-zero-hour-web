@@ -46,6 +46,12 @@
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Weapon.h"
 
+// Web port (round 5, units are pure data): DumbProjectileBehavior's per-unit state is a row of TheGxDumbProjectileBehaviors;
+// GXROW_DUMBPROJECTILEBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxDumbProjectileBehaviorRow> TheGxDumbProjectileBehaviors;
+#define GXROW_DUMBPROJECTILEBEHAVIOR (TheGxDumbProjectileBehaviors.at(m_gxDumbProjectileBehaviorRow))
+
+
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -108,24 +114,27 @@ void DumbProjectileBehaviorModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 DumbProjectileBehavior::DumbProjectileBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_launcherID = INVALID_ID;
-	m_victimID = INVALID_ID;
-	m_detonationWeaponTmpl = nullptr;
-	m_lifespanFrame = 0;
-	m_flightPath.clear();
-	m_flightPathSegments = 0;
-	m_flightPathSpeed = 0;
-	m_flightPathStart.zero();
-	m_flightPathEnd.zero();
-	m_currentFlightPathStep = 0;
-	m_extraBonusFlags = 0;
+	m_gxDumbProjectileBehaviorRow = TheGxDumbProjectileBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
-  m_hasDetonated = FALSE;
+	GXROW_DUMBPROJECTILEBEHAVIOR.launcherID = INVALID_ID;
+	GXROW_DUMBPROJECTILEBEHAVIOR.victimID = INVALID_ID;
+	GXROW_DUMBPROJECTILEBEHAVIOR.detonationWeaponTmpl = nullptr;
+	GXROW_DUMBPROJECTILEBEHAVIOR.lifespanFrame = 0;
+	GXROW_DUMBPROJECTILEBEHAVIOR.flightPath.clear();
+	GXROW_DUMBPROJECTILEBEHAVIOR.flightPathSegments = 0;
+	GXROW_DUMBPROJECTILEBEHAVIOR.flightPathSpeed = 0;
+	GXROW_DUMBPROJECTILEBEHAVIOR.flightPathStart.zero();
+	GXROW_DUMBPROJECTILEBEHAVIOR.flightPathEnd.zero();
+	GXROW_DUMBPROJECTILEBEHAVIOR.currentFlightPathStep = 0;
+	GXROW_DUMBPROJECTILEBEHAVIOR.extraBonusFlags = 0;
+
+  GXROW_DUMBPROJECTILEBEHAVIOR.hasDetonated = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
 DumbProjectileBehavior::~DumbProjectileBehavior()
 {
+	TheGxDumbProjectileBehaviors.release( m_gxDumbProjectileBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -334,11 +343,11 @@ void DumbProjectileBehavior::projectileLaunchAtObjectOrPosition(
 
 	DEBUG_ASSERTCRASH(specificBarrelToUse>=0, ("specificBarrelToUse must now be explicit"));
 
-	m_launcherID = launcher ? launcher->getID() : INVALID_ID;
-	m_extraBonusFlags = launcher ? launcher->getWeaponBonusCondition() : 0;
-	m_victimID = victim ? victim->getID() : INVALID_ID;
-	m_detonationWeaponTmpl = detWeap;
-	m_lifespanFrame = TheGameLogic->getFrame() + d->m_maxLifespan;
+	GXROW_DUMBPROJECTILEBEHAVIOR.launcherID = launcher ? launcher->getID() : INVALID_ID;
+	GXROW_DUMBPROJECTILEBEHAVIOR.extraBonusFlags = launcher ? launcher->getWeaponBonusCondition() : 0;
+	GXROW_DUMBPROJECTILEBEHAVIOR.victimID = victim ? victim->getID() : INVALID_ID;
+	GXROW_DUMBPROJECTILEBEHAVIOR.detonationWeaponTmpl = detWeap;
+	GXROW_DUMBPROJECTILEBEHAVIOR.lifespanFrame = TheGameLogic->getFrame() + d->m_maxLifespan;
 
 	Object* projectile = getObject();
 
@@ -371,11 +380,11 @@ void DumbProjectileBehavior::projectileFireAtObjectOrPosition( const Object *vic
 		Real maxRange = detWeap->getUnmodifiedAttackRange();
 		Real range = sqrt(ThePartitionManager->getDistanceSquared( projectile, &victimPosToUse, FROM_CENTER_2D ) );
 		Real rangeRatio = (range - minRange) / (maxRange - minRange);
-		m_flightPathSpeed = (rangeRatio * (weaponSpeed - minWeaponSpeed)) + minWeaponSpeed;
+		GXROW_DUMBPROJECTILEBEHAVIOR.flightPathSpeed = (rangeRatio * (weaponSpeed - minWeaponSpeed)) + minWeaponSpeed;
 	}
 	else
 	{
-		m_flightPathSpeed = weaponSpeed;
+		GXROW_DUMBPROJECTILEBEHAVIOR.flightPathSpeed = weaponSpeed;
 	}
 
  	PhysicsBehavior* physics = projectile->getPhysics();
@@ -386,15 +395,15 @@ void DumbProjectileBehavior::projectileFireAtObjectOrPosition( const Object *vic
 		physics->setRollRate( GameLogicRandomValueReal( -1.0f/PI, 1.0f/PI ) );
 	}
 
-	m_flightPathStart = *getObject()->getPosition();
-	m_flightPathEnd = victimPosToUse;
+	GXROW_DUMBPROJECTILEBEHAVIOR.flightPathStart = *getObject()->getPosition();
+	GXROW_DUMBPROJECTILEBEHAVIOR.flightPathEnd = victimPosToUse;
 	if (!calcFlightPath(true))
 	{
 		//Can only fail if wildly incorrect points
 		TheGameLogic->destroyObject( projectile );
 		return;
 	}
-	m_currentFlightPathStep = 0;// We are at the first point, because the launching put us there
+	GXROW_DUMBPROJECTILEBEHAVIOR.currentFlightPathStep = 0;// We are at the first point, because the launching put us there
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -405,8 +414,8 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 
 	Coord3D controlPoints[4];
 	//First point is us, last point is them
-	controlPoints[0] = m_flightPathStart;
-	controlPoints[3] = m_flightPathEnd;
+	controlPoints[0] = GXROW_DUMBPROJECTILEBEHAVIOR.flightPathStart;
+	controlPoints[3] = GXROW_DUMBPROJECTILEBEHAVIOR.flightPathEnd;
 
 	Real highestInterveningTerrain;
 	Bool onMap = ThePartitionManager->estimateTerrainExtremesAlongLine( controlPoints[0], controlPoints[3], nullptr, &highestInterveningTerrain, nullptr, nullptr );
@@ -444,13 +453,13 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 	if (recalcNumSegments)
 	{
 		Real flightDistance = flightCurve.getApproximateLength();
-		m_flightPathSegments = ceil( flightDistance / m_flightPathSpeed );
+		GXROW_DUMBPROJECTILEBEHAVIOR.flightPathSegments = ceil( flightDistance / GXROW_DUMBPROJECTILEBEHAVIOR.flightPathSpeed );
 	}
 
 	// TheSuperHackers @info The way flight paths are used requires at least two curve points.
 	// DumbProjectileBehavior::update has been modified to handle cases where the flight path consists of one or zero curve points.
-	flightCurve.getSegmentPoints(m_flightPathSegments, &m_flightPath);
-	DEBUG_ASSERTCRASH(m_flightPathSegments == m_flightPath.size(), ("m_flightPathSegments mismatch"));
+	flightCurve.getSegmentPoints(GXROW_DUMBPROJECTILEBEHAVIOR.flightPathSegments, &GXROW_DUMBPROJECTILEBEHAVIOR.flightPath);
+	DEBUG_ASSERTCRASH(GXROW_DUMBPROJECTILEBEHAVIOR.flightPathSegments == GXROW_DUMBPROJECTILEBEHAVIOR.flightPath.size(), ("GXROW_DUMBPROJECTILEBEHAVIOR.flightPathSegments mismatch"));
 
 #if defined(RTS_DEBUG)
 	if( TheGlobalData->m_debugProjectilePath )
@@ -471,7 +480,7 @@ Bool DumbProjectileBehavior::projectileHandleCollision( Object *other )
 		Object *projectileLauncher = TheGameLogic->findObjectByID( projectileGetLauncherID() );
 
 			// if it's not the specific thing we were targeting, see if we should incidentally collide...
-		if (!m_detonationWeaponTmpl->shouldProjectileCollideWith(projectileLauncher, getObject(), other, m_victimID))
+		if (!GXROW_DUMBPROJECTILEBEHAVIOR.detonationWeaponTmpl->shouldProjectileCollideWith(projectileLauncher, getObject(), other, GXROW_DUMBPROJECTILEBEHAVIOR.victimID))
 		{
 			//DEBUG_LOG(("ignoring projectile collision with %s at frame %d",other->getTemplate()->getName().str(),TheGameLogic->getFrame()));
 			return true;
@@ -530,13 +539,13 @@ Bool DumbProjectileBehavior::projectileHandleCollision( Object *other )
 //-------------------------------------------------------------------------------------------------
 void DumbProjectileBehavior::detonate()
 {
-  if ( m_hasDetonated )
+  if ( GXROW_DUMBPROJECTILEBEHAVIOR.hasDetonated )
     return;
 
 	Object* obj = getObject();
-	if (m_detonationWeaponTmpl)
+	if (GXROW_DUMBPROJECTILEBEHAVIOR.detonationWeaponTmpl)
 	{
-		TheWeaponStore->handleProjectileDetonation(m_detonationWeaponTmpl, obj, obj->getPosition(), m_extraBonusFlags);
+		TheWeaponStore->handleProjectileDetonation(GXROW_DUMBPROJECTILEBEHAVIOR.detonationWeaponTmpl, obj, obj->getPosition(), GXROW_DUMBPROJECTILEBEHAVIOR.extraBonusFlags);
 
 		if ( getDumbProjectileBehaviorModuleData()->m_detonateCallsKill )
 		{
@@ -568,7 +577,7 @@ void DumbProjectileBehavior::detonate()
 	if (obj->getDrawable())
 		obj->getDrawable()->setDrawableHidden(true);
 
-  m_hasDetonated = TRUE;
+  GXROW_DUMBPROJECTILEBEHAVIOR.hasDetonated = TRUE;
 
 }
 
@@ -580,7 +589,7 @@ UpdateSleepTime DumbProjectileBehavior::update()
 {
 	const DumbProjectileBehaviorModuleData* d = getDumbProjectileBehaviorModuleData();
 
-	if (m_lifespanFrame != 0 && TheGameLogic->getFrame() >= m_lifespanFrame)
+	if (GXROW_DUMBPROJECTILEBEHAVIOR.lifespanFrame != 0 && TheGameLogic->getFrame() >= GXROW_DUMBPROJECTILEBEHAVIOR.lifespanFrame)
 	{
 		// lifetime demands detonation
 		detonate();
@@ -588,7 +597,7 @@ UpdateSleepTime DumbProjectileBehavior::update()
 	}
 
 	// TheSuperHackers @info This check also covers the case where the flight path consists of zero curve points.
-	if( m_currentFlightPathStep >= m_flightPath.size() )
+	if( GXROW_DUMBPROJECTILEBEHAVIOR.currentFlightPathStep >= GXROW_DUMBPROJECTILEBEHAVIOR.flightPath.size() )
 	{
 		// No more steps to use. Would go out of bounds on vector, so have to do something.
 		// We could allow physics to take over and make us fall, but the point of this whole task
@@ -597,17 +606,17 @@ UpdateSleepTime DumbProjectileBehavior::update()
 		return UPDATE_SLEEP_NONE;
 	}
 
-	if (m_victimID != INVALID_ID && d->m_flightPathAdjustDistPerFrame > 0.0f)
+	if (GXROW_DUMBPROJECTILEBEHAVIOR.victimID != INVALID_ID && d->m_flightPathAdjustDistPerFrame > 0.0f)
 	{
-		Object* victim = TheGameLogic->findObjectByID(m_victimID);
+		Object* victim = TheGameLogic->findObjectByID(GXROW_DUMBPROJECTILEBEHAVIOR.victimID);
 		if (victim)
 		{
 			Coord3D newVictimPos;
 			victim->getGeometryInfo().getCenterPosition(*victim->getPosition(), newVictimPos);
 			Coord3D delta;
-			delta.x = newVictimPos.x - m_flightPathEnd.x;
-			delta.y = newVictimPos.y - m_flightPathEnd.y;
-			delta.z = newVictimPos.z - m_flightPathEnd.z;
+			delta.x = newVictimPos.x - GXROW_DUMBPROJECTILEBEHAVIOR.flightPathEnd.x;
+			delta.y = newVictimPos.y - GXROW_DUMBPROJECTILEBEHAVIOR.flightPathEnd.y;
+			delta.z = newVictimPos.z - GXROW_DUMBPROJECTILEBEHAVIOR.flightPathEnd.z;
 			Real distVictimMovedSqr = sqr(delta.x) + sqr(delta.y) + sqr(delta.z);
 			if (distVictimMovedSqr > 0.1f)
 			{
@@ -615,9 +624,9 @@ UpdateSleepTime DumbProjectileBehavior::update()
 				if (distVictimMoved > d->m_flightPathAdjustDistPerFrame)
 					distVictimMoved = d->m_flightPathAdjustDistPerFrame;
 				delta.normalize();
-				m_flightPathEnd.x += distVictimMoved * delta.x;
-				m_flightPathEnd.y += distVictimMoved * delta.y;
-				m_flightPathEnd.z += distVictimMoved * delta.z;
+				GXROW_DUMBPROJECTILEBEHAVIOR.flightPathEnd.x += distVictimMoved * delta.x;
+				GXROW_DUMBPROJECTILEBEHAVIOR.flightPathEnd.y += distVictimMoved * delta.y;
+				GXROW_DUMBPROJECTILEBEHAVIOR.flightPathEnd.z += distVictimMoved * delta.z;
 				if (!calcFlightPath(false))
 				{
 					DEBUG_CRASH(("Hmm, recalc of flight path returned false... should this happen?"));
@@ -629,18 +638,18 @@ UpdateSleepTime DumbProjectileBehavior::update()
 	}
 
 	//Otherwise, continue to force the flight path
-	Coord3D flightStep = m_flightPath[m_currentFlightPathStep];
+	Coord3D flightStep = GXROW_DUMBPROJECTILEBEHAVIOR.flightPath[GXROW_DUMBPROJECTILEBEHAVIOR.currentFlightPathStep];
 
 	if (d->m_orientToFlightPath && (!d->m_tumbleRandomly) )
   {
-    if ( m_currentFlightPathStep > 0)
+    if ( GXROW_DUMBPROJECTILEBEHAVIOR.currentFlightPathStep > 0)
 	  {
 	  // this seems reasonable; however, if this object has a PhysicsBehavior on it, this calc will be wrong,
 	  // since Physics is applying gravity, which we duly ignore, but the prevPos won't be what we expect.
 	  // get it from the flight path instead. (srj)
 	  //Coord3D prevPos = *getObject()->getPosition();
 
-		  Coord3D prevPos = m_flightPath[m_currentFlightPathStep - 1];
+		  Coord3D prevPos = GXROW_DUMBPROJECTILEBEHAVIOR.flightPath[GXROW_DUMBPROJECTILEBEHAVIOR.currentFlightPathStep - 1];
 
 		  Vector3 curDir(flightStep.x - prevPos.x, flightStep.y - prevPos.y, flightStep.z - prevPos.z);
 		  curDir.Normalize();	// buildTransformMatrix wants it this way
@@ -658,10 +667,10 @@ UpdateSleepTime DumbProjectileBehavior::update()
 			Coord3D prevPos;
 			Coord3D curPos;
 
-			if (m_flightPath.size() >= 2)
+			if (GXROW_DUMBPROJECTILEBEHAVIOR.flightPath.size() >= 2)
 			{
-				prevPos = m_flightPath[0];
-				curPos = m_flightPath[1];
+				prevPos = GXROW_DUMBPROJECTILEBEHAVIOR.flightPath[0];
+				curPos = GXROW_DUMBPROJECTILEBEHAVIOR.flightPath[1];
 			}
 			else
 			{
@@ -670,9 +679,9 @@ UpdateSleepTime DumbProjectileBehavior::update()
 					" Vector is expected to contain two or more elements; check the weapon speed value."));
 #endif
 
-				prevPos = m_flightPathStart;
-				curPos = m_flightPathEnd;
-				flightStep = m_flightPathEnd;
+				prevPos = GXROW_DUMBPROJECTILEBEHAVIOR.flightPathStart;
+				curPos = GXROW_DUMBPROJECTILEBEHAVIOR.flightPathEnd;
+				flightStep = GXROW_DUMBPROJECTILEBEHAVIOR.flightPathEnd;
 			}
 
 		  Vector3 curDir(curPos.x - prevPos.x, curPos.y - prevPos.y, curPos.z - prevPos.z);
@@ -712,7 +721,7 @@ UpdateSleepTime DumbProjectileBehavior::update()
 		}
 	}
 
-	++m_currentFlightPathStep;
+	++GXROW_DUMBPROJECTILEBEHAVIOR.currentFlightPathStep;
 
 	return UPDATE_SLEEP_NONE;//This no longer flys with physics, so it needs to not sleep
 }
@@ -724,9 +733,9 @@ UpdateSleepTime DumbProjectileBehavior::update()
 void DumbProjectileBehavior::displayFlightPath()
 {
 	extern void addIcon(const Coord3D *pos, Real width, Int numFramesDuration, RGBColor color);
-	for( size_t pointIndex = 0; pointIndex < m_flightPath.size(); ++pointIndex )
+	for( size_t pointIndex = 0; pointIndex < GXROW_DUMBPROJECTILEBEHAVIOR.flightPath.size(); ++pointIndex )
 	{
-		addIcon(&m_flightPath[pointIndex], TheGlobalData->m_debugProjectileTileWidth,
+		addIcon(&GXROW_DUMBPROJECTILEBEHAVIOR.flightPath[pointIndex], TheGlobalData->m_debugProjectileTileWidth,
 										TheGlobalData->m_debugProjectileTileDuration,
 										TheGlobalData->m_debugProjectileTileColor);
 	}
@@ -761,34 +770,34 @@ void DumbProjectileBehavior::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// launcher
-	xfer->xferObjectID( &m_launcherID );
+	xfer->xferObjectID( &GXROW_DUMBPROJECTILEBEHAVIOR.launcherID );
 
 	// victim ID
-	xfer->xferObjectID( &m_victimID );
+	xfer->xferObjectID( &GXROW_DUMBPROJECTILEBEHAVIOR.victimID );
 
-	xfer->xferInt( &m_flightPathSegments );
-	xfer->xferReal( &m_flightPathSpeed );
-	xfer->xferCoord3D( &m_flightPathStart );
-	xfer->xferCoord3D( &m_flightPathEnd );
+	xfer->xferInt( &GXROW_DUMBPROJECTILEBEHAVIOR.flightPathSegments );
+	xfer->xferReal( &GXROW_DUMBPROJECTILEBEHAVIOR.flightPathSpeed );
+	xfer->xferCoord3D( &GXROW_DUMBPROJECTILEBEHAVIOR.flightPathStart );
+	xfer->xferCoord3D( &GXROW_DUMBPROJECTILEBEHAVIOR.flightPathEnd );
 
 	// weapon template
 	AsciiString weaponTemplateName = AsciiString::TheEmptyString;
-	if( m_detonationWeaponTmpl )
-		weaponTemplateName = m_detonationWeaponTmpl->getName();
+	if( GXROW_DUMBPROJECTILEBEHAVIOR.detonationWeaponTmpl )
+		weaponTemplateName = GXROW_DUMBPROJECTILEBEHAVIOR.detonationWeaponTmpl->getName();
 	xfer->xferAsciiString( &weaponTemplateName );
 	if( xfer->getXferMode() == XFER_LOAD )
 	{
 
 		if( weaponTemplateName == AsciiString::TheEmptyString )
-			m_detonationWeaponTmpl = nullptr;
+			GXROW_DUMBPROJECTILEBEHAVIOR.detonationWeaponTmpl = nullptr;
 		else
 		{
 
 			// find template
-			m_detonationWeaponTmpl = TheWeaponStore->findWeaponTemplate( weaponTemplateName );
+			GXROW_DUMBPROJECTILEBEHAVIOR.detonationWeaponTmpl = TheWeaponStore->findWeaponTemplate( weaponTemplateName );
 
 			// sanity
-			if( m_detonationWeaponTmpl == nullptr )
+			if( GXROW_DUMBPROJECTILEBEHAVIOR.detonationWeaponTmpl == nullptr )
 			{
 
 				DEBUG_CRASH(( "DumbProjectileBehavior::xfer - Unknown weapon template '%s'",
@@ -802,7 +811,7 @@ void DumbProjectileBehavior::xfer( Xfer *xfer )
 	}
 
 	// lifespan frame
-	xfer->xferUnsignedInt( &m_lifespanFrame );
+	xfer->xferUnsignedInt( &GXROW_DUMBPROJECTILEBEHAVIOR.lifespanFrame );
 
 }
 

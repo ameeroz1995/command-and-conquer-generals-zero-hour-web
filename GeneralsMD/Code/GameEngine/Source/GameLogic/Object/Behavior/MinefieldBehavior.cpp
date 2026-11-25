@@ -45,6 +45,12 @@
 #include "GameLogic/Module/AutoHealBehavior.h"
 #include "GameLogic/Weapon.h"
 
+// Web port (round 5, units are pure data): MinefieldBehavior's per-unit state is a row of TheGxMinefieldBehaviors;
+// GXROW_MINEFIELDBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxMinefieldBehaviorRow> TheGxMinefieldBehaviors;
+#define GXROW_MINEFIELDBEHAVIOR (TheGxMinefieldBehaviors.at(m_gxMinefieldBehaviorRow))
+
+
 
 // detonation never puts our health below this, since we probably auto-regen
 const Real MIN_HEALTH = 0.1f;
@@ -99,23 +105,24 @@ MinefieldBehaviorModuleData::MinefieldBehaviorModuleData()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-MinefieldBehavior::MinefieldBehavior( Thing *thing, const ModuleData* moduleData )
-								 : UpdateModule( thing, moduleData )
+MinefieldBehavior::MinefieldBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxMinefieldBehaviorRow = TheGxMinefieldBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
+
 	const MinefieldBehaviorModuleData* d = getMinefieldBehaviorModuleData();
-	m_nextDeathCheckFrame = 0;
-	m_scootFramesLeft = 0;
-	m_scootVel.zero();
-	m_scootAccel.zero();
-	m_detonators.clear();
-	m_ignoreDamage = false;
-	m_regenerates = d->m_regenerates;
-	m_draining = false;
-	m_virtualMinesRemaining = d->m_numVirtualMines;
+	GXROW_MINEFIELDBEHAVIOR.nextDeathCheckFrame = 0;
+	GXROW_MINEFIELDBEHAVIOR.scootFramesLeft = 0;
+	GXROW_MINEFIELDBEHAVIOR.scootVel.zero();
+	GXROW_MINEFIELDBEHAVIOR.scootAccel.zero();
+	GXROW_MINEFIELDBEHAVIOR.detonators.clear();
+	GXROW_MINEFIELDBEHAVIOR.ignoreDamage = false;
+	GXROW_MINEFIELDBEHAVIOR.regenerates = d->m_regenerates;
+	GXROW_MINEFIELDBEHAVIOR.draining = false;
+	GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining = d->m_numVirtualMines;
 	for (Int i = 0; i < MAX_IMMUNITY; ++i)
 	{
-		m_immunes[i].id = INVALID_ID;
-		m_immunes[i].collideTime = 0;
+		GXROW_MINEFIELDBEHAVIOR.immunes[i].id = INVALID_ID;
+		GXROW_MINEFIELDBEHAVIOR.immunes[i].collideTime = 0;
 	}
 
 	// start off awake, and we will calcSleepTime from here on
@@ -129,6 +136,7 @@ MinefieldBehavior::MinefieldBehavior( Thing *thing, const ModuleData* moduleData
 //-------------------------------------------------------------------------------------------------
 MinefieldBehavior::~MinefieldBehavior()
 {
+	TheGxMinefieldBehaviors.release( m_gxMinefieldBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -138,16 +146,16 @@ UpdateSleepTime MinefieldBehavior::calcSleepTime()
 	const MinefieldBehaviorModuleData* d = getMinefieldBehaviorModuleData();
 
 	// if we're draining we have to update every frame
-	if (m_draining)
+	if (GXROW_MINEFIELDBEHAVIOR.draining)
 		return UPDATE_SLEEP_NONE;
 
 	// if we're scooting we need to update every frame
-	if( m_scootFramesLeft > 0 )
+	if( GXROW_MINEFIELDBEHAVIOR.scootFramesLeft > 0 )
 		return UPDATE_SLEEP_NONE;
 
 	// if there is anybody in our immulity monitoring we need to update every frame
 	for( Int i = 0; i < MAX_IMMUNITY; ++i )
-		if( m_immunes[ i ].id != INVALID_ID )
+		if( GXROW_MINEFIELDBEHAVIOR.immunes[ i ].id != INVALID_ID )
 			return UPDATE_SLEEP_NONE;
 
 	UnsignedInt sleepTime = FOREVER;
@@ -156,8 +164,8 @@ UpdateSleepTime MinefieldBehavior::calcSleepTime()
 	// sleep until the next death check frame we already have figured outif we care
 	// about it (that is, when our creator dies)
 	//
-	if (m_regenerates && d->m_stopsRegenAfterCreatorDies)
-		sleepTime = min( sleepTime, m_nextDeathCheckFrame - now );
+	if (GXROW_MINEFIELDBEHAVIOR.regenerates && d->m_stopsRegenAfterCreatorDies)
+		sleepTime = min( sleepTime, GXROW_MINEFIELDBEHAVIOR.nextDeathCheckFrame - now );
 
 	// if we don't want to sleep forever, prevent 0 frame sleeps
 	if( sleepTime == 0 )
@@ -176,17 +184,17 @@ UpdateSleepTime MinefieldBehavior::update()
 	const MinefieldBehaviorModuleData* d = getMinefieldBehaviorModuleData();
 	UnsignedInt now = TheGameLogic->getFrame();
 
-	if (m_scootFramesLeft > 0)
+	if (GXROW_MINEFIELDBEHAVIOR.scootFramesLeft > 0)
 	{
 		Coord3D pt = *obj->getPosition();
 
-		m_scootVel.x += m_scootAccel.x;
-		m_scootVel.y += m_scootAccel.y;
-		m_scootVel.z += m_scootAccel.z;
+		GXROW_MINEFIELDBEHAVIOR.scootVel.x += GXROW_MINEFIELDBEHAVIOR.scootAccel.x;
+		GXROW_MINEFIELDBEHAVIOR.scootVel.y += GXROW_MINEFIELDBEHAVIOR.scootAccel.y;
+		GXROW_MINEFIELDBEHAVIOR.scootVel.z += GXROW_MINEFIELDBEHAVIOR.scootAccel.z;
 
-		pt.x += m_scootVel.x;
-		pt.y += m_scootVel.y;
-		pt.z += m_scootVel.z;
+		pt.x += GXROW_MINEFIELDBEHAVIOR.scootVel.x;
+		pt.y += GXROW_MINEFIELDBEHAVIOR.scootVel.y;
+		pt.z += GXROW_MINEFIELDBEHAVIOR.scootVel.z;
 
 		// srj sez: scooting mines always go on the highest layer.
 		Coord3D tmp = pt;
@@ -203,46 +211,46 @@ UpdateSleepTime MinefieldBehavior::update()
 			ground += FUDGE;
 		}
 
-		if (pt.z < ground || m_scootFramesLeft <= 1)
+		if (pt.z < ground || GXROW_MINEFIELDBEHAVIOR.scootFramesLeft <= 1)
 			pt.z = ground;
 
 		obj->setPosition(&pt);
 
-		--m_scootFramesLeft;
+		--GXROW_MINEFIELDBEHAVIOR.scootFramesLeft;
 	}
 
 	// check for expired immunities.
 	for (Int i = 0; i < MAX_IMMUNITY; ++i)
 	{
-		if (m_immunes[i].id == INVALID_ID)
+		if (GXROW_MINEFIELDBEHAVIOR.immunes[i].id == INVALID_ID)
 			continue;
 
-		if (TheGameLogic->findObjectByID(m_immunes[i].id) == nullptr ||
-				now > m_immunes[i].collideTime + 2)
+		if (TheGameLogic->findObjectByID(GXROW_MINEFIELDBEHAVIOR.immunes[i].id) == nullptr ||
+				now > GXROW_MINEFIELDBEHAVIOR.immunes[i].collideTime + 2)
 		{
-			//DEBUG_LOG(("expiring an immunity %d",m_immunes[i].id));
-			m_immunes[i].id = INVALID_ID;	// he's dead, jim.
-			m_immunes[i].collideTime = 0;
+			//DEBUG_LOG(("expiring an immunity %d",GXROW_MINEFIELDBEHAVIOR.immunes[i].id));
+			GXROW_MINEFIELDBEHAVIOR.immunes[i].id = INVALID_ID;	// he's dead, jim.
+			GXROW_MINEFIELDBEHAVIOR.immunes[i].collideTime = 0;
 		}
 	}
 
-	if (now >= m_nextDeathCheckFrame)
+	if (now >= GXROW_MINEFIELDBEHAVIOR.nextDeathCheckFrame)
 	{
 
 		// check to see if there is an enemy building on me... since enemy buildings can be build on top of me
 
 		// check to see if the building that made me is gone, and whether therefore, I should go
-		if (m_regenerates && d->m_stopsRegenAfterCreatorDies)
+		if (GXROW_MINEFIELDBEHAVIOR.regenerates && d->m_stopsRegenAfterCreatorDies)
 		{
-			m_nextDeathCheckFrame = now + d->m_creatorDeathCheckRate;
+			GXROW_MINEFIELDBEHAVIOR.nextDeathCheckFrame = now + d->m_creatorDeathCheckRate;
 			ObjectID producerID = getObject()->getProducerID();
 			if (producerID != INVALID_ID)
 			{
 				Object* producer = TheGameLogic->findObjectByID(producerID);
 				if (producer == nullptr || producer->isEffectivelyDead())
 				{
-					m_regenerates = false;
-					m_draining = true;
+					GXROW_MINEFIELDBEHAVIOR.regenerates = false;
+					GXROW_MINEFIELDBEHAVIOR.draining = true;
 					static const NameKeyType key_AutoHealBehavior = NAMEKEY("AutoHealBehavior");
 					AutoHealBehavior* ahb = (AutoHealBehavior*)obj->findUpdateModule( key_AutoHealBehavior );
 					if (ahb)
@@ -252,7 +260,7 @@ UpdateSleepTime MinefieldBehavior::update()
 		}
 	}
 
-	if (m_draining)
+	if (GXROW_MINEFIELDBEHAVIOR.draining)
 	{
 		DamageInfo damageInfo;
 		damageInfo.in.m_amount = (obj->getBodyModule()->getMaxHealth() * d->m_healthPercentToDrainPerSecond) / LOGICFRAMES_PER_SECOND;
@@ -276,16 +284,16 @@ void MinefieldBehavior::detonateOnce(const Coord3D& position)
 	  TheWeaponStore->createAndFireTempWeapon(d->m_detonationWeapon, obj, &position);
 	}
 
-	if (m_virtualMinesRemaining > 0)
-		--m_virtualMinesRemaining;
+	if (GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining > 0)
+		--GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining;
 
-	if (!m_regenerates && m_virtualMinesRemaining == 0)
+	if (!GXROW_MINEFIELDBEHAVIOR.regenerates && GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining == 0)
 	{
 		TheGameLogic->destroyObject(getObject());
 	}
 	else
 	{
-		Real percent = (Real)m_virtualMinesRemaining / (Real)d->m_numVirtualMines;
+		Real percent = (Real)GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining / (Real)d->m_numVirtualMines;
 		BodyModuleInterface* body = getObject()->getBodyModule();
 		Real health = body->getHealth();
 		Real desired = percent * body->getMaxHealth();
@@ -295,7 +303,7 @@ void MinefieldBehavior::detonateOnce(const Coord3D& position)
 
 		if (amount > 0.0f)
 		{
-			m_ignoreDamage = true;
+			GXROW_MINEFIELDBEHAVIOR.ignoreDamage = true;
 
 			//body->internalChangeHealth(desired - health);
 			//can't use this, AutoHeal won't work unless we go thru normal damage stuff
@@ -307,11 +315,11 @@ void MinefieldBehavior::detonateOnce(const Coord3D& position)
 			extraDamageInfo.in.m_amount = amount;
 			getObject()->attemptDamage(&extraDamageInfo);
 
-			m_ignoreDamage = false;
+			GXROW_MINEFIELDBEHAVIOR.ignoreDamage = false;
 		}
 	}
 
-	if (m_virtualMinesRemaining == 0)
+	if (GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining == 0)
 	{
 		getObject()->setModelConditionState(MODELCONDITION_RUBBLE);
 		getObject()->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_MASKED ) );
@@ -342,7 +350,7 @@ void MinefieldBehavior::onCollide( Object *other, const Coord3D *loc, const Coor
 	if (other == nullptr || other->isEffectivelyDead())
 		return;
 
-	if (m_virtualMinesRemaining == 0)
+	if (GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining == 0)
 		return;
 
 	Object* obj = getObject();
@@ -353,10 +361,10 @@ void MinefieldBehavior::onCollide( Object *other, const Coord3D *loc, const Coor
 	// NOTE NOTE NOTE, must always do this check FIRST so that 'collideTime' is updated...
 	for (Int i = 0; i < MAX_IMMUNITY; ++i)
 	{
-		if (m_immunes[i].id == other->getID())
+		if (GXROW_MINEFIELDBEHAVIOR.immunes[i].id == other->getID())
 		{
-			//DEBUG_LOG(("ignoring due to immunity %d",m_immunes[i].id));
-			m_immunes[i].collideTime = now;
+			//DEBUG_LOG(("ignoring due to immunity %d",GXROW_MINEFIELDBEHAVIOR.immunes[i].id));
+			GXROW_MINEFIELDBEHAVIOR.immunes[i].collideTime = now;
 			return;
 		}
 	}
@@ -377,7 +385,7 @@ void MinefieldBehavior::onCollide( Object *other, const Coord3D *loc, const Coor
 		return;
 
 	// are we active?
-	if (m_scootFramesLeft > 0)
+	if (GXROW_MINEFIELDBEHAVIOR.scootFramesLeft > 0)
 		return;
 
 	// things that are in the process of clearing mines are immune to mine detonation,
@@ -393,11 +401,11 @@ void MinefieldBehavior::onCollide( Object *other, const Coord3D *loc, const Coor
 		// detector and is blown to smithereens by the other one.)
 		for (Int i = 0; i < MAX_IMMUNITY; ++i)
 		{
-			if (m_immunes[i].id == INVALID_ID || m_immunes[i].id == other->getID())
+			if (GXROW_MINEFIELDBEHAVIOR.immunes[i].id == INVALID_ID || GXROW_MINEFIELDBEHAVIOR.immunes[i].id == other->getID())
 			{
-				//DEBUG_LOG(("add/update immunity %d",m_immunes[i].id));
-				m_immunes[i].id = other->getID();
-				m_immunes[i].collideTime = now;
+				//DEBUG_LOG(("add/update immunity %d",GXROW_MINEFIELDBEHAVIOR.immunes[i].id));
+				GXROW_MINEFIELDBEHAVIOR.immunes[i].id = other->getID();
+				GXROW_MINEFIELDBEHAVIOR.immunes[i].collideTime = now;
 
 				// wake up
 				setWakeFrame( obj, calcSleepTime() );
@@ -410,7 +418,7 @@ void MinefieldBehavior::onCollide( Object *other, const Coord3D *loc, const Coor
 
 	// if we detonated another one nearby, we have to move a little bit to detonate another one.
 	Bool found = false;
-	for (std::vector<DetonatorInfo>::iterator it = m_detonators.begin(); it != m_detonators.end(); ++it)
+	for (std::vector<DetonatorInfo>::iterator it = GXROW_MINEFIELDBEHAVIOR.detonators.begin(); it != GXROW_MINEFIELDBEHAVIOR.detonators.end(); ++it)
 	{
 		if (other->getID() == it->id)
 		{
@@ -435,7 +443,7 @@ void MinefieldBehavior::onCollide( Object *other, const Coord3D *loc, const Coor
 		DetonatorInfo detInfo;
 		detInfo.id = other->getID();
 		detInfo.where = *other->getPosition();
-		m_detonators.push_back(detInfo);
+		GXROW_MINEFIELDBEHAVIOR.detonators.push_back(detInfo);
 	}
 
 	Coord3D detPt = *other->getPosition();
@@ -447,7 +455,7 @@ void MinefieldBehavior::onCollide( Object *other, const Coord3D *loc, const Coor
 //-------------------------------------------------------------------------------------------------
 void MinefieldBehavior::onDamage( DamageInfo *damageInfo )
 {
-	if (m_ignoreDamage)
+	if (GXROW_MINEFIELDBEHAVIOR.ignoreDamage)
 		return;
 
 	const MinefieldBehaviorModuleData* d = getMinefieldBehaviorModuleData();
@@ -464,18 +472,18 @@ void MinefieldBehavior::onDamage( DamageInfo *damageInfo )
 			REAL_TO_INT_CEIL(virtualMinesExpectedF);
 		if (virtualMinesExpected > d->m_numVirtualMines)
 			virtualMinesExpected = d->m_numVirtualMines;
-		if (m_virtualMinesRemaining < virtualMinesExpected)
+		if (GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining < virtualMinesExpected)
 		{
-			m_virtualMinesRemaining = virtualMinesExpected;
+			GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining = virtualMinesExpected;
 		}
-		else if (m_virtualMinesRemaining > virtualMinesExpected)
+		else if (GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining > virtualMinesExpected)
 		{
-			if (m_draining &&
+			if (GXROW_MINEFIELDBEHAVIOR.draining &&
 						damageInfo->in.m_sourceID == getObject()->getID() &&
 						damageInfo->in.m_damageType == DAMAGE_UNRESISTABLE)
 			{
 				// don't detonate.... just ditch a mine
-				--m_virtualMinesRemaining;
+				--GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining;
 			}
 			else
 			{
@@ -488,11 +496,11 @@ void MinefieldBehavior::onDamage( DamageInfo *damageInfo )
 		}
 	}
 
-	if (m_virtualMinesRemaining == 0)
+	if (GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining == 0)
 	{
 		// oops, if someone did weapon damage they may have nuked our health to zero,
 		// which would be bad if we regen. prevent this. (srj)
-		if (m_regenerates && body->getHealth() < MIN_HEALTH)
+		if (GXROW_MINEFIELDBEHAVIOR.regenerates && body->getHealth() < MIN_HEALTH)
 		{
 			body->internalChangeHealth(MIN_HEALTH - body->getHealth());
 		}
@@ -525,7 +533,7 @@ void MinefieldBehavior::onDie( const DamageInfo *damageInfo )
 //-------------------------------------------------------------------------------------------------
 void MinefieldBehavior::disarm()
 {
-	if (!m_regenerates)
+	if (!GXROW_MINEFIELDBEHAVIOR.regenerates)
 	{
 		TheGameLogic->destroyObject(getObject());
 		return;
@@ -538,7 +546,7 @@ void MinefieldBehavior::disarm()
 	Real desired = MIN_HEALTH;
 	Real amount = body->getHealth() - desired;
 
-	m_ignoreDamage = true;
+	GXROW_MINEFIELDBEHAVIOR.ignoreDamage = true;
 
 	//body->internalChangeHealth(desired - health);
 	//can't use this, AutoHeal won't work unless we go thru normal damage stuff
@@ -550,9 +558,9 @@ void MinefieldBehavior::disarm()
 	extraDamageInfo.in.m_amount = amount;
 	getObject()->attemptDamage(&extraDamageInfo);
 
-	m_ignoreDamage = false;
+	GXROW_MINEFIELDBEHAVIOR.ignoreDamage = false;
 
-	m_virtualMinesRemaining = 0;
+	GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining = 0;
 	getObject()->setModelConditionState(MODELCONDITION_RUBBLE);
 	getObject()->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_MASKED ) );
 }
@@ -579,7 +587,7 @@ void MinefieldBehavior::setScootParms(const Coord3D& start, const Coord3D& end)
 	if (scootFromStartingPointTime == 0)
 	{
 		obj->setPosition(&endOnGround);
-		m_scootFramesLeft = 0;
+		GXROW_MINEFIELDBEHAVIOR.scootFramesLeft = 0;
 	}
 	else
 	{
@@ -592,7 +600,7 @@ void MinefieldBehavior::setScootParms(const Coord3D& start, const Coord3D& end)
 		if (dist <= 0.1f && fabs(dz) <= 0.1f)
 		{
 			obj->setPosition(&endOnGround);
-			m_scootFramesLeft = 0;
+			GXROW_MINEFIELDBEHAVIOR.scootFramesLeft = 0;
 		}
 		else
 		{
@@ -601,13 +609,13 @@ void MinefieldBehavior::setScootParms(const Coord3D& start, const Coord3D& end)
 			Real accelMag = fabs(2.0f * (dist - scootFromStartingPointSpeed*t)/sqr(t));
 			Real dxNorm = (dist <= 0.1f) ? 0.0f : (dx / dist);
 			Real dyNorm = (dist <= 0.1f) ? 0.0f : (dy / dist);
-			m_scootVel.x = dxNorm * scootFromStartingPointSpeed;
-			m_scootVel.y = dyNorm * scootFromStartingPointSpeed;
-			m_scootAccel.x = -dxNorm * accelMag;
-			m_scootAccel.y = -dyNorm * accelMag;
-			m_scootAccel.z = TheGlobalData->m_gravity;
+			GXROW_MINEFIELDBEHAVIOR.scootVel.x = dxNorm * scootFromStartingPointSpeed;
+			GXROW_MINEFIELDBEHAVIOR.scootVel.y = dyNorm * scootFromStartingPointSpeed;
+			GXROW_MINEFIELDBEHAVIOR.scootAccel.x = -dxNorm * accelMag;
+			GXROW_MINEFIELDBEHAVIOR.scootAccel.y = -dyNorm * accelMag;
+			GXROW_MINEFIELDBEHAVIOR.scootAccel.z = TheGlobalData->m_gravity;
 			obj->setPosition(&start);
-			m_scootFramesLeft = scootFromStartingPointTime;
+			GXROW_MINEFIELDBEHAVIOR.scootFramesLeft = scootFromStartingPointTime;
 
 			// we need to wake ourselves up because we could be lying here sleeping forever
 			setWakeFrame( obj, calcSleepTime() );
@@ -646,23 +654,23 @@ void MinefieldBehavior::xfer( Xfer *xfer )
 
 	// mines remaining
 	/// @todo srj -- ensure health, appearance, etc are correct for save/reload! post-MP!
-	xfer->xferUnsignedInt( &m_virtualMinesRemaining );
+	xfer->xferUnsignedInt( &GXROW_MINEFIELDBEHAVIOR.virtualMinesRemaining );
 
 	// next death check frame
-	xfer->xferUnsignedInt( &m_nextDeathCheckFrame );
+	xfer->xferUnsignedInt( &GXROW_MINEFIELDBEHAVIOR.nextDeathCheckFrame );
 
 	// scoot frames left
-	xfer->xferUnsignedInt( &m_scootFramesLeft );
+	xfer->xferUnsignedInt( &GXROW_MINEFIELDBEHAVIOR.scootFramesLeft );
 
 	// scoot velocity
-	xfer->xferCoord3D( &m_scootVel );
+	xfer->xferCoord3D( &GXROW_MINEFIELDBEHAVIOR.scootVel );
 
 	// scoot acceleration
-	xfer->xferCoord3D( &m_scootAccel );
+	xfer->xferCoord3D( &GXROW_MINEFIELDBEHAVIOR.scootAccel );
 
-	xfer->xferBool( &m_ignoreDamage );
-	xfer->xferBool( &m_regenerates );
-	xfer->xferBool( &m_draining );
+	xfer->xferBool( &GXROW_MINEFIELDBEHAVIOR.ignoreDamage );
+	xfer->xferBool( &GXROW_MINEFIELDBEHAVIOR.regenerates );
+	xfer->xferBool( &GXROW_MINEFIELDBEHAVIOR.draining );
 
 	// immunities
 	UnsignedByte maxImmunity = MAX_IMMUNITY;
@@ -678,15 +686,15 @@ void MinefieldBehavior::xfer( Xfer *xfer )
 	{
 
 		// object id
-		xfer->xferObjectID( &m_immunes[ i ].id );
+		xfer->xferObjectID( &GXROW_MINEFIELDBEHAVIOR.immunes[ i ].id );
 
 		// collide time
-		xfer->xferUnsignedInt( &m_immunes[ i ].collideTime );
+		xfer->xferUnsignedInt( &GXROW_MINEFIELDBEHAVIOR.immunes[ i ].collideTime );
 
 	}
 
 	if( xfer->getXferMode() == XFER_LOAD )
-		m_detonators.clear();
+		GXROW_MINEFIELDBEHAVIOR.detonators.clear();
 
 }
 

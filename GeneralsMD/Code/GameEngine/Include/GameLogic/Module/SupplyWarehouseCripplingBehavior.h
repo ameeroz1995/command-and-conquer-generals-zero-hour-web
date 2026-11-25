@@ -53,6 +53,8 @@ private:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxSupplyWarehouseCripplingBehaviorRow;
 class SupplyWarehouseCripplingBehavior : public UpdateModule,
 																				 public DamageModuleInterface
 {
@@ -84,6 +86,20 @@ protected:
 	virtual void stopCrippledEffects();//Enable our object
 
 private:
-	UnsignedInt		m_healingSupressedUntilFrame;
-	UnsignedInt		m_nextHealingFrame;
+	struct GxSupplyWarehouseCripplingBehaviorRow *m_gxSupplyWarehouseCripplingBehaviorRow;	///< web port (round 5): this unit's row in TheGxSupplyWarehouseCripplingBehaviors
+	friend struct GxSupplyWarehouseCripplingBehaviorRow;
+	inline struct GxSupplyWarehouseCripplingBehaviorRow &gxRow() const;
 };
+
+// Web port (round 5, units are pure data): SupplyWarehouseCripplingBehavior's per-unit state, one row per unit in TheGxSupplyWarehouseCripplingBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxSupplyWarehouseCripplingBehaviorRow
+{
+	UnsignedInt healingSupressedUntilFrame;
+	UnsignedInt nextHealingFrame;
+};
+extern GxComponentTable<GxSupplyWarehouseCripplingBehaviorRow> TheGxSupplyWarehouseCripplingBehaviors;
+
+
+inline GxSupplyWarehouseCripplingBehaviorRow &SupplyWarehouseCripplingBehavior::gxRow() const { return TheGxSupplyWarehouseCripplingBehaviors.at(m_gxSupplyWarehouseCripplingBehaviorRow); }
+

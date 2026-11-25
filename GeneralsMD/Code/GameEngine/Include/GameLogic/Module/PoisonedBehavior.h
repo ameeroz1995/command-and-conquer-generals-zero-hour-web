@@ -52,6 +52,8 @@ private:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxPoisonedBehaviorRow;
 class PoisonedBehavior : public UpdateModule,
 												 public DamageModuleInterface
 {
@@ -86,10 +88,24 @@ protected:
 	UpdateSleepTime calcSleepTime();
 
 private:
-	UnsignedInt		m_poisonDamageFrame;
-	UnsignedInt		m_poisonOverallStopFrame;
-	Real					m_poisonDamageAmount;
-	ObjectID			m_poisonSource;
-	DeathType			m_deathType;
+	struct GxPoisonedBehaviorRow *m_gxPoisonedBehaviorRow;	///< web port (round 5): this unit's row in TheGxPoisonedBehaviors
+	friend struct GxPoisonedBehaviorRow;
+	inline struct GxPoisonedBehaviorRow &gxRow() const;
 
 };
+
+// Web port (round 5, units are pure data): PoisonedBehavior's per-unit state, one row per unit in TheGxPoisonedBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxPoisonedBehaviorRow
+{
+	UnsignedInt poisonDamageFrame;
+	UnsignedInt poisonOverallStopFrame;
+	Real poisonDamageAmount;
+	ObjectID poisonSource;
+	DeathType deathType;
+};
+extern GxComponentTable<GxPoisonedBehaviorRow> TheGxPoisonedBehaviors;
+
+
+inline GxPoisonedBehaviorRow &PoisonedBehavior::gxRow() const { return TheGxPoisonedBehaviors.at(m_gxPoisonedBehaviorRow); }
+

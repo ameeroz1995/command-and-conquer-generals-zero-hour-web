@@ -65,6 +65,8 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxRiderChangeContainRow;
 class RiderChangeContain : public TransportContain
 {
 
@@ -88,7 +90,7 @@ public:
 
 	virtual Int getContainMax() const;
 
-	virtual Int getExtraSlotsInUse() { return m_extraSlotsInUse; }///< Transports have the ability to carry guys how take up more than spot.
+	virtual Int getExtraSlotsInUse(); ///< Transports have the ability to carry guys how take up more than spot.
 
 	virtual Bool isExitBusy() const;	///< Contain style exiters are getting the ability to space out exits, so ask this before reserveDoor as a kind of no-commitment check.
 	virtual ExitDoorType reserveDoorForExit( const ThingTemplate* objType, Object *specificObject );
@@ -106,10 +108,25 @@ protected:
 
 private:
 
-	Int m_extraSlotsInUse;
-	UnsignedInt m_frameExitNotBusy;
-	UnsignedInt m_scuttledOnFrame;
+	struct GxRiderChangeContainRow *m_gxRiderChangeContainRow;	///< web port (round 5): this unit's row in TheGxRiderChangeContains
+	friend struct GxRiderChangeContainRow;
+	inline struct GxRiderChangeContainRow &gxRow() const;
 
-	Bool m_containing; //doesn't require xfer.
 
 };
+
+// Web port (round 5, units are pure data): RiderChangeContain's per-unit state, one row per unit in TheGxRiderChangeContains;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxRiderChangeContainRow
+{
+	Int extraSlotsInUse;
+	UnsignedInt frameExitNotBusy;
+	UnsignedInt scuttledOnFrame;
+	Bool containing;
+};
+extern GxComponentTable<GxRiderChangeContainRow> TheGxRiderChangeContains;
+
+
+inline GxRiderChangeContainRow &RiderChangeContain::gxRow() const { return TheGxRiderChangeContains.at(m_gxRiderChangeContainRow); }
+inline Int RiderChangeContain::getExtraSlotsInUse() { return gxRow().extraSlotsInUse; }
+

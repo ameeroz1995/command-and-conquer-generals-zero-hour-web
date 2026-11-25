@@ -29,6 +29,8 @@
 
 #pragma once
 
+#include "GameLogic/GxComponents.h"
+
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/BehaviorModule.h"
 #include "GameLogic/Module/DieModule.h"
@@ -65,6 +67,19 @@ private:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+// Web port (round 5, units are pure data): a minefield generator's per-unit state, one row per unit
+// in TheGxMinefields; GenerateMinefieldBehavior is a facade over its row (Behavior/GenerateMinefieldBehavior.cpp).
+struct GxMinefieldRow
+{
+	Coord3D							target;
+	Bool								hasTarget = false;
+	Bool								generated = false;
+	Bool								upgraded = false;
+	std::list<ObjectID>	mineList;
+	GxMinefieldRow() { target.zero(); }
+};
+extern GxComponentTable<GxMinefieldRow> TheGxMinefields;
+
 class GenerateMinefieldBehavior : public UpdateModule,
 																	public DieModuleInterface,
 																	public UpgradeMux
@@ -117,11 +132,7 @@ protected:
 
 
 private:
-	Coord3D							m_target;
-	Bool								m_hasTarget;
-	Bool								m_generated;
-	Bool								m_upgraded;
-	std::list<ObjectID> m_mineList;
+	struct GxMinefieldRow *									m_gxRow;	///< web port (round 5): this unit's row in TheGxMinefields
 
 	const Coord3D* getMinefieldTarget() const;
 	void placeMines();

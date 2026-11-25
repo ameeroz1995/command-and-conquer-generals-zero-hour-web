@@ -45,6 +45,12 @@
 #include "GameLogic/Module/PropagandaTowerBehavior.h"
 #include "GameLogic/Module/BodyModule.h"
 
+// Web port (round 5, units are pure data): PropagandaTowerBehavior's per-unit state is a row of TheGxPropagandaTowerBehaviors;
+// GXROW_PROPAGANDATOWERBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxPropagandaTowerBehaviorRow> TheGxPropagandaTowerBehaviors;
+#define GXROW_PROPAGANDATOWERBEHAVIOR (TheGxPropagandaTowerBehaviors.at(m_gxPropagandaTowerBehaviorRow))
+
+
 
 
 
@@ -118,11 +124,12 @@ PropagandaTowerBehaviorModuleData::PropagandaTowerBehaviorModuleData()
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-PropagandaTowerBehavior::PropagandaTowerBehavior( Thing *thing, const ModuleData *modData )
-											 : UpdateModule( thing, modData )
+PropagandaTowerBehavior::PropagandaTowerBehavior( Thing *thing, const ModuleData *modData ) : UpdateModule( thing, modData )
 {
-	m_lastScanFrame = 0;
-	m_insideList = nullptr;
+	m_gxPropagandaTowerBehaviorRow = TheGxPropagandaTowerBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+	GXROW_PROPAGANDATOWERBEHAVIOR.lastScanFrame = 0;
+	GXROW_PROPAGANDATOWERBEHAVIOR.insideList = nullptr;
 	setWakeFrame( getObject(), UPDATE_SLEEP_NONE );
 
 }
@@ -132,6 +139,7 @@ PropagandaTowerBehavior::PropagandaTowerBehavior( Thing *thing, const ModuleData
 PropagandaTowerBehavior::~PropagandaTowerBehavior()
 {
 
+	TheGxPropagandaTowerBehaviors.release( m_gxPropagandaTowerBehaviorRow );	// web port (round 5)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -153,7 +161,7 @@ void PropagandaTowerBehavior::onObjectCreated()
 	const PropagandaTowerBehaviorModuleData *modData = getPropagandaTowerBehaviorModuleData();
 
 	// convert module upgrade name to a pointer
-	m_upgradeRequired = TheUpgradeCenter->findUpgrade( modData->m_upgradeRequired );
+	GXROW_PROPAGANDATOWERBEHAVIOR.upgradeRequired = TheUpgradeCenter->findUpgrade( modData->m_upgradeRequired );
 
 }
 
@@ -219,19 +227,19 @@ UpdateSleepTime PropagandaTowerBehavior::update()
 
 	// if it's not time to scan, nothing to do
 	UnsignedInt currentFrame = TheGameLogic->getFrame();
-	if( currentFrame - m_lastScanFrame >= modData->m_scanDelayInFrames )
+	if( currentFrame - GXROW_PROPAGANDATOWERBEHAVIOR.lastScanFrame >= modData->m_scanDelayInFrames )
 	{
 
 		// do a scan
 		doScan();
-		m_lastScanFrame = currentFrame;
+		GXROW_PROPAGANDATOWERBEHAVIOR.lastScanFrame = currentFrame;
 
 	}
 
 	// go through any objects in our area of influence and do the effect logic on them
 	Object *obj;
 	ObjectTracker *curr = nullptr, *prev = nullptr, *next = nullptr;
-	for( curr = m_insideList; curr; curr = next )
+	for( curr = GXROW_PROPAGANDATOWERBEHAVIOR.insideList; curr; curr = next )
 	{
 
 		// get the next link
@@ -260,7 +268,7 @@ UpdateSleepTime PropagandaTowerBehavior::update()
 			if( prev )
 				prev->next = curr->next;
 			else
-				m_insideList = curr->next;
+				GXROW_PROPAGANDATOWERBEHAVIOR.insideList = curr->next;
 			deleteInstance(curr);
 
 		}
@@ -292,7 +300,7 @@ void PropagandaTowerBehavior::onDie( const DamageInfo *damageInfo )
 void PropagandaTowerBehavior::effectLogic( Object *obj, Bool giving,
 																					 const PropagandaTowerBehaviorModuleData *modData )
 {
-	Bool effectUpgraded = getObject()->getControllingPlayer()->hasUpgradeComplete( m_upgradeRequired );
+	Bool effectUpgraded = getObject()->getControllingPlayer()->hasUpgradeComplete( GXROW_PROPAGANDATOWERBEHAVIOR.upgradeRequired );
 
 	// if giving the effect
 	if( giving )
@@ -355,7 +363,7 @@ void PropagandaTowerBehavior::removeAllInfluence()
 
 	// go through all objects we've given bonuses to and remove them
 	Object *obj;
-	for( o = m_insideList; o; o = o->next )
+	for( o = GXROW_PROPAGANDATOWERBEHAVIOR.insideList; o; o = o->next )
 	{
 
 		obj = TheGameLogic->findObjectByID( o->objectID );
@@ -365,12 +373,12 @@ void PropagandaTowerBehavior::removeAllInfluence()
 	}
 
 	// delete the list of objects under our influence
-	while( m_insideList )
+	while( GXROW_PROPAGANDATOWERBEHAVIOR.insideList )
 	{
 
-		o = m_insideList->next;
-		deleteInstance(m_insideList);
-		m_insideList = o;
+		o = GXROW_PROPAGANDATOWERBEHAVIOR.insideList->next;
+		deleteInstance(GXROW_PROPAGANDATOWERBEHAVIOR.insideList);
+		GXROW_PROPAGANDATOWERBEHAVIOR.insideList = o;
 
 	}
 
@@ -387,11 +395,11 @@ void PropagandaTowerBehavior::doScan()
 
 	// The act of scanning is when we play our effect
 	Bool upgradePresent = FALSE;
-	if( m_upgradeRequired )
+	if( GXROW_PROPAGANDATOWERBEHAVIOR.upgradeRequired )
 	{
 
 		// see if we have the upgrade
-		switch( m_upgradeRequired->getUpgradeType() )
+		switch( GXROW_PROPAGANDATOWERBEHAVIOR.upgradeRequired->getUpgradeType() )
 		{
 
 			// ------------------------------------------------------------------------------------------
@@ -399,7 +407,7 @@ void PropagandaTowerBehavior::doScan()
 			{
 				Player *player = us->getControllingPlayer();
 
-				upgradePresent = player->hasUpgradeComplete( m_upgradeRequired );
+				upgradePresent = player->hasUpgradeComplete( GXROW_PROPAGANDATOWERBEHAVIOR.upgradeRequired );
 				break;
 
 			}
@@ -408,7 +416,7 @@ void PropagandaTowerBehavior::doScan()
 			case UPGRADE_TYPE_OBJECT:
 			{
 
-				upgradePresent = us->hasUpgrade( m_upgradeRequired );
+				upgradePresent = us->hasUpgrade( GXROW_PROPAGANDATOWERBEHAVIOR.upgradeRequired );
 				break;
 
 			}
@@ -418,7 +426,7 @@ void PropagandaTowerBehavior::doScan()
 			{
 
 				DEBUG_CRASH(( "PropagandaTowerBehavior::doScan - Unknown upgrade type '%d'",
-											m_upgradeRequired->getUpgradeType() ));
+											GXROW_PROPAGANDATOWERBEHAVIOR.upgradeRequired->getUpgradeType() ));
 				break;
 
 			}
@@ -517,7 +525,7 @@ void PropagandaTowerBehavior::doScan()
 	// bonus we've given them (if they are within the area of effect of another tower it's
 	// OK, they'll get the bonus back again when that tower does a scan which won't be too long
 	//
-	for( ObjectTracker *curr = m_insideList; curr; curr = curr->next )
+	for( ObjectTracker *curr = GXROW_PROPAGANDATOWERBEHAVIOR.insideList; curr; curr = curr->next )
 	{
 
 		// find this entry in the new list
@@ -540,17 +548,17 @@ void PropagandaTowerBehavior::doScan()
 
 	// delete the inside list we have recorded
 	ObjectTracker *next;
-	while( m_insideList )
+	while( GXROW_PROPAGANDATOWERBEHAVIOR.insideList )
 	{
 
-		next = m_insideList->next;
-		deleteInstance(m_insideList);
-		m_insideList = next;
+		next = GXROW_PROPAGANDATOWERBEHAVIOR.insideList->next;
+		deleteInstance(GXROW_PROPAGANDATOWERBEHAVIOR.insideList);
+		GXROW_PROPAGANDATOWERBEHAVIOR.insideList = next;
 
 	}
 
 	// set the new inside list to the one we're recording
-	m_insideList = newInsideList;
+	GXROW_PROPAGANDATOWERBEHAVIOR.insideList = newInsideList;
 
 }
 
@@ -582,19 +590,19 @@ void PropagandaTowerBehavior::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// last scan frame
-	xfer->xferUnsignedInt( &m_lastScanFrame );
+	xfer->xferUnsignedInt( &GXROW_PROPAGANDATOWERBEHAVIOR.lastScanFrame );
 
 	// inside list tracking
 	ObjectTracker *trackerEntry;
 	UnsignedShort insideCount = 0;
-	for( trackerEntry = m_insideList; trackerEntry; trackerEntry = trackerEntry->next )
+	for( trackerEntry = GXROW_PROPAGANDATOWERBEHAVIOR.insideList; trackerEntry; trackerEntry = trackerEntry->next )
 		insideCount++;
 	xfer->xferUnsignedShort( &insideCount );
 	if( xfer->getXferMode() == XFER_SAVE )
 	{
 
 		// write all entries
-		for( trackerEntry = m_insideList; trackerEntry; trackerEntry = trackerEntry->next )
+		for( trackerEntry = GXROW_PROPAGANDATOWERBEHAVIOR.insideList; trackerEntry; trackerEntry = trackerEntry->next )
 		{
 
 			// object id
@@ -607,10 +615,10 @@ void PropagandaTowerBehavior::xfer( Xfer *xfer )
 	{
 
 		// sanity
-		if( m_insideList != nullptr )
+		if( GXROW_PROPAGANDATOWERBEHAVIOR.insideList != nullptr )
 		{
 
-			DEBUG_CRASH(( "PropagandaTowerBehavior::xfer - m_insideList should be empty but is not" ));
+			DEBUG_CRASH(( "PropagandaTowerBehavior::xfer - GXROW_PROPAGANDATOWERBEHAVIOR.insideList should be empty but is not" ));
 			throw SC_INVALID_DATA;
 
 		}
@@ -621,8 +629,8 @@ void PropagandaTowerBehavior::xfer( Xfer *xfer )
 
 			// allocate new tracker entry and tie to list
 			trackerEntry = newInstance(ObjectTracker);
-			trackerEntry->next = m_insideList;
-			m_insideList = trackerEntry;
+			trackerEntry->next = GXROW_PROPAGANDATOWERBEHAVIOR.insideList;
+			GXROW_PROPAGANDATOWERBEHAVIOR.insideList = trackerEntry;
 
 			// read object id
 			xfer->xferObjectID( &trackerEntry->objectID );

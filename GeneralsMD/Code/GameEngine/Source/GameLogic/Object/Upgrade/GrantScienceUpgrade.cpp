@@ -52,6 +52,12 @@
 
 #include "GameLogic/Module/GrantScienceUpgrade.h"
 
+// Web port (round 5, units are pure data): GrantScienceUpgrade's per-unit state is a row of TheGxGrantScienceUpgrades;
+// GXROW_GRANTSCIENCEUPGRADE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxGrantScienceUpgradeRow> TheGxGrantScienceUpgrades;
+#define GXROW_GRANTSCIENCEUPGRADE (TheGxGrantScienceUpgrades.at(m_gxGrantScienceUpgradeRow))
+
+
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
@@ -71,30 +77,33 @@ void GrantScienceUpgradeModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 GrantScienceUpgrade::GrantScienceUpgrade( Thing *thing, const ModuleData* moduleData ) : UpgradeModule( thing, moduleData )
 {
-	m_scienceType = SCIENCE_INVALID;
+	m_gxGrantScienceUpgradeRow = TheGxGrantScienceUpgrades.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
+
+	GXROW_GRANTSCIENCEUPGRADE.scienceType = SCIENCE_INVALID;
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 GrantScienceUpgrade::~GrantScienceUpgrade()
 {
+	TheGxGrantScienceUpgrades.release( m_gxGrantScienceUpgradeRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 void GrantScienceUpgrade::upgradeImplementation()
 {
-	if( m_scienceType == SCIENCE_INVALID )
+	if( GXROW_GRANTSCIENCEUPGRADE.scienceType == SCIENCE_INVALID )
 	{
 		const GrantScienceUpgradeModuleData *data = getGrantScienceUpgradeModuleData();
-		m_scienceType = TheScienceStore->getScienceFromInternalName( data->m_grantScienceName );
+		GXROW_GRANTSCIENCEUPGRADE.scienceType = TheScienceStore->getScienceFromInternalName( data->m_grantScienceName );
 	}
 
 	Object *obj = getObject();
 	Player *player = obj->getControllingPlayer();
 	if( player )
 	{
-		player->grantScience( m_scienceType );
+		player->grantScience( GXROW_GRANTSCIENCEUPGRADE.scienceType );
 	}
 }
 

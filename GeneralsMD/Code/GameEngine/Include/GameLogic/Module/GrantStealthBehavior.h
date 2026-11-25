@@ -84,6 +84,8 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxGrantStealthBehaviorRow;
 class GrantStealthBehavior : public UpdateModule
 {
 
@@ -101,6 +103,20 @@ public:
 private:
 
 	void grantStealthToObject( Object *obj );
-	ParticleSystemID m_radiusParticleSystemID;
-  Real m_currentScanRadius;
+	struct GxGrantStealthBehaviorRow *m_gxGrantStealthBehaviorRow;	///< web port (round 5): this unit's row in TheGxGrantStealthBehaviors
+	friend struct GxGrantStealthBehaviorRow;
+	inline struct GxGrantStealthBehaviorRow &gxRow() const;
 };
+
+// Web port (round 5, units are pure data): GrantStealthBehavior's per-unit state, one row per unit in TheGxGrantStealthBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxGrantStealthBehaviorRow
+{
+	ParticleSystemID radiusParticleSystemID;
+	Real currentScanRadius;
+};
+extern GxComponentTable<GxGrantStealthBehaviorRow> TheGxGrantStealthBehaviors;
+
+
+inline GxGrantStealthBehaviorRow &GrantStealthBehavior::gxRow() const { return TheGxGrantStealthBehaviors.at(m_gxGrantStealthBehaviorRow); }
+

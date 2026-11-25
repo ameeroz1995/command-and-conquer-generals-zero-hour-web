@@ -64,6 +64,8 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxMinefieldBehaviorRow;
 class MinefieldBehavior : public UpdateModule,
 													public CollideModuleInterface,
 													public DamageModuleInterface,
@@ -127,18 +129,32 @@ private:
 		Coord3D where;
 	};
 
-	UnsignedInt		m_nextDeathCheckFrame;
-	UnsignedInt		m_scootFramesLeft;
-	Coord3D				m_scootVel;
-	Coord3D				m_scootAccel;
-	UnsignedInt		m_virtualMinesRemaining;
-	ImmuneInfo		m_immunes[MAX_IMMUNITY];
-	std::vector<DetonatorInfo>	m_detonators;
-	Bool					m_ignoreDamage;
-	Bool					m_regenerates;
-	Bool					m_draining;
+	struct GxMinefieldBehaviorRow *m_gxMinefieldBehaviorRow;	///< web port (round 5): this unit's row in TheGxMinefieldBehaviors
+	friend struct GxMinefieldBehaviorRow;
+	inline struct GxMinefieldBehaviorRow &gxRow() const;
 
 	void detonateOnce(const Coord3D& position);
 	UpdateSleepTime calcSleepTime();
 
 };
+
+// Web port (round 5, units are pure data): MinefieldBehavior's per-unit state, one row per unit in TheGxMinefieldBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxMinefieldBehaviorRow
+{
+	UnsignedInt nextDeathCheckFrame;
+	UnsignedInt scootFramesLeft;
+	Coord3D scootVel;
+	Coord3D scootAccel;
+	UnsignedInt virtualMinesRemaining;
+	MinefieldBehavior::ImmuneInfo immunes[MinefieldBehavior::MAX_IMMUNITY];
+	std::vector<MinefieldBehavior::DetonatorInfo> detonators;
+	Bool ignoreDamage;
+	Bool regenerates;
+	Bool draining;
+};
+extern GxComponentTable<GxMinefieldBehaviorRow> TheGxMinefieldBehaviors;
+
+
+inline GxMinefieldBehaviorRow &MinefieldBehavior::gxRow() const { return TheGxMinefieldBehaviors.at(m_gxMinefieldBehaviorRow); }
+

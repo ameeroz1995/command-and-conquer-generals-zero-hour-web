@@ -49,6 +49,8 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxParachuteContainRow;
 class ParachuteContain : public OpenContain
 {
 
@@ -91,22 +93,36 @@ private:
 	void calcSwayMtx(const Coord3D* offset, Matrix3D* mtx);
 	void setSwayMatrices();
 
-	Real m_pitch;
-	Real m_roll;
-	Real m_pitchRate;
-	Real m_rollRate;
-	Real m_startZ;
-	Bool m_isLandingOverrideSet;
-	Coord3D m_landingOverride;
-	Coord3D m_riderAttachBone;
-	Coord3D m_riderSwayBone;
-	Coord3D m_paraAttachBone;
-	Coord3D m_paraSwayBone;
-	Coord3D m_riderAttachOffset;
-	Coord3D m_riderSwayOffset;
-	Coord3D m_paraAttachOffset;
-	Coord3D m_paraSwayOffset;
-	Bool m_needToUpdateRiderBones;
-	Bool m_needToUpdateParaBones;
-	Bool m_opened;
+	struct GxParachuteContainRow *m_gxParachuteContainRow;	///< web port (round 5): this unit's row in TheGxParachuteContains
+	friend struct GxParachuteContainRow;
+	inline struct GxParachuteContainRow &gxRow() const;
 };
+
+// Web port (round 5, units are pure data): ParachuteContain's per-unit state, one row per unit in TheGxParachuteContains;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxParachuteContainRow
+{
+	Real pitch;
+	Real roll;
+	Real pitchRate;
+	Real rollRate;
+	Real startZ;
+	Bool isLandingOverrideSet;
+	Coord3D landingOverride;
+	Coord3D riderAttachBone;
+	Coord3D riderSwayBone;
+	Coord3D paraAttachBone;
+	Coord3D paraSwayBone;
+	Coord3D riderAttachOffset;
+	Coord3D riderSwayOffset;
+	Coord3D paraAttachOffset;
+	Coord3D paraSwayOffset;
+	Bool needToUpdateRiderBones;
+	Bool needToUpdateParaBones;
+	Bool opened;
+};
+extern GxComponentTable<GxParachuteContainRow> TheGxParachuteContains;
+
+
+inline GxParachuteContainRow &ParachuteContain::gxRow() const { return TheGxParachuteContains.at(m_gxParachuteContainRow); }
+

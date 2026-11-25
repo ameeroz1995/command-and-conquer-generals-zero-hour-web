@@ -32,6 +32,10 @@
 #include "Common/Xfer.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Module/UpdateModule.h"
+#include "GameLogic/Object.h"
+
+// web port (round 5): component tables order their rows by object ID through this (GxComponents.h)
+UnsignedInt gxComponentObjectId(const Object *o) { return o ? (UnsignedInt)o->getID() : 0u; }
 
 
 // ------------------------------------------------------------------------------------------------

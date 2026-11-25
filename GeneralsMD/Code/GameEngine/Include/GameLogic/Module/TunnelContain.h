@@ -72,6 +72,8 @@ public:
 	}
 };
 
+#include "GameLogic/GxComponents.h"
+struct GxTunnelContainRow;
 class TunnelContain : public OpenContain, public CreateModuleInterface
 {
 
@@ -126,7 +128,7 @@ public:
 	virtual void onCreate();
 	virtual void onObjectCreated();
 	virtual void onBuildComplete();
-	virtual Bool shouldDoOnBuildComplete() const { return m_needToRunOnBuildComplete; }
+	virtual Bool shouldDoOnBuildComplete() const;
 
 	// so that the ppl within the tunnel network can get healed
 	virtual UpdateSleepTime update();												///< called once per frame
@@ -134,7 +136,22 @@ public:
 protected:
 
 	void scatterToNearbyPosition(Object* obj);
-	Bool m_needToRunOnBuildComplete;
-	Bool m_isCurrentlyRegistered; ///< Keeps track if this is registered with the player, so we don't double remove and mess up
+	struct GxTunnelContainRow *m_gxTunnelContainRow;	///< web port (round 5): this unit's row in TheGxTunnelContains
+	friend struct GxTunnelContainRow;
+	inline struct GxTunnelContainRow &gxRow() const;
 
 };
+
+// Web port (round 5, units are pure data): TunnelContain's per-unit state, one row per unit in TheGxTunnelContains;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxTunnelContainRow
+{
+	Bool needToRunOnBuildComplete;
+	Bool isCurrentlyRegistered;
+};
+extern GxComponentTable<GxTunnelContainRow> TheGxTunnelContains;
+
+
+inline GxTunnelContainRow &TunnelContain::gxRow() const { return TheGxTunnelContains.at(m_gxTunnelContainRow); }
+inline Bool TunnelContain::shouldDoOnBuildComplete() const { return gxRow().needToRunOnBuildComplete; }
+

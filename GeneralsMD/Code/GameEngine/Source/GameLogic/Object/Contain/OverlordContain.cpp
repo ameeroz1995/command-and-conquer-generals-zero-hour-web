@@ -46,6 +46,12 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 
+// Web port (round 5, units are pure data): OverlordContain's per-unit state is a row of TheGxOverlordContains;
+// GXROW_OVERLORDCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxOverlordContainRow> TheGxOverlordContains;
+#define GXROW_OVERLORDCONTAIN (TheGxOverlordContains.at(m_gxOverlordContainRow))
+
+
 
 
 
@@ -87,12 +93,13 @@ void OverlordContainModuleData::buildFieldParse(MultiIniFieldParse& p)
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-OverlordContain::OverlordContain( Thing *thing, const ModuleData *moduleData ) :
-								 TransportContain( thing, moduleData )
+OverlordContain::OverlordContain( Thing *thing, const ModuleData *moduleData ) : TransportContain( thing, moduleData )
 {
-	m_redirectionActivated = FALSE;
+	m_gxOverlordContainRow = TheGxOverlordContains.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
-  m_payloadCreated = FALSE;
+	GXROW_OVERLORDCONTAIN.redirectionActivated = FALSE;
+
+  TransportContain::gxRow().payloadCreated = FALSE;
 
 }
 
@@ -101,6 +108,7 @@ OverlordContain::OverlordContain( Thing *thing, const ModuleData *moduleData ) :
 OverlordContain::~OverlordContain()
 {
 
+	TheGxOverlordContains.release( m_gxOverlordContainRow );	// web port (round 5)
 }
 
 
@@ -150,7 +158,7 @@ void OverlordContain::createPayload()
 
   }
 
-	m_payloadCreated = TRUE;
+	TransportContain::gxRow().payloadCreated = TRUE;
 
 }
 
@@ -164,9 +172,9 @@ void OverlordContain::onBodyDamageStateChange( const DamageInfo* damageInfo,
 	// I want just me.
 	// Oh, and I don't want this function trying to do death.  That is more complicated and will be handled
 	// on my death.
-	if( newState != BODY_RUBBLE  &&  m_containListSize == 1 )
+	if( newState != BODY_RUBBLE  &&  OpenContain::gxRow().containListSize == 1 )
 	{
-		Object *myGuy = m_containList.front();
+		Object *myGuy = OpenContain::gxRow().containList.front();
 		myGuy->getBodyModule()->setDamageState( newState );
 	}
 }
@@ -179,14 +187,14 @@ ContainModuleInterface *OverlordContain::getRedirectedContain() const
 	// to answer if I am redirecting yet.
 
 	// If I am empty, say no.
-	if( m_containListSize < 1 )
+	if( OpenContain::gxRow().containListSize < 1 )
 		return nullptr;
 
-	if( !m_redirectionActivated )
+	if( !GXROW_OVERLORDCONTAIN.redirectionActivated )
 		return nullptr;// Shut off early to allow death to happen without my bunker having
 	// trouble finding me to say goodbye as messages get sucked up the pipe to him.
 
-	Object *myGuy = m_containList.front();
+	Object *myGuy = OpenContain::gxRow().containList.front();
 	if( myGuy )
 		return myGuy->getContain();
 
@@ -217,7 +225,7 @@ void OverlordContain::onDie( const DamageInfo *damageInfo )
 	// So this is an extend that lets me control the order of death.
 
 	deactivateRedirectedContain();
-	Object *myGuy = m_containList.front();
+	Object *myGuy = OpenContain::gxRow().containList.front();
 	myGuy->kill();
 
 	TransportContain::onDie( damageInfo );
@@ -245,11 +253,11 @@ void OverlordContain::onDelete()
 // ------------------------------------------------------------------------------------------------
 void OverlordContain::onCapture( Player *oldOwner, Player *newOwner )
 {
-	if( m_containListSize < 1 )
+	if( OpenContain::gxRow().containListSize < 1 )
 		return;
 
 	// Need to capture our specific rider.  He will then kick passengers out if he is a Transport
-	Object *myGuy = m_containList.front();
+	Object *myGuy = OpenContain::gxRow().containList.front();
 	myGuy->setTeam( newOwner->getDefaultTeam() );
 }
 
@@ -492,7 +500,7 @@ Bool OverlordContain::isEnclosingContainerFor( const Object *obj ) const
 	// for Overlord subObjects, once I have a passenger, _I_ become a transport of their type.
 	// So, the answer to this question depends on if it is my passenger asking, or theirs.
 	// As always, I can't use convenience functions that get redirected on a ? like this.
-	if( m_containListSize > 0  &&  obj ==  m_containList.front() )
+	if( OpenContain::gxRow().containListSize > 0  &&  obj ==  OpenContain::gxRow().containList.front() )
 		return FALSE;
 
 	return TRUE;
@@ -515,8 +523,8 @@ const Object *OverlordContain::friend_getRider() const
 	//around it.	So this is another function that knows it is getting around redirection to ask
 	// an Overlord specific function.
 
- 	if( m_containListSize > 0 )
- 		return m_containList.front();
+ 	if( OpenContain::gxRow().containListSize > 0 )
+ 		return OpenContain::gxRow().containList.front();
 
 
 	return nullptr;
@@ -525,13 +533,13 @@ const Object *OverlordContain::friend_getRider() const
 //-------------------------------------------------------------------------------------------------
 void OverlordContain::activateRedirectedContain()
 {
-	m_redirectionActivated = TRUE;
+	GXROW_OVERLORDCONTAIN.redirectionActivated = TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
 void OverlordContain::deactivateRedirectedContain()
 {
-	m_redirectionActivated = FALSE;
+	GXROW_OVERLORDCONTAIN.redirectionActivated = FALSE;
 }
 
 
@@ -617,7 +625,7 @@ void OverlordContain::xfer( Xfer *xfer )
 	TransportContain::xfer( xfer );
 
 	// redirection activated
-	xfer->xferBool( &m_redirectionActivated );
+	xfer->xferBool( &GXROW_OVERLORDCONTAIN.redirectionActivated );
 
 }
 

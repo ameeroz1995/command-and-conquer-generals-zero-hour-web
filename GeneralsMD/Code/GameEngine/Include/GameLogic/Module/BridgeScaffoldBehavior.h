@@ -64,6 +64,8 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxBridgeScaffoldBehaviorRow;
 class BridgeScaffoldBehavior : public UpdateModule,
 															 public BridgeScaffoldBehaviorInterface
 {
@@ -87,10 +89,10 @@ public:
 														 const Coord3D *riseToPos,
 														 const Coord3D *buildPos );
 	virtual void setMotion( ScaffoldTargetMotion targetMotion );
-	virtual ScaffoldTargetMotion getCurrentMotion() { return m_targetMotion; }
+	virtual ScaffoldTargetMotion getCurrentMotion();
 	virtual void reverseMotion();
-	virtual void setLateralSpeed( Real lateralSpeed ) { m_lateralSpeed = lateralSpeed; }
-	virtual void setVerticalSpeed( Real verticalSpeed ) { m_verticalSpeed = verticalSpeed; }
+	virtual void setLateralSpeed( Real lateralSpeed );
+	virtual void setVerticalSpeed( Real verticalSpeed );
 
 	// public interface acquisition
 	static BridgeScaffoldBehaviorInterface *getBridgeScaffoldBehaviorInterfaceFromObject( Object *obj );
@@ -100,12 +102,29 @@ protected:
 	void doVerticalMotion();				///< do rise/sink vertical motion
 	void doLateralmotion();					///< do lateral motion
 
-	ScaffoldTargetMotion m_targetMotion;	///< which way our motion should be going (build up, still, tear down etc)
-	Coord3D m_createPos;									///< initial position of object creation (in ground)
-	Coord3D m_riseToPos;									///< position we "rise to" out of the ground
-	Coord3D m_buildPos;										///< position we move to and stop at on the bridge surface
-	Real m_lateralSpeed;									///< speed for lateral motions
-	Real m_verticalSpeed;									///< speed for vertical motions
-	Coord3D m_targetPos;									///< current target position for our motion type
+	struct GxBridgeScaffoldBehaviorRow *m_gxBridgeScaffoldBehaviorRow;	///< web port (round 5): this unit's row in TheGxBridgeScaffoldBehaviors
+	friend struct GxBridgeScaffoldBehaviorRow;
+	inline struct GxBridgeScaffoldBehaviorRow &gxRow() const;
 
 };
+
+// Web port (round 5, units are pure data): BridgeScaffoldBehavior's per-unit state, one row per unit in TheGxBridgeScaffoldBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxBridgeScaffoldBehaviorRow
+{
+	ScaffoldTargetMotion targetMotion;
+	Coord3D createPos;
+	Coord3D riseToPos;
+	Coord3D buildPos;
+	Real lateralSpeed;
+	Real verticalSpeed;
+	Coord3D targetPos;
+};
+extern GxComponentTable<GxBridgeScaffoldBehaviorRow> TheGxBridgeScaffoldBehaviors;
+
+
+inline GxBridgeScaffoldBehaviorRow &BridgeScaffoldBehavior::gxRow() const { return TheGxBridgeScaffoldBehaviors.at(m_gxBridgeScaffoldBehaviorRow); }
+inline ScaffoldTargetMotion BridgeScaffoldBehavior::getCurrentMotion() { return gxRow().targetMotion; }
+inline void BridgeScaffoldBehavior::setLateralSpeed( Real lateralSpeed ) { gxRow().lateralSpeed = lateralSpeed; }
+inline void BridgeScaffoldBehavior::setVerticalSpeed( Real verticalSpeed ) { gxRow().verticalSpeed = verticalSpeed; }
+

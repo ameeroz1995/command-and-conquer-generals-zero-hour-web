@@ -52,6 +52,12 @@
 #include "GameLogic/Module/JetAIUpdate.h"
 #include "GameLogic/Module/ProductionUpdate.h"
 
+// Web port (round 5, units are pure data): FlightDeckBehavior's per-unit state is a row of TheGxFlightDeckBehaviors;
+// GXROW_FLIGHTDECKBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+GxComponentTable<GxFlightDeckBehaviorRow> TheGxFlightDeckBehaviors;
+#define GXROW_FLIGHTDECKBEHAVIOR (TheGxFlightDeckBehaviors.at(m_gxFlightDeckBehaviorRow))
+
+
 
 FlightDeckBehaviorModuleData::FlightDeckBehaviorModuleData()
 {
@@ -129,27 +135,29 @@ void FlightDeckBehaviorModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 FlightDeckBehavior::FlightDeckBehavior( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_gotInfo = false;
+	m_gxFlightDeckBehaviorRow = TheGxFlightDeckBehaviors.alloc( getObject() );	// web port (round 5): this unit's row (zeroed, like the module was)
 
-	m_nextHealFrame = FOREVER;
+	GXROW_FLIGHTDECKBEHAVIOR.gotInfo = false;
+
+	GXROW_FLIGHTDECKBEHAVIOR.nextHealFrame = FOREVER;
 	setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
-	m_nextCleanupFrame = 0;
-	m_startedProductionFrame = FOREVER;
-	m_nextAllowedProductionFrame = 0;
-	m_designatedTarget = INVALID_ID;
-	m_designatedCommand = AICMD_NO_COMMAND;
-	m_designatedPosition.zero();
+	GXROW_FLIGHTDECKBEHAVIOR.nextCleanupFrame = 0;
+	GXROW_FLIGHTDECKBEHAVIOR.startedProductionFrame = FOREVER;
+	GXROW_FLIGHTDECKBEHAVIOR.nextAllowedProductionFrame = 0;
+	GXROW_FLIGHTDECKBEHAVIOR.designatedTarget = INVALID_ID;
+	GXROW_FLIGHTDECKBEHAVIOR.designatedCommand = AICMD_NO_COMMAND;
+	GXROW_FLIGHTDECKBEHAVIOR.designatedPosition.zero();
 
 	for( int i = 0; i < MAX_RUNWAYS; i++ )
 	{
-		m_nextLaunchWaveFrame[ i ] = 0;
-		m_rampUpFrame[ i ] = 0;
-		m_catapultSystemFrame[ i ] = 0;
-		m_lowerRampFrame[ i ] = 0;
-		m_rampUp[ i ] = FALSE;
+		GXROW_FLIGHTDECKBEHAVIOR.nextLaunchWaveFrame[ i ] = 0;
+		GXROW_FLIGHTDECKBEHAVIOR.rampUpFrame[ i ] = 0;
+		GXROW_FLIGHTDECKBEHAVIOR.catapultSystemFrame[ i ] = 0;
+		GXROW_FLIGHTDECKBEHAVIOR.lowerRampFrame[ i ] = 0;
+		GXROW_FLIGHTDECKBEHAVIOR.rampUp[ i ] = FALSE;
 	}
 
-  m_thingTemplate = nullptr;
+  GXROW_FLIGHTDECKBEHAVIOR.thingTemplate = nullptr;
 
 }
 
@@ -157,18 +165,19 @@ FlightDeckBehavior::FlightDeckBehavior( Thing *thing, const ModuleData* moduleDa
 //-------------------------------------------------------------------------------------------------
 FlightDeckBehavior::~FlightDeckBehavior()
 {
+	TheGxFlightDeckBehaviors.release( m_gxFlightDeckBehaviorRow );	// web port (round 5)
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 void FlightDeckBehavior::buildInfo(Bool createUnits)
 {
-	if (m_gotInfo)
+	if (GXROW_FLIGHTDECKBEHAVIOR.gotInfo)
 		return;
 
 	const FlightDeckBehaviorModuleData* data = getFlightDeckBehaviorModuleData();
 
-	m_thingTemplate = TheThingFactory->findTemplate( data->m_thingTemplateName );
+	GXROW_FLIGHTDECKBEHAVIOR.thingTemplate = TheThingFactory->findTemplate( data->m_thingTemplateName );
 
 	if (getObject()->testStatus(OBJECT_STATUS_UNDER_CONSTRUCTION) ||
 			getObject()->testStatus(OBJECT_STATUS_SOLD))
@@ -176,7 +185,7 @@ void FlightDeckBehavior::buildInfo(Bool createUnits)
 
 	//ProductionUpdateInterface* pu = getObject()->getProductionUpdateInterface();
 
-	m_spaces.reserve( data->m_numRows * data->m_numCols );
+	GXROW_FLIGHTDECKBEHAVIOR.spaces.reserve( data->m_numRows * data->m_numCols );
 
 	//Initialize the spaces that planes will eventually be assigned to for parking purposes
 	FlightDeckInfo flightDeckInfo;
@@ -208,9 +217,9 @@ void FlightDeckBehavior::buildInfo(Bool createUnits)
 
 			//Create the payload
 			Object *jet = nullptr;
-			if( m_thingTemplate && createUnits )
+			if( GXROW_FLIGHTDECKBEHAVIOR.thingTemplate && createUnits )
 			{
-				jet = TheThingFactory->newObject( m_thingTemplate, getObject()->getControllingPlayer()->getDefaultTeam() );
+				jet = TheThingFactory->newObject( GXROW_FLIGHTDECKBEHAVIOR.thingTemplate, getObject()->getControllingPlayer()->getDefaultTeam() );
 				if( jet )
 				{
 					jet->setProducer( getObject() );
@@ -226,13 +235,13 @@ void FlightDeckBehavior::buildInfo(Bool createUnits)
 				}
 			}
 
-			m_spaces.push_back( flightDeckInfo );
+			GXROW_FLIGHTDECKBEHAVIOR.spaces.push_back( flightDeckInfo );
 		}
 	}
 
 	//Now initialize the runway take-off and landing information.
 	RunwayInfo info;
-	m_runways.reserve(data->m_numCols);
+	GXROW_FLIGHTDECKBEHAVIOR.runways.reserve(data->m_numCols);
 	for( Int col = 0; col < data->m_numCols; ++col )
 	{
 		AsciiString tmp;
@@ -284,10 +293,10 @@ void FlightDeckBehavior::buildInfo(Bool createUnits)
 			info.m_creation.push_back( pos );
 		}
 
-		m_runways.push_back(info);
+		GXROW_FLIGHTDECKBEHAVIOR.runways.push_back(info);
 	}
 
-	m_gotInfo = true;
+	GXROW_FLIGHTDECKBEHAVIOR.gotInfo = true;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -295,7 +304,7 @@ void FlightDeckBehavior::purgeDead()
 {
 	buildInfo();
 
-	for (std::vector<FlightDeckInfo>::iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+	for (std::vector<FlightDeckInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); ++it)
 	{
 		if (it->m_objectInSpace != INVALID_ID)
 		{
@@ -308,7 +317,7 @@ void FlightDeckBehavior::purgeDead()
 	}
 
 	{
-		for (std::vector<RunwayInfo>::iterator it = m_runways.begin(); it != m_runways.end(); ++it)
+		for (std::vector<RunwayInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.runways.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.runways.end(); ++it)
 		{
 			if (it->m_inUseByForTakeoff != INVALID_ID)
 			{
@@ -331,14 +340,14 @@ void FlightDeckBehavior::purgeDead()
 
 	{
 		Bool anythingPurged = false;
-		for (std::list<HealingInfo>::iterator it = m_healing.begin(); it != m_healing.end(); /*++it*/)
+		for (std::list<HealingInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.healing.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.healing.end(); /*++it*/)
 		{
 			if (it->m_gettingHealedID != INVALID_ID)
 			{
 				Object* objToHeal = TheGameLogic->findObjectByID(it->m_gettingHealedID);
 				if (objToHeal == nullptr || objToHeal->isEffectivelyDead())
 				{
-					it = m_healing.erase(it);
+					it = GXROW_FLIGHTDECKBEHAVIOR.healing.erase(it);
 					anythingPurged = true;
 				}
 				else
@@ -356,13 +365,13 @@ void FlightDeckBehavior::purgeDead()
 // note: called from client, so MUST NOT modify self in any way, or desyncs will occur
 Bool FlightDeckBehavior::hasReservedSpace(ObjectID id) const
 {
-	if (!m_gotInfo)
+	if (!GXROW_FLIGHTDECKBEHAVIOR.gotInfo)
 		return false;
 
 	if (id == INVALID_ID)	// shouldn't call this way, but Weapon mistakenly does sometimes, so check for it
 		return false;
 
-	for (std::vector<FlightDeckInfo>::const_iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+	for (std::vector<FlightDeckInfo>::const_iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); ++it)
 	{
 		if (it->m_objectInSpace == id)
 			return true;
@@ -379,7 +388,7 @@ Int FlightDeckBehavior::getSpaceIndex( ObjectID id ) const
 	}
 
 	Int index = 0;
-	for( std::vector<FlightDeckInfo>::const_iterator it = m_spaces.begin(); it != m_spaces.end(); it++, index++ )
+	for( std::vector<FlightDeckInfo>::const_iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); it++, index++ )
 	{
 		if (it->m_objectInSpace == id)
 		{
@@ -394,10 +403,10 @@ FlightDeckBehavior::FlightDeckInfo* FlightDeckBehavior::findPPI(ObjectID id)
 {
 	DEBUG_ASSERTCRASH(id != INVALID_ID, ("call findEmptyPPI instead"));
 
-	if (!m_gotInfo || id == INVALID_ID)
+	if (!GXROW_FLIGHTDECKBEHAVIOR.gotInfo || id == INVALID_ID)
 		return nullptr;
 
-	for (std::vector<FlightDeckInfo>::iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+	for (std::vector<FlightDeckInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); ++it)
 	{
 		if (it->m_objectInSpace == id)
 			return &(*it);
@@ -409,10 +418,10 @@ FlightDeckBehavior::FlightDeckInfo* FlightDeckBehavior::findPPI(ObjectID id)
 //-------------------------------------------------------------------------------------------------
 FlightDeckBehavior::FlightDeckInfo* FlightDeckBehavior::findEmptyPPI()
 {
-	if (!m_gotInfo)
+	if (!GXROW_FLIGHTDECKBEHAVIOR.gotInfo)
 		return nullptr;
 
-	for (std::vector<FlightDeckInfo>::iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+	for (std::vector<FlightDeckInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); ++it)
 	{
 		if( it->m_objectInSpace == INVALID_ID )
 			return &(*it);
@@ -432,10 +441,10 @@ Bool FlightDeckBehavior::shouldReserveDoorWhenQueued(const ThingTemplate* thing)
 // note: called from client, so MUST NOT modify self in any way, or desyncs will occur
 Bool FlightDeckBehavior::hasAvailableSpaceFor(const ThingTemplate* thing) const
 {
-	if (!m_gotInfo)	// degenerate case, shouldn't happen, but just in case...
+	if (!GXROW_FLIGHTDECKBEHAVIOR.gotInfo)	// degenerate case, shouldn't happen, but just in case...
 		return false;
 
-	for (std::vector<FlightDeckInfo>::const_iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+	for (std::vector<FlightDeckInfo>::const_iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); ++it)
 	{
 		ObjectID id = it->m_objectInSpace;
 
@@ -506,12 +515,12 @@ Bool FlightDeckBehavior::reserveSpace(ObjectID id, Real parkingOffset, ParkingPl
 void FlightDeckBehavior::validateAssignments()
 {
 	Int index = 0, index2 = 0;
-	for( std::vector<FlightDeckInfo>::const_iterator it = m_spaces.begin(); it != m_spaces.end(); it++, index++ )
+	for( std::vector<FlightDeckInfo>::const_iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); it++, index++ )
 	{
 		ObjectID id = it->m_objectInSpace;
 		if( id != INVALID_ID )
 		{
-			for( std::vector<FlightDeckInfo>::const_iterator it2 = it; it2 != m_spaces.end(); it2++, index2++ )
+			for( std::vector<FlightDeckInfo>::const_iterator it2 = it; it2 != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); it2++, index2++ )
 			{
 				if( it == it2 )
 				{
@@ -536,7 +545,7 @@ void FlightDeckBehavior::calcPPInfo( ObjectID id, PPInfo *info )
 		//Utter failure.
 		return;
 	}
-	const RunwayInfo& rr = m_runways[ ppi->m_runway ];
+	const RunwayInfo& rr = GXROW_FLIGHTDECKBEHAVIOR.runways[ ppi->m_runway ];
 
 	if( info )
 	{
@@ -564,7 +573,7 @@ void FlightDeckBehavior::calcPPInfo( ObjectID id, PPInfo *info )
 		vector.sub( &info->runwayEnd );
 		info->runwayTakeoffDist = vector.length();
 
-		for (std::vector<RunwayInfo>::iterator it = m_runways.begin(); it != m_runways.end(); ++it)
+		for (std::vector<RunwayInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.runways.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.runways.end(); ++it)
 		{
 			if (it->m_inUseByForTakeoff == id )
 			{
@@ -582,7 +591,7 @@ void FlightDeckBehavior::releaseSpace(ObjectID id)
 	buildInfo();
 	purgeDead();
 
-	for (std::vector<FlightDeckInfo>::iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+	for (std::vector<FlightDeckInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); ++it)
 	{
 		if (it->m_objectInSpace == id)
 		{
@@ -604,7 +613,7 @@ Int FlightDeckBehavior::getRunwayIndex(ObjectID id)
 {
 	purgeDead();
 
-	for (std::vector<FlightDeckInfo>::iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+	for (std::vector<FlightDeckInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); ++it)
 	{
 		if (it->m_objectInSpace == id)
 		{
@@ -622,9 +631,9 @@ ObjectID FlightDeckBehavior::getRunwayReservation( Int runway, RunwayReservation
 	switch( type )
 	{
 		case RESERVATION_TAKEOFF:
-			return m_runways[runway].m_inUseByForTakeoff;
+			return GXROW_FLIGHTDECKBEHAVIOR.runways[runway].m_inUseByForTakeoff;
 		case RESERVATION_LANDING:
-			return m_runways[runway].m_inUseByForLanding;
+			return GXROW_FLIGHTDECKBEHAVIOR.runways[runway].m_inUseByForLanding;
 		default:
 			return INVALID_ID;
 	}
@@ -650,9 +659,9 @@ Bool FlightDeckBehavior::reserveRunway(ObjectID id, Bool forLanding)
 		const FlightDeckBehaviorModuleData *data = getFlightDeckBehaviorModuleData();
 		for( Int i = 0; i < data->m_numCols; i++ )
 		{
-			if( m_spaces[ i ].m_objectInSpace == id )
+			if( GXROW_FLIGHTDECKBEHAVIOR.spaces[ i ].m_objectInSpace == id )
 			{
-				runway = m_spaces[ i ].m_runway;
+				runway = GXROW_FLIGHTDECKBEHAVIOR.spaces[ i ].m_runway;
 				break;
 			}
 		}
@@ -660,7 +669,7 @@ Bool FlightDeckBehavior::reserveRunway(ObjectID id, Bool forLanding)
 	else
 	{
 		//Look at all spaces for landing.
-		for (std::vector<FlightDeckInfo>::iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+		for (std::vector<FlightDeckInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); ++it)
 		{
 			if (it->m_objectInSpace == id)
 			{
@@ -678,7 +687,7 @@ Bool FlightDeckBehavior::reserveRunway(ObjectID id, Bool forLanding)
 		return false;
 	}
 
-	RunwayInfo& info = m_runways[runway];
+	RunwayInfo& info = GXROW_FLIGHTDECKBEHAVIOR.runways[runway];
 	if( (info.m_inUseByForTakeoff == id && !forLanding) || (info.m_inUseByForLanding == id && forLanding) )
 	{
 		return true;
@@ -707,7 +716,7 @@ void FlightDeckBehavior::releaseRunway(ObjectID id)
 	buildInfo();
 	purgeDead();
 
-	for (std::vector<RunwayInfo>::iterator it = m_runways.begin(); it != m_runways.end(); ++it)
+	for (std::vector<RunwayInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.runways.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.runways.end(); ++it)
 	{
 		if( it->m_inUseByForTakeoff == id )
 		{
@@ -725,7 +734,7 @@ const std::vector<Coord3D>* FlightDeckBehavior::getTaxiLocations( ObjectID id ) 
 {
 	//Find the runway the object is assigned to.
 	Int runway = -1;
-	for( std::vector<FlightDeckInfo>::const_iterator it = m_spaces.begin(); it != m_spaces.end(); it++ )
+	for( std::vector<FlightDeckInfo>::const_iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); it++ )
 	{
 		if( it->m_objectInSpace == id )
 		{
@@ -741,7 +750,7 @@ const std::vector<Coord3D>* FlightDeckBehavior::getTaxiLocations( ObjectID id ) 
 	}
 
 	//Now get the runway we're assigned to and return it's taxi vector
-	return &(m_runways[ runway ].m_taxi);
+	return &(GXROW_FLIGHTDECKBEHAVIOR.runways[ runway ].m_taxi);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -749,7 +758,7 @@ const std::vector<Coord3D>* FlightDeckBehavior::getCreationLocations( ObjectID i
 {
 	//Find the runway the object is assigned to.
 	Int runway = -1;
-	for( std::vector<FlightDeckInfo>::const_iterator it = m_spaces.begin(); it != m_spaces.end(); it++ )
+	for( std::vector<FlightDeckInfo>::const_iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); it++ )
 	{
 		if( it->m_objectInSpace == id )
 		{
@@ -765,7 +774,7 @@ const std::vector<Coord3D>* FlightDeckBehavior::getCreationLocations( ObjectID i
 	}
 
 	//Now get the runway we're assigned to and return it's creation vector
-	return &(m_runways[ runway ].m_creation);
+	return &(GXROW_FLIGHTDECKBEHAVIOR.runways[ runway ].m_creation);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -786,7 +795,7 @@ Bool FlightDeckBehavior::isAbleToGiveUpParkingSpace( Object *jet )
 			//We're definitely not airborne, so if our pending command is to land at the carrier, nuke the pending
 			//command.
 			AICommandType command = ai->friend_getPendingCommandType();
-			if( command == AICMD_ENTER || m_designatedCommand == AICMD_IDLE )
+			if( command == AICMD_ENTER || GXROW_FLIGHTDECKBEHAVIOR.designatedCommand == AICMD_IDLE )
 			{
 				ai->friend_purgePendingCommand();
 				return FALSE;
@@ -794,7 +803,7 @@ Bool FlightDeckBehavior::isAbleToGiveUpParkingSpace( Object *jet )
 
 			//But make sure we're not waiting to takeoff!
 			std::vector< RunwayInfo >::const_iterator it;
-			for( it = m_runways.begin(); it != m_runways.end(); it++ )
+			for( it = GXROW_FLIGHTDECKBEHAVIOR.runways.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.runways.end(); it++ )
 			{
 				if( it->m_inUseByForTakeoff == jet->getID() )
 				{
@@ -816,14 +825,14 @@ Bool FlightDeckBehavior::isInPositionToTakeoff( const Object &jet ) const
 	{
 		for( int i = 0; i < data->m_numCols; i++ )
 		{
-			if( m_spaces[ i ].m_objectInSpace == jet.getID() )
+			if( GXROW_FLIGHTDECKBEHAVIOR.spaces[ i ].m_objectInSpace == jet.getID() )
 			{
 				//This code fixes a problem where there is a one frame lag between the
 				//time a jet gets assigned to the front spot, and the time it's AI is able to
 				//order it to taxi into the position. When this happens, the ramp triggers its
 				//animation, and the jet drives through it. So to counter that, simply check
 				//the distance between the jet and the space.
-				Real distanceSqr = ThePartitionManager->getDistanceSquared( &jet, &m_spaces[ i ].m_prep, FROM_CENTER_2D );
+				Real distanceSqr = ThePartitionManager->getDistanceSquared( &jet, &GXROW_FLIGHTDECKBEHAVIOR.spaces[ i ].m_prep, FROM_CENTER_2D );
 				if( distanceSqr < 10.0f )
 				{
 					return TRUE;
@@ -865,8 +874,8 @@ Bool FlightDeckBehavior::calcBestParkingAssignment( ObjectID id, Coord3D *pos, I
 	//Find the runway the object is assigned to.
 	Int runway = -1;
 	Int myIndex = 0;
-	std::vector<FlightDeckInfo>::iterator myIt = m_spaces.begin();
-	for( ; myIt != m_spaces.end(); myIt++, myIndex++ )
+	std::vector<FlightDeckInfo>::iterator myIt = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin();
+	for( ; myIt != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); myIt++, myIndex++ )
 	{
 		if( myIt->m_objectInSpace == id )
 		{
@@ -892,16 +901,16 @@ Bool FlightDeckBehavior::calcBestParkingAssignment( ObjectID id, Coord3D *pos, I
 	//the back and keep looking at empty spaces until we find one with a plane blocking.
 
 	Bool checkForPlaneInWay = FALSE;
-	std::vector<FlightDeckInfo>::iterator bestIt = m_spaces.end();
+	std::vector<FlightDeckInfo>::iterator bestIt = GXROW_FLIGHTDECKBEHAVIOR.spaces.end();
 	Object *bestJet = nullptr;
 	Int bestIndex = 0, index = 0;
-	for( std::vector<FlightDeckInfo>::iterator thatIt = m_spaces.begin(); thatIt != m_spaces.end(); thatIt++, index++ )
+	for( std::vector<FlightDeckInfo>::iterator thatIt = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); thatIt != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); thatIt++, index++ )
 	{
 		Object *nonIdleJet = TheGameLogic->findObjectByID( thatIt->m_objectInSpace );
 		if( myIt == thatIt )
 		{
 			//Done, don't look at my spot, nor spots behind me.
-			if( bestIt != m_spaces.end() )
+			if( bestIt != GXROW_FLIGHTDECKBEHAVIOR.spaces.end() )
 			{
 				myIt->m_objectInSpace = bestJet ? bestJet->getID() : INVALID_ID;
 				bestIt->m_objectInSpace = id;
@@ -953,7 +962,7 @@ Bool FlightDeckBehavior::calcBestParkingAssignment( ObjectID id, Coord3D *pos, I
 				if( pos )
 				{
 					pos->set( &myIt->m_prep ); //reset the original position.
-					bestIt = m_spaces.end();
+					bestIt = GXROW_FLIGHTDECKBEHAVIOR.spaces.end();
 				}
 			}
 		}
@@ -970,13 +979,13 @@ const Int HEAL_RATE_FRAMES = LOGICFRAMES_PER_SECOND / 5;
 //-------------------------------------------------------------------------------------------------
 void FlightDeckBehavior::resetWakeFrame()
 {
-	if (m_healing.empty())
+	if (GXROW_FLIGHTDECKBEHAVIOR.healing.empty())
 	{
-		m_nextHealFrame = FOREVER;
+		GXROW_FLIGHTDECKBEHAVIOR.nextHealFrame = FOREVER;
 	}
 	else
 	{
-		m_nextHealFrame = TheGameLogic->getFrame() + HEAL_RATE_FRAMES;
+		GXROW_FLIGHTDECKBEHAVIOR.nextHealFrame = TheGameLogic->getFrame() + HEAL_RATE_FRAMES;
 	}
 }
 
@@ -985,7 +994,7 @@ void FlightDeckBehavior::setHealee(Object* healee, Bool add)
 {
 	if (add)
 	{
-		for (std::list<HealingInfo>::const_iterator it = m_healing.begin(); it != m_healing.end(); ++it)
+		for (std::list<HealingInfo>::const_iterator it = GXROW_FLIGHTDECKBEHAVIOR.healing.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.healing.end(); ++it)
 		{
 			if (it->m_gettingHealedID == healee->getID())
 				return;
@@ -993,16 +1002,16 @@ void FlightDeckBehavior::setHealee(Object* healee, Bool add)
 		HealingInfo info;
 		info.m_gettingHealedID = healee->getID();
 		info.m_healStartFrame = TheGameLogic->getFrame();
-		m_healing.push_back(info);
+		GXROW_FLIGHTDECKBEHAVIOR.healing.push_back(info);
 		resetWakeFrame();
 	}
 	else
 	{
-		for (std::list<HealingInfo>::iterator it = m_healing.begin(); it != m_healing.end(); /*++it*/)
+		for (std::list<HealingInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.healing.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.healing.end(); /*++it*/)
 		{
 			if (it->m_gettingHealedID == healee->getID())
 			{
-				it = m_healing.erase(it);
+				it = GXROW_FLIGHTDECKBEHAVIOR.healing.erase(it);
 				resetWakeFrame();
 			}
 			else
@@ -1019,7 +1028,7 @@ void FlightDeckBehavior::defectAllParkedUnits(Team* newTeam, UnsignedInt detecti
 	buildInfo();
 	purgeDead();
 
-	for (std::vector<FlightDeckInfo>::iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+	for (std::vector<FlightDeckInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); ++it)
 	{
 		if (it->m_objectInSpace != INVALID_ID)
 		{
@@ -1060,7 +1069,7 @@ void FlightDeckBehavior::killAllParkedUnits()
 	buildInfo();
 	purgeDead();
 
-	for (std::vector<FlightDeckInfo>::iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+	for (std::vector<FlightDeckInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); ++it)
 	{
 		if (it->m_objectInSpace != INVALID_ID)
 		{
@@ -1101,17 +1110,17 @@ UpdateSleepTime FlightDeckBehavior::update()
 
 	const FlightDeckBehaviorModuleData* data = getFlightDeckBehaviorModuleData();
 	UnsignedInt now = TheGameLogic->getFrame();
-	if( now >= m_nextHealFrame )
+	if( now >= GXROW_FLIGHTDECKBEHAVIOR.nextHealFrame )
 	{
-		m_nextHealFrame = now + HEAL_RATE_FRAMES;
-		for (std::list<HealingInfo>::iterator it = m_healing.begin(); it != m_healing.end(); /*++it*/)
+		GXROW_FLIGHTDECKBEHAVIOR.nextHealFrame = now + HEAL_RATE_FRAMES;
+		for (std::list<HealingInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.healing.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.healing.end(); /*++it*/)
 		{
 			if (it->m_gettingHealedID != INVALID_ID)
 			{
 				Object* objToHeal = TheGameLogic->findObjectByID(it->m_gettingHealedID);
 				if (objToHeal == nullptr || objToHeal->isEffectivelyDead())
 				{
-					it = m_healing.erase(it);
+					it = GXROW_FLIGHTDECKBEHAVIOR.healing.erase(it);
 				}
 				else
 				{
@@ -1133,14 +1142,14 @@ UpdateSleepTime FlightDeckBehavior::update()
 	//  1) Detect non-idle plane assigned to frontmost spaces (implying spot is empty)
 	//  2) Promote next idle plane behind it to move up and take it's spot. The original plane will
 	//     get assigned to it's old spot (thus bubblesorted eventually to the rear).
-	if( now >= m_nextCleanupFrame )
+	if( now >= GXROW_FLIGHTDECKBEHAVIOR.nextCleanupFrame )
 	{
-		m_nextCleanupFrame = now + data->m_cleanupFrames;
+		GXROW_FLIGHTDECKBEHAVIOR.nextCleanupFrame = now + data->m_cleanupFrames;
 		std::vector<FlightDeckInfo>::iterator tempIt;
 		Int spaceID = 0;
 
 		Bool complete[ MAX_RUNWAYS ] = { FALSE, FALSE };
-		for( std::vector<FlightDeckInfo>::iterator it = m_spaces.begin(); it != m_spaces.end(); it++, spaceID++ )
+		for( std::vector<FlightDeckInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); it++, spaceID++ )
 		{
 			Object *nonIdleJet = TheGameLogic->findObjectByID( it->m_objectInSpace );
 			if( !nonIdleJet || isAbleToGiveUpParkingSpace( nonIdleJet ) )
@@ -1149,7 +1158,7 @@ UpdateSleepTime FlightDeckBehavior::update()
 				//isn't in his spot, we will look for jets behind him to move up to take up his spot.
 				Int runwayCount = data->m_numCols;
 				Int tempID = spaceID;
-				for( tempIt = it; tempIt != m_spaces.end(); tempIt++, tempID++ )
+				for( tempIt = it; tempIt != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); tempIt++, tempID++ )
 				{
 					if( runwayCount > 0 )
 					{
@@ -1189,7 +1198,7 @@ UpdateSleepTime FlightDeckBehavior::update()
 						//additional planes instead of moving them all simultaneously. So this is the exit
 						//condition if one plane per runway has been bumped.
 						complete[ it->m_runway ] = TRUE;
-						m_nextCleanupFrame = now + data->m_humanFollowFrames;
+						GXROW_FLIGHTDECKBEHAVIOR.nextCleanupFrame = now + data->m_humanFollowFrames;
 					}
 					//Break through and advance to the next spot!
 					break;
@@ -1201,13 +1210,13 @@ UpdateSleepTime FlightDeckBehavior::update()
 	//Handle automatic production of lost aircraft.
 
 	//Reset timer if we just finished building an aircraft.
-	if( m_nextAllowedProductionFrame <= now )
+	if( GXROW_FLIGHTDECKBEHAVIOR.nextAllowedProductionFrame <= now )
 	{
-		m_startedProductionFrame = FOREVER;
+		GXROW_FLIGHTDECKBEHAVIOR.startedProductionFrame = FOREVER;
 	}
 
-	std::vector<FlightDeckInfo>::iterator it = m_spaces.begin();
-	for( ; it != m_spaces.end(); it++ )
+	std::vector<FlightDeckInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin();
+	for( ; it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); it++ )
 	{
 		//Unassigned space?... so we can build a replacement.
 		if( it->m_objectInSpace == INVALID_ID )
@@ -1220,14 +1229,14 @@ UpdateSleepTime FlightDeckBehavior::update()
 				DEBUG_CRASH( ("MSG_QUEUE_UNIT_CREATE: Producer '%s' doesn't have a unit production interface", getObject()->getTemplate()->getName().str()) );
 				break;
 			}
-			DEBUG_ASSERTCRASH( m_thingTemplate != nullptr, ("flightdeck has a null thingtemplate... no jets for you!") );
-			if( !pu->getProductionCount() && now >= m_nextAllowedProductionFrame && m_thingTemplate != nullptr )
+			DEBUG_ASSERTCRASH( GXROW_FLIGHTDECKBEHAVIOR.thingTemplate != nullptr, ("flightdeck has a null thingtemplate... no jets for you!") );
+			if( !pu->getProductionCount() && now >= GXROW_FLIGHTDECKBEHAVIOR.nextAllowedProductionFrame && GXROW_FLIGHTDECKBEHAVIOR.thingTemplate != nullptr )
 			{
 				//Queue the build
-				pu->queueCreateUnit( m_thingTemplate, pu->requestUniqueUnitID() );
+				pu->queueCreateUnit( GXROW_FLIGHTDECKBEHAVIOR.thingTemplate, pu->requestUniqueUnitID() );
 
-				m_startedProductionFrame = now;
-				m_nextAllowedProductionFrame = now + data->m_replacementFrames + data->m_dockAnimationFrames;
+				GXROW_FLIGHTDECKBEHAVIOR.startedProductionFrame = now;
+				GXROW_FLIGHTDECKBEHAVIOR.nextAllowedProductionFrame = now + data->m_replacementFrames + data->m_dockAnimationFrames;
 			}
 
 			break;
@@ -1236,7 +1245,7 @@ UpdateSleepTime FlightDeckBehavior::update()
 
 	//If the carrier has at least one aircraft, then allow it to attack.
 	Bool hasAircraft = FALSE;
-	for( it = m_spaces.begin(); it != m_spaces.end(); it++ )
+	for( it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); it++ )
 	{
 		if( it->m_objectInSpace != INVALID_ID )
 		{
@@ -1250,17 +1259,17 @@ UpdateSleepTime FlightDeckBehavior::update()
 	//Check for timer expiry -- are we allowed to launch the next wave yet?
 	for( int i = 0; i < data->m_numCols; i++ )
 	{
-		Object *jet = TheGameLogic->findObjectByID( m_spaces[ i ].m_objectInSpace );
+		Object *jet = TheGameLogic->findObjectByID( GXROW_FLIGHTDECKBEHAVIOR.spaces[ i ].m_objectInSpace );
 		if( jet && !isAbleToGiveUpParkingSpace( jet ) && isInPositionToTakeoff( *jet ) && hasTakeoffOrders() )
 		{
-			if( m_nextLaunchWaveFrame[ i ] <= now )
+			if( GXROW_FLIGHTDECKBEHAVIOR.nextLaunchWaveFrame[ i ] <= now )
 			{
 				//Handle making the ramp going up and holding the launch until it's completely up.
-				if( !m_rampUp[ i ] )
+				if( !GXROW_FLIGHTDECKBEHAVIOR.rampUp[ i ] )
 				{
-					m_rampUp[ i ] = TRUE;
-					m_rampUpFrame[ i ] = now + data->m_launchRampFrames;
-					m_lowerRampFrame[ i ] = FOREVER;
+					GXROW_FLIGHTDECKBEHAVIOR.rampUp[ i ] = TRUE;
+					GXROW_FLIGHTDECKBEHAVIOR.rampUpFrame[ i ] = now + data->m_launchRampFrames;
+					GXROW_FLIGHTDECKBEHAVIOR.lowerRampFrame[ i ] = FOREVER;
 					//****MAX_RUNWAYS***** if defined beyond 3, then this code will need to be rewritten or more modelcondition flags will
 					//                     need to be added.
 					ModelConditionFlagType opening = (ModelConditionFlagType)(MODELCONDITION_DOOR_2_OPENING + i * NUM_MODELCONDITION_DOOR_STATES);
@@ -1269,36 +1278,36 @@ UpdateSleepTime FlightDeckBehavior::update()
 				}
 
 				//Handle launching the wave of fighters.
-				if( m_rampUp[ i ] && m_rampUpFrame[ i ] <= now )
+				if( GXROW_FLIGHTDECKBEHAVIOR.rampUp[ i ] && GXROW_FLIGHTDECKBEHAVIOR.rampUpFrame[ i ] <= now )
 				{
 					AIUpdateInterface *jetAI = jet->getAI();
 					if( jetAI )
 					{
 						propagateOrderToSpecificPlane( jet );
-						m_nextLaunchWaveFrame[ i ] = now + data->m_launchWaveFrames;
-						m_catapultSystemFrame[ i ] = now + data->m_catapultFireFrames;
-						m_lowerRampFrame[ i ] = now + data->m_lowerRampFrames;
+						GXROW_FLIGHTDECKBEHAVIOR.nextLaunchWaveFrame[ i ] = now + data->m_launchWaveFrames;
+						GXROW_FLIGHTDECKBEHAVIOR.catapultSystemFrame[ i ] = now + data->m_catapultFireFrames;
+						GXROW_FLIGHTDECKBEHAVIOR.lowerRampFrame[ i ] = now + data->m_lowerRampFrames;
 					}
 				}
 			}
 		}
 
 		//Handle firing of the catapult steam effect upon launching planes.
-		if( m_catapultSystemFrame[ i ] <= now && data->m_runwayInfo[ i ].m_catapultParticleSystem )
+		if( GXROW_FLIGHTDECKBEHAVIOR.catapultSystemFrame[ i ] <= now && data->m_runwayInfo[ i ].m_catapultParticleSystem )
 		{
 			ParticleSystem *ps = TheParticleSystemManager->createParticleSystem( data->m_runwayInfo[ i ].m_catapultParticleSystem );
-			m_catapultSystemFrame[ i ] = FOREVER;
+			GXROW_FLIGHTDECKBEHAVIOR.catapultSystemFrame[ i ] = FOREVER;
 			if( ps )
 			{
-				ps->setLocalTransform( &m_runways[ i ].m_startTransform );
-				ps->setPosition( &m_runways[ i ].m_start );
+				ps->setLocalTransform( &GXROW_FLIGHTDECKBEHAVIOR.runways[ i ].m_startTransform );
+				ps->setPosition( &GXROW_FLIGHTDECKBEHAVIOR.runways[ i ].m_start );
 			}
 		}
 
 		//Handle lowering the ramp after the fighter has been launched.
-		if( m_rampUp[ i ] && m_lowerRampFrame[ i ] <= now )
+		if( GXROW_FLIGHTDECKBEHAVIOR.rampUp[ i ] && GXROW_FLIGHTDECKBEHAVIOR.lowerRampFrame[ i ] <= now )
 		{
-			m_rampUp[ i ] = FALSE;
+			GXROW_FLIGHTDECKBEHAVIOR.rampUp[ i ] = FALSE;
 			//****MAX_RUNWAYS***** if defined beyond 3, then this code will need to be rewritten or more modelcondition flags will
 			//                     need to be added.
 			ModelConditionFlagType opening = (ModelConditionFlagType)(MODELCONDITION_DOOR_2_OPENING + i * NUM_MODELCONDITION_DOOR_STATES);
@@ -1322,7 +1331,7 @@ void FlightDeckBehavior::exitObjectViaDoor( Object *newObj, ExitDoorType exitDoo
 	FlightDeckInfo* ppi = nullptr;
 	if (exitDoor != DOOR_NONE_NEEDED)
 	{
-		for (std::vector<FlightDeckInfo>::iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+		for (std::vector<FlightDeckInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); ++it)
 		{
 			if( it->m_objectInSpace == INVALID_ID )
 			{
@@ -1368,7 +1377,7 @@ void FlightDeckBehavior::exitObjectViaDoor( Object *newObj, ExitDoorType exitDoo
 	}
 
 	newObj->setPosition( &(*pCreationLocations)[0] );
-	newObj->setOrientation( m_runways[ ppi->m_runway ].m_startOrient );
+	newObj->setOrientation( GXROW_FLIGHTDECKBEHAVIOR.runways[ ppi->m_runway ].m_startOrient );
 	TheAI->pathfinder()->addObjectToPathfindMap( newObj );
 
 	AIUpdateInterface  *ai = newObj->getAIUpdateInterface();
@@ -1399,38 +1408,38 @@ void FlightDeckBehavior::aiDoCommand(const AICommandParms* parms)
 		switch( parms->m_cmd )
 		{
 			case AICMD_GUARD_POSITION:
-				m_designatedTarget = INVALID_ID;
-				m_designatedPosition.set( &parms->m_pos );
-				m_designatedCommand = parms->m_cmd;
+				GXROW_FLIGHTDECKBEHAVIOR.designatedTarget = INVALID_ID;
+				GXROW_FLIGHTDECKBEHAVIOR.designatedPosition.set( &parms->m_pos );
+				GXROW_FLIGHTDECKBEHAVIOR.designatedCommand = parms->m_cmd;
 				propagateOrdersToPlanes();
 				break;
 			case AICMD_ATTACK_POSITION:
-				m_designatedTarget = INVALID_ID;
-				m_designatedPosition.set( &parms->m_pos );
-				m_designatedCommand = parms->m_cmd;
+				GXROW_FLIGHTDECKBEHAVIOR.designatedTarget = INVALID_ID;
+				GXROW_FLIGHTDECKBEHAVIOR.designatedPosition.set( &parms->m_pos );
+				GXROW_FLIGHTDECKBEHAVIOR.designatedCommand = parms->m_cmd;
 				propagateOrdersToPlanes();
 				break;
 			case AICMD_FORCE_ATTACK_OBJECT:
 			case AICMD_ATTACK_OBJECT:
-				m_designatedTarget = parms->m_obj ? parms->m_obj->getID() : INVALID_ID;
-				m_designatedPosition.zero();
-				m_designatedCommand = parms->m_cmd;
+				GXROW_FLIGHTDECKBEHAVIOR.designatedTarget = parms->m_obj ? parms->m_obj->getID() : INVALID_ID;
+				GXROW_FLIGHTDECKBEHAVIOR.designatedPosition.zero();
+				GXROW_FLIGHTDECKBEHAVIOR.designatedCommand = parms->m_cmd;
 				propagateOrdersToPlanes();
 				break;
 			case AICMD_ATTACKMOVE_TO_POSITION:
-				m_designatedTarget = INVALID_ID;
-				m_designatedPosition.set( &parms->m_pos );
-				m_designatedCommand = parms->m_cmd;
+				GXROW_FLIGHTDECKBEHAVIOR.designatedTarget = INVALID_ID;
+				GXROW_FLIGHTDECKBEHAVIOR.designatedPosition.set( &parms->m_pos );
+				GXROW_FLIGHTDECKBEHAVIOR.designatedCommand = parms->m_cmd;
 				propagateOrdersToPlanes();
 				break;
 			case AICMD_IDLE:
-				m_designatedTarget = INVALID_ID;
-				m_designatedPosition.zero();
-				m_designatedCommand = parms->m_cmd;
+				GXROW_FLIGHTDECKBEHAVIOR.designatedTarget = INVALID_ID;
+				GXROW_FLIGHTDECKBEHAVIOR.designatedPosition.zero();
+				GXROW_FLIGHTDECKBEHAVIOR.designatedCommand = parms->m_cmd;
 				propagateOrdersToPlanes();
 				break;
 			default:
-				m_designatedCommand = AICMD_NO_COMMAND;
+				GXROW_FLIGHTDECKBEHAVIOR.designatedCommand = AICMD_NO_COMMAND;
 				break;
 		}
 	}
@@ -1444,7 +1453,7 @@ void FlightDeckBehavior::aiDoCommand(const AICommandParms* parms)
 void FlightDeckBehavior::propagateOrdersToPlanes()
 {
 	//We just ordered the carrier to stop, so order all the planes that are out to return!
-	for( std::vector<FlightDeckInfo>::iterator it = m_spaces.begin(); it != m_spaces.end(); it++ )
+	for( std::vector<FlightDeckInfo>::iterator it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); it++ )
 	{
 		if( it->m_objectInSpace != INVALID_ID )
 		{
@@ -1460,8 +1469,8 @@ void FlightDeckBehavior::propagateOrdersToPlanes()
 //-------------------------------------------------------------------------------------------------
 Bool FlightDeckBehavior::hasTakeoffOrders()
 {
-	Object *target = TheGameLogic->findObjectByID( m_designatedTarget );
-	switch( m_designatedCommand )
+	Object *target = TheGameLogic->findObjectByID( GXROW_FLIGHTDECKBEHAVIOR.designatedTarget );
+	switch( GXROW_FLIGHTDECKBEHAVIOR.designatedCommand )
 	{
 		case AICMD_GUARD_POSITION:
 			return TRUE;
@@ -1478,8 +1487,8 @@ Bool FlightDeckBehavior::hasTakeoffOrders()
 			{
 				return TRUE;
 			}
-			m_designatedCommand = AICMD_NO_COMMAND;
-			m_designatedTarget = INVALID_ID;
+			GXROW_FLIGHTDECKBEHAVIOR.designatedCommand = AICMD_NO_COMMAND;
+			GXROW_FLIGHTDECKBEHAVIOR.designatedTarget = INVALID_ID;
 			return FALSE;
 
 		case AICMD_IDLE:
@@ -1498,21 +1507,21 @@ void FlightDeckBehavior::propagateOrderToSpecificPlane( Object *jet )
 		AIUpdateInterface *ai = jet->getAI();
 		if( ai )
 		{
-			Object *target = TheGameLogic->findObjectByID( m_designatedTarget );
-			switch( m_designatedCommand )
+			Object *target = TheGameLogic->findObjectByID( GXROW_FLIGHTDECKBEHAVIOR.designatedTarget );
+			switch( GXROW_FLIGHTDECKBEHAVIOR.designatedCommand )
 			{
 				case AICMD_GUARD_POSITION:
-					ai->aiGuardPosition( &m_designatedPosition, GUARDMODE_NORMAL, CMD_FROM_AI );
+					ai->aiGuardPosition( &GXROW_FLIGHTDECKBEHAVIOR.designatedPosition, GUARDMODE_NORMAL, CMD_FROM_AI );
 					break;
 				case AICMD_ATTACK_POSITION:
-					ai->aiAttackPosition( &m_designatedPosition, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
+					ai->aiAttackPosition( &GXROW_FLIGHTDECKBEHAVIOR.designatedPosition, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
 					break;
 				case AICMD_FORCE_ATTACK_OBJECT:
 				case AICMD_ATTACK_OBJECT:
 					ai->aiForceAttackObject( target, NO_MAX_SHOTS_LIMIT, CMD_FROM_PLAYER );
 					break;
 				case AICMD_ATTACKMOVE_TO_POSITION:
-					ai->aiAttackMoveToPosition( &m_designatedPosition, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
+					ai->aiAttackMoveToPosition( &GXROW_FLIGHTDECKBEHAVIOR.designatedPosition, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
 					break;
 				case AICMD_IDLE:
 					ai->aiEnter( getObject(), CMD_FROM_AI );
@@ -1557,14 +1566,14 @@ void FlightDeckBehavior::xfer( Xfer *xfer )
 	}
 
 	// spaces info count and data
-	UnsignedByte spacesCount = m_spaces.size();
+	UnsignedByte spacesCount = GXROW_FLIGHTDECKBEHAVIOR.spaces.size();
 	xfer->xferUnsignedByte( &spacesCount );
 	if( xfer->getXferMode() == XFER_SAVE )
 	{
 
 		// save all elements
 		std::vector< FlightDeckInfo >::iterator it;
-		for( it = m_spaces.begin(); it != m_spaces.end(); ++it )
+		for( it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end(); ++it )
 		{
 			// object in this space
 			xfer->xferObjectID( &((*it).m_objectInSpace) ); // This is the one thing not regenerated by buildInfo
@@ -1577,7 +1586,7 @@ void FlightDeckBehavior::xfer( Xfer *xfer )
 
 		// read all elements
 		std::vector< FlightDeckInfo >::iterator it;
-		it = m_spaces.begin();
+		it = GXROW_FLIGHTDECKBEHAVIOR.spaces.begin();
 		for( i = 0; i < spacesCount; ++i )
 		{
 
@@ -1585,7 +1594,7 @@ void FlightDeckBehavior::xfer( Xfer *xfer )
 			xfer->xferObjectID( &objectID );
 
 			// store in vector if the vector does indeed still have room for this entry
-			if( it != m_spaces.end() )
+			if( it != GXROW_FLIGHTDECKBEHAVIOR.spaces.end() )
 			{
 				(*it).m_objectInSpace = objectID;
 				//validateAssignments();
@@ -1597,14 +1606,14 @@ void FlightDeckBehavior::xfer( Xfer *xfer )
 	}
 
 	// runways count and info
-	UnsignedByte runwaysCount = m_runways.size();
+	UnsignedByte runwaysCount = GXROW_FLIGHTDECKBEHAVIOR.runways.size();
 	xfer->xferUnsignedByte( &runwaysCount );
 	if( xfer->getXferMode() == XFER_SAVE )
 	{
 
 		// save all elements
 		std::vector< RunwayInfo >::iterator it;
-		for( it = m_runways.begin(); it != m_runways.end(); ++it )
+		for( it = GXROW_FLIGHTDECKBEHAVIOR.runways.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.runways.end(); ++it )
 		{
 
 			// save object ID
@@ -1618,7 +1627,7 @@ void FlightDeckBehavior::xfer( Xfer *xfer )
 	{
 		// read all elements
 		std::vector< RunwayInfo >::iterator it;
-		it = m_runways.begin();
+		it = GXROW_FLIGHTDECKBEHAVIOR.runways.begin();
 		for( i = 0; i < runwaysCount; ++i )
 		{
 
@@ -1631,7 +1640,7 @@ void FlightDeckBehavior::xfer( Xfer *xfer )
 // Old?			xfer->xferBool( &wasInLine );
 
 			// store in vector if the vector does indeed still have room for this entry
-			if( it != m_runways.end() )
+			if( it != GXROW_FLIGHTDECKBEHAVIOR.runways.end() )
 			{
 
 				(*it).m_inUseByForTakeoff = inUseByForTakeoff;
@@ -1645,14 +1654,14 @@ void FlightDeckBehavior::xfer( Xfer *xfer )
 	}
 
 	// healees
-	UnsignedByte healCount = m_healing.size();
+	UnsignedByte healCount = GXROW_FLIGHTDECKBEHAVIOR.healing.size();
 	xfer->xferUnsignedByte( &healCount );
 	if( xfer->getXferMode() == XFER_SAVE )
 	{
 
 		// save all elements
 		std::list< HealingInfo >::iterator it;
-		for( it = m_healing.begin(); it != m_healing.end(); ++it )
+		for( it = GXROW_FLIGHTDECKBEHAVIOR.healing.begin(); it != GXROW_FLIGHTDECKBEHAVIOR.healing.end(); ++it )
 		{
 
 			// save object ID
@@ -1665,7 +1674,7 @@ void FlightDeckBehavior::xfer( Xfer *xfer )
 	else if( xfer->getXferMode() == XFER_LOAD )
 	{
 		// read all elements
-		m_healing.clear();
+		GXROW_FLIGHTDECKBEHAVIOR.healing.clear();
 		for( i = 0; i < healCount; ++i )
 		{
 			HealingInfo info;
@@ -1673,21 +1682,21 @@ void FlightDeckBehavior::xfer( Xfer *xfer )
 			// read object ID
 			xfer->xferObjectID( &info.m_gettingHealedID );
 			xfer->xferUnsignedInt( &info.m_healStartFrame );
-			m_healing.push_back(info);
+			GXROW_FLIGHTDECKBEHAVIOR.healing.push_back(info);
 
 		}
 
 	}
 
-	xfer->xferUnsignedInt( &m_nextHealFrame );
-	xfer->xferUnsignedInt( &m_nextCleanupFrame );
-	xfer->xferUnsignedInt( &m_startedProductionFrame );
-	xfer->xferUnsignedInt( &m_nextAllowedProductionFrame );
-	xfer->xferObjectID( &m_designatedTarget );
+	xfer->xferUnsignedInt( &GXROW_FLIGHTDECKBEHAVIOR.nextHealFrame );
+	xfer->xferUnsignedInt( &GXROW_FLIGHTDECKBEHAVIOR.nextCleanupFrame );
+	xfer->xferUnsignedInt( &GXROW_FLIGHTDECKBEHAVIOR.startedProductionFrame );
+	xfer->xferUnsignedInt( &GXROW_FLIGHTDECKBEHAVIOR.nextAllowedProductionFrame );
+	xfer->xferObjectID( &GXROW_FLIGHTDECKBEHAVIOR.designatedTarget );
 	Int commandType;
 	xfer->xferInt( &commandType );
-	m_designatedCommand = (AICommandType)commandType;
-	xfer->xferCoord3D( &m_designatedPosition );
+	GXROW_FLIGHTDECKBEHAVIOR.designatedCommand = (AICommandType)commandType;
+	xfer->xferCoord3D( &GXROW_FLIGHTDECKBEHAVIOR.designatedPosition );
 
 	UnsignedInt maxRunways = MAX_RUNWAYS;
 	xfer->xferUnsignedInt( &maxRunways ); //If we're loading, we'll overwrite it. If we're saving, we save it!
@@ -1697,11 +1706,11 @@ void FlightDeckBehavior::xfer( Xfer *xfer )
 		if( maxRunways <= MAX_RUNWAYS )
 		{
 			//Save and load everything.
-			xfer->xferUnsignedInt( &m_nextLaunchWaveFrame[ i ] );
-			xfer->xferUnsignedInt( &m_rampUpFrame[ i ] );
-			xfer->xferUnsignedInt( &m_catapultSystemFrame[ i ] );
-			xfer->xferUnsignedInt( &m_lowerRampFrame[ i ] );
-			xfer->xferBool( &m_rampUp[ MAX_RUNWAYS ] );
+			xfer->xferUnsignedInt( &GXROW_FLIGHTDECKBEHAVIOR.nextLaunchWaveFrame[ i ] );
+			xfer->xferUnsignedInt( &GXROW_FLIGHTDECKBEHAVIOR.rampUpFrame[ i ] );
+			xfer->xferUnsignedInt( &GXROW_FLIGHTDECKBEHAVIOR.catapultSystemFrame[ i ] );
+			xfer->xferUnsignedInt( &GXROW_FLIGHTDECKBEHAVIOR.lowerRampFrame[ i ] );
+			xfer->xferBool( &GXROW_FLIGHTDECKBEHAVIOR.rampUp[ MAX_RUNWAYS ] );
 		}
 		else
 		{
@@ -1726,7 +1735,7 @@ void FlightDeckBehavior::loadPostProcess()
 
 
 	const FlightDeckBehaviorModuleData* data = getFlightDeckBehaviorModuleData();
-	m_thingTemplate = TheThingFactory->findTemplate( data->m_thingTemplateName );
+	GXROW_FLIGHTDECKBEHAVIOR.thingTemplate = TheThingFactory->findTemplate( data->m_thingTemplateName );
 
 
 	// extend base class

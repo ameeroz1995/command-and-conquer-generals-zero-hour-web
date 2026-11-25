@@ -121,6 +121,8 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxSlowDeathBehaviorRow;
 class SlowDeathBehavior : public UpdateModule,
 													public DieModuleInterface,
 													public SlowDeathBehaviorInterface
@@ -156,8 +158,8 @@ public:
 protected:
 
 	void doPhaseStuff(SlowDeathPhaseType sdphase);
-	Bool isSlowDeathActivated() const { return (m_flags & (1<<SLOW_DEATH_ACTIVATED)) != 0; }
-	UnsignedInt getDestructionFrame() const { return m_destructionFrame; }
+	Bool isSlowDeathActivated() const;
+	UnsignedInt getDestructionFrame() const;
 
 private:
 
@@ -169,9 +171,25 @@ private:
 		BOUNCED
 	};
 
-	UnsignedInt m_sinkFrame;							///< Frame to be sunken into the ground on
-	UnsignedInt m_midpointFrame;					///< The midpoint is between .25 through life and .75 through life (eg)
-	UnsignedInt m_destructionFrame;
-	Real				m_acceleratedTimeScale;		///<used to speedup deaths when needed to improve game performance.
-	UnsignedInt	m_flags;
+	struct GxSlowDeathBehaviorRow *m_gxSlowDeathBehaviorRow;	///< web port (round 5): this unit's row in TheGxSlowDeathBehaviors
+	friend struct GxSlowDeathBehaviorRow;
+	inline struct GxSlowDeathBehaviorRow &gxRow() const;
 };
+
+// Web port (round 5, units are pure data): SlowDeathBehavior's per-unit state, one row per unit in TheGxSlowDeathBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxSlowDeathBehaviorRow
+{
+	UnsignedInt sinkFrame;
+	UnsignedInt midpointFrame;
+	UnsignedInt destructionFrame;
+	Real acceleratedTimeScale;
+	UnsignedInt flags;
+};
+extern GxComponentTable<GxSlowDeathBehaviorRow> TheGxSlowDeathBehaviors;
+
+
+inline GxSlowDeathBehaviorRow &SlowDeathBehavior::gxRow() const { return TheGxSlowDeathBehaviors.at(m_gxSlowDeathBehaviorRow); }
+inline Bool SlowDeathBehavior::isSlowDeathActivated() const { return (gxRow().flags & (1<<SLOW_DEATH_ACTIVATED)) != 0; }
+inline UnsignedInt SlowDeathBehavior::getDestructionFrame() const { return gxRow().destructionFrame; }
+

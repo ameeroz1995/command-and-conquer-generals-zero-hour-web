@@ -103,21 +103,28 @@ GenerateMinefieldBehaviorModuleData::GenerateMinefieldBehaviorModuleData()
 }
 
 //-------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+// Web port (round 5, units are pure data): the per-unit state is a row of TheGxMinefields; the old
+// member names below read and write this unit's row, so the logic and xfer/CRC order are unchanged.
+// ------------------------------------------------------------------------------------------------
+GxComponentTable<GxMinefieldRow> TheGxMinefields;
+#define m_target		(TheGxMinefields.at(m_gxRow).target)
+#define m_hasTarget		(TheGxMinefields.at(m_gxRow).hasTarget)
+#define m_generated		(TheGxMinefields.at(m_gxRow).generated)
+#define m_upgraded		(TheGxMinefields.at(m_gxRow).upgraded)
+#define m_mineList		(TheGxMinefields.at(m_gxRow).mineList)
+
 //-------------------------------------------------------------------------------------------------
 GenerateMinefieldBehavior::GenerateMinefieldBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_target.zero();
-	m_generated = false;
-	m_hasTarget = false;
-	m_upgraded = false;
-	m_mineList.clear();
+	m_gxRow = TheGxMinefields.alloc( getObject() );	// a fresh row: target zero, nothing generated or upgraded, no mines
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 GenerateMinefieldBehavior::~GenerateMinefieldBehavior()
 {
-	m_mineList.clear();
+	TheGxMinefields.release( m_gxRow );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -452,6 +459,35 @@ void GenerateMinefieldBehavior::placeMines()
 
 // ------------------------------------------------------------------------------------------------
 
+// The minefield system: one step for one unit's row. Its only per-frame work is testing whether the
+// EMP-mines upgrade has completed; the upgrade is looked up by name once instead of every frame
+// (fourth switch word bit 6, same game: the upgrade list is fixed once the INI is loaded).
+static const UpgradeTemplate *gxEmpMinesUpgrade()
+{
+	extern int GLES3_Page_Switches4();
+	if (!(GLES3_Page_Switches4() & 64))
+		return TheUpgradeCenter->findUpgrade( "Upgrade_ChinaEMPMines" );
+	static const UpgradeCenter *s_center = nullptr;
+	static const UpgradeTemplate *s_upgrade = nullptr;
+	if (s_center != TheUpgradeCenter)
+	{
+		s_center = TheUpgradeCenter;
+		s_upgrade = TheUpgradeCenter->findUpgrade( "Upgrade_ChinaEMPMines" );
+	}
+	extern int GLES3_Page_Switches();
+	if (GLES3_Page_Switches() & 2097152)	// verify mode: the cached template is the one the lookup finds
+	{
+		extern int gx_verify_mismatch, gx_verify_checked;
+		++gx_verify_checked;
+		if (s_upgrade != TheUpgradeCenter->findUpgrade( "Upgrade_ChinaEMPMines" ))
+		{
+			++gx_verify_mismatch;
+			printf("GXVERIFY minefield upgrade cache mismatch\n");
+		}
+	}
+	return s_upgrade;
+}
+
 UpdateSleepTime GenerateMinefieldBehavior::update()
 {
 	// Test to see if we need to replace the current mines with upgraded ones
@@ -460,7 +496,7 @@ UpdateSleepTime GenerateMinefieldBehavior::update()
 		if (m_generated)
 		{
 			// Upgraded minefield to next level for China Player
-			const UpgradeTemplate *upgradeTemplate = TheUpgradeCenter->findUpgrade( "Upgrade_ChinaEMPMines" );
+			const UpgradeTemplate *upgradeTemplate = gxEmpMinesUpgrade();
 
 			if (upgradeTemplate)
 			{

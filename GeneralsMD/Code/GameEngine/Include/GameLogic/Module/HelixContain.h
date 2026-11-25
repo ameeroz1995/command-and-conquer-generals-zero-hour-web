@@ -55,6 +55,8 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+#include "GameLogic/GxComponents.h"
+struct GxHelixContainRow;
 class HelixContain : public TransportContain
 {
 
@@ -123,6 +125,20 @@ public:
 private:
   void parseInitialPayload( INI* ini, void *instance, void *store, const void* /*userData*/ );
   Object *getPortableStructure();
-  ObjectID  m_portableStructureID;
+	struct GxHelixContainRow *m_gxHelixContainRow;	///< web port (round 5): this unit's row in TheGxHelixContains
+	friend struct GxHelixContainRow;
+	inline struct GxHelixContainRow &gxRow() const;
 
 };
+
+// Web port (round 5, units are pure data): HelixContain's per-unit state, one row per unit in TheGxHelixContains;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxHelixContainRow
+{
+	ObjectID portableStructureID;
+};
+extern GxComponentTable<GxHelixContainRow> TheGxHelixContains;
+
+
+inline GxHelixContainRow &HelixContain::gxRow() const { return TheGxHelixContains.at(m_gxHelixContainRow); }
+
