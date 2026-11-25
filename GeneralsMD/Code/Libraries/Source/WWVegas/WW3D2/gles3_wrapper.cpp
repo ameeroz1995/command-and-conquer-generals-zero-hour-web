@@ -476,7 +476,8 @@ void GLES3_Begin_Scene() {
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
-                 | (o.multiDraw === true ? 1073741824 : 0);   // bit 30: different rigid parts of one material in one multi-draw call (dx8renderer.cpp)
+                 | (o.multiDraw === true ? 1073741824 : 0)   // bit 30: different rigid parts of one material in one multi-draw call (dx8renderer.cpp)
+                 | (o.multiLights === true ? 536870912 : 0);  // bit 29: ... each with its own lights, so parts in different light join too
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
@@ -1919,44 +1920,46 @@ void GLES3_Draw_Triangles_Instanced(unsigned int prim_type,
 // ---------------------------------------------------------------------------
 static GLES3_FFKey g_SlotKey[GLES3_PROGRAM_SLOTS]; // the setup of each specialised program slot
 const int* gx_multi_counts = nullptr; const int* gx_multi_offsets = nullptr; unsigned int gx_multi_count = 0;
-const float* gx_multi_matrices = nullptr; const float* gx_multi_uv = nullptr;
+const float* gx_multi_matrices = nullptr; const float* gx_multi_uv = nullptr; const float* gx_multi_lights = nullptr;
 bool GLES3_Multi_Draw_Available() { return g_MultiDraw && !GXW_On() && (g_PageSwitches & 16); }
 EM_JS(void, gx_js_multi_draw, (const int* counts, const int* offsets, int n), {
   var e = GLctx.gxMD || (GLctx.gxMD = GLctx.getExtension('WEBGL_multi_draw'));
   e.multiDrawElementsWEBGL(0x0004, HEAP32, counts >> 2, 0x1403, HEAP32, offsets >> 2, n);
 });
 bool GLES3_Draw_Triangles_Multi(const int* index_counts, const int* byte_offsets, unsigned int count,
-                                const float* world_matrices, const float* uv_offsets) {
+                                const float* world_matrices, const float* uv_offsets, const float* light_rows) {
     if (!count || !GLES3_Multi_Draw_Available()) return false;
+    const int W = light_rows ? 26 : 5; // texels per draw: matrix, uv offset [, ambient, 4 x 5 light]
     if (g_GC.mode == 1) { g_GC.unsafe = true; return true; } // not expected inside the ground pass
-    g_State.multi_draw = true;
+    g_State.multi_draw = light_rows ? 2 : 1;
     Apply_Pipeline_State();
-    g_State.multi_draw = false;
-    if (g_ActiveSlot < 1024 || !g_SlotKey[g_ActiveSlot].mdraw) return false; // no specialised slot left: draw one by one
-    static int dbg = -1; // test only: Module.gxMDDebug 1 = always one by one
-    if (dbg < 0) dbg = EM_ASM_INT({ var s = window.GeneralsX && window.GeneralsX.settings; return s ? s.mdDebug | 0 : 0; });
-    if (dbg == 1) return false;
-    static GLuint tex = 0;
-    static int th = 0;
+    g_State.multi_draw = 0;
+    if (g_ActiveSlot < 1024 || g_SlotKey[g_ActiveSlot].mdraw != (light_rows ? 2 : 1)) return false; // no specialised slot left: one by one
+    static GLuint texs[2] = {}; static int ths[2] = {};
+    GLuint& tex = texs[light_rows ? 1 : 0]; // one texture per row width
+    int& th = ths[light_rows ? 1 : 0];
     static std::vector<float> rows;
-    rows.resize((size_t)count * 20);
+    const size_t rf = (size_t)W * 4; // floats per row
+    rows.resize((size_t)count * rf);
     for (unsigned int i = 0; i < count; i++) {
-        memcpy(&rows[i * 20], world_matrices + i * 16, 16 * sizeof(float));
-        rows[i * 20 + 16] = uv_offsets ? uv_offsets[i * 2] : 0.0f;
-        rows[i * 20 + 17] = uv_offsets ? uv_offsets[i * 2 + 1] : 0.0f;
-        rows[i * 20 + 18] = rows[i * 20 + 19] = 0.0f;
+        float* r = &rows[i * rf];
+        memcpy(r, world_matrices + i * 16, 16 * sizeof(float));
+        r[16] = uv_offsets ? uv_offsets[i * 2] : 0.0f;
+        r[17] = uv_offsets ? uv_offsets[i * 2 + 1] : 0.0f;
+        r[18] = r[19] = 0.0f;
+        if (light_rows) memcpy(r + 20, light_rows + (size_t)i * GLES3_MULTI_LIGHT_FLOATS, GLES3_MULTI_LIGHT_FLOATS * sizeof(float));
     }
     Active_Unit(6);
     if (!tex) glGenTextures(1, &tex);
     if (g_UnitTexture[6] != tex) { glBindTexture(GL_TEXTURE_2D, tex); g_UnitTexture[6] = tex; }
     if (g_UnitSampler[6] != 0) { glBindSampler(6, 0); g_UnitSampler[6] = 0; }
     if ((int)count > th) {
-        th = (int)count < 256 ? 256 : (int)count;
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 5, th, 0, GL_RGBA, GL_FLOAT, nullptr);
+        th = (int)count < 1024 ? 1024 : (int)count; // groups are capped at 1024: allocated once
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, W, th, 0, GL_RGBA, GL_FLOAT, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     }
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 5, (GLsizei)count, GL_RGBA, GL_FLOAT, rows.data());
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, W, (GLsizei)count, GL_RGBA, GL_FLOAT, rows.data());
     static std::unordered_map<GLuint, GLint> locs;
     auto it = locs.find(g_State.active_program);
     if (it == locs.end()) {
@@ -2491,7 +2494,7 @@ unsigned int GLES3_ShaderManager::Program_Slot(const GLES3_PipelineState& state,
     k.base_hi = hash >> 8;
     if (state.alpha_test_enabled) k.afunc = state.alpha_func <= 8 ? state.alpha_func : 8;
     k.fold = fold ? 1 : 0;
-    k.mdraw = state.multi_draw && !pre ? 1 : 0;
+    k.mdraw = pre ? 0 : state.multi_draw;
     if (!pre) {
         // Vertex side: texture coordinates of the stages the variant runs (all four for a
         // pixel shader), light types and material colour sources, as the uniforms carried them.

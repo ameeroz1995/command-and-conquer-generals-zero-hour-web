@@ -88,8 +88,25 @@ layout(location = 13) in float a_Bone;        // GPU skinning: the bone this ver
 // Transform matrices (view and projection are in GXScene)
 uniform mat4 u_World;
 #if GX_MDRAW
-// Multi-part draw (GLES3_Draw_Triangles_Multi): per draw, 4 texels of world matrix and 1 of uv offset.
+// Multi-part draw (GLES3_Draw_Triangles_Multi): per draw, 4 texels of world matrix and 1 of uv offset;
+// with GX_MDRAW 2 (multiLights) then the global ambient and 4 lights of 5 texels each.
 uniform highp sampler2D u_DrawTex;
+#endif
+#if GX_MDRAW == 2
+Light gx_mlight(int i) {
+    int b = 6 + i * 5;
+    Light L;
+    L.diffuse = texelFetch(u_DrawTex, ivec2(b, gl_DrawID), 0);
+    L.ambient = texelFetch(u_DrawTex, ivec2(b + 1, gl_DrawID), 0);
+    L.specular = u_Lights[i].specular;
+    L.position = texelFetch(u_DrawTex, ivec2(b + 2, gl_DrawID), 0);
+    L.direction = texelFetch(u_DrawTex, ivec2(b + 3, gl_DrawID), 0);
+    L.atten = texelFetch(u_DrawTex, ivec2(b + 4, gl_DrawID), 0);
+    return L;
+}
+#define GX_AMBIENT texelFetch(u_DrawTex, ivec2(5, gl_DrawID), 0)
+#else
+#define GX_AMBIENT u_GlobalAmbient
 #endif
 uniform bool u_InstancingEnabled;
 // GPU skinning (infantry): u_SkinBones > 0 means every instance is a skinned mesh with that many
@@ -240,7 +257,7 @@ void main() {
         // Global ambient contribution
         vec4 matAmb = (GX_CVX & 1) != 0 ? vertexColor : u_MatAmbient;
         vec4 matDiff = (GX_CVX & 2) != 0 ? vertexColor : u_MatDiffuse;
-        vec4 lightAmbient = u_GlobalAmbient; // D3D: global + sum of attenuated light ambients
+        vec4 lightAmbient = GX_AMBIENT; // D3D: global + sum of attenuated light ambients
         vec4 totalSpecular = vec4(0.0);
         // Camera position in world space, for the local-viewer half vector.
         vec3 camPos = -transpose(mat3(u_View)) * u_View[3].xyz;
@@ -589,7 +606,7 @@ static std::string Variant_Source(const char* base, unsigned int h, bool is_frag
              "#define GX_PSGEN %d\n#define GX_FFGEN %d\n#define GX_VGEN %d\n#define GX_SHROUD %d\n#define GX_MDRAW %d\n",
              b(h & 1), b(h & 2), b(h & 4), b(h & 8), b(h & 16), b(ps), stages,
              is_fragment && psgen ? 1 : 0, ffgen ? 1 : 0, !is_fragment && key ? 1 : 0, key && key->fold ? 1 : 0,
-             !is_fragment && key && key->mdraw ? 1 : 0);
+             !is_fragment && key ? key->mdraw : 0);
     if (is_fragment && key && key->afunc) snprintf(defs + n, sizeof(defs) - n, "#define GX_AFUNC %d\n", key->afunc);
     if (!is_fragment && key) snprintf(defs + n, sizeof(defs) - n, "#define GX_CV %d\n", key->cvert);
     std::string s = std::string(defs) + body;
@@ -620,7 +637,15 @@ static std::string Variant_Source(const char* base, unsigned int h, bool is_frag
     }
     if (is_fragment && psgen) s += GLES3_PS_Generate_GLSL(psgen);
     if (ffgen) s += GLES3_FF_Generate_GLSL(*key);
-    if (!is_fragment && key) s += GLES3_VS_Generate_GLSL(*key);
+    if (!is_fragment && key) {
+        std::string g = GLES3_VS_Generate_GLSL(*key);
+        if (key->mdraw == 2) // the lights of each draw, from its row
+            for (int d = 0; d < 4; d++) {
+                const std::string from = std::string("Light L = u_Lights[") + (char)('0' + d) + "];", to = std::string("Light L = gx_mlight(") + (char)('0' + d) + ");";
+                for (size_t at; (at = g.find(from)) != std::string::npos;) g.replace(at, from.size(), to);
+            }
+        s += g;
+    }
     return s;
 }
 

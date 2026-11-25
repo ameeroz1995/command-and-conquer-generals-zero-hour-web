@@ -2496,27 +2496,18 @@ void DX8Wrapper::Draw_Triangles_Skinned(unsigned short start_index, unsigned sho
 #endif
 }
 
-const unsigned short* DX8Wrapper::GX_Debug_IB_Data() {
-#ifdef __EMSCRIPTEN__
-  if (!render_state.index_buffer || render_state.index_buffer_type != BUFFER_TYPE_DX8) return nullptr;
-  auto* d = static_cast<Emscripten_IDirect3DIndexBuffer8*>(static_cast<DX8IndexBufferClass*>(render_state.index_buffer)->Get_DX8_Index_Buffer());
-  return d ? (const unsigned short*)d->buf.data.data() : nullptr;
-#else
-  return nullptr;
-#endif
-}
-const unsigned short * gx_debug_ib_data() { return DX8Wrapper::GX_Debug_IB_Data(); }
 
 void DX8Wrapper::Draw_Triangles_Multi(const int* index_counts, const int* byte_offsets, unsigned int count,
-                                      const float* world_matrices, const float* uv_offsets) {
+                                      const float* world_matrices, const float* uv_offsets, const float* light_rows) {
   DX8_THREAD_ASSERT();
   Apply_Render_State_Changes();
 #ifdef __EMSCRIPTEN__
   gx_multi_counts = index_counts; gx_multi_offsets = byte_offsets; gx_multi_count = count;
-  gx_multi_matrices = world_matrices; gx_multi_uv = uv_offsets;
+  gx_multi_matrices = world_matrices; gx_multi_uv = uv_offsets; gx_multi_lights = light_rows;
   D3DDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 65535, 0, 1);
   gx_multi_count = 0;
   gx_multi_uv = nullptr;
+  gx_multi_lights = nullptr;
 #endif
 }
 

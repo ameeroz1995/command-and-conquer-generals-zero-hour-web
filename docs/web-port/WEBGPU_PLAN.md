@@ -51,3 +51,17 @@ Step 1 works: menus, battle and the 5-map tour draw through WebGPU; pictures mat
   pass): armies +1%, strikes +5%; tour run: all phases within +-2%.
 - Against WebGL with its batching on (live settings): -7..-9%, because WebGPU still draws
   every unit part separately (2x the draws). Porting unit batching and GPU skinning is next.
+
+## Draw counts and multi-part draws (2026-11-25, WebGL, RX 580)
+GXCAT log, strikes frame: rigid parts 1,500-2,350 draws, see-through 200-680, interface ~200,
+soldiers 100-160, terrain/water/shadows/tracks/roads < 70 together. Why rigid parts stayed single
+(GXINST): one-of-a-kind parts 650-1,600, different lighting 100-380, own material settings up to
+1,100 at peaks; the 128 instance cap was never reached.
+- multiDraw (switch, off): every rigid part of one material group in the same light in one
+  WEBGL_multi_draw call, matrix per gl_DrawID. Quiet machine: draws -22..-30%, fps -4..+3% (noise),
+  screenshots clean in 10 runs. Under heavy machine load (load 35-47) ~7 of 10 runs showed stray
+  polygons covering the view; drawing the same groups one by one never did, so it is a timing
+  issue in the browser's multi-draw path; kept off.
+- multiLights (switch, off, needs multiDraw): parts in different light join, each with its own
+  lights from the per-draw texture. Draws only -1..-3% more, uploads +22..39%, fps +1%.
+Conclusion: at these counts draw calls are not what limits the frame on this machine.
