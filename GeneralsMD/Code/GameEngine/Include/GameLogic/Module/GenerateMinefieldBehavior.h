@@ -76,6 +76,9 @@ struct GxMinefieldRow
 	Bool								generated = false;
 	Bool								upgraded = false;
 	std::list<ObjectID>	mineList;
+	class GenerateMinefieldBehavior *facade = nullptr;	///< the module, for the apply step
+	const Object				*owner = nullptr;
+	Bool								gxReplace = false;		///< kernel output: the EMP-mines upgrade completed, replace the mines
 	GxMinefieldRow() { target.zero(); }
 };
 extern GxComponentTable<GxMinefieldRow> TheGxMinefields;
@@ -105,6 +108,7 @@ public:
 	virtual void onDie( const DamageInfo *damageInfo );
 
 	void setMinefieldTarget(const Coord3D* pos);
+	void gxReplaceMines();	///< web port (round 5): the apply step of the minefield system
 
 protected:
 
