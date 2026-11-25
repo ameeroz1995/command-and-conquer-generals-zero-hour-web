@@ -32,6 +32,9 @@
 // INCLUDES
 // ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h" // This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxMatchRules.h"
+#include <algorithm>
+#include <vector>
 
 #define DEFINE_DEATH_NAMES
 #define DEFINE_WEAPONBONUSCONDITION_NAMES
@@ -1385,6 +1388,47 @@ void WeaponTemplate::processHistoricDamage(const Object *source,
 #endif
 
 //-------------------------------------------------------------------------------------------------
+// match rule damageQueue (combat, third word bit 18): weapon damage is queued during the tick and
+// applied in one pass in victim-ID order (each victim's hits in the order they were dealt), after
+// the update queue and the movement and weapon-status passes. Damage dealt while applying (death
+// explosions) is applied in further rounds of the same pass. A victim gone by then is skipped.
+// Nothing reads the damage result at the call site, so only the timing within the tick moves.
+struct GxQueuedDamage { ObjectID victim; UnsignedInt seq; DamageInfoInput in; };
+static std::vector<GxQueuedDamage> s_gxDamageQueue;
+
+void gxQueueDamage(ObjectID victim, const DamageInfoInput &in)
+{
+  GxQueuedDamage d;
+  d.victim = victim;
+  d.seq = (UnsignedInt)s_gxDamageQueue.size();
+  d.in = in;
+  s_gxDamageQueue.push_back(d);
+}
+
+static bool gxDamageLess(const GxQueuedDamage &a, const GxQueuedDamage &b)
+{
+  return a.victim != b.victim ? a.victim < b.victim : a.seq < b.seq;
+}
+
+void gxApplyDamageQueue()
+{
+  std::vector<GxQueuedDamage> batch;
+  while (!s_gxDamageQueue.empty()) {
+    batch.swap(s_gxDamageQueue);
+    s_gxDamageQueue.clear();
+    std::sort(batch.begin(), batch.end(), gxDamageLess);
+    for (size_t i = 0; i < batch.size(); ++i) {
+      Object *victim = TheGameLogic->findObjectByID(batch[i].victim);
+      if (victim == nullptr)
+        continue;
+      DamageInfo damageInfo;
+      damageInfo.in = batch[i].in;
+      victim->attemptDamage(&damageInfo);
+    }
+    batch.clear();
+  }
+}
+
 void WeaponTemplate::dealDamageInternal(ObjectID sourceID, ObjectID victimID,
                                         const Coord3D *pos,
                                         const WeaponBonus &bonus,
@@ -1619,7 +1663,10 @@ void WeaponTemplate::dealDamageInternal(ObjectID sourceID, ObjectID victimID,
         }
       }
 
-      curVictim->attemptDamage(&damageInfo);
+      if (gxMatchRule(GXRULE_DAMAGE_QUEUE))
+        gxQueueDamage(curVictim->getID(), damageInfo.in);	// applied by gxApplyDamageQueue
+      else
+        curVictim->attemptDamage(&damageInfo);
       // DEBUG_ASSERTLOG(damageInfo.out.m_noEffect,
       // ("WeaponTemplate::dealDamageInternal: dealt to %s %08lx: attempted %f,
       // actual %f (%f)", 	curVictim->getTemplate()->getName().str(),curVictim,

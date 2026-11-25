@@ -26,6 +26,7 @@ enum GxMatchRule
 	GXRULE_PHYS_BULK      = 2048,	///< physBulk: forces + velocity integrated for all units in one pass at the start of the physics phase (PhysicsUpdate.cpp)
 	GXRULE_SPATIAL_PAIRS  = 8192,	///< pairOffer: touching-pair search drops clearly-apart neighbours when offered (PartitionManager.cpp)
 	GXRULE_WEAPON_PASS    = 16384,	///< weaponPass: armed objects' weapon status kept by one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
+	GXRULE_DAMAGE_QUEUE   = 524288,	///< damageQueue: weapon damage queued during the tick and applied in one pass in victim-ID order (Weapon.cpp)
 };
 
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for
