@@ -315,6 +315,11 @@ struct ShroudStatusStoreRestore
 // PartitionManager::m_cells), so searches can skip cells without reading the cell itself.
 extern UnsignedInt *g_gxCellMasks;
 extern Int g_gxCellMaskW;
+// Web port (fogStamps, 2026-11-25): the shroud counters of every cell, one dense Short array per player
+// (index player * g_gxShroudN + cell). The truth for PartitionCell's current / active shroud levels;
+// the cell's m_shroudLevel struct is filled from it for CRC and save and refilled after a load.
+extern Short *g_gxShroudCur, *g_gxShroudAct;
+extern Int g_gxShroudN;
 
 class PartitionCell : public Snapshot	// not MPO: allocated in an array
 {
@@ -369,6 +374,12 @@ public:
 
 	void addLooker( Int playerIndex );
 	void removeLooker( Int playerIndex );
+	/// web port: this cell's shroud counters for a player (dense arrays, see g_gxShroudCur)
+	Short &gxCur(Int p) const { return g_gxShroudCur[p * g_gxShroudN + m_cellY * g_gxCellMaskW + m_cellX]; }
+	Short &gxAct(Int p) const { return g_gxShroudAct[p * g_gxShroudN + m_cellY * g_gxCellMaskW + m_cellX]; }
+	void gxShroudEdge(Int playerIndex, CellShroudStatus newShroud);	///< the side effects of a status change
+	void gxShroudToStruct();		///< dense counters -> m_shroudLevel (before CRC / save)
+	void gxShroudFromStruct();	///< m_shroudLevel -> dense counters (after a load)
 	void addShrouder( Int playerIndex );
 	void removeShrouder( Int playerIndex );
 	CellShroudStatus getShroudStatusForPlayer( Int playerIndex ) const;
@@ -438,6 +449,11 @@ private:
 	ObjectShroudStatus					m_shroudedness[MAX_PLAYER_COUNT];
 	ObjectShroudStatus					m_shroudednessPrevious[MAX_PLAYER_COUNT];	///<previous frames value of m_shroudedness
 	Bool												m_everSeenByPlayer[MAX_PLAYER_COUNT];		///<whether this object has ever been seen by a given player.
+	// web port (switch fogKeep, fourth word bit 15): per player, the cached status came from a branch that
+	// reads only the cells' shroud (off map, all shrouded, all clear, partly clear), so a move that keeps
+	// the same cells need not invalidate it; verify mode invalidates anyway and checks the kept value.
+	UnsignedShort								m_gxPure, m_gxKeptMask;
+	ObjectShroudStatus					m_gxKept[MAX_PLAYER_COUNT];
 	const PartitionCell					*m_lastCell;							///< The last cell I thought my center was in.
 	UnsignedInt									m_gxDeferStamp;						///< web port (collideStagger): frame stamp when this unit waits its turn
 	Int													m_gxFillKey[8];						///< web port (cellReuse): what the last cell fill depended on; [0] == 0: none
@@ -614,6 +630,7 @@ public:
 	// (note, if we ever use other bits in this, smarten this up...)
 	Int friend_getDoneFlag() { return m_doneFlag; }
 	void gxTeamChanged();	///< web port: the object changed player: move its per-cell counts
+	void gxDebugDump() const;	///< web port verify: print this object's cell entries
 	void friend_setDoneFlag(Int i) { m_doneFlag = i; }
 
 	Bool isInListDirtyModules(PartitionData* const* pListHead) const

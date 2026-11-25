@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/ObjectHelper.h"
+#include "GameLogic/GxComponentTable.h"
 
 enum WeaponBonusConditionType CPP_11(: Int);
 
@@ -43,6 +44,13 @@ class TempWeaponBonusHelperModuleData : public ModuleData
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+// Web port (round 5): TempWeaponBonusHelper's per-unit state, one row per module in its component table
+struct TempWeaponBonusHelperRow
+{
+	WeaponBonusConditionType m_currentBonus;
+	UnsignedInt m_frameToRemove;
+};
+
 class TempWeaponBonusHelper : public ObjectHelper
 {
 
@@ -60,7 +68,7 @@ public:
 	void doTempWeaponBonus( WeaponBonusConditionType status, UnsignedInt duration );
 
 protected:
-	WeaponBonusConditionType m_currentBonus;
-	UnsignedInt m_frameToRemove;
 	void clearTempWeaponBonus();
+
+	GX_COMPONENT_ROWS(TempWeaponBonusHelper, TempWeaponBonusHelperRow)
 };

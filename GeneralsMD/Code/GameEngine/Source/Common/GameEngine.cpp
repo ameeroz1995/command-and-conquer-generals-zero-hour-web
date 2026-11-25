@@ -115,6 +115,7 @@
 #include "GameNetwork/WOLBrowser/WebBrowser.h"
 
 #include "Common/version.h"
+#include "Common/GxTime.h"
 
 //-------------------------------------------------------------------------------------------------
 
@@ -1116,6 +1117,7 @@ DECLARE_PERF_TIMER(GameEngine_update)
  * Update the game engine by updating the GameClient and GameLogic singletons.
  */
 void GameEngine::update() {
+  gxTimeFrameStart();	// web port: tickTiming frame intervals (Common/GxTime.h)
   USE_PERF_TIMER(GameEngine_update) {
     {
       // VERIFY CRC needs to be in this code block.  Please to not pull
@@ -1142,7 +1144,11 @@ void GameEngine::update() {
 
     if (canUpdateLogic) {
       TheGameClient->step();
-      TheGameLogic->UPDATE();
+      {
+        GxTimeScope gxT(GXT_LOGIC);	// web port: tickTiming (Common/GxTime.h)
+        TheGameLogic->UPDATE();
+      }
+      gxTimeTickEnd();
     } else if (canUpdateScript) {
       // TheSuperHackers @info Still update the Script Engine to allow
       // for scripted camera movements while the time is frozen.

@@ -62,6 +62,7 @@
 
 
 
+
 StealthUpdateModuleData::StealthUpdateModuleData()
 {
 		m_disguiseFX = nullptr;
@@ -123,25 +124,26 @@ void StealthUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 StealthUpdate::StealthUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+
 	const StealthUpdateModuleData *data = getStealthUpdateModuleData();
 
-	m_stealthAllowedFrame = TheGameLogic->getFrame() + data->m_stealthDelay;
+	R().m_stealthAllowedFrame = TheGameLogic->getFrame() + data->m_stealthDelay;
 
 	//Must be enabled manually if using disguise system (bomb truck uses)
-	m_enabled = !data->m_teamDisguised;
+	R().m_enabled = !data->m_teamDisguised;
 
-	m_detectionExpiresFrame = 0;
-	m_pulsePhaseRate		= 0.2f;
-	m_pulsePhase				= GameClientRandomValueReal(0, PI);
+	R().m_detectionExpiresFrame = 0;
+	R().m_pulsePhaseRate		= 0.2f;
+	R().m_pulsePhase				= GameClientRandomValueReal(0, PI);
 
-	m_disguiseAsPlayerIndex			= -1;
-	m_disguiseAsTemplate			  = nullptr;
-	m_transitioningToDisguise		= false;
-	m_disguised									= false;
-	m_disguiseTransitionFrames	= 0;
-	m_disguiseHalfpointReached  = false;
-	m_nextBlackMarketCheckFrame = 0;
-	m_framesGranted = 0;
+	R().m_disguiseAsPlayerIndex			= -1;
+	R().m_disguiseAsTemplate			  = nullptr;
+	R().m_transitioningToDisguise		= false;
+	R().m_disguised									= false;
+	R().m_disguiseTransitionFrames	= 0;
+	R().m_disguiseHalfpointReached  = false;
+	R().m_nextBlackMarketCheckFrame = 0;
+	R().m_framesGranted = 0;
 
 	if( data->m_innateStealth )
 	{
@@ -156,7 +158,7 @@ StealthUpdate::StealthUpdate( Thing *thing, const ModuleData* moduleData ) : Upd
 	  setWakeFrame( getObject(), UPDATE_SLEEP_NONE );
 
 	// we do not need to restore a disguise
-	m_xferRestoreDisguise = FALSE;
+	R().m_xferRestoreDisguise = FALSE;
 
 }
 
@@ -199,27 +201,27 @@ void StealthUpdate::receiveGrant( Bool active, UnsignedInt frames )
     return; //so bombtrucks and stuff do not get foiled by this.
 
 	//Kris: Turn it off if we pass in FALSE for active.
-	if( !active && m_enabled )
+	if( !active && R().m_enabled )
 	{
 		//markAsDetected();
 	}
 
-	m_enabled = active;
+	R().m_enabled = active;
 
-	if( m_enabled )
+	if( R().m_enabled )
 	{
 		//On
 		obj->setStatus( MAKE_OBJECT_STATUS_MASK2( OBJECT_STATUS_CAN_STEALTH, OBJECT_STATUS_STEALTHED ) );
-		m_stealthAllowedFrame = TheGameLogic->getFrame();
+		R().m_stealthAllowedFrame = TheGameLogic->getFrame();
 	  setWakeFrame( obj, UPDATE_SLEEP_NONE );
-		m_framesGranted = frames;
+		R().m_framesGranted = frames;
 	}
 	else
 	{
 		//Off
 		obj->clearStatus( MAKE_OBJECT_STATUS_MASK2( OBJECT_STATUS_CAN_STEALTH, OBJECT_STATUS_STEALTHED ) );
-		m_stealthAllowedFrame = FOREVER;
-		m_framesGranted = 0;
+		R().m_stealthAllowedFrame = FOREVER;
+		R().m_framesGranted = 0;
 		Drawable *draw = obj->getDrawable();
 		if( draw )
 		{
@@ -291,10 +293,10 @@ Bool StealthUpdate::allowedToStealth( Object *stealthOwner ) const
 		return FALSE;
 	}
 
-	if( flags & STEALTH_ONLY_WITH_BLACK_MARKET && m_nextBlackMarketCheckFrame < now )
+	if( flags & STEALTH_ONLY_WITH_BLACK_MARKET && R().m_nextBlackMarketCheckFrame < now )
 	{
 		//randomize timer a little incase we have a whole bunch on the same frame.
-		m_nextBlackMarketCheckFrame += data->m_blackMarketCheckFrames + GameLogicRandomValue( 0, 10 );
+		R().m_nextBlackMarketCheckFrame += data->m_blackMarketCheckFrames + GameLogicRandomValue( 0, 10 );
 
 		//If we can't find an active black market, then we can't stealth.
 		Bool blackMarket = FALSE;
@@ -575,7 +577,7 @@ Object* StealthUpdate::calcStealthOwner()
 //-------------------------------------------------------------------------------------------------
 UpdateSleepTime StealthUpdate::calcSleepTime() const
 {
-	return m_enabled ? UPDATE_SLEEP_NONE : UPDATE_SLEEP_FOREVER;
+	return R().m_enabled ? UPDATE_SLEEP_NONE : UPDATE_SLEEP_FOREVER;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -585,7 +587,7 @@ UpdateSleepTime StealthUpdate::update()
 {
 
 	// restore disguise if we need to from a game load
-	if( m_xferRestoreDisguise == TRUE )
+	if( R().m_xferRestoreDisguise == TRUE )
 	{
 		Drawable *draw = getObject()->getDrawable();
 		Bool wasHidden = FALSE;
@@ -630,7 +632,7 @@ UpdateSleepTime StealthUpdate::update()
 /// @todo srj -- improve sleeping behavior. we currently just sleep when not enabled,
 // and demand every-frame attention when enabled. this could probably be smartened.
 
-	if( !m_enabled )
+	if( !R().m_enabled )
 	{
 		return calcSleepTime();
 	}
@@ -648,19 +650,19 @@ UpdateSleepTime StealthUpdate::update()
 			// special case for mines
 			draw->setEffectiveOpacity( 0.0f, 0.0f );
 		}
-		else if( m_disguiseTransitionFrames )
+		else if( R().m_disguiseTransitionFrames )
 		{
-			m_disguiseTransitionFrames--;
+			R().m_disguiseTransitionFrames--;
 			Real factor;
-			if( m_transitioningToDisguise )
+			if( R().m_transitioningToDisguise )
 			{
-				factor = 1.0f - ( (Real)m_disguiseTransitionFrames / (Real)data->m_disguiseTransitionFrames );
+				factor = 1.0f - ( (Real)R().m_disguiseTransitionFrames / (Real)data->m_disguiseTransitionFrames );
 			}
 			else
 			{
-				factor = 1.0f - ( (Real)m_disguiseTransitionFrames / (Real)data->m_disguiseRevealTransitionFrames );
+				factor = 1.0f - ( (Real)R().m_disguiseTransitionFrames / (Real)data->m_disguiseRevealTransitionFrames );
 			}
-			if( factor >= 0.5f && !m_disguiseHalfpointReached )
+			if( factor >= 0.5f && !R().m_disguiseHalfpointReached )
 			{
 				//Switch models at the halfway point
 				changeVisualDisguise();
@@ -668,16 +670,16 @@ UpdateSleepTime StealthUpdate::update()
 				// TheSuperHackers @fix Skyaero 06/05/2025 obtain the new drawable
 				draw = getObject()->getDrawable();
 
-				m_disguiseHalfpointReached = true;
+				R().m_disguiseHalfpointReached = true;
 			}
 			//Opacity ranges from full to none at midpoint and full again at the end
 			Real opacity = fabs( 1.0f - (factor * 2.0f) );
 			Real overrideOpacity = opacity < 1.0f ? 0.0f : 1.0f;
 			draw->setEffectiveOpacity( opacity, overrideOpacity );
-			if( !m_disguiseTransitionFrames && !m_transitioningToDisguise )
+			if( !R().m_disguiseTransitionFrames && !R().m_transitioningToDisguise )
 			{
 				//We're finished removing disguise so turn off stealth update.
-				m_enabled = false;
+				R().m_enabled = false;
 				self->clearStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_STEALTHED ) );
 				self->clearStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_DETECTED ) );
 				return calcSleepTime();
@@ -685,9 +687,9 @@ UpdateSleepTime StealthUpdate::update()
 		}
 		else
 		{
-			draw->setEffectiveOpacity( 0.5f + ( Sin( m_pulsePhase ) * 0.5f ) );
+			draw->setEffectiveOpacity( 0.5f + ( Sin( R().m_pulsePhase ) * 0.5f ) );
 			// between one half and full opacity
-			m_pulsePhase += m_pulsePhaseRate;
+			R().m_pulsePhase += R().m_pulsePhaseRate;
 		}
 	}
 
@@ -713,9 +715,9 @@ UpdateSleepTime StealthUpdate::update()
 	}
 
 	//Deal with temporary stealth.
-	if( m_framesGranted > 0 )
+	if( R().m_framesGranted > 0 )
 	{
-		m_framesGranted--;
+		R().m_framesGranted--;
 
 		//If the last AI command given was by the player... then LOSE the stealth now!
 		AIUpdateInterface *ai = self->getAI();
@@ -727,7 +729,7 @@ UpdateSleepTime StealthUpdate::update()
 				receiveGrant( FALSE );
 			}
 		}
-		if( m_framesGranted == 0 )
+		if( R().m_framesGranted == 0 )
 		{
 			//Disable it now that it has officially expired.
 			receiveGrant( FALSE );
@@ -737,7 +739,7 @@ UpdateSleepTime StealthUpdate::update()
 	if( allowedToStealth( stealthOwner ) )
 	{
 		// If I can stealth, don't attempt to Stealth until the timer is zero.
-		if( m_stealthAllowedFrame > now )
+		if( R().m_stealthAllowedFrame > now )
 		{
 			return calcSleepTime();
 		}
@@ -756,7 +758,7 @@ UpdateSleepTime StealthUpdate::update()
 	}
 	else
 	{
-		m_stealthAllowedFrame = now + stealthDelay;
+		R().m_stealthAllowedFrame = now + stealthDelay;
 
 		// if you are destealthing on your own free will, play sound for all to hear
 		if( self->getStatusBits().test( OBJECT_STATUS_STEALTHED ) )
@@ -772,7 +774,7 @@ UpdateSleepTime StealthUpdate::update()
 	}
 
 	Bool detectedStatusChangedThisFrame = FALSE;
-	if (m_detectionExpiresFrame > now)
+	if (R().m_detectionExpiresFrame > now)
 	{
 		// if this is the first time being detected, play stealth off sound
 		if( !self->getStatusBits().test( OBJECT_STATUS_DETECTED ) )
@@ -902,11 +904,11 @@ void StealthUpdate::markAsDetected(UnsignedInt numFrames)
 	{
 		//Kris:
 		//If numFrames is zero (the default value), use the stealth delay specified in the ini file.
-		m_detectionExpiresFrame = now + stealthDelay;
+		R().m_detectionExpiresFrame = now + stealthDelay;
 	}
-	else if ( m_detectionExpiresFrame < now + numFrames )
+	else if ( R().m_detectionExpiresFrame < now + numFrames )
 	{
-		m_detectionExpiresFrame = now + numFrames;
+		R().m_detectionExpiresFrame = now + numFrames;
 	}
 
 	if( orderIdlesToAttack )
@@ -941,31 +943,31 @@ void StealthUpdate::disguiseAsObject( const Object *target )
     StealthUpdate* stealth = target->getStealth();
 		if( stealth && stealth->getDisguisedTemplate() )
 		{
-			m_disguiseAsTemplate				= stealth->getDisguisedTemplate();
-			m_disguiseAsPlayerIndex			= stealth->getDisguisedPlayerIndex();
+			R().m_disguiseAsTemplate				= stealth->getDisguisedTemplate();
+			R().m_disguiseAsPlayerIndex			= stealth->getDisguisedPlayerIndex();
 		}
 		else
 		{
-			m_disguiseAsTemplate				= target->getTemplate();
-			m_disguiseAsPlayerIndex			= target->gxPlayerIndex();
+			R().m_disguiseAsTemplate				= target->getTemplate();
+			R().m_disguiseAsPlayerIndex			= target->gxPlayerIndex();
 		}
 
-		m_enabled										= true;
-		m_transitioningToDisguise		= true; //Means we are gaining disguise over time.
-		m_disguiseTransitionFrames	= data->m_disguiseTransitionFrames;
-		m_disguiseHalfpointReached  = false;
+		R().m_enabled										= true;
+		R().m_transitioningToDisguise		= true; //Means we are gaining disguise over time.
+		R().m_disguiseTransitionFrames	= data->m_disguiseTransitionFrames;
+		R().m_disguiseHalfpointReached  = false;
 
 		//Wake up so I can process!
 		setWakeFrame( getObject(), UPDATE_SLEEP_NONE );
 
 	}
-	else if( m_disguised )
+	else if( R().m_disguised )
 	{
-		m_disguiseAsTemplate				= nullptr;
-		m_disguiseAsPlayerIndex			= 0;
-		m_disguiseTransitionFrames	= data->m_disguiseRevealTransitionFrames;
-		m_transitioningToDisguise		= false; //Means we are losing the disguise over time.
-		m_disguiseHalfpointReached  = false;
+		R().m_disguiseAsTemplate				= nullptr;
+		R().m_disguiseAsPlayerIndex			= 0;
+		R().m_disguiseTransitionFrames	= data->m_disguiseRevealTransitionFrames;
+		R().m_transitioningToDisguise		= false; //Means we are losing the disguise over time.
+		R().m_disguiseHalfpointReached  = false;
 	}
 
 	Drawable *draw = self->getDrawable();
@@ -986,16 +988,16 @@ void StealthUpdate::changeVisualDisguise()
 	// We need to maintain our selection across the un/disguise, so pull selected out here.
 	Bool selected = draw->isSelected();
 
-	if( m_disguiseAsTemplate )
+	if( R().m_disguiseAsTemplate )
 	{
-		Player *player = ThePlayerList->getNthPlayer( m_disguiseAsPlayerIndex );
+		Player *player = ThePlayerList->getNthPlayer( R().m_disguiseAsPlayerIndex );
 
 		ModelConditionFlags flags = draw->getModelConditionFlags();
 
 		//Get rid of the old instance!
 		TheGameClient->destroyDrawable( draw );
 
-		draw = TheThingFactory->newDrawable( m_disguiseAsTemplate );
+		draw = TheThingFactory->newDrawable( R().m_disguiseAsTemplate );
 		if( draw )
 		{
 			TheGameLogic->bindObjectAndDrawable(self, draw);
@@ -1034,16 +1036,16 @@ void StealthUpdate::changeVisualDisguise()
 
 		FXList::doFXPos( data->m_disguiseFX, self->getPosition() );
 
-		m_disguised = true;
+		R().m_disguised = true;
 		self->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_DISGUISED ) );
 		self->setModelConditionState( MODELCONDITION_DISGUISED );
 
 		//33) Did the player ever build a "disguisable" unit and never used the disguise ability?
 		self->getControllingPlayer()->getAcademyStats()->recordVehicleDisguised();
 	}
-	else if( m_disguiseAsPlayerIndex != -1 )
+	else if( R().m_disguiseAsPlayerIndex != -1 )
 	{
-		m_disguiseAsPlayerIndex = -1;
+		R().m_disguiseAsPlayerIndex = -1;
 		ModelConditionFlags flags = draw->getModelConditionFlags();
 
 		//Get rid of the old instance!
@@ -1104,7 +1106,7 @@ void StealthUpdate::changeVisualDisguise()
 		TheAudio->addAudioEvent( &sound );
 
 		FXList::doFXPos( data->m_disguiseRevealFX, self->getPosition() );
-		m_disguised = false;
+		R().m_disguised = false;
 		self->clearStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_DISGUISED ) );
 		self->clearModelConditionState( MODELCONDITION_DISGUISED );
 	}
@@ -1114,7 +1116,7 @@ void StealthUpdate::changeVisualDisguise()
 	TheRadar->addObject( self );
 
 	// couldn't possibly need to restore a disguise now :)
-	m_xferRestoreDisguise = FALSE;
+	R().m_xferRestoreDisguise = FALSE;
 
 }
 
@@ -1146,35 +1148,35 @@ void StealthUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// stealth allowed frame
-	xfer->xferUnsignedInt( &m_stealthAllowedFrame );
+	xfer->xferUnsignedInt( &R().m_stealthAllowedFrame );
 
 	// detection expires frame
-	xfer->xferUnsignedInt( &m_detectionExpiresFrame );
+	xfer->xferUnsignedInt( &R().m_detectionExpiresFrame );
 
 	// enabled
-	xfer->xferBool( &m_enabled );
+	xfer->xferBool( &R().m_enabled );
 
 	// pulse phase rate
-	xfer->xferReal( &m_pulsePhaseRate );
+	xfer->xferReal( &R().m_pulsePhaseRate );
 
 	// pulse phase
-	xfer->xferReal( &m_pulsePhase );
+	xfer->xferReal( &R().m_pulsePhase );
 
 	// disguise as player index
-	xfer->xferInt( &m_disguiseAsPlayerIndex );
+	xfer->xferInt( &R().m_disguiseAsPlayerIndex );
 
 	// disguise as template
-	AsciiString name = m_disguiseAsTemplate ? m_disguiseAsTemplate->getName() : AsciiString::TheEmptyString;
+	AsciiString name = R().m_disguiseAsTemplate ? R().m_disguiseAsTemplate->getName() : AsciiString::TheEmptyString;
 	xfer->xferAsciiString( &name );
 	if( xfer->getXferMode() == XFER_LOAD )
 	{
 
-		m_disguiseAsTemplate = nullptr;
+		R().m_disguiseAsTemplate = nullptr;
 		if( name.isEmpty() == FALSE )
 		{
 
-			m_disguiseAsTemplate = TheThingFactory->findTemplate( name );
-			if( m_disguiseAsTemplate == nullptr )
+			R().m_disguiseAsTemplate = TheThingFactory->findTemplate( name );
+			if( R().m_disguiseAsTemplate == nullptr )
 			{
 
 				DEBUG_CRASH(( "StealthUpdate::xfer - Unknown template '%s'", name.str() ));
@@ -1187,20 +1189,20 @@ void StealthUpdate::xfer( Xfer *xfer )
 	}
 
 	// disguise transition frames
-	xfer->xferUnsignedInt( &m_disguiseTransitionFrames );
+	xfer->xferUnsignedInt( &R().m_disguiseTransitionFrames );
 
 	// disguise halfpoint reached
-	xfer->xferBool( &m_disguiseHalfpointReached );
+	xfer->xferBool( &R().m_disguiseHalfpointReached );
 
 	// transitioning to disguise
-	xfer->xferBool( &m_transitioningToDisguise );
+	xfer->xferBool( &R().m_transitioningToDisguise );
 
 	// disguised
-	xfer->xferBool( &m_disguised );
+	xfer->xferBool( &R().m_disguised );
 
 	if( version >= 2 )
 	{
-		xfer->xferUnsignedInt( &m_framesGranted );
+		xfer->xferUnsignedInt( &R().m_framesGranted );
 	}
 
 }
@@ -1222,6 +1224,6 @@ void StealthUpdate::loadPostProcess()
 	// may be pointing at it etc.
 	//
 	if( isDisguised() )
-		m_xferRestoreDisguise = TRUE;
+		R().m_xferRestoreDisguise = TRUE;
 
 }
