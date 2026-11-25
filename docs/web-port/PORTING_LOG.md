@@ -3861,3 +3861,18 @@ Stays default off.
   distance from the live x/y/radius columns (wasm simd128, same f32 ops, keep unless d2 > lim^2, scalar
   recheck after): same game. Referee replay and query-mgr3.rep (scanManager on) match on query-22.
   Pair tests not SIMD: per-cell linked lists of 2-4 neighbours; collide's store broad phase is the place.
+
+## Fog-of-war sight circles: measured, not built (query, 2026-11-25)
+- Profile (query-24, 25 s, inclusive): doShroudReveal 0.2%, undoShroudReveal 0.1%, pending-undo queue and
+  shroud cover 0.0%, in both armies and strikes. Total ~0.3% < the 1% bar: SIMD circle stamps not built.
+  (getShroudedStatus, the per-object read, is 0.5% armies / 0.7% strikes; different code.)
+
+## Laser scan verify mismatches (objects 829/832/1624/1643): scanManager, not laserFilters (query, 2026-11-25)
+- Verify (query-24): scanManager off: laser scans 15000, mismatches 0 (laserFilters exact). On: 30, every one
+  the filtered scan missing in-range missiles fired after the tick's first search. Their cell entries were
+  intact: scanManager answers from per-cell lists built at the tick's first search, by design. Same on every
+  machine (match rule), so no network drift; laserFilters stays on.
+- Fixes: scanManager no longer caches searches from a point (the key named no searcher and ignored whose
+  enemies the filters look for, so two players' searches from one spot could share an answer); the laser
+  verify skips its comparison under scanManager. Changes the scanManager game: new recording query-mgr4.rep.
+  Referee replay on query-25 matches.

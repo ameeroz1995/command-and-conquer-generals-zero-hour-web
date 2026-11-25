@@ -1923,6 +1923,25 @@ ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 }
 
 //-----------------------------------------------------------------------------
+void PartitionData::gxDebugDump() const
+{
+	CellAndObjectIntersection *coi = m_coiArray;
+	printf("GXVERIFY     coi in use %d of %d, slot now %d\n", m_coiInUseCount, m_coiArrayCount, gxSlotOf(this));
+	for (Int i = 0; i < m_coiArrayCount; ++i, ++coi)
+	{
+		PartitionCell *c = coi->getCell();
+		if (!c) { printf("GXVERIFY     coi %d: no cell (module %p)\n", i, (void*)coi->getModule()); continue; }
+		const Int sl = coi->gxPlayerSlot();
+		Bool inList = false;
+		for (CellAndObjectIntersection *h = c->gxSlotHead(sl); h; h = h->gxSlotNext()) if (h == coi) inList = true;
+		Bool inCell = false;
+		for (CellAndObjectIntersection *h = c->getFirstCoiInCell(); h; h = h->getNextCoi()) if (h == coi) inCell = true;
+		printf("GXVERIFY     coi %d: cell %d %d slot %d mask %x dense %x inSlotList %d inCell %d\n", i, c->getCellX(), c->getCellY(), sl,
+			c->gxPlayerMask(), g_gxCellMasks[c->getCellY() * g_gxCellMaskW + c->getCellX()], inList, inCell);
+	}
+}
+
+//-----------------------------------------------------------------------------
 void PartitionData::gxTeamChanged()
 {
 	const Int slot = gxSlotOf(this);
@@ -4298,7 +4317,10 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 	Coord3D vec;
 	vec.zero();
 	const unsigned long long key = gxSearchKey(obj, pos, maxDist, dc, filters, iterArg != nullptr);
-	std::unordered_map<unsigned long long, GxCachedSearch>::iterator c = s_gxSearchCache.find(key);
+	// a search from a point names no searcher, and its filters' state (whose enemies, which laser) is
+	// not in the key: never cached. A unit's search is keyed by the unit, which its filters are built from.
+	const Bool gxCacheable = obj != nullptr;
+	std::unordered_map<unsigned long long, GxCachedSearch>::iterator c = gxCacheable ? s_gxSearchCache.find(key) : s_gxSearchCache.end();
 	Bool hit = false;
 	if (c != s_gxSearchCache.end())
 	{
@@ -4328,6 +4350,9 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 	{
 		++gx_mgr_misses;
 		result = gxClosestImpl(obj, pos, maxDist, dc, filters, iterArg, &dist, &vec, flags | GX_GCO_SNAP, mask, nullptr);
+	}
+	if (!hit && gxCacheable)
+	{
 		GxCachedSearch &cs = s_gxSearchCache[key];
 		cs.closest = result ? result->getID() : INVALID_ID;
 		cs.dist = dist;

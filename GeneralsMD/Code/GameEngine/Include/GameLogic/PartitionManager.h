@@ -612,6 +612,7 @@ public:
 	// (note, if we ever use other bits in this, smarten this up...)
 	Int friend_getDoneFlag() { return m_doneFlag; }
 	void gxTeamChanged();	///< web port: the object changed player: move its per-cell counts
+	void gxDebugDump() const;	///< web port verify: print this object's cell entries
 	void friend_setDoneFlag(Int i) { m_doneFlag = i; }
 
 	Bool isInListDirtyModules(PartitionData* const* pListHead) const

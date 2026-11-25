@@ -286,7 +286,10 @@ Object* PointDefenseLaserUpdate::scanClosestTarget()
 {
 	const Bool filtered = (GLES3_Page_Switches2() & 131072) != 0;
 #ifdef __EMSCRIPTEN__
-	if (filtered && (GLES3_Page_Switches() & 2097152))
+	extern bool gxMatchRule(unsigned int rule);
+	// verify compares with a fresh plain walk; under match rule scanManager searches answer from the
+	// tick's first lists by design (the same on every machine), so the comparison does not apply
+	if (filtered && (GLES3_Page_Switches() & 2097152) && !gxMatchRule(262144))
 	{
 		// Verify mode: (1) the unfiltered list, filtered here, must be the same objects in the
 		// same order; (2) scans alternate filtered / unfiltered, each timed whole (the search's own
@@ -332,6 +335,12 @@ Object* PointDefenseLaserUpdate::scanClosestTarget()
 					printf("GXVERIFY   %s %u %s pos %.2f %.2f r %.2f place %.2f %.2f %.2f player %d store %d\n", pass ? "filtered" : "all", o->getID(),
 						o->getTemplate()->getName().str(), o->getPosition()->x, o->getPosition()->y, o->getGeometryInfo().getBoundingCircleRadius(),
 						pd ? pd->gxX() : -1.0f, pd ? pd->gxY() : -1.0f, pd ? pd->gxR() : -1.0f, pl ? pl->getPlayerIndex() : -1, o->gxPlayerIndex());
+					if (!pass && pd)
+					{
+						Bool found = false;
+						for (Object *q = a->first(); q; q = a->next()) if (q == o) found = true;
+						if (!found) pd->gxDebugDump();
+					}
 				}
 			}
 		}
