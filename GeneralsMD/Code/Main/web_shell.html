@@ -285,9 +285,23 @@
         background: var(--gx-mute) !important;
         border-color: var(--gx-fg) !important;
       }
-      #gx-settings-drawer.gx-show {
-        right: 16px !important;
+      /* Settings: a full-screen page (inline styles below are the old side drawer, overridden here). */
+      #gx-settings-drawer {
+        display: none; inset: 0 !important; top: 0 !important; right: 0 !important;
+        width: auto !important; max-height: none !important; border-radius: 0 !important;
+        border: none !important; background: rgba(6, 6, 6, 0.96) !important; z-index: 20 !important;
+        padding: 28px max(24px, calc((100vw - 1200px) / 2)) 48px !important; transition: none !important;
       }
+      #gx-settings-drawer.gx-show { display: block; }
+      #gx-settings-drawer > div:not(.gx-set-wide), #gx-settings-drawer > button {
+        display: inline-block; vertical-align: top; width: 330px; margin-right: 28px; box-sizing: border-box;
+      }
+      #gx-settings-drawer label { font-size: 12px !important; }
+      #gx-settings-drawer label + div, #gx-settings-drawer details > div { font-size: 10px !important; line-height: 1.45; }
+      #gx-perf-toggles { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; align-items: start; }
+      #gx-perf-toggles details { margin: 0 !important; padding: 10px 12px !important; }
+      #gx-perf-toggles summary { font-size: 12px !important; }
+      #gx-settings-close:hover { background: var(--gx-fg); color: var(--gx-bg); }
       #gx-btn-fullscreen:hover {
         background: var(--gx-fg);
         color: var(--gx-bg);
@@ -418,7 +432,8 @@
       overscroll-behavior: contain;
       touch-action: pan-y;
     ">
-      <div style="font-size: 13px; font-weight: bold; margin-bottom: 12px; letter-spacing: 2px; text-transform: uppercase; color: var(--gx-accent); border-bottom: 1px solid var(--gx-mute); padding-bottom: 6px;">Settings</div>
+      <div class="gx-set-wide" style="display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: bold; margin-bottom: 22px; letter-spacing: 3px; text-transform: uppercase; color: var(--gx-accent); border-bottom: 1px solid var(--gx-mute); padding-bottom: 10px;">Settings
+        <button id="gx-settings-close" type="button" aria-label="Close settings" style="background: transparent; color: var(--gx-fg); border: 1px solid var(--gx-fg); font-family: inherit; font-size: 11px; letter-spacing: 2px; padding: 6px 14px; cursor: pointer;">CLOSE (ESC)</button></div>
       
       <div style="margin-bottom: 14px;">
         <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;">
@@ -476,8 +491,8 @@
       </div>
 
       <!-- One switch per optimisation, built from gxPerf and grouped by category (script below). -->
-      <div style="margin: 18px 0 8px; font-size: 10px; letter-spacing: 2px; border-top: 1px solid var(--gx-mute); padding-top: 10px;">PERFORMANCE SWITCHES</div>
-      <div id="gx-perf-toggles"></div>
+      <div class="gx-set-wide" style="margin: 22px 0 12px; font-size: 14px; letter-spacing: 3px; border-top: 1px solid var(--gx-mute); padding-top: 16px;">PERFORMANCE SWITCHES</div>
+      <div id="gx-perf-toggles" class="gx-set-wide"></div>
 
       <div style="margin-bottom: 14px;">
         <label style="display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;">
@@ -1976,6 +1991,10 @@
             e.stopPropagation();
           });
 
+          // Close button and Esc close the settings page.
+          document.getElementById('gx-settings-close').addEventListener('click', function () { drawer.classList.remove('gx-show'); });
+          window.addEventListener('keydown', function (e) { if (e.key === 'Escape' && drawer.classList.contains('gx-show')) { drawer.classList.remove('gx-show'); e.stopPropagation(); } }, true);
+
           // Close drawer when clicking outside
           document.addEventListener('click', function(e) {
             if (!drawer.contains(e.target) && !toggleBtn.contains(e.target)) {
@@ -2043,7 +2062,7 @@
             var root = document.getElementById('gx-perf-toggles');
             cats.forEach(function (c, ci) {
               if (!c.items.length) return;
-              var sec = document.createElement('details'); sec.open = ci === 0;
+              var sec = document.createElement('details'); sec.open = true;
               sec.style.cssText = 'margin-bottom: 10px; border: 1px solid var(--gx-mute); padding: 6px 8px;';
               var sum = document.createElement('summary');
               sum.style.cssText = 'cursor: pointer; font-size: 10px; letter-spacing: 2px;';
