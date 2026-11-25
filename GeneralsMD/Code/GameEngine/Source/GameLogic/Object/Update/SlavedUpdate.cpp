@@ -109,23 +109,41 @@ void SlavedUpdate::onSlaverDamage( const DamageInfo *info )
 
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the drone kernels. Pure, writing only this unit's row.
+// Throttle: reads/writes its row (framesToWait); reads repairState, slaver. True when it runs now.
+static Bool gxSlavedThrottle(SlavedUpdate::GxState &r)
+{
+	if( r.framesToWait > 0 )
+		r.framesToWait--;
+	if( r.repairState == REPAIRSTATE_NONE )
+	{
+		if( r.framesToWait > 0 )
+			return FALSE;
+		r.framesToWait = SLAVED_UPDATE_RATE;
+	}
+	return r.slaver != INVALID_ID;
+}
+
+// Priority: from the gathered master health, victim and scouting need, what the drone does.
+// reads: its arguments only; writes nothing. Apply (in update): the repair/attack/scout/guard logic.
+enum GxSlavePriority { GXSLAVE_REPAIR, GXSLAVE_ATTACK, GXSLAVE_SCOUT, GXSLAVE_GUARD };
+static GxSlavePriority gxSlavedPriority(Int healthPercentage, Int repairBelow, Bool attackTarget, Bool scout)
+{
+	if( healthPercentage <= repairBelow )
+		return GXSLAVE_REPAIR;
+	if( attackTarget )
+		return GXSLAVE_ATTACK;
+	if( scout )
+		return GXSLAVE_SCOUT;
+	if( healthPercentage < 100 )	// always 100 when the drone cannot repair
+		return GXSLAVE_REPAIR;
+	return GXSLAVE_GUARD;
+}
+
 UpdateSleepTime SlavedUpdate::update()
 {
 /// @todo srj use SLEEPY_UPDATE here
-	if( R().framesToWait > 0 )
-	{
-		R().framesToWait--;
-	}
-	if( R().repairState == REPAIRSTATE_NONE )
-	{
-		if( R().framesToWait > 0 )
-		{
-			return UPDATE_SLEEP_NONE;
-		}
-		R().framesToWait = SLAVED_UPDATE_RATE;
-	}
-
-	if( R().slaver == INVALID_ID )
+	if( !gxSlavedThrottle(R()) )
 		return UPDATE_SLEEP_NONE;
 
 	const SlavedUpdateModuleData* data = getSlavedUpdateModuleData();
@@ -206,54 +224,30 @@ UpdateSleepTime SlavedUpdate::update()
 		}
 	}
 
-	//Determine whether or not we need to go back to the master to repair him
-	if( healthPercentage <= data->m_repairWhenHealthBelowPercentage )
+	// gather: does the master's move need scouting (his route's end, far enough from him)?
+	const Coord3D *masterDest = nullptr;
+	Bool scout = FALSE;
+	if( data->m_scoutRange && healthPercentage > data->m_repairWhenHealthBelowPercentage && !(data->m_attackRange && target) && masterAI->getPath() )
 	{
-		//1ST PRIORITY: Go to the master's position to repair him because he needs it.
-		doRepairLogic();
-		return UPDATE_SLEEP_NONE;
+		masterDest = masterAI->getPath()->getLastNode()->getPosition();
+		Real distSqr = ThePartitionManager->getDistanceSquared( master, masterDest, FROM_BOUNDINGSPHERE_2D );
+		scout = distSqr > (data->m_guardMaxRange * 0.5f) * (data->m_guardMaxRange * 0.5f);
 	}
-
-	if( data->m_attackRange )
+	switch (gxSlavedPriority(healthPercentage, data->m_repairWhenHealthBelowPercentage, data->m_attackRange && target, scout))
 	{
-		//2ND PRIORITY: Go to the master's current victim (as close as wander distance allows)
-		if( target )
-		{
-			//At this point, we officially are in an attack mode! Now, simply
+		case GXSLAVE_REPAIR:	// 1st (master needs it) or 4th (we're idle) priority: repair the master
+			doRepairLogic();
+			return UPDATE_SLEEP_NONE;
+		case GXSLAVE_ATTACK:	// 2nd: the master's current victim
 			endRepair();
 			doAttackLogic( target );
 			return UPDATE_SLEEP_NONE;
-		}
-	}
-
-	if( data->m_scoutRange )
-	{
-		//3RD PRIORITY: Hover above master's current move destination (as close as wander distance
-		//allows).
-		if( masterAI->getPath() )
-		{
-			const Coord3D *masterDest = masterAI->getPath()->getLastNode()->getPosition();
-
-			//Check to see if master is close to the goal position.
-			Real distSqr = ThePartitionManager->getDistanceSquared( master, masterDest, FROM_BOUNDINGSPHERE_2D );
-			if( distSqr > (data->m_guardMaxRange * 0.5f) * (data->m_guardMaxRange * 0.5f) )
-			{
-				//If the master's distance to destination is more than half of the guarding range of the slave,
-				//then order the slave to scout it.
-				endRepair();
-				doScoutLogic( masterDest );
-				return UPDATE_SLEEP_NONE;
-			}
-		}
-	}
-
-	//NOTE: Health percentage will always be 100 should the drone be incapable of
-	//repairing.
-	if( healthPercentage < 100 )
-	{
-		//3RD PRIORITY: Go to the master's position to repair him (because we're idle)
-		doRepairLogic();
-		return UPDATE_SLEEP_NONE;
+		case GXSLAVE_SCOUT:	// 3rd: hover above the master's move destination
+			endRepair();
+			doScoutLogic( masterDest );
+			return UPDATE_SLEEP_NONE;
+		default:
+			break;
 	}
 
 	// update our "pinned" location based on where our master is

@@ -415,19 +415,27 @@ void DockUpdate::setDockCrippled( Bool setting )
 	R().dockCrippled = setting;
 }
 
+// web port (round 5 addendum): the dock kernel. Pure: an open, uncrippled dock lets in the first
+// docker that reached its approach position. reads/writes its row (activeDocker,
+// approachPositionReached, approachPositionOwners) only. Apply (in update): a worker docker's
+// model condition.
+static void gxDockKernel(DockUpdate::GxState &r)
+{
+	for( size_t positionIndex = 0; positionIndex < r.approachPositionReached.size(); ++positionIndex )
+	{
+		if( r.approachPositionReached[positionIndex] )
+		{
+			r.activeDocker = r.approachPositionOwners[positionIndex];
+			return;
+		}
+	}
+}
+
 UpdateSleepTime DockUpdate::update()
 {
 	if( R().activeDocker == INVALID_ID  &&  !R().dockCrippled )
 	{
-		// if setDockCrippled has been called, I will never give entrance permission.
-		for( size_t positionIndex = 0; positionIndex < R().approachPositionReached.size(); ++positionIndex )
-		{
-			if( R().approachPositionReached[positionIndex] )
-			{
-				R().activeDocker = R().approachPositionOwners[positionIndex];
-				return UPDATE_SLEEP_NONE;
-			}
-		}
+		gxDockKernel(R());
 	}
 	else if ( getObject()->isKindOf( KINDOF_SUPPLY_SOURCE ) )
 	{

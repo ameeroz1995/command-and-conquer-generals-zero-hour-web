@@ -106,13 +106,13 @@ RailroadBehavior::RailroadBehavior( Thing *thing, const ModuleData *moduleData )
 	R().nextStationTask = DO_NOTHING;
 	R().trailerID = INVALID_ID;
 
-	conductorPullInfo.speed = 0;
-	conductorPullInfo.m_direction = 1.0f;
-	conductorPullInfo.m_mostRecentSpecialPointHandle = 0xfacade;
-	conductorPullInfo.towHitchPosition.set(0,0,0);
-	conductorPullInfo.trackDistance = 0;
-	conductorPullInfo.currentWaypoint = 0xfacade;
-	conductorPullInfo.previousWaypoint = 0xfacade;
+	R().conductorPullInfo.speed = 0;
+	R().conductorPullInfo.m_direction = 1.0f;
+	R().conductorPullInfo.m_mostRecentSpecialPointHandle = 0xfacade;
+	R().conductorPullInfo.towHitchPosition.set(0,0,0);
+	R().conductorPullInfo.trackDistance = 0;
+	R().conductorPullInfo.currentWaypoint = 0xfacade;
+	R().conductorPullInfo.previousWaypoint = 0xfacade;
 
 	R().pullInfo.speed = 0.0f;
 	R().pullInfo.m_direction = 1.0f;
@@ -127,7 +127,7 @@ RailroadBehavior::RailroadBehavior( Thing *thing, const ModuleData *moduleData )
 	_LARGE_INTEGER pc;
 	QueryPerformanceCounter( &pc ); // absolutely, positively random every call!
 	Real random = 100000.0f / (Real)pc.LowPart;
-	conductorPullInfo.m_direction = random;
+	R().conductorPullInfo.m_direction = random;
 	R().pullInfo.m_direction = random;
 #endif
 
@@ -668,6 +668,48 @@ void RailroadBehavior::makeAWallOutOfThisTrain( Bool on )
 
 
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// web port (round 5 addendum): the conductor kernel. Pure: the locomotive's brake / wait / pull-away
+// state and speed. reads: the module data's braking, wait time, acceleration, top speed; reads/writes
+// its row (conductorState, conductorPullInfo.speed, waitAtStationTimer; reads held, direction).
+// Returns what the apply step does (walls, passengers, sounds).
+RailroadBehavior::GxConductorOp RailroadBehavior::gxConductorKernel(GxState &r, Real braking, UnsignedInt waitAtStationTime, Real acceleration, Real speedMax)
+{
+	if ( r.conductorState == APPLY_BRAKES )
+	{
+		r.conductorPullInfo.speed *= braking;
+		if (fabs(r.conductorPullInfo.speed) < 0.1f)
+		{
+			r.conductorPullInfo.speed = 0;
+			r.waitAtStationTimer = waitAtStationTime;
+			r.conductorState = WAIT_AT_STATION;
+			return GXCOND_STOPPED;
+		}
+	}
+	else if ( r.conductorState == WAIT_AT_STATION )
+	{
+		--r.waitAtStationTimer;
+		if ( r.waitAtStationTimer <= 0 && (!r.held) )
+		{
+			r.conductorState = ACCELERATE;
+			r.conductorPullInfo.speed = 0.05f * r.conductorPullInfo.m_direction;
+			return GXCOND_DEPART;
+		}
+		else if ( r.waitAtStationTimer == (waitAtStationTime/4) )
+			return GXCOND_WHISTLE;
+	}
+	else if ( r.conductorState == ACCELERATE )
+	{
+		r.conductorPullInfo.speed += 0.02f * r.conductorPullInfo.m_direction; // push start multiplier
+		r.conductorPullInfo.speed *= acceleration;
+		if ( r.conductorPullInfo.speed > speedMax)
+			r.conductorPullInfo.speed = speedMax;
+		else if ( r.conductorPullInfo.speed < -speedMax)
+			r.conductorPullInfo.speed = -speedMax;
+		return GXCOND_RUNNING;
+	}
+	return GXCOND_NONE;
+}
+
 UpdateSleepTime RailroadBehavior::update()
 {
 
@@ -698,78 +740,32 @@ UpdateSleepTime RailroadBehavior::update()
 
 	if ( R().isLocomotive )
 	{
-
-		if ( R().conductorState == APPLY_BRAKES )
+		// web port (round 5 addendum): the conductor kernel moves the state and speed; apply here
+		switch (gxConductorKernel(R(), modData->m_braking, modData->m_waitAtStationTime, modData->m_acceleration, modData->m_speedMax))
 		{
-			conductorPullInfo.speed *= modData->m_braking;
-			if (fabs(conductorPullInfo.speed) < 0.1f)
-			{
-				conductorPullInfo.speed = 0;
-				///////////////////////////////////////( &m_hissySteamSound );
-
-				R().waitAtStationTimer = modData->m_waitAtStationTime;
-				R().conductorState = WAIT_AT_STATION;
-
-
-         makeAWallOutOfThisTrain( TRUE );
-
-
+			case GXCOND_STOPPED:	// at the station: a wall, and let the passengers off
+				makeAWallOutOfThisTrain( TRUE );
 				if ( R().disembark )
 				{
 					disembark();
 					R().disembark = FALSE;
 				}
-      }
-		}
-		else if ( R().conductorState == WAIT_AT_STATION)
-		{
-			--R().waitAtStationTimer;
-			if ( R().waitAtStationTimer <= 0 && (!R().held) )
-			{
-				R().conductorState = ACCELERATE;
-				conductorPullInfo.speed = 0.05f * conductorPullInfo.m_direction;
-
+				break;
+			case GXCOND_DEPART:
 				R().runningSound.setPlayingHandle(TheAudio->addAudioEvent( &R().runningSound ));
-
-        makeAWallOutOfThisTrain( FALSE );
-
-
-			}
-			else if ( R().waitAtStationTimer == (modData->m_waitAtStationTime/4) )
-			{
+				makeAWallOutOfThisTrain( FALSE );
+				break;
+			case GXCOND_WHISTLE:
 				R().whistleSound.setPlayingHandle(TheAudio->addAudioEvent( &R().whistleSound ));
-			}
-
+				break;
+			case GXCOND_RUNNING:
+				if ( ! R().runningSound.isCurrentlyPlaying() )
+					R().runningSound.setPlayingHandle(TheAudio->addAudioEvent( &R().runningSound ));
+				break;
+			default:
+				break;
 		}
-		else if ( R().conductorState == ACCELERATE )
-		{
-			conductorPullInfo.speed += 0.02f * conductorPullInfo.m_direction; // push start multiplier
-			conductorPullInfo.speed *= modData->m_acceleration;
-			if ( conductorPullInfo.speed > modData->m_speedMax)
-			{
-				conductorPullInfo.speed = modData->m_speedMax;
-			}
-			else if ( conductorPullInfo.speed < -modData->m_speedMax)
-			{
-				conductorPullInfo.speed = -modData->m_speedMax;
-			}
-
-
-			if ( ! R().runningSound.isCurrentlyPlaying() )
-				R().runningSound.setPlayingHandle(TheAudio->addAudioEvent( &R().runningSound ));
-
-
-		}
-
 	}
-
-
-
-
-
-
-
-
 
 	if ( R().wantsToBeLeadCarriage > FRAMES_UNPULLED_LONG_ENOUGH_TO_UNHITCH )//if this flag survived until now, I have lost my puller
 	{
@@ -781,23 +777,23 @@ UpdateSleepTime RailroadBehavior::update()
 
 		if ( R().conductorState == COAST )
 		{
-			conductorPullInfo.speed *= modData->m_friction;
+			R().conductorPullInfo.speed *= modData->m_friction;
 			TheAudio->removeAudioEvent( R().runningSound.getPlayingHandle() );
 		}
 
-		conductorPullInfo.trackDistance += conductorPullInfo.speed ;
+		R().conductorPullInfo.trackDistance += R().conductorPullInfo.speed ;
 		// only normalize track position for a looping track, otherwise, let train exit by exceeding tracklength
-		while ( (conductorPullInfo.trackDistance > R().track->m_length) && R().track->m_isLooping)
-			conductorPullInfo.trackDistance -= R().track->m_length;
-		while ( (conductorPullInfo.trackDistance < 0.0f ) && R().track->m_isLooping)
-			conductorPullInfo.trackDistance += R().track->m_length;
+		while ( (R().conductorPullInfo.trackDistance > R().track->m_length) && R().track->m_isLooping)
+			R().conductorPullInfo.trackDistance -= R().track->m_length;
+		while ( (R().conductorPullInfo.trackDistance < 0.0f ) && R().track->m_isLooping)
+			R().conductorPullInfo.trackDistance += R().track->m_length;
 
-		FindPosByPathDistance( &conductorPullInfo.towHitchPosition,
-														conductorPullInfo.trackDistance,
+		FindPosByPathDistance( &R().conductorPullInfo.towHitchPosition,
+														R().conductorPullInfo.trackDistance,
 														R().track->m_length);
 
 		//let the conductor pull "me" while resetting my info, then...
-		updatePositionTrackDistance( &conductorPullInfo, &R().pullInfo);
+		updatePositionTrackDistance( &R().conductorPullInfo, &R().pullInfo);
 
 
 		//get pointer to my trailer
@@ -1178,7 +1174,7 @@ void RailroadBehavior::getPulled( PullInfo *info )
 
 
 
-	conductorPullInfo = *info;//copy my puller to my conductor, so that if I ever get detached
+	R().conductorPullInfo = *info;//copy my puller to my conductor, so that if I ever get detached
 	//( meaning that if this function stops getting called ), I will take over as the lead carriage!
 	//Wheeeee!!
 
@@ -1461,13 +1457,13 @@ void RailroadBehavior::FindPosByPathDistance( Coord3D *pos, const Real dist, con
 								R().disembark = TRUE;
 								TheAudio->removeAudioEvent(R().runningSound.getPlayingHandle());
 							}
-							else if ( thisPoint->m_isPingPong && conductorPullInfo.m_mostRecentSpecialPointHandle != handleFound )
+							else if ( thisPoint->m_isPingPong && R().conductorPullInfo.m_mostRecentSpecialPointHandle != handleFound )
 							{
-								conductorPullInfo.m_mostRecentSpecialPointHandle = handleFound;
+								R().conductorPullInfo.m_mostRecentSpecialPointHandle = handleFound;
 								R().conductorState = APPLY_BRAKES;
 								R().disembark = FALSE;
 								TheAudio->removeAudioEvent(R().runningSound.getPlayingHandle());
-								conductorPullInfo.m_direction = -conductorPullInfo.m_direction;
+								R().conductorPullInfo.m_direction = -R().conductorPullInfo.m_direction;
 							}
 						}
 					}
@@ -1476,7 +1472,7 @@ void RailroadBehavior::FindPosByPathDistance( Coord3D *pos, const Real dist, con
 					{//play my clickety clack sound, `cause I just rode over a join IN the tracks
 						TheAudio->addAudioEvent( &R().clicketyClackSound );
 						R().clicketyClackSound.setPosition( getObject()->getPosition() );
-						R().clicketyClackSound.setVolume( (Real)conductorPullInfo.speed / 10.0f );//assumed max speed
+						R().clicketyClackSound.setVolume( (Real)R().conductorPullInfo.speed / 10.0f );//assumed max speed
 					}
 				}
 
@@ -1589,8 +1585,8 @@ void RailroadBehavior::xfer( Xfer *xfer )
 		//PullInfo R().pullInfo;
 		R().pullInfo.xferPullInfo( xfer );
 
-		//PullInfo conductorPullInfo;
-		conductorPullInfo.xferPullInfo( xfer );
+		//PullInfo R().conductorPullInfo;
+		R().conductorPullInfo.xferPullInfo( xfer );
 
 	}
 

@@ -94,6 +94,56 @@ void DeployStyleAIUpdate::aiDoCommand( const AICommandParms* parms )
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the deploy kernels. Pure: from the state, the deploy timer and the
+// gathered facts (in range or guarding, trying to move, turrets), the state change to make.
+// reads their arguments only; write nothing.
+struct GxDeployOps { Int n; DeployStateTypes state[1]; Bool reverse[1]; };
+#define GX_DEPLOY_OP(s_, r_) do { ops.state[0] = (s_); ops.reverse[0] = (r_); ops.n = 1; } while (0)
+
+// the deploy timer: a finished deploy / undeploy becomes ready to attack / move
+static GxDeployOps gxDeployTimerKernel(DeployStateTypes st, UnsignedInt frameToWait, UnsignedInt now)
+{
+	GxDeployOps ops; ops.n = 0;
+	if( frameToWait != 0 && now >= frameToWait )
+	{
+		if( st == DEPLOY ) GX_DEPLOY_OP( READY_TO_ATTACK, FALSE );
+		else if( st == UNDEPLOY ) GX_DEPLOY_OP( READY_TO_MOVE, FALSE );
+	}
+	return ops;
+}
+
+// the decision: deploy to attack or guard, pack up to move
+static GxDeployOps gxDeployKernel(DeployStateTypes st, UnsignedInt frameToWait, Bool attackOrGuard,
+	Bool tryingToMove, Bool turretMustCenter, Bool turretCentered)
+{
+	GxDeployOps ops; ops.n = 0;
+	if( attackOrGuard )
+	{
+		switch( st )
+		{
+			case READY_TO_MOVE: GX_DEPLOY_OP( DEPLOY, FALSE ); break;	// deploy before we can attack
+			case UNDEPLOY: if( frameToWait != 0 ) GX_DEPLOY_OP( DEPLOY, TRUE ); break;	// reverse the undeploy
+			case ALIGNING_TURRETS: GX_DEPLOY_OP( READY_TO_ATTACK, FALSE ); break;	// aligning turrets can attack now
+			default: break;
+		}
+	}
+	else if( tryingToMove )
+	{
+		switch( st )
+		{
+			case READY_TO_ATTACK:
+				if( turretMustCenter ) GX_DEPLOY_OP( ALIGNING_TURRETS, FALSE );	// center before we can undeploy
+				else GX_DEPLOY_OP( UNDEPLOY, FALSE );
+				break;
+			case DEPLOY: if( frameToWait != 0 ) GX_DEPLOY_OP( UNDEPLOY, TRUE ); break;	// reverse the deploy
+			case ALIGNING_TURRETS: if( turretCentered ) GX_DEPLOY_OP( UNDEPLOY, FALSE ); break;
+			default: break;
+		}
+	}
+	return ops;
+}
+#undef GX_DEPLOY_OP
+
 UpdateSleepTime DeployStyleAIUpdate::update()
 {
 	// have to call our parent's isIdle, because we override it to never return true
@@ -132,93 +182,25 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 		}
 	}
 
-	if( R().frameToWaitForDeploy != 0 && now >= R().frameToWaitForDeploy)
+	// web port (round 5 addendum): two kernels, each followed by its apply (setMyState: model
+	// conditions, timers, sounds). First the deploy timer, then the decision, with the turret facts
+	// gathered after the first change as before.
+	GxDeployOps ops = gxDeployTimerKernel(R().state, R().frameToWaitForDeploy, now);
+	for( Int k = 0; k < ops.n; ++k )
+		setMyState( ops.state[k], ops.reverse[k] );
+	Bool turretMustCenter = FALSE, turretCentered = FALSE;
+	if( !(isInRange || isInGuardIdleState) && isTryingToMove && (R().state == READY_TO_ATTACK || R().state == ALIGNING_TURRETS) )
 	{
-		switch( R().state )
+		WhichTurretType tur = getWhichTurretForCurWeapon();
+		if( tur != TURRET_INVALID )
 		{
-			case DEPLOY:
-				setMyState( READY_TO_ATTACK );
-				break;
-			case UNDEPLOY:
-				setMyState( READY_TO_MOVE );
-				break;
+			turretMustCenter = doTurretsHaveToCenterBeforePacking();
+			turretCentered = R().state == ALIGNING_TURRETS && isTurretInNaturalPosition( tur );
 		}
 	}
-
-	if( isInRange || isInGuardIdleState )
-	{
-		switch( R().state )
-		{
-			case READY_TO_MOVE:
-				//We're need to deploy before we can attack.
-				setMyState( DEPLOY );
-				break;
-			case READY_TO_ATTACK:
-				//Let the AI handle attacking.
-				break;
-			case DEPLOY:
-				//We can't start attacking until we are fully deployed.
-				break;
-			case UNDEPLOY:
-				if( R().frameToWaitForDeploy != 0 )
-				{
-					//Reverse the undeploy at it's current frame!
-					setMyState( DEPLOY, TRUE );
-				}
-				break;
-			case ALIGNING_TURRETS:
-				//If turrets are aligning, we are able to attack right now.
-				setMyState( READY_TO_ATTACK );
-				break;
-		}
-	}
-	else if( isTryingToMove )
-	{
-		switch( R().state )
-		{
-			case READY_TO_MOVE:
-				//We're ready... ai will handle moving.
-				break;
-			case READY_TO_ATTACK:
-			{
-				WhichTurretType tur = getWhichTurretForCurWeapon();
-				if( tur != TURRET_INVALID )
-				{
-					if( doTurretsHaveToCenterBeforePacking() )
-					{
-						//Turrets need to center before we can undeploy.
-						setMyState( ALIGNING_TURRETS );
-						break;
-					}
-				}
-				//Start undeploying.
-				setMyState( UNDEPLOY );
-				break;
-			}
-			case DEPLOY:
-				if( R().frameToWaitForDeploy != 0 )
-				{
-					//Reverse the deploy at it's current frame!
-					setMyState( UNDEPLOY, TRUE );
-				}
-				break;
-			case UNDEPLOY:
-				break;
-			case ALIGNING_TURRETS:
-			{
-				WhichTurretType tur = getWhichTurretForCurWeapon();
-				if( tur != TURRET_INVALID )
-				{
-					if( isTurretInNaturalPosition( tur ) )
-					{
-						//Turrets are centers, so now we can undeploy.
-						setMyState( UNDEPLOY );
-					}
-				}
-				break;
-			}
-		}
-	}
+	ops = gxDeployKernel(R().state, R().frameToWaitForDeploy, isInRange || isInGuardIdleState, isTryingToMove, turretMustCenter, turretCentered);
+	for( Int k = 0; k < ops.n; ++k )
+		setMyState( ops.state[k], ops.reverse[k] );
 
 	switch( R().state )
 	{

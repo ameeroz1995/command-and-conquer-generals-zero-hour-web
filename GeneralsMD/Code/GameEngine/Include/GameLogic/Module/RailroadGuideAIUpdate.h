@@ -263,7 +263,6 @@ protected:
 	void FindPosByPathDistance( Coord3D *pos, const Real dist, const Real length, Bool setState = FALSE );
 	void playImpactSound(Object *victim, const Coord3D *impactPosition);
 
-	PullInfo conductorPullInfo;
 
 
 
@@ -281,6 +280,7 @@ public:
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
 	struct GxState
 	{
+		PullInfo conductorPullInfo; ///< the lead carriage's pull along the track
 		StationTask nextStationTask;
 		ObjectID trailerID; ///< the ID of the object I am directly pulling
 		PullInfo pullInfo;
@@ -305,6 +305,8 @@ public:
 		ConductorState conductorState;
 		WaypointID anchorWaypointID;
 	};
+	enum GxConductorOp { GXCOND_NONE, GXCOND_STOPPED, GXCOND_DEPART, GXCOND_WHISTLE, GXCOND_RUNNING };
+	static GxConductorOp gxConductorKernel(GxState &r, Real braking, UnsignedInt waitAtStationTime, Real acceleration, Real speedMax);	///< web port: conductor kernel
 	GxState &R() const;
 private:
 	int m_gxRow;

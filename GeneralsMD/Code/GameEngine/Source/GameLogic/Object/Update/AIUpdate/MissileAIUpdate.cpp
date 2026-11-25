@@ -646,22 +646,33 @@ void MissileAIUpdate::doDeadState()
 /**
  * Simulate one frame of a missile's behavior
  */
+// web port (round 5 addendum): the missile kernel. Pure: the no-turn distance flown and the decoy
+// timer. reads/writes its row (noTurnDistLeft, prevPos, state, framesTillDecoyed); reads its
+// position and the frame. True when the countermeasure diversion is due now (applied in update).
+static Bool gxMissileKernel(MissileAIUpdate::GxState &r, const Coord3D &newPos, UnsignedInt now)
+{
+	if (r.noTurnDistLeft > 0.0f && r.state >= MissileAIUpdate::IGNITION)
+	{
+		Real distThisTurn = sqrtf(sqr(newPos.x-r.prevPos.x) + sqr(newPos.y-r.prevPos.y) + sqr(newPos.z-r.prevPos.z));
+		r.noTurnDistLeft -= distThisTurn;
+		r.prevPos = newPos;
+	}
+	if( r.framesTillDecoyed && r.framesTillDecoyed <= now )
+	{
+		r.framesTillDecoyed = 0;
+		return TRUE;
+	}
+	return FALSE;
+}
+
 UpdateSleepTime MissileAIUpdate::update()
 {
 	Coord3D newPos = *getObject()->getPosition();
-	if (R().noTurnDistLeft > 0.0f && R().state >= IGNITION)
-	{
-		Real distThisTurn = sqrtf(sqr(newPos.x-R().prevPos.x) + sqr(newPos.y-R().prevPos.y) + sqr(newPos.z-R().prevPos.z));
-		R().noTurnDistLeft -= distThisTurn;
-		R().prevPos = newPos;
-	}
-
 	//If this missile has been marked to divert to countermeasures, check when
-	//that will occur, then do it when the timer expires.
-	if( R().framesTillDecoyed && R().framesTillDecoyed <= TheGameLogic->getFrame() )
+	//that will occur, then do it when the timer expires (the kernel says when; apply below).
+	if( gxMissileKernel(R(), newPos, TheGameLogic->getFrame()) )
 	{
 		Object *missile = getObject();
-		R().framesTillDecoyed = 0;
 		m_noDamage = TRUE;
 		Object *victim = TheGameLogic->findObjectByID( m_victimID );
 		if( victim )

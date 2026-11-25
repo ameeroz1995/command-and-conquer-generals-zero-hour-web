@@ -216,6 +216,29 @@ void TensileFormationUpdate::initLinks()
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the slide kernel. Pure: this piece flows down the slope.
+// reads: its row (inertia), its position, the terrain's heights and normals (read-only in the tick);
+// writes: its row (inertia) and newPos. Apply (in update): trees toppled, the pull of linked pieces
+// (their positions), model conditions, setPosition.
+static void gxTensileKernel(TensileFormationUpdate::GxState &r, const Coord3D &pos, Coord3D &newPos)
+{
+	Coord3D normal = { 0.0f, 0.0f, 1.0f };
+	TheTerrainLogic->getGroundHeight(pos.x, pos.y, &normal); // which way does the ground slope?
+
+	Coord3D slope = { normal.x, normal.y, 0.0f};
+	Real steepness = 1.0f - normal.z;
+	slope.scale( 0.3f + steepness);
+
+	r.inertia.add( &slope );
+
+	Real friction = 0.95f;
+	r.inertia.scale( friction );
+
+	newPos.x = pos.x + r.inertia.x;//flow down the slope
+	newPos.y = pos.y + r.inertia.y;
+	newPos.z = TheTerrainLogic->getGroundHeight(newPos.x, newPos.y);//rest on surface here
+}
+
 UpdateSleepTime TensileFormationUpdate::update()
 {
 
@@ -273,29 +296,10 @@ UpdateSleepTime TensileFormationUpdate::update()
 		propagateDislodgement( TRUE );
 
 
-	//APPLY PHYSICS===========================
+	//APPLY PHYSICS=========================== (web port: the kernel; apply below)
 	const Coord3D *pos = getObject()->getPosition();
-
-	Coord3D normal = { 0.0f, 0.0f, 1.0f };
-	TheTerrainLogic->getGroundHeight(pos->x, pos->y, &normal); // which way does the ground slope?
-
-	Coord3D slope = { normal.x, normal.y, 0.0f};
-	Real steepness = 1.0f - normal.z;
-	slope.scale( 0.3f + steepness);
-
-	R().inertia.add( &slope );
-
-	Real friction = 0.95f;
-	R().inertia.scale( friction );
-
-
-
 	Coord3D newPos;
-	newPos.x = pos->x + R().inertia.x;//flow down the slope
-	newPos.y = pos->y + R().inertia.y;
-	newPos.z = TheTerrainLogic->getGroundHeight(newPos.x, newPos.y);//rest on surface here
-
-
+	gxTensileKernel(R(), *pos, newPos);
 
 	Object *tree = ThePartitionManager->getClosestObject( &newPos, getObject()->getGeometryInfo().getMajorRadius(), FROM_CENTER_2D );
 	if (tree->isKindOf( KINDOF_SHRUBBERY ))

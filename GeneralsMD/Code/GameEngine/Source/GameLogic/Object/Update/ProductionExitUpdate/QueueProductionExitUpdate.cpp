@@ -215,16 +215,21 @@ Bool QueueProductionExitUpdate::isFreeToExit() const
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the exit-delay kernel. Pure: reads freeToExit, reads/writes its row
+// (currentDelay) only.
+static void gxQueueExitKernel(QueueProductionExitUpdate::GxState &r, Bool freeToExit)
+{
+	if (freeToExit)
+		r.currentDelay = 0;
+	else
+		r.currentDelay--;
+}
+
 UpdateSleepTime QueueProductionExitUpdate::update()
 {
 	// This update needs to decide when we are again free to exit something
-	if (isFreeToExit())
-	{
-		R().currentDelay = 0;
-		return UPDATE_SLEEP_NONE;
-	}
-
-	R().currentDelay--;
+	// (web port, round 5 addendum: gather isFreeToExit, then the kernel; nothing to apply)
+	gxQueueExitKernel(R(), isFreeToExit());
 	return UPDATE_SLEEP_NONE;
 }
 

@@ -69,72 +69,82 @@ AnimationSteeringUpdate::~AnimationSteeringUpdate()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): kernel + apply. The kernel is pure: it moves this unit's turn
+// animation state on and says which model-condition change the apply step makes.
+// reads: its row (currentTurnAnim, nextTransitionFrame), its physics turning, the frame, the
+//        module data's transition frames; writes: its row only. No allocation, events, RNG, globals.
+enum GxSteerOp { GXSTEER_NONE, GXSTEER_TO_RIGHT, GXSTEER_TO_LEFT, GXSTEER_RIGHT_BACK, GXSTEER_LEFT_BACK, GXSTEER_DONE };
+
+static GxSteerOp gxSteerKernel(AnimationSteeringUpdate::GxState &r, PhysicsTurningType currentTurn, UnsignedInt now, UnsignedInt transitionFrames)
+{
+	if (now < r.nextTransitionFrame)
+		return GXSTEER_NONE;
+	switch (r.currentTurnAnim)
+	{
+		case MODELCONDITION_INVALID:	// going straight: start a turn?
+			if (currentTurn == TURN_NEGATIVE)
+			{
+				r.nextTransitionFrame = now + transitionFrames;
+				r.currentTurnAnim = MODELCONDITION_CENTER_TO_RIGHT;
+				return GXSTEER_TO_RIGHT;
+			}
+			if (currentTurn == TURN_POSITIVE)
+			{
+				r.nextTransitionFrame = now + transitionFrames;
+				r.currentTurnAnim = MODELCONDITION_CENTER_TO_LEFT;
+				return GXSTEER_TO_LEFT;
+			}
+			break;
+		case MODELCONDITION_CENTER_TO_RIGHT:	// turning right: recenter unless still turning
+			if (currentTurn != TURN_NEGATIVE)
+			{
+				r.nextTransitionFrame = now + transitionFrames;
+				r.currentTurnAnim = MODELCONDITION_RIGHT_TO_CENTER;
+				return GXSTEER_RIGHT_BACK;
+			}
+			break;
+		case MODELCONDITION_CENTER_TO_LEFT:
+			if (currentTurn != TURN_POSITIVE)
+			{
+				r.nextTransitionFrame = now + transitionFrames;
+				r.currentTurnAnim = MODELCONDITION_LEFT_TO_CENTER;
+				return GXSTEER_LEFT_BACK;
+			}
+			break;
+		case MODELCONDITION_LEFT_TO_CENTER:
+		case MODELCONDITION_RIGHT_TO_CENTER:	// finish the turn
+			if (currentTurn == TURN_NONE)
+			{
+				r.nextTransitionFrame = now;
+				r.currentTurnAnim = MODELCONDITION_INVALID;
+				return GXSTEER_DONE;
+			}
+			break;
+	}
+	return GXSTEER_NONE;
+}
+
+// apply (main thread): the drawable's model condition
+static void gxSteerApply(Drawable *draw, GxSteerOp op)
+{
+	switch (op)
+	{
+		case GXSTEER_TO_RIGHT:   draw->setModelConditionState( MODELCONDITION_CENTER_TO_RIGHT ); break;
+		case GXSTEER_TO_LEFT:    draw->setModelConditionState( MODELCONDITION_CENTER_TO_LEFT ); break;
+		case GXSTEER_RIGHT_BACK: draw->clearAndSetModelConditionState( MODELCONDITION_CENTER_TO_RIGHT, MODELCONDITION_RIGHT_TO_CENTER ); break;
+		case GXSTEER_LEFT_BACK:  draw->clearAndSetModelConditionState( MODELCONDITION_CENTER_TO_LEFT, MODELCONDITION_LEFT_TO_CENTER ); break;
+		case GXSTEER_DONE:       draw->clearModelConditionFlags( MAKE_MODELCONDITION_MASK2( MODELCONDITION_LEFT_TO_CENTER, MODELCONDITION_RIGHT_TO_CENTER ) ); break;
+		default: break;
+	}
+}
+
 UpdateSleepTime AnimationSteeringUpdate::update()
 {
-
-	const AnimationSteeringUpdateModuleData *data = getAnimationSteeringUpdateModuleData();
 	PhysicsBehavior *physics = getObject()->getPhysics();
 	Drawable *draw = getObject()->getDrawable();
-	UnsignedInt now = TheGameLogic->getFrame();
-
-	if( physics && draw && now >= R().nextTransitionFrame )
-	{
-		PhysicsTurningType currentTurn = physics->getTurning();
-
-		switch( R().currentTurnAnim )
-		{
-			case MODELCONDITION_INVALID:
-				//We're currently going straight. Check if we want to turn.
-				if( currentTurn == TURN_NEGATIVE )
-				{
-					//Initiate a right turn
-					draw->setModelConditionState( MODELCONDITION_CENTER_TO_RIGHT );
-					R().nextTransitionFrame = now + data->m_transitionFrames;
-					R().currentTurnAnim = MODELCONDITION_CENTER_TO_RIGHT;
-				}
-				else if( currentTurn == TURN_POSITIVE )
-				{
-					//Initiate a left turn
-					draw->setModelConditionState( MODELCONDITION_CENTER_TO_LEFT );
-					R().nextTransitionFrame = now + data->m_transitionFrames;
-					R().currentTurnAnim = MODELCONDITION_CENTER_TO_LEFT;
-				}
-				break;
-			case MODELCONDITION_CENTER_TO_RIGHT:
-				//We're currently initiating a turn to the right. The only thing
-				//we can do go back to center or maintain the turn.
-				if( currentTurn != TURN_NEGATIVE )
-				{
-					//Recenter!
-					draw->clearAndSetModelConditionState( MODELCONDITION_CENTER_TO_RIGHT, MODELCONDITION_RIGHT_TO_CENTER );
-					R().nextTransitionFrame = now + data->m_transitionFrames;
-					R().currentTurnAnim = MODELCONDITION_RIGHT_TO_CENTER;
-				}
-				break;
-			case MODELCONDITION_CENTER_TO_LEFT:
-				//We're currently initiating a turn to the left. The only thing
-				//we can do go back to center or maintain the turn.
-				if( currentTurn != TURN_POSITIVE )
-				{
-					//Recenter!
-					draw->clearAndSetModelConditionState( MODELCONDITION_CENTER_TO_LEFT, MODELCONDITION_LEFT_TO_CENTER );
-					R().nextTransitionFrame = now + data->m_transitionFrames;
-					R().currentTurnAnim = MODELCONDITION_LEFT_TO_CENTER;
-				}
-				break;
-			case MODELCONDITION_LEFT_TO_CENTER:
-			case MODELCONDITION_RIGHT_TO_CENTER:
-				if( currentTurn == TURN_NONE )
-				{
-					//Finish the turn
-					draw->clearModelConditionFlags( MAKE_MODELCONDITION_MASK2( MODELCONDITION_LEFT_TO_CENTER, MODELCONDITION_RIGHT_TO_CENTER ) );
-					R().nextTransitionFrame = now;
-					R().currentTurnAnim = MODELCONDITION_INVALID;
-				}
-				break;
-		}
-	}
-
+	if (physics && draw)
+		gxSteerApply(draw, gxSteerKernel(R(), physics->getTurning(), TheGameLogic->getFrame(),
+			getAnimationSteeringUpdateModuleData()->m_transitionFrames));
 	return UPDATE_SLEEP_NONE;
 }
 

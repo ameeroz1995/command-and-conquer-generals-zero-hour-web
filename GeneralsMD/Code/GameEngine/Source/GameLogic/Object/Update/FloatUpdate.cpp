@@ -93,28 +93,27 @@ FloatUpdate::~FloatUpdate()
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+static Bool gxFloatKernel(const FloatUpdate::GxState &r, const Coord3D &pos, Coord3D &newPos)
+{
+	if (r.enabled != TRUE)	// if we're not enabled, do nothing
+		return FALSE;
+	Real waterZ;	// the height of the water here
+	TheTerrainLogic->isUnderwater( pos.x, pos.y, &waterZ );
+	newPos.x = pos.x;	// snap to the water surface
+	newPos.y = pos.y;
+	newPos.z = waterZ;
+	return TRUE;
+}
+
 UpdateSleepTime FloatUpdate::update()
 {
 /// @todo srj use SLEEPY_UPDATE here
 
-	// if we're not enabled, do nothing
-	if( R().enabled == TRUE )
-	{
-		// get object position
-		const Coord3D *pos = getObject()->getPosition();
-
-		// get the height of the water here
-		Real waterZ;
-		TheTerrainLogic->isUnderwater( pos->x, pos->y, &waterZ );
-
-		// snap to the water surface
-		Coord3D newPos;
-		newPos.x = pos->x;
-		newPos.y = pos->y;
-		newPos.z = waterZ;
+	// web port (round 5 addendum): kernel = the water-surface position (reads its row, its position
+	// and the terrain's water heights, read-only in the tick; writes nothing); apply = setPosition.
+	Coord3D newPos;
+	if (gxFloatKernel(R(), *getObject()->getPosition(), newPos))
 		getObject()->setPosition( &newPos );
-
-	}
 
 	Drawable *draw = getObject()->getDrawable();
 	if (draw)

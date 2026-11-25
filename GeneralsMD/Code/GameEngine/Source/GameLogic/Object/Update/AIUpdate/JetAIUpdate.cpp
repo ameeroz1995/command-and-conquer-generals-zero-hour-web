@@ -1967,6 +1967,33 @@ void JetAIUpdate::getProducerLocation()
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the jet timer kernel. Pure: attack-locomotor, attackers-miss and
+// untargetable expiry. reads: attacking, the frame, the persist times; reads/writes its row
+// (attackLocoExpireFrame, attackersMissExpireFrame, untargetableExpireFrame) only. True when the
+// attack locomotor just expired (apply: back to the normal locomotor set).
+static Bool gxJetTimerKernel(JetAIUpdate::GxState &r, Bool attacking, UnsignedInt now, UnsignedInt attackLocoPersist, UnsignedInt attackersMissPersist)
+{
+	Bool attackLocoExpired = FALSE;
+	if (attacking)
+	{
+		r.attackLocoExpireFrame = now + attackLocoPersist;
+		r.attackersMissExpireFrame = now + attackersMissPersist;
+	}
+	else
+	{
+		if (r.attackLocoExpireFrame != 0 && now >= r.attackLocoExpireFrame)
+		{
+			r.attackLocoExpireFrame = 0;
+			attackLocoExpired = TRUE;
+		}
+		if (r.attackersMissExpireFrame != 0 && now >= r.attackersMissExpireFrame)
+			r.attackersMissExpireFrame = 0;
+	}
+	if (r.untargetableExpireFrame != 0 && now >= r.untargetableExpireFrame)
+		r.untargetableExpireFrame = 0;
+	return attackLocoExpired;
+}
+
 UpdateSleepTime JetAIUpdate::update()
 {
 	const JetAIUpdateModuleData* d = getJetAIUpdateModuleData();
@@ -2101,31 +2128,14 @@ UpdateSleepTime JetAIUpdate::update()
 	else
 		jet->clearModelConditionState(MODELCONDITION_JETEXHAUST);
 
-	if (jet->testStatus(OBJECT_STATUS_IS_ATTACKING))
+	// web port (round 5 addendum): the timers are the kernel; the locomotor reset is the apply step
+	if (gxJetTimerKernel(R(), jet->testStatus(OBJECT_STATUS_IS_ATTACKING), now, d->m_attackLocoPersistTime, d->m_attackersMissPersistTime))
 	{
-		R().attackLocoExpireFrame = now + d->m_attackLocoPersistTime;
-		R().attackersMissExpireFrame = now + d->m_attackersMissPersistTime;
-	}
-	else
-	{
-		if (R().attackLocoExpireFrame != 0 && now >= R().attackLocoExpireFrame)
-		{
-			R().attackLocoExpireFrame = 0;
 #if !RETAIL_COMPATIBLE_CRC
-			// TheSuperHackers @bugfix arcticdolphin 04/03/2026 Reset locomotor when attack locomotor timer expires.
-			// Relevant for the Supersonic Mode of the USA Aurora.
-			chooseLocomotorSet(LOCOMOTORSET_NORMAL);
+		// TheSuperHackers @bugfix arcticdolphin 04/03/2026 Reset locomotor when attack locomotor timer expires.
+		// Relevant for the Supersonic Mode of the USA Aurora.
+		chooseLocomotorSet(LOCOMOTORSET_NORMAL);
 #endif
-		}
-		if (R().attackersMissExpireFrame != 0 && now >= R().attackersMissExpireFrame)
-		{
-			R().attackersMissExpireFrame = 0;
-		}
-	}
-
-	if (R().untargetableExpireFrame != 0 && now >= R().untargetableExpireFrame)
-	{
-		R().untargetableExpireFrame = 0;
 	}
 
 	positionLockon();

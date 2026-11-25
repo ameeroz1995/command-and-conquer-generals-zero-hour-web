@@ -236,6 +236,15 @@ void HordeUpdate::onDrawableBoundToObject()
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the horde kernel. Pure: from the gathered neighbour count and rub-off
+// test, this unit's horde state. reads: count, min count, rubOff; writes: its row only.
+static void gxHordeKernel(HordeUpdate::GxState &r, UnsignedInt now, Int count, Int minCount, Bool rubOff)
+{
+	r.lastHordeRefreshFrame = now;
+	r.trueHordeMember = (count >= minCount - 1);	// we really are in the thick part of the horde
+	r.inHorde = r.trueHordeMember || rubOff;	// ...unless a true member rubs off on us
+}
+
 UpdateSleepTime HordeUpdate::update()
 {
 
@@ -254,25 +263,19 @@ UpdateSleepTime HordeUpdate::update()
 	// will rebuild the terrain decal and set its size to the default size.... since Vehicles have a special size,
 	// we want to keep it fresh, here, but not do the hording test every frame...
 	Bool isInfantry = ( obj->isKindOf(KINDOF_INFANTRY) );
-	if ( isInfantry || (TheGameLogic->getFrame() > R().lastHordeRefreshFrame + md->m_updateRate) )
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if ( isInfantry || (now > R().lastHordeRefreshFrame + md->m_updateRate) )
 	{
-		R().lastHordeRefreshFrame = TheGameLogic->getFrame();
-
+		// gather (main thread: partition search, other units' modules): neighbours in range, and
+		// whether a true horde member is close enough to rub off on us
 		PartitionFilterHordeMember hmFilter(getObject(), md);
 		PartitionFilter *filters[] = { &hmFilter, nullptr };
 		SimpleObjectIterator *iter = ThePartitionManager->iterateObjectsInRange(getObject(), md->m_minDist, FROM_BOUNDINGSPHERE_3D, filters);
 		MemoryPoolObjectHolder hold(iter);
-
-		if ((iter->getCount() >= md->m_minCount - 1) )//we really are in the thick part of the horde
+		const Int count = iter->getCount();
+		Bool rubOff = FALSE;
+		if (!(count >= md->m_minCount - 1))
 		{
-			R().inHorde = TRUE;
-			R().trueHordeMember = TRUE;
-		}
-		else
-		{
-			R().inHorde = FALSE;
-			R().trueHordeMember = FALSE;/// unless...
-
 			Real rubOffRadiusSq = sqr(md->m_rubOffRadius);
 			for (Object* other = iter->first(); other; other = iter->next())
 			{
@@ -280,16 +283,16 @@ UpdateSleepTime HordeUpdate::update()
 				if ( hui != nullptr && hui->isTrueHordeMember() )
 				{
 					Real dist = ThePartitionManager->getDistanceSquared(getObject(), other, FROM_CENTER_2D);
-
 					if (dist <= rubOffRadiusSq )
 					{
-						R().inHorde = TRUE;
+						rubOff = TRUE;
 						break;
 					}
-
 				}
 			}
 		}
+
+		gxHordeKernel(R(), now, count, md->m_minCount, rubOff);
 
 		AIUpdateInterface *ai = getObject()->getAIUpdateInterface();
 		if( ai )

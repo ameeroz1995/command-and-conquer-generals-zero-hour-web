@@ -125,6 +125,36 @@ void MobMemberSlavedUpdate::onSlaverDamage( const DamageInfo *info )
 
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the mob-member kernel. Pure: from the gathered distance to the
+// nexus and whether this unit is moving, which branch it takes and its catch-up crisis timer.
+// reads: its row (catchUpCrisisTimer), the distance, the module data's radii and bail time;
+// writes: its row only. Apply (in update): locomotor sets, orders, kill, random wander, targets.
+enum GxMobBranch { GXMOB_CATCH_UP, GXMOB_TRIP, GXMOB_IDLE };
+enum GxMobCrisis { GXMOB_CALM, GXMOB_BEEHIVE, GXMOB_BAIL };
+struct GxMobDecision { GxMobBranch branch; GxMobCrisis crisis; };
+
+static GxMobDecision gxMobKernel(MobMemberSlavedUpdate::GxState &r, Real catchUpRadiusSquared, Real mustCatchUpRadius, UnsignedInt bailTime, Bool moving)
+{
+	GxMobDecision d;
+	d.crisis = GXMOB_CALM;
+	if (catchUpRadiusSquared > sqr(mustCatchUpRadius))
+	{
+		d.branch = GXMOB_CATCH_UP;
+		if (catchUpRadiusSquared > sqr(mustCatchUpRadius * 3))	// critically far
+		{
+			++r.catchUpCrisisTimer;
+			if (r.catchUpCrisisTimer > bailTime)
+				d.crisis = GXMOB_BAIL;
+			else if (r.catchUpCrisisTimer > bailTime/3)
+				d.crisis = GXMOB_BEEHIVE;
+		}
+		return d;
+	}
+	r.catchUpCrisisTimer = 0;	// I'm not too far from the nexus this frame
+	d.branch = moving ? GXMOB_TRIP : GXMOB_IDLE;
+	return d;
+}
+
 UpdateSleepTime MobMemberSlavedUpdate::update()
 {
 /// @todo srj use SLEEPY_UPDATE here
@@ -207,8 +237,9 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 
 
 	Real catchUpRadiusSquared = ThePartitionManager->getDistanceSquared( me, master, FROM_CENTER_3D );
+	const GxMobDecision dec = gxMobKernel(R(), catchUpRadiusSquared, data->m_mustCatchUpRadius, data->m_catchUpCrisisBailTime, myAI->isMoving());
 	// I'm too far from the nexus... I need to catch up now!
-	if( catchUpRadiusSquared > sqr( data->m_mustCatchUpRadius ) )
+	if( dec.branch == GXMOB_CATCH_UP )
 	{
 
 		if ( masterAI->isMoving() )// master is on the move
@@ -246,38 +277,20 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 
 
 
-		if (catchUpRadiusSquared > sqr( data->m_mustCatchUpRadius * 3))// I am critically far, now!
+		if (dec.crisis == GXMOB_BAIL)// I am critically far, now, for too long
 		{
-			++ R().catchUpCrisisTimer; // I'm way too far from the nexus this frame
-
-			if ( R().catchUpCrisisTimer > data->m_catchUpCrisisBailTime)
-			{
-				me->kill();
-				return UPDATE_SLEEP_NONE;
-
-				// Here is the rethink:
-				// If the nexus has outrun me to the target by so much, //
-				// lets make the nexus come to me, and try to return to where I find it
-//				Coord3D masterPosition = *master->getPosition();
-//				master->setPosition( me->getPosition() );
-//				if ( ! masterAI->isMoving() )
-//				{
-//					masterAI->aiMoveToPosition( &masterPosition, CMD_FROM_AI );
-//				}
-//				R().catchUpCrisisTimer = 0;
-			}
-			else if ( R().catchUpCrisisTimer > data->m_catchUpCrisisBailTime/3 )
-			{
-				myAI->aiMoveToPosition( master->getPosition(), CMD_FROM_AI ); // NASTY BEEHIVE EFFECT
-			}
+			me->kill();
+			return UPDATE_SLEEP_NONE;
+		}
+		else if (dec.crisis == GXMOB_BEEHIVE)
+		{
+			myAI->aiMoveToPosition( master->getPosition(), CMD_FROM_AI ); // NASTY BEEHIVE EFFECT
 		}
 
 
 	}
-	else if ( myAI->isMoving() ) // we're all on a trip, together
+	else if ( dec.branch == GXMOB_TRIP ) // we're all on a trip, together
 	{
-
-		R().catchUpCrisisTimer = 0; // I'm not too far from the nexus this frame
 
 		Int seed = GameLogicRandomValue( 0, 10 );
 		if ( seed == 1 )
@@ -296,7 +309,6 @@ UpdateSleepTime MobMemberSlavedUpdate::update()
 	}
 	else // give me something to do while I'm standing here...
 	{
-		R().catchUpCrisisTimer = 0; // I'm not too far from the nexus this frame
 
 		SpawnBehaviorInterface *spawnerBehavior = master->getSpawnBehaviorInterface();
 
