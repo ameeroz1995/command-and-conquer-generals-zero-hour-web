@@ -37,6 +37,8 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/Module/RadarUpdate.h"
 
+GX_COMPONENT_TABLE_DEFINE(RadarUpdate)
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 RadarUpdateModuleData::RadarUpdateModuleData()
@@ -52,13 +54,14 @@ RadarUpdateModuleData::RadarUpdateModuleData()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-RadarUpdate::RadarUpdate( Thing *thing, const ModuleData *moduleData )
-												: UpdateModule( thing, moduleData )
+RadarUpdate::RadarUpdate( Thing *thing, const ModuleData *moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxRow = gxTable().add(this);
 
-	m_radarActive = FALSE;
-	m_extendDoneFrame = 0;
-	m_extendComplete = FALSE;
+
+	R().m_radarActive = FALSE;
+	R().m_extendDoneFrame = 0;
+	R().m_extendComplete = FALSE;
 
 }
 
@@ -66,6 +69,7 @@ RadarUpdate::RadarUpdate( Thing *thing, const ModuleData *moduleData )
 //-------------------------------------------------------------------------------------------------
 RadarUpdate::~RadarUpdate()
 {
+	gxTable().remove(m_gxRow);
 
 }
 
@@ -81,10 +85,10 @@ void RadarUpdate::extendRadar()
 		draw->setModelConditionState( MODELCONDITION_RADAR_EXTENDING );
 
 	// mark the frame that the extension will be done on
-	m_extendDoneFrame = TheGameLogic->getFrame() + modData->m_radarExtendTime;
+	R().m_extendDoneFrame = TheGameLogic->getFrame() + modData->m_radarExtendTime;
 
 	//Change this to make the radar active after extension...
-	m_radarActive = true;
+	R().m_radarActive = true;
 
 }
 
@@ -95,20 +99,20 @@ UpdateSleepTime RadarUpdate::update()
 /// @todo srj use SLEEPY_UPDATE here
 
 	// if no extend frame nothing to do
-	if( m_extendDoneFrame == 0 )
+	if( R().m_extendDoneFrame == 0 )
 		return UPDATE_SLEEP_NONE;
 
 	// check to see if our extension is already done
-	if( m_extendComplete == TRUE )
+	if( R().m_extendComplete == TRUE )
 		return UPDATE_SLEEP_NONE;
 
 	// see if it's time to stop the extension
-	if( TheGameLogic->getFrame() > m_extendDoneFrame )
+	if( TheGameLogic->getFrame() > R().m_extendDoneFrame )
 	{
 
 		// mark extend as done
-		m_extendComplete = TRUE;
-		m_extendDoneFrame = 0;  // just to be clean
+		R().m_extendComplete = TRUE;
+		R().m_extendDoneFrame = 0;  // just to be clean
 
 		// remove the extending condition and set the extended condition
 		Drawable *draw = getObject()->getDrawable();
@@ -150,13 +154,13 @@ void RadarUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// extend done frame
-	xfer->xferUnsignedInt( &m_extendDoneFrame );
+	xfer->xferUnsignedInt( &R().m_extendDoneFrame );
 
 	// extend complete
-	xfer->xferBool( &m_extendComplete );
+	xfer->xferBool( &R().m_extendComplete );
 
 	// radar active
-	xfer->xferBool( &m_radarActive );
+	xfer->xferBool( &R().m_radarActive );
 
 }
 

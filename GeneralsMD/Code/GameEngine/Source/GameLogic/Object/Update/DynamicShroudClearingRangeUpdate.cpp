@@ -34,6 +34,8 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/Module/DynamicShroudClearingRangeUpdate.h"
 
+GX_COMPONENT_TABLE_DEFINE(DynamicShroudClearingRangeUpdate)
+
 
 
 
@@ -83,32 +85,34 @@ DynamicShroudClearingRangeUpdateModuleData::DynamicShroudClearingRangeUpdateModu
 //-------------------------------------------------------------------------------------------------
 DynamicShroudClearingRangeUpdate::DynamicShroudClearingRangeUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxRow = gxTable().add(this);
+
 	DynamicShroudClearingRangeUpdateModuleData *md = (DynamicShroudClearingRangeUpdateModuleData *)moduleData;
 //	m_shrinkStartCountdown = md->m_shrinkDelay;
 //	m_shrinkDeadline = 0;
-	m_changeIntervalCountdown = 0;
-	m_visionChangePerInterval = 0.0f;
+	R().m_changeIntervalCountdown = 0;
+	R().m_visionChangePerInterval = 0.0f;
 
 
-	m_stateCountDown = md->m_shrinkDelay + md->m_shrinkTime;// total time
-	m_totalFrames = max(1,m_stateCountDown);
-	m_shrinkStartDeadline = m_stateCountDown - md->m_shrinkDelay;
-	m_growStartDeadline =   m_stateCountDown - md->m_growDelay;
-	m_sustainDeadline  = m_growStartDeadline - md->m_growTime;
+	R().m_stateCountDown = md->m_shrinkDelay + md->m_shrinkTime;// total time
+	R().m_totalFrames = max(1,R().m_stateCountDown);
+	R().m_shrinkStartDeadline = R().m_stateCountDown - md->m_shrinkDelay;
+	R().m_growStartDeadline =   R().m_stateCountDown - md->m_growDelay;
+	R().m_sustainDeadline  = R().m_growStartDeadline - md->m_growTime;
 
-	DEBUG_ASSERTCRASH((m_sustainDeadline >= m_shrinkStartDeadline),("DynamicShroudClearingRangeUpdate\nYOU WILL NEVER REACH FULL SHROUD CLEARING RANGE WITH THESE TIMES AND DELAYS"));
-	DEBUG_ASSERTCRASH((m_growStartDeadline >= m_shrinkStartDeadline),("DynamicShroudClearingRangeUpdate\nYOU WILL NEVER REACH FULL SHROUD CLEARING RANGE WITH THESE TIMES AND DELAYS"));
+	DEBUG_ASSERTCRASH((R().m_sustainDeadline >= R().m_shrinkStartDeadline),("DynamicShroudClearingRangeUpdate\nYOU WILL NEVER REACH FULL SHROUD CLEARING RANGE WITH THESE TIMES AND DELAYS"));
+	DEBUG_ASSERTCRASH((R().m_growStartDeadline >= R().m_shrinkStartDeadline),("DynamicShroudClearingRangeUpdate\nYOU WILL NEVER REACH FULL SHROUD CLEARING RANGE WITH THESE TIMES AND DELAYS"));
 
-	m_doneForeverFrame = TheGameLogic->getFrame() + m_stateCountDown;// a failsafe to force a shutdown on schedule
+	R().m_doneForeverFrame = TheGameLogic->getFrame() + R().m_stateCountDown;// a failsafe to force a shutdown on schedule
 
-//	m_shrinkStartDeadline;
-//	m_doneForeverFrame; //
+//	R().m_shrinkStartDeadline;
+//	R().m_doneForeverFrame; //
 
-	m_decalsCreated = FALSE;
-	m_nativeClearingRange = 200;// a sensible default
-	m_currentClearingRange = 0;
+	R().m_decalsCreated = FALSE;
+	R().m_nativeClearingRange = 200;// a sensible default
+	R().m_currentClearingRange = 0;
 
-	m_state = DSCRU_NOT_STARTED_YET;
+	R().m_state = DSCRU_NOT_STARTED_YET;
 //	m_shrinkFinished = FALSE;
 //	m_shrinkStarted = FALSE;
 
@@ -119,11 +123,11 @@ DynamicShroudClearingRangeUpdate::DynamicShroudClearingRangeUpdate( Thing *thing
 	if ( ! controller )
 		return;
 
-	m_nativeClearingRange = obj->getShroudClearingRange();//capture this before we start monkeying with it
+	R().m_nativeClearingRange = obj->getShroudClearingRange();//capture this before we start monkeying with it
 
 	for (int d = 0; d < GRID_FX_DECAL_COUNT; ++d)
 	{
-		m_gridDecal[d].clear();
+		R().m_gridDecal[d].clear();
 	}
 
 }
@@ -132,6 +136,7 @@ DynamicShroudClearingRangeUpdate::DynamicShroudClearingRangeUpdate( Thing *thing
 //-------------------------------------------------------------------------------------------------
 DynamicShroudClearingRangeUpdate::~DynamicShroudClearingRangeUpdate()
 {
+	gxTable().remove(m_gxRow);
 	killGridDecals();// just in case
 
 }
@@ -142,9 +147,9 @@ void DynamicShroudClearingRangeUpdate::createGridDecals( const RadiusDecalTempla
 {
 	for (int d = 0; d < GRID_FX_DECAL_COUNT; ++d)
 	{
-		m_gridDecal[d].clear();
-		tmpl.createRadiusDecal(pos, radius, getObject()->getControllingPlayer(), m_gridDecal[d]);
-		m_gridDecal[d].setPosition(pos);
+		R().m_gridDecal[d].clear();
+		tmpl.createRadiusDecal(pos, radius, getObject()->getControllingPlayer(), R().m_gridDecal[d]);
+		R().m_gridDecal[d].setPosition(pos);
 	}
 
 
@@ -159,10 +164,10 @@ void DynamicShroudClearingRangeUpdate::animateGridDecals()
 	Coord3D pos;
 	pos.z = 0;
 
-	Real radius = m_currentClearingRange + ((m_totalFrames - m_stateCountDown) * 2);
+	Real radius = R().m_currentClearingRange + ((R().m_totalFrames - R().m_stateCountDown) * 2);
 	Real angle = 0.0f;
 	Real angleInc = (PI*2.0f) / (Real)GRID_FX_DECAL_COUNT;
-	Real opacity = 1.0f - (m_currentClearingRange / m_nativeClearingRange);
+	Real opacity = 1.0f - (R().m_currentClearingRange / R().m_nativeClearingRange);
 
 	for (int d = 0; d < GRID_FX_DECAL_COUNT; ++d)
 	{
@@ -172,8 +177,8 @@ void DynamicShroudClearingRangeUpdate::animateGridDecals()
 		pos.x -= ((Int)pos.x)%23;
 		pos.y -= ((Int)pos.y)%23;
 
-		m_gridDecal[d].setPosition(pos);
-		m_gridDecal[d].setOpacity( opacity );
+		R().m_gridDecal[d].setPosition(pos);
+		R().m_gridDecal[d].setOpacity( opacity );
 		angle += angleInc;
 
 	}
@@ -188,7 +193,7 @@ void DynamicShroudClearingRangeUpdate::killGridDecals()
 {
 	for (int d = 0; d < GRID_FX_DECAL_COUNT; ++d)
 	{
-		m_gridDecal[d].clear();
+		R().m_gridDecal[d].clear();
 	}
 
 }
@@ -199,7 +204,7 @@ void DynamicShroudClearingRangeUpdate::killGridDecals()
 //-------------------------------------------------------------------------------------------------
 UpdateSleepTime DynamicShroudClearingRangeUpdate::update()
 {
-	if (m_state == DSCRU_SLEEPING) {
+	if (R().m_state == DSCRU_SLEEPING) {
 		return UPDATE_SLEEP_NONE;
 	}
 	//Housekeeping-----------------------------------------
@@ -207,25 +212,25 @@ UpdateSleepTime DynamicShroudClearingRangeUpdate::update()
 	const DynamicShroudClearingRangeUpdateModuleData *md = getDynamicShroudClearingRangeUpdateModuleData();
 	UnsignedInt currentFrame = TheGameLogic->getFrame();
 
-	if ( ! m_decalsCreated )
+	if ( ! R().m_decalsCreated )
 	{
 		createGridDecals(md->m_gridDecalTemplate, 100, *(me->getPosition()));
-		m_decalsCreated = TRUE;
+		R().m_decalsCreated = TRUE;
 	}
 	//-----------------------------------------------------
 
 
-	if( m_stateCountDown <= 0 || currentFrame > m_doneForeverFrame )
-		m_state = DSCRU_DONE_FOREVER;
-	else if ( m_stateCountDown <= m_shrinkStartDeadline  )
-		m_state = DSCRU_SHRINKING;
-	else if ( m_stateCountDown <= m_sustainDeadline )
-		m_state = DSCRU_SUSTAINING;
-	else if ( m_stateCountDown <= m_growStartDeadline )
-		m_state = DSCRU_GROWING;
+	if( R().m_stateCountDown <= 0 || currentFrame > R().m_doneForeverFrame )
+		R().m_state = DSCRU_DONE_FOREVER;
+	else if ( R().m_stateCountDown <= R().m_shrinkStartDeadline  )
+		R().m_state = DSCRU_SHRINKING;
+	else if ( R().m_stateCountDown <= R().m_sustainDeadline )
+		R().m_state = DSCRU_SUSTAINING;
+	else if ( R().m_stateCountDown <= R().m_growStartDeadline )
+		R().m_state = DSCRU_GROWING;
 
 
-	switch (m_state)
+	switch (R().m_state)
 	{
 
 		case DSCRU_NOT_STARTED_YET :
@@ -238,43 +243,43 @@ UpdateSleepTime DynamicShroudClearingRangeUpdate::update()
 		{
 			animateGridDecals();
 
-			m_currentClearingRange += m_nativeClearingRange / max(1.0f, (Real)md->m_growTime);
-			if (m_currentClearingRange >= m_nativeClearingRange)
-				m_state = DSCRU_SUSTAINING;
+			R().m_currentClearingRange += R().m_nativeClearingRange / max(1.0f, (Real)md->m_growTime);
+			if (R().m_currentClearingRange >= R().m_nativeClearingRange)
+				R().m_state = DSCRU_SUSTAINING;
 			break;
 		}
 		case DSCRU_SUSTAINING :
 		{
-			m_currentClearingRange = m_nativeClearingRange;
+			R().m_currentClearingRange = R().m_nativeClearingRange;
 			killGridDecals();
 			break;
 		}
 		case DSCRU_SHRINKING :
 		{
-			m_currentClearingRange -= (m_nativeClearingRange-md->m_finalVision) / max(1.0f, (Real)md->m_shrinkTime);
+			R().m_currentClearingRange -= (R().m_nativeClearingRange-md->m_finalVision) / max(1.0f, (Real)md->m_shrinkTime);
 			break;
 		}
 		case DSCRU_DONE_FOREVER :
 		{
 			killGridDecals();
-			m_currentClearingRange = md->m_finalVision;
+			R().m_currentClearingRange = md->m_finalVision;
 			break;
 		}
 
 	}
 
-	if ( m_stateCountDown > 0 ) m_stateCountDown --;// it is important that this gets called every frame without sleeping
+	if ( R().m_stateCountDown > 0 ) R().m_stateCountDown --;// it is important that this gets called every frame without sleeping
 	//because it handles animation and may need to respond to changing vision range from scripts & stuff
 
 
-	if( m_changeIntervalCountdown > 0 )
-		m_changeIntervalCountdown--;
+	if( R().m_changeIntervalCountdown > 0 )
+		R().m_changeIntervalCountdown--;
 	else
 	{// reset per change timer
-		m_changeIntervalCountdown = ( m_state == DSCRU_GROWING ? md->m_growInterval : md->m_changeInterval);
-		me->setShroudClearingRange( m_currentClearingRange );
-		if (m_state == DSCRU_DONE_FOREVER) { // We are done forever, and have done the final update, so sleep.+
-			m_state = DSCRU_SLEEPING;
+		R().m_changeIntervalCountdown = ( R().m_state == DSCRU_GROWING ? md->m_growInterval : md->m_changeInterval);
+		me->setShroudClearingRange( R().m_currentClearingRange );
+		if (R().m_state == DSCRU_DONE_FOREVER) { // We are done forever, and have done the final update, so sleep.+
+			R().m_state = DSCRU_SLEEPING;
 		}
 	}
 
@@ -292,12 +297,12 @@ UpdateSleepTime DynamicShroudClearingRangeUpdate::update()
 //			m_shrinkStarted = TRUE;
 //
 //			// Timer for how often to change
-//			m_changeIntervalCountdown = md->m_changeInterval;
+//			R().m_changeIntervalCountdown = md->m_changeInterval;
 //			// Marker to make sure we end up precisely correct regardless of interval
 //			m_shrinkDeadline = TheGameLogic->getFrame() + md->m_shrinkTime;
 //			// Figure out how much to change each interval
 //			Real visionDiff = me->getShroudClearingRange() - md->m_finalVision;
-//			m_visionChangePerInterval = -visionDiff/(md->m_shrinkTime/md->m_changeInterval);
+//			R().m_visionChangePerInterval = -visionDiff/(md->m_shrinkTime/md->m_changeInterval);
 //		}
 //		else
 //		{
@@ -305,12 +310,12 @@ UpdateSleepTime DynamicShroudClearingRangeUpdate::update()
 //		}
 //	}
 
-//	if( m_changeIntervalCountdown > 0 )
-//		m_changeIntervalCountdown--;
-//	if( m_changeIntervalCountdown != 0 )
+//	if( R().m_changeIntervalCountdown > 0 )
+//		R().m_changeIntervalCountdown--;
+//	if( R().m_changeIntervalCountdown != 0 )
 //		return UPDATE_SLEEP_NONE;
 //	// reset per change timer
-//	m_changeIntervalCountdown = getDynamicShroudClearingRangeUpdateModuleData()->m_changeInterval;
+//	R().m_changeIntervalCountdown = getDynamicShroudClearingRangeUpdateModuleData()->m_changeInterval;
 //	UnsignedInt currentFrame = TheGameLogic->getFrame();
 
 //	if( currentFrame > m_shrinkDeadline )
@@ -323,7 +328,7 @@ UpdateSleepTime DynamicShroudClearingRangeUpdate::update()
 //	else
 //	{
 //		// bump the vision again
-//		me->setShroudClearingRange( me->getShroudClearingRange() + m_visionChangePerInterval );
+//		me->setShroudClearingRange( me->getShroudClearingRange() + R().m_visionChangePerInterval );
 //	}
 //	return UPDATE_SLEEP_NONE;
 }
@@ -356,27 +361,27 @@ void DynamicShroudClearingRangeUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// shrink start countdown
-	xfer->xferInt( &m_stateCountDown );
+	xfer->xferInt( &R().m_stateCountDown );
 
-	xfer->xferInt( &m_totalFrames );
+	xfer->xferInt( &R().m_totalFrames );
 
-	xfer->xferUnsignedInt( &m_growStartDeadline );
+	xfer->xferUnsignedInt( &R().m_growStartDeadline );
 
-	xfer->xferUnsignedInt( &m_sustainDeadline );
+	xfer->xferUnsignedInt( &R().m_sustainDeadline );
 
-	xfer->xferUnsignedInt( &m_shrinkStartDeadline );
+	xfer->xferUnsignedInt( &R().m_shrinkStartDeadline );
 
-	xfer->xferUnsignedInt( &m_doneForeverFrame );
+	xfer->xferUnsignedInt( &R().m_doneForeverFrame );
 
-	xfer->xferUnsignedInt( &m_changeIntervalCountdown );
+	xfer->xferUnsignedInt( &R().m_changeIntervalCountdown );
 
 	// vision change per interval
-	xfer->xferBool( &m_decalsCreated );
+	xfer->xferBool( &R().m_decalsCreated );
 
-	xfer->xferReal( &m_visionChangePerInterval );
+	xfer->xferReal( &R().m_visionChangePerInterval );
 
-	xfer->xferReal( &m_nativeClearingRange );
-	xfer->xferReal( &m_currentClearingRange );
+	xfer->xferReal( &R().m_nativeClearingRange );
+	xfer->xferReal( &R().m_currentClearingRange );
 
 }
 

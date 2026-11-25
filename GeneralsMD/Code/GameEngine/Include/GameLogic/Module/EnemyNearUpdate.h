@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
 #include "Common/KindOf.h"
+#include "GameLogic/GxComponentTable.h"
 
 //-------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
@@ -60,6 +61,13 @@ public:
 //-------------------------------------------------------------------------------------------------
 /** EnemyNear update */
 //-------------------------------------------------------------------------------------------------
+// Web port (round 5): EnemyNearUpdate's per-unit state, one row per module in its component table
+struct EnemyNearUpdateRow
+{
+	UnsignedInt m_enemyScanDelay;
+	Bool m_enemyNear;
+};
+
 class EnemyNearUpdate : public UpdateModule
 {
 
@@ -75,9 +83,8 @@ public:
 
 protected:
 
-	UnsignedInt m_enemyScanDelay;
-	Bool m_enemyNear;
 
 	void checkForEnemies();
 
+	GX_COMPONENT_ROWS(EnemyNearUpdate, EnemyNearUpdateRow)
 };

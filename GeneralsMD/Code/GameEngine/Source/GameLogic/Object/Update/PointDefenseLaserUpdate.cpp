@@ -48,6 +48,8 @@
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Weapon.h"
 
+GX_COMPONENT_TABLE_DEFINE(PointDefenseLaserUpdate)
+
 
 
 //-------------------------------------------------------------------------------------------------
@@ -81,10 +83,12 @@ PointDefenseLaserUpdateModuleData::PointDefenseLaserUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 PointDefenseLaserUpdate::PointDefenseLaserUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_bestTargetID = INVALID_ID;
-	m_nextScanFrames = 0;
-	m_nextShotAvailableInFrames = 0;
-	m_inRange  					= false;
+	m_gxRow = gxTable().add(this);
+
+	R().m_bestTargetID = INVALID_ID;
+	R().m_nextScanFrames = 0;
+	R().m_nextShotAvailableInFrames = 0;
+	R().m_inRange  					= false;
 	setWakeFrame(getObject(), UPDATE_SLEEP_NONE);// No starting sleep, but we want to sleep later.
 }
 
@@ -92,6 +96,7 @@ PointDefenseLaserUpdate::PointDefenseLaserUpdate( Thing *thing, const ModuleData
 //-------------------------------------------------------------------------------------------------
 PointDefenseLaserUpdate::~PointDefenseLaserUpdate()
 {
+	gxTable().remove(m_gxRow);
 
 }
 
@@ -140,13 +145,13 @@ UpdateSleepTime PointDefenseLaserUpdate::update()
 	const PointDefenseLaserUpdateModuleData *data = getPointDefenseLaserUpdateModuleData();
 
 	//Optimized firing at acquired target
-	if( m_nextScanFrames > 0 )
+	if( R().m_nextScanFrames > 0 )
 	{
-		m_nextScanFrames--;
+		R().m_nextScanFrames--;
 		fireWhenReady(); //Only happens if something is tracked.
 		return UPDATE_SLEEP_NONE;
 	}
-	m_nextScanFrames = data->m_scanFrames;
+	R().m_nextScanFrames = data->m_scanFrames;
 
 	//Periodic scanning (expensive)
 	if( scanClosestTarget() )
@@ -163,7 +168,7 @@ void PointDefenseLaserUpdate::fireWhenReady()
 	const PointDefenseLaserUpdateModuleData *data = getPointDefenseLaserUpdateModuleData();
 
 	//Track our target
-	Object *target = TheGameLogic->findObjectByID( m_bestTargetID );
+	Object *target = TheGameLogic->findObjectByID( R().m_bestTargetID );
 	if( target )
 	{
 		WeaponBonus bonus;
@@ -174,35 +179,35 @@ void PointDefenseLaserUpdate::fireWhenReady()
 		if( fDist < fireRange )
 		{
 			//We are currently in range!
-			m_inRange = true;
+			R().m_inRange = true;
 		}
 		else
 		{
-			if( m_inRange )
+			if( R().m_inRange )
 			{
 				//We were in range last frame, but the target has moved out of firing range, so
 				//re-evaluate by forcing a new scan.
-				m_nextScanFrames = GameLogicRandomValue( 0, 3 );
-				m_bestTargetID = INVALID_ID;
-				if( !m_nextScanFrames )
+				R().m_nextScanFrames = GameLogicRandomValue( 0, 3 );
+				R().m_bestTargetID = INVALID_ID;
+				if( !R().m_nextScanFrames )
 				{
 					scanClosestTarget();
-					m_nextScanFrames = data->m_scanFrames;
+					R().m_nextScanFrames = data->m_scanFrames;
 					target = nullptr; //Set target to nullptr so we don't shoot at it (might be out of range)
 				}
 			}
 			else
 			{
 				//Not in range
-				m_inRange = false;
+				R().m_inRange = false;
 			}
 		}
 	}
 
-	if( m_nextShotAvailableInFrames > 0 )
+	if( R().m_nextShotAvailableInFrames > 0 )
 	{
 		//We can't fire this frame.
-		m_nextShotAvailableInFrames--;
+		R().m_nextShotAvailableInFrames--;
 		return;
 	}
 
@@ -212,7 +217,7 @@ void PointDefenseLaserUpdate::fireWhenReady()
 		WeaponBonus bonus;
 
 		//Fire control!
-		if( target && m_inRange )
+		if( target && R().m_inRange )
 		{
 			if( !target->isEffectivelyDead() )
 			{
@@ -222,17 +227,17 @@ void PointDefenseLaserUpdate::fireWhenReady()
 				deleteInstance(w);
 
 				// And now that we have shot, set our internal reload timer.
-				m_nextShotAvailableInFrames = wt->getDelayBetweenShots( bonus );
+				R().m_nextShotAvailableInFrames = wt->getDelayBetweenShots( bonus );
 			}
 
 			if( target->isEffectivelyDead() )
 			{
-				m_nextScanFrames = GameLogicRandomValue( 0, 3 );
-				m_bestTargetID = INVALID_ID;
-				if( !m_nextScanFrames )
+				R().m_nextScanFrames = GameLogicRandomValue( 0, 3 );
+				R().m_bestTargetID = INVALID_ID;
+				if( !R().m_nextScanFrames )
 				{
 					scanClosestTarget();
-					m_nextScanFrames = data->m_scanFrames;
+					R().m_nextScanFrames = data->m_scanFrames;
 				}
 			}
 		}
@@ -426,38 +431,38 @@ Object* PointDefenseLaserUpdate::gxScan(Bool filtered)
 	if( bestTargetInRange[ 0 ] )
 	{
 		//This is the best primary target in range.
-		m_bestTargetID = bestTargetInRange[ 0 ]->getID();
-		m_inRange = true;
+		R().m_bestTargetID = bestTargetInRange[ 0 ]->getID();
+		R().m_inRange = true;
 		return bestTargetInRange[ 0 ];
 	}
 
 	if( bestTargetInRange[ 1 ] )
 	{
 		//This is the best secondary target in range.
-		m_bestTargetID = bestTargetInRange[ 1 ]->getID();
-		m_inRange = true;
+		R().m_bestTargetID = bestTargetInRange[ 1 ]->getID();
+		R().m_inRange = true;
 		return bestTargetInRange[ 1 ];
 	}
 
 	if( bestTargetOutOfRange[ 0 ] )
 	{
 		//This is the best primary target out of range.
-		m_bestTargetID = bestTargetOutOfRange[ 0 ]->getID();
-		m_inRange = false;
+		R().m_bestTargetID = bestTargetOutOfRange[ 0 ]->getID();
+		R().m_inRange = false;
 		return bestTargetOutOfRange[ 0 ];
 	}
 
 	if( bestTargetOutOfRange[ 1 ] )
 	{
 		//This is the best secondary target out of range.
-		m_bestTargetID = bestTargetOutOfRange[ 1 ]->getID();
-		m_inRange = false;
+		R().m_bestTargetID = bestTargetOutOfRange[ 1 ]->getID();
+		R().m_inRange = false;
 		return bestTargetOutOfRange[ 1 ];
 	}
 
 	//Utter failure -- nothing on the scope.
-	m_bestTargetID = INVALID_ID;
-	m_inRange = false;
+	R().m_bestTargetID = INVALID_ID;
+	R().m_inRange = false;
 	return nullptr;
 }
 
@@ -489,16 +494,16 @@ void PointDefenseLaserUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// best target ID
-	xfer->xferObjectID( &m_bestTargetID );
+	xfer->xferObjectID( &R().m_bestTargetID );
 
 	// in range
-	xfer->xferBool( &m_inRange );
+	xfer->xferBool( &R().m_inRange );
 
 	// next scan frames
-	xfer->xferInt( &m_nextScanFrames );
+	xfer->xferInt( &R().m_nextScanFrames );
 
 	// next shot available in frames
-	xfer->xferInt( &m_nextShotAvailableInFrames );
+	xfer->xferInt( &R().m_nextShotAvailableInFrames );
 
 }
 

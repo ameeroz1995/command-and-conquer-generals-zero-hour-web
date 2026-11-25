@@ -3842,3 +3842,12 @@ Stays default off.
   - moveAfterTick off vs on (paths-28): 14.9 → 14.5 / 7.0 → 6.5 / 34 → 35 and 14.7 → 12.3 /
     6.0 → 5.9 / 21 → 115 (that half ran at load 8.6–9.8). Not faster: kept behind its rule,
     default off, as the round-4 bar asks.
+
+## Round 5 (query): scan-type modules and helpers hold their per-unit state in component tables
+- New GameLogic/GxComponentTable.h: rows in a deque (never move, never copied; RadiusDecal can't be),
+  freed rows reset in place and reused. A module keeps only its row index (R()); xfer/CRC read the row.
+- Converted: StealthDetector, Stealth, EnemyNear, AutoFindHealing, AssistedTargeting, Radar, SpyVision,
+  DynamicShroudClearingRange, PointDefenseLaser, CommandButtonHunt, ObjectDefectionHelper,
+  StatusDamageHelper, SubdualDamageHelper, TempWeaponBonusHelper. ObjectHelper, ObjectRepulsorHelper,
+  ObjectSMCHelper and ObjectWeaponStatusHelper hold no per-unit fields.
+- Same game: referee replay on query-20 matches (9000 frames). Layout change only, so no switch.

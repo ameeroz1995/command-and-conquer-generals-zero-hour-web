@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
+#include "GameLogic/GxComponentTable.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class Thing;
@@ -104,6 +105,26 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+// Web port (round 5): StealthUpdate's per-unit state, one row per module in its component table
+struct StealthUpdateRow
+{
+	UnsignedInt						m_stealthAllowedFrame;
+	UnsignedInt						m_detectionExpiresFrame;
+	UnsignedInt		m_nextBlackMarketCheckFrame;
+	Bool									m_enabled;
+	Real                  m_pulsePhaseRate;
+	Real                  m_pulsePhase;
+	Int										m_disguiseAsPlayerIndex;		//The player team we are wanting to disguise as (might not actually be disguised yet).
+	const ThingTemplate  *m_disguiseAsTemplate;				//The disguise template (might not actually be using it yet)
+	UnsignedInt						m_disguiseTransitionFrames;	//How many frames are left before transition is complete.
+	Bool									m_disguiseHalfpointReached;	//In the middle of the transition, we will switch drawables!
+	Bool									m_transitioningToDisguise;	//Set when we are disguising -- clear when we're transitioning out of.
+	Bool									m_disguised;								//We're disguised as far as other players are concerned.
+	UnsignedInt						m_framesGranted;						//0 means forever... everything else is number of frames before stealth lost.
+	Bool									m_xferRestoreDisguise;			//Tells us we need to restore our disguise
+	WeaponSetType					m_requiresWeaponSetType;
+};
+
 class StealthUpdate : public UpdateModule
 {
 
@@ -125,9 +146,9 @@ public:
 	virtual DisabledMaskType getDisabledTypesToProcess() const { return MAKE_DISABLED_MASK( DISABLED_HELD ); }
 
 	// ??? ugh
-	Bool isDisguised() const { return m_disguiseAsTemplate != nullptr; }
-	Int getDisguisedPlayerIndex() const { return m_disguiseAsPlayerIndex; }
-	const ThingTemplate *getDisguisedTemplate() { return m_disguiseAsTemplate; }
+	Bool isDisguised() const { return R().m_disguiseAsTemplate != nullptr; }
+	Int getDisguisedPlayerIndex() const { return R().m_disguiseAsPlayerIndex; }
+	const ThingTemplate *getDisguisedTemplate() { return R().m_disguiseAsTemplate; }
 	void markAsDetected( UnsignedInt numFrames = 0 );
 	void disguiseAsObject( const Object *target ); //wrapper function for ease.
 	Real getFriendlyOpacity() const;
@@ -141,7 +162,7 @@ public:
   void receiveGrant( Bool active = TRUE, UnsignedInt frames = 0 );
 
   Bool isGrantedBySpecialPower() { return getStealthUpdateModuleData()->m_grantedBySpecialPower; }
-	Bool isTemporaryGrant() { return m_framesGranted > 0; }
+	Bool isTemporaryGrant() { return R().m_framesGranted > 0; }
 
 protected:
 
@@ -155,25 +176,11 @@ protected:
 	UpdateSleepTime calcSleepTime() const;
 
 private:
-	UnsignedInt						m_stealthAllowedFrame;
-	UnsignedInt						m_detectionExpiresFrame;
-	mutable UnsignedInt		m_nextBlackMarketCheckFrame;
-	Bool									m_enabled;
 
-	Real                  m_pulsePhaseRate;
-	Real                  m_pulsePhase;
 
 	//Disguise only members
-	Int										m_disguiseAsPlayerIndex;		//The player team we are wanting to disguise as (might not actually be disguised yet).
-	const ThingTemplate  *m_disguiseAsTemplate;				//The disguise template (might not actually be using it yet)
-	UnsignedInt						m_disguiseTransitionFrames;	//How many frames are left before transition is complete.
-	Bool									m_disguiseHalfpointReached;	//In the middle of the transition, we will switch drawables!
-	Bool									m_transitioningToDisguise;	//Set when we are disguising -- clear when we're transitioning out of.
-	Bool									m_disguised;								//We're disguised as far as other players are concerned.
-	UnsignedInt						m_framesGranted;						//0 means forever... everything else is number of frames before stealth lost.
 
 	// runtime xfer members (does not need saving)
-	Bool									m_xferRestoreDisguise;			//Tells us we need to restore our disguise
-	WeaponSetType					m_requiresWeaponSetType;
 
+	GX_COMPONENT_ROWS(StealthUpdate, StealthUpdateRow)
 };

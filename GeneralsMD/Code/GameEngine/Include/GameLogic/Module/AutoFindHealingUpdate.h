@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/KindOf.h"
 #include "GameLogic/Module/UpdateModule.h"
+#include "GameLogic/GxComponentTable.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class ThingTemplate;
@@ -58,6 +59,12 @@ private:
 //-------------------------------------------------------------------------------------------------
 /** The default	update module */
 //-------------------------------------------------------------------------------------------------
+// Web port (round 5): AutoFindHealingUpdate's per-unit state, one row per module in its component table
+struct AutoFindHealingUpdateRow
+{
+	Int m_nextScanFrames;
+};
+
 class AutoFindHealingUpdate : public UpdateModule
 {
 
@@ -75,5 +82,6 @@ public:
 	Object* scanClosestTarget();
 
 protected:
-	Int m_nextScanFrames;
+
+	GX_COMPONENT_ROWS(AutoFindHealingUpdate, AutoFindHealingUpdateRow)
 };

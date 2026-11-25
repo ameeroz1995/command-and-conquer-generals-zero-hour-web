@@ -52,6 +52,8 @@
 #include "Common/PlayerList.h"
 #include "Common/Player.h"
 
+GX_COMPONENT_TABLE_DEFINE(StealthDetectorUpdate)
+
 
 //-------------------------------------------------------------------------------------------------
 void StealthDetectorUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
@@ -83,25 +85,28 @@ void StealthDetectorUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 StealthDetectorUpdate::StealthDetectorUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxRow = gxTable().add(this);
+
 	const StealthDetectorUpdateModuleData *data = getStealthDetectorUpdateModuleData();
-	m_enabled = !data->m_initiallyDisabled;
+	R().m_enabled = !data->m_initiallyDisabled;
 	// start these guys with random phasings so that we don't
 	// have all of 'em check on the same frame.
-	setWakeFrame(getObject(), m_enabled ? UPDATE_SLEEP(GameLogicRandomValue(1, data->m_updateRate)) : UPDATE_SLEEP_FOREVER);
+	setWakeFrame(getObject(), R().m_enabled ? UPDATE_SLEEP(GameLogicRandomValue(1, data->m_updateRate)) : UPDATE_SLEEP_FOREVER);
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 StealthDetectorUpdate::~StealthDetectorUpdate()
 {
+	gxTable().remove(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 void StealthDetectorUpdate::setSDEnabled( Bool enabled )
 {
-	m_enabled = enabled;
-	setWakeFrame(getObject(), m_enabled ? UPDATE_SLEEP_NONE : UPDATE_SLEEP_FOREVER);
+	R().m_enabled = enabled;
+	setWakeFrame(getObject(), R().m_enabled ? UPDATE_SLEEP_NONE : UPDATE_SLEEP_FOREVER);
 }
 
 
@@ -458,7 +463,7 @@ void StealthDetectorUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// enabled
-	xfer->xferBool( &m_enabled );
+	xfer->xferBool( &R().m_enabled );
 
 }
 

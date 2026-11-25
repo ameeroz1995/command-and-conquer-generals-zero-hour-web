@@ -35,11 +35,15 @@
 #include "GameLogic/Module/BodyModule.h"
 #include "GameLogic/Module/SubdualDamageHelper.h"
 
+GX_COMPONENT_TABLE_DEFINE(SubdualDamageHelper)
+
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 SubdualDamageHelper::SubdualDamageHelper( Thing *thing, const ModuleData *modData ) : ObjectHelper( thing, modData )
 {
-	m_healingStepCountdown = 0;
+	m_gxRow = gxTable().add(this);
+
+	R().m_healingStepCountdown = 0;
 
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
@@ -48,6 +52,7 @@ SubdualDamageHelper::SubdualDamageHelper( Thing *thing, const ModuleData *modDat
 // ------------------------------------------------------------------------------------------------
 SubdualDamageHelper::~SubdualDamageHelper()
 {
+	gxTable().remove(m_gxRow);
 
 }
 
@@ -57,11 +62,11 @@ UpdateSleepTime SubdualDamageHelper::update()
 {
 	BodyModuleInterface *body = getObject()->getBodyModule();
 
-	m_healingStepCountdown--;
-	if( m_healingStepCountdown > 0 )
+	R().m_healingStepCountdown--;
+	if( R().m_healingStepCountdown > 0 )
 		return UPDATE_SLEEP_NONE;
 
-	m_healingStepCountdown = body->getSubdualDamageHealRate();
+	R().m_healingStepCountdown = body->getSubdualDamageHealRate();
 
 	DamageInfo removeSubdueDamage;
 	removeSubdueDamage.in.m_damageType = DAMAGE_SUBDUAL_UNRESISTABLE;
@@ -80,7 +85,7 @@ void SubdualDamageHelper::notifySubdualDamage( Real amount )
 {
 	if( amount > 0 )
 	{
-		m_healingStepCountdown = getObject()->getBodyModule()->getSubdualDamageHealRate();
+		R().m_healingStepCountdown = getObject()->getBodyModule()->getSubdualDamageHealRate();
 		setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
 	}
 }
@@ -112,7 +117,7 @@ void SubdualDamageHelper::xfer( Xfer *xfer )
 	// object helper base class
 	ObjectHelper::xfer( xfer );
 
-	xfer->xferUnsignedInt( &m_healingStepCountdown );
+	xfer->xferUnsignedInt( &R().m_healingStepCountdown );
 
 }
 

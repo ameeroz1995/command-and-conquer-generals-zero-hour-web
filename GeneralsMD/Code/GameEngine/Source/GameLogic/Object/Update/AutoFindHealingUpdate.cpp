@@ -49,6 +49,8 @@
 #include "GameLogic/WeaponSet.h"
 #include "GameLogic/Module/AIUpdate.h"
 
+GX_COMPONENT_TABLE_DEFINE(AutoFindHealingUpdate)
+
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -79,13 +81,16 @@ AutoFindHealingUpdateModuleData::AutoFindHealingUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 AutoFindHealingUpdate::AutoFindHealingUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_nextScanFrames						= 0;
+	m_gxRow = gxTable().add(this);
+
+	R().m_nextScanFrames						= 0;
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 AutoFindHealingUpdate::~AutoFindHealingUpdate()
 {
+	gxTable().remove(m_gxRow);
 
 }
 
@@ -109,12 +114,12 @@ UpdateSleepTime AutoFindHealingUpdate::update()
 	const AutoFindHealingUpdateModuleData *data = getAutoFindHealingUpdateModuleData();
 
 	//Optimized firing at acquired target
-	if( m_nextScanFrames > 0 )
+	if( R().m_nextScanFrames > 0 )
 	{
-		m_nextScanFrames--;
+		R().m_nextScanFrames--;
 		return UPDATE_SLEEP_NONE;
 	}
-	m_nextScanFrames = data->m_scanFrames;
+	R().m_nextScanFrames = data->m_scanFrames;
 
 	AIUpdateInterface *ai = obj->getAI();
 	if (ai==nullptr) return UPDATE_SLEEP_NONE;
@@ -212,7 +217,7 @@ void AutoFindHealingUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// next scan frames
-	xfer->xferInt( &m_nextScanFrames );
+	xfer->xferInt( &R().m_nextScanFrames );
 
 }
 

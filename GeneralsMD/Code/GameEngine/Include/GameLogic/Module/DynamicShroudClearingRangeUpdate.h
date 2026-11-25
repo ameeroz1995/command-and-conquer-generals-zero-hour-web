@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
 #include "GameClient/RadiusDecal.h"///< For the pseudo-wireframe decal effect
+#include "GameLogic/GxComponentTable.h"
 
 
 #define GRID_FX_DECAL_COUNT (30)
@@ -62,6 +63,34 @@ private:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+// Web port (round 5): DynamicShroudClearingRangeUpdate's per-unit state, one row per module in its component table
+enum DSCRU_STATE
+{
+	DSCRU_NOT_STARTED_YET,
+	DSCRU_GROWING,
+	DSCRU_SUSTAINING,
+	DSCRU_SHRINKING,
+	DSCRU_DONE_FOREVER,
+	DSCRU_SLEEPING
+};
+
+struct DynamicShroudClearingRangeUpdateRow
+{
+	DSCRU_STATE m_state;
+	Int m_stateCountDown;
+	Int m_totalFrames;
+	UnsignedInt m_growStartDeadline;
+	UnsignedInt m_sustainDeadline;
+	UnsignedInt m_shrinkStartDeadline;
+	UnsignedInt m_doneForeverFrame; ///< Just in case interval and state timing goes awry
+	UnsignedInt m_changeIntervalCountdown;///< How long till I change my vision range again
+	Bool m_decalsCreated;											///< Have I created the fx decals yet?
+	Real m_visionChangePerInterval;						///< How much I change each time.
+	Real m_nativeClearingRange;										///< What is my objects native vision range?
+	Real m_currentClearingRange;							///<ToKeepTrackOfWhere We are at
+	RadiusDecal m_gridDecal[GRID_FX_DECAL_COUNT];///< For the pseudo-wireframe decal effect
+};
+
 class DynamicShroudClearingRangeUpdate : public UpdateModule
 {
 
@@ -84,17 +113,7 @@ protected:
 
 
 
-	enum DSCRU_STATE
-	{
-		DSCRU_NOT_STARTED_YET,
-		DSCRU_GROWING,
-		DSCRU_SUSTAINING,
-		DSCRU_SHRINKING,
-		DSCRU_DONE_FOREVER,
-		DSCRU_SLEEPING
-	};
 
-	DSCRU_STATE m_state;
 
 //	Bool m_shrinkFinished;								///< Nothing left to do
 //	Bool m_shrinkStarted;									///< Working it
@@ -105,24 +124,7 @@ protected:
 
 	//New Timer Parameters
 
-	Int m_stateCountDown;
-	Int m_totalFrames;
-	UnsignedInt m_growStartDeadline;
-	UnsignedInt m_sustainDeadline;
-	UnsignedInt m_shrinkStartDeadline;
-	UnsignedInt m_doneForeverFrame; ///< Just in case interval and state timing goes awry
 																	///< This supersedes and makes us quit
 
-
-	UnsignedInt m_changeIntervalCountdown;///< How long till I change my vision range again
-
-
-
-	Bool m_decalsCreated;											///< Have I created the fx decals yet?
-	Real m_visionChangePerInterval;						///< How much I change each time.
-	Real m_nativeClearingRange;										///< What is my objects native vision range?
-	Real m_currentClearingRange;							///<ToKeepTrackOfWhere We are at
-
-	RadiusDecal m_gridDecal[GRID_FX_DECAL_COUNT];///< For the pseudo-wireframe decal effect
-
+	GX_COMPONENT_ROWS(DynamicShroudClearingRangeUpdate, DynamicShroudClearingRangeUpdateRow)
 };
