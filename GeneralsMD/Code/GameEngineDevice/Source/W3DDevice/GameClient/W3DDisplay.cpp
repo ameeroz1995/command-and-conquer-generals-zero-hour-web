@@ -392,6 +392,7 @@ inline Int64 getPerformanceCounterFrequency()
 // first.
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches3();
 #endif
 static Render2DClass *s_the2DRender = nullptr;	// W3DDisplay's m_2DRender
 static Render2DClass *s_rectBatch = nullptr;		// set while the per-unit pass collects
@@ -412,6 +413,8 @@ static void flushRectBatch( Render2DClass *about = nullptr )
 				s_rectBatch->Enable_Alpha( true );
 		}
 	}
+	if( about == nullptr )	// an explicit flush: something else draws next
+		Render2DClass::Flush_Merged();
 }
 static Bool batchRects( Render2DClass *r )
 {
@@ -431,6 +434,7 @@ static Bool batchRects( Render2DClass *r )
 void GX_RectBatch_Begin()
 {
 #ifdef __EMSCRIPTEN__
+	Render2DClass::MergeEnabled = (GLES3_Page_Switches3() & 268435456) != 0;	// Settings switch uiMerge
 	if( s_the2DRender && (GLES3_Page_Switches() & 32768) )
 	{
 		s_rectBatch = s_the2DRender;
@@ -443,6 +447,7 @@ void GX_RectBatch_End()
 	flushRectBatch();
 	s_rectBatch = nullptr;
 	Render2DClass::PreRenderHook = nullptr;
+	Render2DClass::MergeEnabled = false;
 }
 
 /** */

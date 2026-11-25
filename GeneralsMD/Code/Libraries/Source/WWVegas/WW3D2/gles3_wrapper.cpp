@@ -67,7 +67,7 @@ static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Lay
 // Ground cache (GLES3_Ground_Cache_Begin): every texture and buffer upload takes the next
 // serial, so "same texture id" also means "same contents" in a draw's fingerprint.
 unsigned int gx_content_serial = 0;
-int gx_draw_cat = 0; unsigned gx_draw_cat_count[16] = {}; // draws by kind, set by scopes in the render functions
+int gx_draw_cat = 0; unsigned gx_draw_cat_count[16] = {}; unsigned gx_ui_why[2] = {}; // draws by kind, set by scopes in the render functions
 static std::vector<unsigned int> g_TexSerial; // by GL texture id
 int gx_gc_hits = 0, gx_gc_captures = 0, gx_gc_plain = 0, gx_gc_slides = 0;
 const float* gx_skin_palette = nullptr; unsigned int gx_skin_bones = 0; GLuint gx_skin_bone_buffer = 0; // a skinned instanced draw in progress (with gx_instance_count)
@@ -477,7 +477,9 @@ void GLES3_Begin_Scene() {
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
                  | (o.multiDraw === true ? 1073741824 : 0)   // bit 30: different rigid parts of one material in one multi-draw call (dx8renderer.cpp)
-                 | (o.multiLights === true ? 536870912 : 0);  // bit 29: ... each with its own lights, so parts in different light join too
+                 | (o.multiLights === true ? 536870912 : 0)   // bit 29: ... each with its own lights, so parts in different light join too
+                 | (o.uiMerge === true ? 268435456 : 0)       // bit 28: consecutive interface pictures with one texture drawn together (render2d.cpp)
+                 | (o.sortMaterials === true ? 134217728 : 0); // bit 27: see-through draws with equal materials merge (sortingrenderer.cpp)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
@@ -528,6 +530,12 @@ void GLES3_Begin_Scene() {
                        gx_inst_why[4] / (double)frames, gx_inst_why[5] / (double)frames, gx_inst_why[6] / (double)frames, gx_inst_why[7] / (double)frames,
                        gx_inst_why[8] / (double)frames, gx_inst_why[9] / (double)frames, gx_inst_why[10] / (double)frames, gx_inst_why[11] / (double)frames);
                 memset(gx_inst_why, 0, sizeof(gx_inst_why));
+                extern unsigned gx_sort_why[6]; extern unsigned gx_ui_why[2];
+                printf("GXSORT shader=%.0f material=%.0f texture=%.0f view=%.0f lights=%.0f merged=%.0f  GXUI mergeable=%.0f other=%.0f\n",
+                       gx_sort_why[0] / (double)frames, gx_sort_why[1] / (double)frames, gx_sort_why[2] / (double)frames,
+                       gx_sort_why[3] / (double)frames, gx_sort_why[4] / (double)frames, gx_sort_why[5] / (double)frames,
+                       gx_ui_why[0] / (double)frames, gx_ui_why[1] / (double)frames);
+                memset(gx_sort_why, 0, sizeof(gx_sort_why)); memset(gx_ui_why, 0, sizeof(gx_ui_why));
             }
         }
         // Not on WebGPU yet: shroud fold, ground cache, pan cache, unit batching, GPU skinning.

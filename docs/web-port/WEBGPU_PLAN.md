@@ -65,3 +65,8 @@ soldiers 100-160, terrain/water/shadows/tracks/roads < 70 together. Why rigid pa
 - multiLights (switch, off, needs multiDraw): parts in different light join, each with its own
   lights from the per-draw texture. Draws only -1..-3% more, uploads +22..39%, fps +1%.
 Conclusion: at these counts draw calls are not what limits the frame on this machine.
+- uiMerge (switch, off): consecutive interface pictures with the same texture, blending and grey mode
+  drawn in one call. sortMaterials (switch, off): see-through draws whose materials are separate
+  copies with the same settings (equal CRC) merge. Quiet A/B with screenshots: interface strip
+  pixel-identical, battle shots clean, but draws -0% and fps within +-1%: runs that could merge are
+  rare (menu: ~2 of 88 interface draws saved). Kept off.
