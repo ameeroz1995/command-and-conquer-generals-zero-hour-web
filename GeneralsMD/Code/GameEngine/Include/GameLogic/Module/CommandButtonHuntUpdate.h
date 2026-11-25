@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/KindOf.h"
 #include "GameLogic/Module/UpdateModule.h"
+#include "GameLogic/GxComponentTable.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class ThingTemplate;
@@ -56,6 +57,13 @@ private:
 //-------------------------------------------------------------------------------------------------
 /** The default	update module */
 //-------------------------------------------------------------------------------------------------
+// Web port (round 5): CommandButtonHuntUpdate's per-unit state, one row per module in its component table
+struct CommandButtonHuntUpdateRow
+{
+	AsciiString		m_commandButtonName;
+	const CommandButton *m_commandButton;
+};
+
 class CommandButtonHuntUpdate : public UpdateModule
 {
 
@@ -80,6 +88,6 @@ protected:
 
 
 protected:
-	AsciiString		m_commandButtonName;
-	const CommandButton *m_commandButton;
+
+	GX_COMPONENT_ROWS(CommandButtonHuntUpdate, CommandButtonHuntUpdateRow)
 };

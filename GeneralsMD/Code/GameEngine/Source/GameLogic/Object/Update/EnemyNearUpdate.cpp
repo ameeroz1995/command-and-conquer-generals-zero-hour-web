@@ -37,18 +37,22 @@
 #include "GameLogic/Module/EnemyNearUpdate.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/AI.h"
+#include "GameLogic/GameLogic.h"
 #include "GameLogic/Module/AIUpdate.h"
 
+
 //-------------------------------------------------------------------------------------------------
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-EnemyNearUpdate::EnemyNearUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData ),
-	m_enemyNear(false),
-	m_enemyScanDelay(0)
+EnemyNearUpdate::EnemyNearUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	R().m_enemyNear = false;
+	R().m_gxReload = getEnemyNearUpdateModuleData()->m_enemyScanDelayTime;
+	R().m_enemyScanDelay = 0;
+
 	// bias a random amount so everyone doesn't spike at once
-	m_enemyScanDelay += GameLogicRandomValue(0, getEnemyNearUpdateModuleData()->m_enemyScanDelayTime);
+	R().m_enemyScanDelay += GameLogicRandomValue(0, getEnemyNearUpdateModuleData()->m_enemyScanDelayTime);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -65,17 +69,12 @@ EnemyNearUpdate::~EnemyNearUpdate()
 void EnemyNearUpdate::checkForEnemies()
 {
 	// periodic enemy checks
-	if (m_enemyScanDelay == 0)
+	// round 5: the countdown is a kernel (GxComponentTable.h); this apply step commits it and scans
+	if (gxCountdownCommit(R(), TheGameLogic->getFrame(), &GxRowT::m_enemyScanDelay, &GxRowT::m_gxReload))
 	{
-		m_enemyScanDelay = getEnemyNearUpdateModuleData()->m_enemyScanDelayTime;
-
 		Real visionRange = getObject()->getVisionRange();
 		Object* enemy = TheAI->findClosestEnemy( getObject(), visionRange, AI::CAN_SEE );
-		m_enemyNear = (enemy != nullptr);
-	}
-	else
-	{
-		--m_enemyScanDelay;
+		R().m_enemyNear = (enemy != nullptr);
 	}
 }
 
@@ -85,18 +84,18 @@ void EnemyNearUpdate::checkForEnemies()
 UpdateSleepTime EnemyNearUpdate::update()
 {
 /// @todo srj use SLEEPY_UPDATE here
-	Bool enemyWasNear = m_enemyNear;
+	Bool enemyWasNear = R().m_enemyNear;
 
 	checkForEnemies();
 
-	if (m_enemyNear && !enemyWasNear)
+	if (R().m_enemyNear && !enemyWasNear)
 	{
 		// change the state of the art to an "enemy near" state
 		Drawable *draw = getObject()->getDrawable();
 		if( draw )
 			draw->setModelConditionState( MODELCONDITION_ENEMYNEAR );
 	}
-	else if (!m_enemyNear && enemyWasNear)
+	else if (!R().m_enemyNear && enemyWasNear)
 	{
 		// change the state of the art to an idle state
 		Drawable *draw = getObject()->getDrawable();
@@ -134,10 +133,10 @@ void EnemyNearUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// enemy scan delay
-	xfer->xferUnsignedInt( &m_enemyScanDelay );
+	xfer->xferUnsignedInt( &R().m_enemyScanDelay );
 
 	// enemy near
-	xfer->xferBool( &m_enemyNear );
+	xfer->xferBool( &R().m_enemyNear );
 
 }
 

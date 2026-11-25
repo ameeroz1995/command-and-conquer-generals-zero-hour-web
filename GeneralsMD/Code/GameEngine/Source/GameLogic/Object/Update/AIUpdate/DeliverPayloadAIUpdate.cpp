@@ -110,22 +110,24 @@ AIStateMachine* DeliverPayloadAIUpdate::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 DeliverPayloadAIUpdate::DeliverPayloadAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_deliverPayloadStateMachine = nullptr;
-	m_targetPos.zero();
-	m_moveToPos.zero();
-	m_visibleItemsDelivered = 0;
-	m_deliveryDecal.clear();
-	m_previousDistanceSqr = 0;
-	m_freeToExit = FALSE;
-	m_acceptingCommands = TRUE;
-	m_diveState = DIVESTATE_PREDIVE;
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
+	R().deliverPayloadStateMachine = nullptr;
+	R().targetPos.zero();
+	R().moveToPos.zero();
+	R().visibleItemsDelivered = 0;
+	R().deliveryDecal.clear();
+	R().previousDistanceSqr = 0;
+	R().freeToExit = FALSE;
+	R().acceptingCommands = TRUE;
+	R().diveState = DIVESTATE_PREDIVE;
 }
 
 //-------------------------------------------------------------------------------------------------
 DeliverPayloadAIUpdate::~DeliverPayloadAIUpdate()
 {
-	m_deliveryDecal.clear();
-	deleteInstance(m_deliverPayloadStateMachine);
+	GxComponentPool<GxState>::the().release(m_gxRow);
+	R().deliveryDecal.clear();
+	deleteInstance(R().deliverPayloadStateMachine);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -134,19 +136,19 @@ AIFreeToExitType DeliverPayloadAIUpdate::getAiFreeToExit(const Object* exiter) c
 	if( getObject()->isEffectivelyDead() )
 		return NOT_FREE_TO_EXIT;
 
-	return m_freeToExit ? FREE_TO_EXIT : NOT_FREE_TO_EXIT;
+	return R().freeToExit ? FREE_TO_EXIT : NOT_FREE_TO_EXIT;
 }
 
 //-------------------------------------------------------------------------------------------------
 void DeliverPayloadAIUpdate::killDeliveryDecal()
 {
-	m_deliveryDecal.clear();
+	R().deliveryDecal.clear();
 }
 
 //-------------------------------------------------------------------------------------------------
 Bool DeliverPayloadAIUpdate::isAllowedToRespondToAiCommands(const AICommandParms* parms) const
 {
-	if (!m_acceptingCommands)
+	if (!R().acceptingCommands)
 	{
 		return false;
 	}
@@ -155,78 +157,96 @@ Bool DeliverPayloadAIUpdate::isAllowedToRespondToAiCommands(const AICommandParms
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the dive kernel. Pure: from the gathered distance to the target, the
+// dive state; while diving with a strafing weapon and not climbing, the strafe point (x, y; the apply
+// step puts it on the ground). reads its arguments; reads/writes its row (diveState) only.
+enum { GXDIVE_START = 1, GXDIVE_END = 2, GXDIVE_STRAFE = 4 };
+Int DeliverPayloadAIUpdate::gxDiveKernel(GxState &r, Real currentDistanceSquared, Real diveStartDistance, Real diveEndDistance,
+	Bool strafing, const Coord3D &vel, const Coord3D &targetPos, Coord3D &strafePoint)
+{
+	Int op = 0;
+	if( r.diveState == DIVESTATE_PREDIVE )
+	{
+		//Check to see if we are close enough to start diving.
+		if( currentDistanceSquared <= sqr( diveStartDistance ) )
+		{
+			r.diveState = DIVESTATE_DIVING;
+			op |= GXDIVE_START;
+		}
+		return op;
+	}
+	//Check to see when we shall end diving
+	Real endDiveDistanceSquared = sqr( diveEndDistance );
+	if( currentDistanceSquared <= endDiveDistanceSquared )
+	{
+		r.diveState = DIVESTATE_POSTDIVE;
+		op |= GXDIVE_END;
+	}
+	if( strafing && vel.z < 5.0f )
+	{
+		//Calc strafe ratio
+		Real endDiveDistance = sqrt( endDiveDistanceSquared );
+		Real currentDistance = sqrt( currentDistanceSquared );
+		Real diveRatio = (diveStartDistance - currentDistance) / (diveStartDistance - endDiveDistance);
+
+		Coord3D velocity = vel;
+		velocity.z = 0.0f;
+		velocity.normalize();
+		velocity.scale( diveRatio * 100.0f );
+
+		Coord3D backwards = velocity;
+		backwards.scale( 0.33f );
+
+		strafePoint = targetPos;
+		strafePoint.sub( &backwards );
+		strafePoint.add( &velocity );
+		op |= GXDIVE_STRAFE;
+	}
+	return op;
+}
+
 UpdateSleepTime DeliverPayloadAIUpdate::update()
 {
-	m_deliveryDecal.update();
+	R().deliveryDecal.update();
 
-	if(!(isAiInDeadState()) && m_deliverPayloadStateMachine)
-		m_deliverPayloadStateMachine->updateStateMachine();
+	if(!(isAiInDeadState()) && R().deliverPayloadStateMachine)
+		R().deliverPayloadStateMachine->updateStateMachine();
 
 	//Handling diving logic (regardless of state)
-	if( m_diveState != DIVESTATE_POSTDIVE )
+	// web port (round 5 addendum): gather the distance to the target, the dive kernel moves the dive
+	// state and works out the strafe point, apply: locomotor precision, sound, the strafe shot
+	if( R().diveState != DIVESTATE_POSTDIVE )
 	{
-		if( m_diveState == DIVESTATE_PREDIVE )
+		const Bool pre = R().diveState == DIVESTATE_PREDIVE;
+		const Real currentDistanceSquared = ThePartitionManager->getDistanceSquared( getObject(), getTargetPos(), pre ? FROM_CENTER_2D : FROM_CENTER_3D );
+		const Bool strafing = !pre && R().data.m_strafingWeaponSlot != -1;
+		Coord3D velocity; velocity.zero();
+		if( strafing )
+			velocity = *getObject()->getPhysics()->getVelocity();
+		Coord3D strafePoint;
+		const Int op = gxDiveKernel( R(), currentDistanceSquared, getData()->m_diveStartDistance, getData()->m_diveEndDistance,
+			strafing, velocity, *getTargetPos(), strafePoint );
+		if( op & GXDIVE_START )
 		{
-			//Check to see if we are close enough to start diving.
-			Real startDiveDistanceSquared = sqr( getData()->m_diveStartDistance );
-			Real currentDistanceSquared  = ThePartitionManager->getDistanceSquared( getObject(), getTargetPos(), FROM_CENTER_2D );
-			if( currentDistanceSquared <= startDiveDistanceSquared )
-			{
-				m_diveState = DIVESTATE_DIVING;
-				getObject()->getAIUpdateInterface()->getCurLocomotor()->setUsePreciseZPos( true );
+			getObject()->getAIUpdateInterface()->getCurLocomotor()->setUsePreciseZPos( true );
 
-				AudioEventRTS soundDive = *(getObject()->getTemplate()->getPerUnitSound("StartDive"));
-				if( soundDive.getEventName().isNotEmpty() )
-				{
-					soundDive.setPosition( getObject()->getPosition() );
-					TheAudio->addAudioEvent( &soundDive );
-				}
+			AudioEventRTS soundDive = *(getObject()->getTemplate()->getPerUnitSound("StartDive"));
+			if( soundDive.getEventName().isNotEmpty() )
+			{
+				soundDive.setPosition( getObject()->getPosition() );
+				TheAudio->addAudioEvent( &soundDive );
 			}
 		}
-		else
+		if( op & GXDIVE_END )
+			getObject()->getAIUpdateInterface()->getCurLocomotor()->setUsePreciseZPos( false );
+		if( op & GXDIVE_STRAFE )
 		{
-			//Check to see when we shall end diving
-			Real endDiveDistanceSquared = sqr( getData()->m_diveEndDistance );
-			Real currentDistanceSquared  = ThePartitionManager->getDistanceSquared( getObject(), getTargetPos(), FROM_CENTER_3D );
-			if( currentDistanceSquared <= endDiveDistanceSquared )
-			{
-				m_diveState = DIVESTATE_POSTDIVE;
-				getObject()->getAIUpdateInterface()->getCurLocomotor()->setUsePreciseZPos( false );
-			}
+			strafePoint.z = TheTerrainLogic->getGroundHeight( strafePoint.x, strafePoint.y );
 
-			if( m_data.m_strafingWeaponSlot != -1 )
-			{
-				//SHOOT!!
-				const Coord3D *velocity = getObject()->getPhysics()->getVelocity();
-				if( velocity->z < 5.0f )
-				{
-					//Calc strafe ratio
-					Real startDiveDistance = getData()->m_diveStartDistance;
-					Real endDiveDistance = sqrt( endDiveDistanceSquared );
-					Real currentDistance = sqrt( currentDistanceSquared );
-
-					Real diveRatio = (startDiveDistance - currentDistance) / (startDiveDistance - endDiveDistance);
-
-					Coord3D velocity = *getObject()->getPhysics()->getVelocity();
-					velocity.z = 0.0f;
-					velocity.normalize();
-					velocity.scale( diveRatio * 100.0f );
-
-					Coord3D backwards = velocity;
-					backwards.scale( 0.33f );
-
-					Coord3D strafePoint = *getTargetPos();
-					strafePoint.sub( &backwards );
-
-					strafePoint.add( &velocity );
-					strafePoint.z = TheTerrainLogic->getGroundHeight( strafePoint.x, strafePoint.y );
-
-					// lock it just till the weapon is empty or the attack is "done"
-					getObject()->setWeaponLock( m_data.m_strafingWeaponSlot, LOCKED_TEMPORARILY );
-					getObject()->fireCurrentWeapon( &strafePoint );
-					FXList::doFXPos( m_data.m_strafeFX, &strafePoint );
-				}
-			}
+			// lock it just till the weapon is empty or the attack is "done"
+			getObject()->setWeaponLock( R().data.m_strafingWeaponSlot, LOCKED_TEMPORARILY );
+			getObject()->fireCurrentWeapon( &strafePoint );
+			FXList::doFXPos( R().data.m_strafeFX, &strafePoint );
 		}
 	}
 
@@ -247,40 +267,40 @@ void DeliverPayloadAIUpdate::deliverPayload(
 	//THIS GETS CALLED VIA OBJECT CREATION LISTS ONLY!!!
 	//****************************************************
 
-	deleteInstance(m_deliverPayloadStateMachine);
-	m_deliverPayloadStateMachine = nullptr;
+	deleteInstance(R().deliverPayloadStateMachine);
+	R().deliverPayloadStateMachine = nullptr;
 
-	m_moveToPos = *moveToPos;
-	m_targetPos = *targetPos;
-	m_data			= *data;
+	R().moveToPos = *moveToPos;
+	R().targetPos = *targetPos;
+	R().data			= *data;
 
-	m_deliveryDecal.clear();
-	m_data.m_deliveryDecalTemplate.createRadiusDecal(*targetPos,
-		m_data.m_deliveryDecalRadius, getObject()->getControllingPlayer(), m_deliveryDecal);
+	R().deliveryDecal.clear();
+	R().data.m_deliveryDecalTemplate.createRadiusDecal(*targetPos,
+		R().data.m_deliveryDecalRadius, getObject()->getControllingPlayer(), R().deliveryDecal);
 
-	if( m_data.m_diveStartDistance <= 0.0f )
+	if( R().data.m_diveStartDistance <= 0.0f )
 	{
 		//We can't dive, so setting it to post-dive will prevent
 		//dive logic from being processed.
-		m_diveState = DIVESTATE_POSTDIVE;
+		R().diveState = DIVESTATE_POSTDIVE;
 	}
 	else
 	{
-		m_diveState = DIVESTATE_PREDIVE;
+		R().diveState = DIVESTATE_PREDIVE;
 	}
 
-	m_visibleItemsDelivered = 0;
+	R().visibleItemsDelivered = 0;
 
 	//If we have visible bones, then show each of those subobjects.
 	Drawable *draw = getObject()->getDrawable();
 	if( draw )
 	{
-		for( int i = 1; i <= m_data.m_visibleNumBones; i++ )
+		for( int i = 1; i <= R().data.m_visibleNumBones; i++ )
 		{
-			if( m_data.m_visibleSubObjectName.isNotEmpty() )
+			if( R().data.m_visibleSubObjectName.isNotEmpty() )
 			{
 				AsciiString name;
-				name.format( "%s%02d", m_data.m_visibleSubObjectName.str(), i );
+				name.format( "%s%02d", R().data.m_visibleSubObjectName.str(), i );
 				draw->showSubObject( name, true );
 			}
 		}
@@ -288,10 +308,10 @@ void DeliverPayloadAIUpdate::deliverPayload(
 
 
 	// must make the state machine AFTER initing the other stuff, since it may inquire of its values...
-	m_deliverPayloadStateMachine = newInstance(DeliverPayloadStateMachine)( getObject() );
-	m_deliverPayloadStateMachine->initDefaultState();
+	R().deliverPayloadStateMachine = newInstance(DeliverPayloadStateMachine)( getObject() );
+	R().deliverPayloadStateMachine->initDefaultState();
 #ifdef RTS_DEBUG
-	m_deliverPayloadStateMachine->setName("DeliverPayloadSpecificAI");
+	R().deliverPayloadStateMachine->setName("DeliverPayloadSpecificAI");
 #endif
 }
 
@@ -362,8 +382,8 @@ Bool DeliverPayloadAIUpdate::isCloseEnoughToTarget()
 
 	Real allowedDistanceSqr = sqr( getAllowedDistanceToTarget() );
 	Real currentDistanceSqr = ThePartitionManager->getDistanceSquared( getObject(), getTargetPos(), FROM_CENTER_2D );
-	Bool inBound = m_previousDistanceSqr > currentDistanceSqr;
-	m_previousDistanceSqr = currentDistanceSqr;// for the next test
+	Bool inBound = R().previousDistanceSqr > currentDistanceSqr;
+	R().previousDistanceSqr = currentDistanceSqr;// for the next test
 
 	if ( inBound )
 		allowedDistanceSqr = sqr(getAllowedDistanceToTarget() + getPreOpenDistance());
@@ -416,12 +436,12 @@ void DeliverPayloadAIUpdate::xfer( Xfer *xfer )
  // extend base class
 	AIUpdateInterface::xfer(xfer);
 
-	xfer->xferCoord3D(&m_targetPos);
-	xfer->xferCoord3D(&m_moveToPos);
-	xfer->xferInt(&m_visibleItemsDelivered);
-	xfer->xferUser(&m_diveState, sizeof(m_diveState));
+	xfer->xferCoord3D(&R().targetPos);
+	xfer->xferCoord3D(&R().moveToPos);
+	xfer->xferInt(&R().visibleItemsDelivered);
+	xfer->xferUser(&R().diveState, sizeof(R().diveState));
 
-	DeliverPayloadData data = m_data;
+	DeliverPayloadData data = R().data;
 
 	xfer->xferAsciiString(&data.m_visibleDropBoneName);
 	xfer->xferAsciiString(&data.m_visibleSubObjectName);
@@ -457,32 +477,32 @@ void DeliverPayloadAIUpdate::xfer( Xfer *xfer )
 	}
 	data.m_deliveryDecalTemplate.xferRadiusDecalTemplate(xfer);
 	xfer->xferReal(&data.m_deliveryDecalRadius);
-	 *((DeliverPayloadData*)&m_data) = data;
+	 *((DeliverPayloadData*)&R().data) = data;
 
-	Bool hasStateMachine = m_deliverPayloadStateMachine!=nullptr;
+	Bool hasStateMachine = R().deliverPayloadStateMachine!=nullptr;
 	xfer->xferBool(&hasStateMachine);
-	if (hasStateMachine && m_deliverPayloadStateMachine==nullptr)
+	if (hasStateMachine && R().deliverPayloadStateMachine==nullptr)
 	{
-		m_deliverPayloadStateMachine = newInstance(DeliverPayloadStateMachine)( getObject() );
+		R().deliverPayloadStateMachine = newInstance(DeliverPayloadStateMachine)( getObject() );
 	}
-	if (m_deliverPayloadStateMachine && version >= 2)
+	if (R().deliverPayloadStateMachine && version >= 2)
 	{
-		xfer->xferSnapshot(m_deliverPayloadStateMachine);
+		xfer->xferSnapshot(R().deliverPayloadStateMachine);
 	}
 
-	m_deliveryDecal.xferRadiusDecal(xfer);
+	R().deliveryDecal.xferRadiusDecal(xfer);
 
 	if (version >= 2)
 	{
-		xfer->xferBool(&m_freeToExit);
+		xfer->xferBool(&R().freeToExit);
 	}
 	if (version >= 3)
 	{
-		xfer->xferBool(&m_acceptingCommands);
+		xfer->xferBool(&R().acceptingCommands);
 	}
 	if (version >= 4)
 	{
-		xfer->xferReal(&m_previousDistanceSqr);
+		xfer->xferReal(&R().previousDistanceSqr);
 	}
 
 
@@ -643,8 +663,8 @@ void DeliveringState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_dropDelayLeft);
-	xfer->xferBool(&m_didOpen);
+	xfer->xferUnsignedInt(&R().dropDelayLeft);
+	xfer->xferBool(&R().didOpen);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -667,17 +687,17 @@ StateReturnType DeliveringState::onEnter() // Open the pod bay doors, Hal
 
 				/// @todo srj -- for now, this assumes at most one door
 	owner->clearAndSetModelConditionState( MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING );
-	m_dropDelayLeft = ai->getDoorDelay();
-	m_didOpen = false;
+	R().dropDelayLeft = ai->getDoorDelay();
+	R().didOpen = false;
 	return STATE_CONTINUE;
 }
 
 //-------------------------------------------------------------------------------------------------
 StateReturnType DeliveringState::update() // Kick a dude out every so often
 {
-	if (m_dropDelayLeft > 0)
+	if (R().dropDelayLeft > 0)
 	{
-		--m_dropDelayLeft;
+		--R().dropDelayLeft;
 		return STATE_CONTINUE;
 	}
 
@@ -690,8 +710,8 @@ StateReturnType DeliveringState::update() // Kick a dude out every so often
 
 	ai->friend_setFreeToExit(true);
 
-	m_didOpen = true;
-	m_dropDelayLeft = ai->getDropDelay();
+	R().didOpen = true;
+	R().dropDelayLeft = ai->getDropDelay();
 
 	if (!ai->isCloseEnoughToTarget())
 		return STATE_FAILURE;
@@ -907,7 +927,7 @@ void DeliveringState::onExit( StateExitType ) // Close the doors
 	if (ai)
 		ai->friend_setFreeToExit(false);
 
-	DEBUG_ASSERTCRASH(m_didOpen, ("Not enough time for the doors to open to drop anything!"));
+	DEBUG_ASSERTCRASH(R().didOpen, ("Not enough time for the doors to open to drop anything!"));
 				/// @todo srj -- for now, this assumes at most one door
 	owner->clearAndSetModelConditionState( MODELCONDITION_DOOR_1_OPENING, MODELCONDITION_DOOR_1_CLOSING );
 }
@@ -933,7 +953,7 @@ void ConsiderNewApproachState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferInt(&m_numberEntriesToState);
+	xfer->xferInt(&R().numberEntriesToState);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -954,10 +974,10 @@ StateReturnType ConsiderNewApproachState::onEnter() // Increment local counter o
 		return STATE_FAILURE;
 	}
 
-	++m_numberEntriesToState;
+	++R().numberEntriesToState;
 
-	DEBUG_LOG(("Considering approach #%d...",m_numberEntriesToState));
-	if( m_numberEntriesToState > ai->getMaxNumberAttempts() )
+	DEBUG_LOG(("Considering approach #%d...",R().numberEntriesToState));
+	if( R().numberEntriesToState > ai->getMaxNumberAttempts() )
 	{
 		DEBUG_LOG(("Too many approaches! Time to give up."));
 		return STATE_FAILURE;
@@ -1045,7 +1065,7 @@ void RecoverFromOffMapState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_reEntryFrame);
+	xfer->xferUnsignedInt(&R().reEntryFrame);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1073,7 +1093,7 @@ StateReturnType RecoverFromOffMapState::onEnter() // Increment local counter o' 
   // maneuvering.
   Real timeToTravelThatDist;
 	/*Real minTurnRadius =*/ ai->calcMinTurnRadius(&timeToTravelThatDist);
-  m_reEntryFrame = TheGameLogic->getFrame() + REAL_TO_INT_CEIL(timeToTravelThatDist);
+  R().reEntryFrame = TheGameLogic->getFrame() + REAL_TO_INT_CEIL(timeToTravelThatDist);
 
 	// kill its momentum
 	PhysicsBehavior* physics = owner->getPhysics();
@@ -1089,7 +1109,7 @@ StateReturnType RecoverFromOffMapState::onEnter() // Increment local counter o' 
 //-------------------------------------------------------------------------------------------------
 StateReturnType RecoverFromOffMapState::update() // Success if we should try again, failure if we should give up
 {
-	if (TheGameLogic->getFrame() < m_reEntryFrame)
+	if (TheGameLogic->getFrame() < R().reEntryFrame)
 		return STATE_CONTINUE;
 
 	Object *owner = getMachineOwner();
@@ -1168,7 +1188,7 @@ StateReturnType HeadOffMapState::onEnter() // Give move order out of town
 	ai->friend_setAcceptingCommands(false);
 
 
-  owner->getUnitDirectionVector3D( facingDirectionUponDelivery );
+  owner->getUnitDirectionVector3D( R().facingDirectionUponDelivery );
 
 	return STATE_CONTINUE;
 }
@@ -1192,9 +1212,9 @@ StateReturnType HeadOffMapState::update()
   {
     Coord3D currentDirection;
     owner->getUnitDirectionVector3D( currentDirection );
-  	Real dot = facingDirectionUponDelivery.x * currentDirection.x
-             + facingDirectionUponDelivery.y * currentDirection.y
-             + facingDirectionUponDelivery.z * currentDirection.z;
+  	Real dot = R().facingDirectionUponDelivery.x * currentDirection.x
+             + R().facingDirectionUponDelivery.y * currentDirection.y
+             + R().facingDirectionUponDelivery.z * currentDirection.z;
 
     if ( dot < 0.3f )
       owner->kill();

@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameClient/RadiusDecal.h"
@@ -75,8 +76,9 @@ class DeliveringState :  public State
 public:
 	DeliveringState( StateMachine *machine ) :State( machine, "DeliveringState" )
 	{
-		m_dropDelayLeft = 0;
-		m_didOpen = false;
+		m_gxRow = GxComponentPool<GxState>::the().alloc();
+		R().dropDelayLeft = 0;
+		R().didOpen = false;
 	}
 	virtual StateReturnType update();
 	virtual StateReturnType onEnter();
@@ -88,10 +90,20 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	UnsignedInt m_dropDelayLeft;
-	Bool m_didOpen;
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		UnsignedInt dropDelayLeft;
+		Bool didOpen;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(DeliveringState)
+inline DeliveringState::GxState &DeliveringState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+inline DeliveringState::~DeliveringState() { GxComponentPool<GxState>::the().release(m_gxRow); }
 
 //-------------------------------------------------------------------------------------------------
 class ConsiderNewApproachState :  public State
@@ -99,7 +111,9 @@ class ConsiderNewApproachState :  public State
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(ConsiderNewApproachState, "ConsiderNewApproachState")
 	//Should I try again?  Has own data to keep track.
 public:
-	ConsiderNewApproachState( StateMachine *machine ) : State( machine, "ConsiderNewApproachState" ), m_numberEntriesToState(0) { }
+	ConsiderNewApproachState( StateMachine *machine ) : State( machine, "ConsiderNewApproachState" ) {
+		m_gxRow = GxComponentPool<GxState>::the().alloc();
+		R().numberEntriesToState = 0; }
 	virtual StateReturnType update();
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
@@ -110,16 +124,28 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	Int m_numberEntriesToState;
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		Int numberEntriesToState;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(ConsiderNewApproachState)
+inline ConsiderNewApproachState::GxState &ConsiderNewApproachState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+inline ConsiderNewApproachState::~ConsiderNewApproachState() { GxComponentPool<GxState>::the().release(m_gxRow); }
 
 //-------------------------------------------------------------------------------------------------
 class RecoverFromOffMapState :  public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(RecoverFromOffMapState, "RecoverFromOffMapState")
 public:
-	RecoverFromOffMapState( StateMachine *machine ) : State( machine, "RecoverFromOffMapState" ), m_reEntryFrame(0) { }
+	RecoverFromOffMapState( StateMachine *machine ) : State( machine, "RecoverFromOffMapState" ) {
+		m_gxRow = GxComponentPool<GxState>::the().alloc();
+		R().reEntryFrame = 0; }
 	virtual StateReturnType update();
 	virtual StateReturnType onEnter();
 protected:
@@ -129,9 +155,19 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	UnsignedInt m_reEntryFrame;
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		UnsignedInt reEntryFrame;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(RecoverFromOffMapState)
+inline RecoverFromOffMapState::GxState &RecoverFromOffMapState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+inline RecoverFromOffMapState::~RecoverFromOffMapState() { GxComponentPool<GxState>::the().release(m_gxRow); }
 
 //-------------------------------------------------------------------------------------------------
 class HeadOffMapState :  public State
@@ -139,7 +175,7 @@ class HeadOffMapState :  public State
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(HeadOffMapState, "HeadOffMapState")
 	//I'm outta here
 public:
-  HeadOffMapState( StateMachine *machine ) :State( machine, "HeadOffMapState" ) { facingDirectionUponDelivery.zero(); }
+  HeadOffMapState( StateMachine *machine ) :State( machine, "HeadOffMapState" ) { m_gxRow = GxComponentPool<GxState>::the().alloc(); R().facingDirectionUponDelivery.zero(); }
 	virtual StateReturnType update();
 	virtual StateReturnType onEnter();
 protected:
@@ -148,9 +184,18 @@ protected:
 	virtual void xfer( Xfer *xfer ){XferVersion cv = 1;	XferVersion v = cv; xfer->xferVersion( &v, cv );}
 	virtual void loadPostProcess(){};
 
-  Coord3D facingDirectionUponDelivery;
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>
+	struct GxState
+	{
+		Coord3D facingDirectionUponDelivery;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(HeadOffMapState)
+inline HeadOffMapState::GxState &HeadOffMapState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+inline HeadOffMapState::~HeadOffMapState() { GxComponentPool<GxState>::the().release(m_gxRow); }
 
 //-------------------------------------------------------------------------------------------------
 class CleanUpState :  public State
@@ -313,21 +358,21 @@ public:
 
 	virtual AIFreeToExitType getAiFreeToExit(const Object* exiter) const;
 
-	const Coord3D* getTargetPos() const { return &m_targetPos; }
-	const Coord3D* getMoveToPos() const { return &m_moveToPos; }
+	const Coord3D* getTargetPos() const { return &R().targetPos; }
+	const Coord3D* getMoveToPos() const { return &R().moveToPos; }
 	UnsignedInt getDoorDelay() const { return getDeliverPayloadAIUpdateModuleData()->m_doorDelay; }
-	Bool isDeliveringPayload() const { return m_deliverPayloadStateMachine != nullptr; }
+	Bool isDeliveringPayload() const { return R().deliverPayloadStateMachine != nullptr; }
 	const ThingTemplate* getPutInContainerTemplateViaModuleData() const;
 
-	Real getAllowedDistanceToTarget() const { return m_data.m_distToTarget; }
-	Real getPreOpenDistance() const { return m_data.m_preOpenDistance; }
-	Int getMaxNumberAttempts() const { return m_data.m_maxAttempts; }
-	UnsignedInt getDropDelay() const { return m_data.m_dropDelay; }
-	const Coord3D& getDropOffset() const { return m_data.m_dropOffset; }
-	const Coord3D& getDropVariance() const { return m_data.m_dropVariance; }
-	Bool isFireWeapon() const { return m_data.m_fireWeapon; }
-	Int getVisibleItemsDelivered() const { return m_visibleItemsDelivered; }
-	void setVisibleItemsDelivered( Int num ) { m_visibleItemsDelivered = num; }
+	Real getAllowedDistanceToTarget() const { return R().data.m_distToTarget; }
+	Real getPreOpenDistance() const { return R().data.m_preOpenDistance; }
+	Int getMaxNumberAttempts() const { return R().data.m_maxAttempts; }
+	UnsignedInt getDropDelay() const { return R().data.m_dropDelay; }
+	const Coord3D& getDropOffset() const { return R().data.m_dropOffset; }
+	const Coord3D& getDropVariance() const { return R().data.m_dropVariance; }
+	Bool isFireWeapon() const { return R().data.m_fireWeapon; }
+	Int getVisibleItemsDelivered() const { return R().visibleItemsDelivered; }
+	void setVisibleItemsDelivered( Int num ) { R().visibleItemsDelivered = num; }
 
 	Bool isCloseEnoughToTarget();
 	Bool isOffMap() const;
@@ -336,29 +381,20 @@ public:
 	void deliverPayload( const Coord3D *moveToPos, const Coord3D *targetPos, const DeliverPayloadData *data );
 	void deliverPayloadViaModuleData( const Coord3D *moveToPos );
 
-	const DeliverPayloadData* getData() { return &m_data; }
+	const DeliverPayloadData* getData() { return &R().data; }
 
 	virtual UpdateSleepTime update();
 
 	void killDeliveryDecal();
 
-	void friend_setFreeToExit(Bool f) { m_freeToExit = f; }
-	void friend_setAcceptingCommands(Bool f) { m_acceptingCommands = f; }
+	void friend_setFreeToExit(Bool f) { R().freeToExit = f; }
+	void friend_setAcceptingCommands(Bool f) { R().acceptingCommands = f; }
 
 protected:
 
 	virtual AIStateMachine* makeStateMachine();
 	virtual Bool isAllowedToRespondToAiCommands(const AICommandParms* parms) const;
 
-	DeliverPayloadStateMachine*		m_deliverPayloadStateMachine;	///< Controls my special logic
-	Coord3D												m_targetPos;									///< Where I plan to deliver my little friends, if obj is null
-	Coord3D												m_moveToPos;									///< Where I am moving to.
-	DeliverPayloadData						m_data;
-	Int														m_visibleItemsDelivered;
-	RadiusDecal										m_deliveryDecal;
-	Real													m_previousDistanceSqr;
-	Bool													m_freeToExit;
-	Bool													m_acceptingCommands;
 
 	enum DiveState	// Stored in save file as int, don't renumber!  jba.
 	{
@@ -366,8 +402,29 @@ protected:
 		DIVESTATE_DIVING=1,
 		DIVESTATE_POSTDIVE=2,
 	};
-	DiveState											m_diveState;
 
 
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		Coord3D targetPos; ///< Where I plan to deliver my little friends, if obj is null
+		DeliverPayloadStateMachine* deliverPayloadStateMachine; ///< Controls my special logic
+		Coord3D moveToPos; ///< Where I am moving to.
+		DeliverPayloadData data;
+		Int visibleItemsDelivered;
+		RadiusDecal deliveryDecal;
+		Real previousDistanceSqr;
+		Bool freeToExit;
+		Bool acceptingCommands;
+		DiveState diveState;
+	};
+	static Int gxDiveKernel(GxState &r, Real currentDistanceSquared, Real diveStartDistance, Real diveEndDistance,
+		Bool strafing, const Coord3D &vel, const Coord3D &targetPos, Coord3D &strafePoint);	///< web port: dive kernel
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline DeliverPayloadAIUpdate::GxState &DeliverPayloadAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

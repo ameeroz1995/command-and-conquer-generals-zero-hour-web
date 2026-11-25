@@ -29,6 +29,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 
 #define DEFINE_HORDEACTION_NAMES
 #include "Common/Player.h"
@@ -154,10 +155,11 @@ HordeUpdateModuleData::HordeUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 HordeUpdate::HordeUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_inHorde = FALSE;
-	m_hasFlag = FALSE;
-	m_lastHordeRefreshFrame = TheGameLogic->getFrame();
-	m_trueHordeMember = FALSE;
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
+	R().inHorde = FALSE;
+	R().hasFlag = FALSE;
+	R().lastHordeRefreshFrame = TheGameLogic->getFrame();
+	R().trueHordeMember = FALSE;
 
 	UnsignedInt delay = getHordeUpdateModuleData()->m_updateRate;
 	setWakeFrame(getObject(), UPDATE_SLEEP(GameLogicRandomValue(1, delay)));
@@ -166,6 +168,7 @@ HordeUpdate::HordeUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateM
 //-------------------------------------------------------------------------------------------------
 HordeUpdate::~HordeUpdate()
 {
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
 
@@ -188,14 +191,14 @@ Bool HordeUpdate::isAllowedNationalism() const
 void HordeUpdate::joinOrLeaveHorde(SimpleObjectIterator *iter, Bool join)
 {
 	// give/remove bonus effects
-	if( m_inHorde != join )
+	if( R().inHorde != join )
 	{
-		m_inHorde = join;
+		R().inHorde = join;
 
 		if( AIUpdateInterface *ai = getObject()->getAIUpdateInterface() )
 		{
 			const HordeUpdateModuleData* md = getHordeUpdateModuleData();
-			ai->evaluateMoraleBonus(m_inHorde, md->m_allowedNationalism, md->m_action);
+			ai->evaluateMoraleBonus(R().inHorde, md->m_allowedNationalism, md->m_action);
 		}
 		else
 		{
@@ -229,11 +232,20 @@ void HordeUpdate::showHideFlag(Bool show)
 */
 void HordeUpdate::onDrawableBoundToObject()
 {
-	/////////////showHideFlag(m_hasFlag);
+	/////////////showHideFlag(R().hasFlag);
 	showHideFlag(FALSE);//hide the flag
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the horde kernel. Pure: from the gathered neighbour count and rub-off
+// test, this unit's horde state. reads: count, min count, rubOff; writes: its row only.
+static void gxHordeKernel(HordeUpdate::GxState &r, UnsignedInt now, Int count, Int minCount, Bool rubOff)
+{
+	r.lastHordeRefreshFrame = now;
+	r.trueHordeMember = (count >= minCount - 1);	// we really are in the thick part of the horde
+	r.inHorde = r.trueHordeMember || rubOff;	// ...unless a true member rubs off on us
+}
+
 UpdateSleepTime HordeUpdate::update()
 {
 
@@ -246,31 +258,26 @@ UpdateSleepTime HordeUpdate::update()
 
 	const HordeUpdateModuleData *md = getHordeUpdateModuleData();
 
-	Bool wasInHorde = m_inHorde;
+	Bool wasInHorde = R().inHorde;
 
 	// This is a sticky situation, where refreshing the model state (like from default to damaged, for example)
 	// will rebuild the terrain decal and set its size to the default size.... since Vehicles have a special size,
 	// we want to keep it fresh, here, but not do the hording test every frame...
 	Bool isInfantry = ( obj->isKindOf(KINDOF_INFANTRY) );
-	if ( isInfantry || (TheGameLogic->getFrame() > m_lastHordeRefreshFrame + md->m_updateRate) )
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if ( isInfantry || (now > R().lastHordeRefreshFrame + md->m_updateRate) )
 	{
-		m_lastHordeRefreshFrame = TheGameLogic->getFrame();
-
+		// gather (main thread: partition search, other units' modules): neighbours in range, and
+		// whether a true horde member is close enough to rub off on us
 		PartitionFilterHordeMember hmFilter(getObject(), md);
 		PartitionFilter *filters[] = { &hmFilter, nullptr };
+		gxCount(GXC_HORDE_SEARCHES);	// web port: work counter (GXTIME)
 		SimpleObjectIterator *iter = ThePartitionManager->iterateObjectsInRange(getObject(), md->m_minDist, FROM_BOUNDINGSPHERE_3D, filters);
 		MemoryPoolObjectHolder hold(iter);
-
-		if ((iter->getCount() >= md->m_minCount - 1) )//we really are in the thick part of the horde
+		const Int count = iter->getCount();
+		Bool rubOff = FALSE;
+		if (!(count >= md->m_minCount - 1))
 		{
-			m_inHorde = TRUE;
-			m_trueHordeMember = TRUE;
-		}
-		else
-		{
-			m_inHorde = FALSE;
-			m_trueHordeMember = FALSE;/// unless...
-
 			Real rubOffRadiusSq = sqr(md->m_rubOffRadius);
 			for (Object* other = iter->first(); other; other = iter->next())
 			{
@@ -278,20 +285,20 @@ UpdateSleepTime HordeUpdate::update()
 				if ( hui != nullptr && hui->isTrueHordeMember() )
 				{
 					Real dist = ThePartitionManager->getDistanceSquared(getObject(), other, FROM_CENTER_2D);
-
 					if (dist <= rubOffRadiusSq )
 					{
-						m_inHorde = TRUE;
+						rubOff = TRUE;
 						break;
 					}
-
 				}
 			}
 		}
 
+		gxHordeKernel(R(), now, count, md->m_minCount, rubOff);
+
 		AIUpdateInterface *ai = getObject()->getAIUpdateInterface();
 		if( ai )
-			ai->evaluateMoraleBonus(m_inHorde, md->m_allowedNationalism, md->m_action);
+			ai->evaluateMoraleBonus(R().inHorde, md->m_allowedNationalism, md->m_action);
 
 	}
 
@@ -313,7 +320,7 @@ UpdateSleepTime HordeUpdate::update()
 	{
 		if( TheGameLogic->getDrawIconUI() )
 		{
-			if(m_inHorde && !obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) )// this not is a ride-on for overlord
+			if(R().inHorde && !obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) )// this not is a ride-on for overlord
 			{
 
 				TerrainDecalType nuType;// uninitialized
@@ -361,9 +368,9 @@ UpdateSleepTime HordeUpdate::update()
 			draw->setTerrainDecal( TERRAIN_DECAL_NONE );
 		}
 
-		if ( ! wasInHorde && m_inHorde  )
+		if ( ! wasInHorde && R().inHorde  )
 				draw->setTerrainDecalFadeTarget(1.0f, 0.03f);
-		else if ( wasInHorde && ! m_inHorde )
+		else if ( wasInHorde && ! R().inHorde )
 				draw->setTerrainDecalFadeTarget(0.0f, -0.03f);
 	}
 
@@ -399,8 +406,8 @@ void HordeUpdate::xfer( Xfer *xfer )
 	// extend base class
 	UpdateModule::xfer( xfer );
 
-	xfer->xferBool( &m_inHorde );
-	xfer->xferBool( &m_hasFlag );
+	xfer->xferBool( &R().inHorde );
+	xfer->xferBool( &R().hasFlag );
 
 }
 
@@ -414,3 +421,4 @@ void HordeUpdate::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 }
+

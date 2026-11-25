@@ -37,6 +37,7 @@
 #define DEFAULT_NO_NEED_TO_CATCH_UP_RADIUS (CATCH_UP_RADIUS_MIN)
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponentPool.h"
 #include "Common/INI.h"
 #include "GameLogic/Module/UpdateModule.h"
 class DamageInfo;
@@ -99,17 +100,17 @@ public:
 
 	virtual SlavedUpdateInterface* getSlavedUpdateInterface() { return this; }// hee hee... behaves just like slavedupdate
 
-	virtual ObjectID getSlaverID() const { return m_slaver; }
+	virtual ObjectID getSlaverID() const { return R().slaver; }
 	virtual void onEnslave( const Object *slaver );
 	virtual void onSlaverDie( const DamageInfo *info );
 	virtual void onSlaverDamage( const DamageInfo *info );
 	virtual void onObjectCreated();
-	virtual Bool isSelfTasking() const { return m_isSelfTasking; };
+	virtual Bool isSelfTasking() const { return R().isSelfTasking; };
 
 	void doCatchUpLogic( Coord3D *pinnedPosition );
 
-	void setMobState( MobStates state ) { m_mobState = state; };
-	MobStates getMobState() { return m_mobState; };
+	void setMobState( MobStates state ) { R().mobState = state; };
+	MobStates getMobState() { return R().mobState; };
 
 
 	virtual UpdateSleepTime update();	///< Deciding whether or not to make new guys
@@ -118,15 +119,25 @@ private:
 	void startSlavedEffects( const Object *slaver );	///< We have been marked as Slaved, so we can't be selected or move too far or other stuff
 	void stopSlavedEffects();		///< We are no longer slaved.
 
-	ObjectID m_slaver;			///< To whom we are enslaved
-	Int m_framesToWait;
-	MobStates m_mobState;
-	RGBColor m_personalColor;
-	ObjectID m_primaryVictimID;
-	Real m_squirrellinessRatio;
-	Bool m_isSelfTasking;
-	UnsignedInt m_catchUpCrisisTimer;// how many consecutive frames have I remained outside the catchup radius
 	//This is a failsafe to make sure that an individual mobmember does not get isolated from his buddies
 	// thus causing the mob to become invincible, since they will continue to bud around the nexus
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		ObjectID slaver; ///< To whom we are enslaved
+		Int framesToWait;
+		MobStates mobState;
+		RGBColor personalColor;
+		ObjectID primaryVictimID;
+		Real squirrellinessRatio;
+		Bool isSelfTasking;
+		UnsignedInt catchUpCrisisTimer; // how many consecutive frames have I remained outside the catchup radius
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline MobMemberSlavedUpdate::GxState &MobMemberSlavedUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

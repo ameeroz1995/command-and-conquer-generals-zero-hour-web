@@ -29,6 +29,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "GameLogic/Module/GxPathsKernels.h"
 
 #include "Common/Xfer.h"
 #include "GameLogic/Object.h"
@@ -76,9 +77,10 @@ FloatUpdateModuleData::FloatUpdateModuleData()
 FloatUpdate::FloatUpdate( Thing *thing, const ModuleData *moduleData )
 						:UpdateModule( thing, moduleData )
 {
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
 	// save our initial enabled status based on INI settings
-	m_enabled = ((FloatUpdateModuleData *)moduleData)->m_enabled;
+	R().enabled = ((FloatUpdateModuleData *)moduleData)->m_enabled;
 
 }
 
@@ -86,33 +88,55 @@ FloatUpdate::FloatUpdate( Thing *thing, const ModuleData *moduleData )
 // ------------------------------------------------------------------------------------------------
 FloatUpdate::~FloatUpdate()
 {
+	GxModuleList<FloatUpdate>::leave(this, R().gxId);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+static Bool gxFloatKernel(const FloatUpdate::GxState &r, const Coord3D &pos, Coord3D &newPos)
+{
+	if (r.enabled != TRUE)	// if we're not enabled, do nothing
+		return FALSE;
+	Real waterZ;	// the height of the water here
+	TheTerrainLogic->isUnderwater( pos.x, pos.y, &waterZ );
+	newPos.x = pos.x;	// snap to the water surface
+	newPos.y = pos.y;
+	newPos.z = waterZ;
+	return TRUE;
+}
+
+// web port (round 5): the range kernel through ai's hook, at the start of this module's phase
+GX_PATHS_KERNEL(FloatUpdate, GXB_PK_FLOAT, PHASE_NORMAL)
+void FloatUpdate::gxKernelStep(UnsignedInt now)
+{
+	// reads: its row, its position, the terrain's water heights; writes: its row (op, position)
+	GX_PK_WILL_UPDATE
+	Coord3D p;
+	R().gxOp = gxFloatKernel(R(), *getObject()->getPosition(), p) ? 1 : 0;
+	R().gxPos = p;
+	R().gxOpFrame = now + 1;
+}
+
 UpdateSleepTime FloatUpdate::update()
 {
+	GX_PK_JOIN(FloatUpdate, GXB_PK_FLOAT)
 /// @todo srj use SLEEPY_UPDATE here
 
-	// if we're not enabled, do nothing
-	if( m_enabled == TRUE )
+	// web port (round 5 addendum): kernel = the water-surface position (reads its row, its position
+	// and the terrain's water heights, read-only in the tick; writes nothing); apply = setPosition.
+	Coord3D newPos;
+	if (GX_PK_HAVE(TheGameLogic->getFrame()))
 	{
-		// get object position
-		const Coord3D *pos = getObject()->getPosition();
-
-		// get the height of the water here
-		Real waterZ;
-		TheTerrainLogic->isUnderwater( pos->x, pos->y, &waterZ );
-
-		// snap to the water surface
-		Coord3D newPos;
-		newPos.x = pos->x;
-		newPos.y = pos->y;
-		newPos.z = waterZ;
-		getObject()->setPosition( &newPos );
-
+		if (R().gxOp)
+		{
+			newPos = R().gxPos;
+			getObject()->setPosition( &newPos );
+		}
 	}
+	else if (gxFloatKernel(R(), *getObject()->getPosition(), newPos))
+		getObject()->setPosition( &newPos );
 
 	Drawable *draw = getObject()->getDrawable();
 	if (draw)
@@ -164,7 +188,7 @@ void FloatUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// enabled
-	xfer->xferBool( &m_enabled );
+	xfer->xferBool( &R().enabled );
 
 }
 
@@ -178,3 +202,4 @@ void FloatUpdate::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 }
+

@@ -30,6 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/UpdateModule.h"
 #include "Common/KindOf.h"
 
@@ -127,9 +128,9 @@ public:
 	virtual void onDrawableBoundToObject();
 	virtual UpdateSleepTime update();	///< update this object's AI
 
-	virtual Bool isInHorde() const { return m_inHorde; }
-	virtual Bool hasFlag() const { return m_hasFlag; }
-	virtual Bool isTrueHordeMember() const { return m_trueHordeMember && m_inHorde; }
+	virtual Bool isInHorde() const { return R().inHorde; }
+	virtual Bool hasFlag() const { return R().hasFlag; }
+	virtual Bool isTrueHordeMember() const { return R().trueHordeMember && R().inHorde; }
 	virtual Bool isAllowedNationalism() const;
 	virtual HordeActionType getHordeActionType() const { return getHordeUpdateModuleData()->m_action; };
 
@@ -139,9 +140,19 @@ protected:
 	void joinOrLeaveHorde(SimpleObjectIterator *iter, Bool join);
 
 private:
-	UnsignedInt m_lastHordeRefreshFrame; //Just like it sounds
-	Bool				m_inHorde;				 //I may be a true member, or I may merely inherit hordehood from a neighbor who is
-	Bool				m_trueHordeMember; //meaning, I have enough hordesmen near me to qualify
-	Bool				m_hasFlag;
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		UnsignedInt lastHordeRefreshFrame; //Just like it sounds
+		Bool inHorde; //I may be a true member, or I may merely inherit hordehood from a neighbor who is
+		Bool trueHordeMember; //meaning, I have enough hordesmen near me to qualify
+		Bool hasFlag;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline HordeUpdate::GxState &HordeUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

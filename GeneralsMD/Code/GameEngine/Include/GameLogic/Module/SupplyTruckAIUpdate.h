@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 
@@ -196,7 +197,7 @@ public:
 	virtual SupplyTruckAIInterface* getSupplyTruckAIInterface() {return this;}
 	virtual const SupplyTruckAIInterface* getSupplyTruckAIInterface() const {return this;}
 
-	virtual Int getNumberBoxes() const { return m_numberBoxes; }
+	virtual Int getNumberBoxes() const { return R().numberBoxes; }
 	virtual Bool loseOneBox();
 	virtual Bool gainOneBox( Int remainingStock );
 
@@ -206,13 +207,13 @@ public:
 	virtual Bool isCurrentlyFerryingSupplies() const;
 	virtual Real getWarehouseScanDistance() const; ///< How far can I look for a warehouse?
 
-	virtual void setForceWantingState(Bool v) { m_forcePending = v; } // When a Supply Center creates us (or maybe other sources later), we need to hop into autopilot mode.
-	virtual Bool isForcedIntoWantingState() const { return m_forcePending; }
+	virtual void setForceWantingState(Bool v) { R().forcePending = v; } // When a Supply Center creates us (or maybe other sources later), we need to hop into autopilot mode.
+	virtual Bool isForcedIntoWantingState() const { return R().forcePending; }
 
-	virtual void setForceBusyState(Bool v) { m_forcedBusyPending = v; }
-	virtual Bool isForcedIntoBusyState() const { return m_forcedBusyPending; }
+	virtual void setForceBusyState(Bool v) { R().forcedBusyPending = v; }
+	virtual Bool isForcedIntoBusyState() const { return R().forcedBusyPending; }
 
-	virtual ObjectID getPreferredDockID() const { return m_preferredDock; }
+	virtual ObjectID getPreferredDockID() const { return R().preferredDock; }
 	virtual UnsignedInt getActionDelayForDock( Object *dock );
 	virtual Int getUpgradedSupplyBoost() const { return 0; }
 
@@ -225,13 +226,23 @@ protected:
 	virtual void privateIdle(CommandSourceType cmdSource);						///< Enter idle state.
 
 private:
-	SupplyTruckStateMachine*	m_supplyTruckStateMachine;
-	ObjectID									m_preferredDock;			///< Instead of searching, try this one first
-	Int												m_numberBoxes;
-	Bool											m_forcePending;				// To prevent a function from doing a setState,
 																									// forceWanting will latch into here until serviced.
-	Bool											m_forcedBusyPending;	// A supply truck can't tell the difference between Idle since
 																									// I'm between docking states, or a Stop command without help.
- 	AudioEventRTS m_suppliesDepletedVoice;						///< Sound played when I take the last box.
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		SupplyTruckStateMachine* supplyTruckStateMachine;
+		ObjectID preferredDock; ///< Instead of searching, try this one first
+		Int numberBoxes;
+		Bool forcePending; // To prevent a function from doing a setState,
+		Bool forcedBusyPending; // A supply truck can't tell the difference between Idle since
+		AudioEventRTS suppliesDepletedVoice; ///< Sound played when I take the last box.
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline SupplyTruckAIUpdate::GxState &SupplyTruckAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

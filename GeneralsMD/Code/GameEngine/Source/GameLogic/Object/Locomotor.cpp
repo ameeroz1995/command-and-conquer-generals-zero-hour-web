@@ -645,51 +645,55 @@ LocomotorTemplate *LocomotorStore::newOverride( LocomotorTemplate *locoTemplate 
 //-------------------------------------------------------------------------------------------------
 
 //-------------------------------------------------------------------------------------------------
+
+//-------------------------------------------------------------------------------------------------
 Locomotor::Locomotor(const LocomotorTemplate* tmpl)
 {
+	m_gxRow = GxComponentPool<GxLocoState>::the().alloc();
 	m_template = tmpl;
-	m_brakingFactor = 1.0f;
-	m_maxLift = BIGNUM;
-	m_maxSpeed = BIGNUM;
-	m_maxAccel = BIGNUM;
-	m_maxBraking = BIGNUM;
-	m_maxTurnRate = BIGNUM;
-	m_flags = 0;
-	m_closeEnoughDist = m_template->m_closeEnoughDist;
+	R().brakingFactor = 1.0f;
+	R().maxLift = BIGNUM;
+	R().maxSpeed = BIGNUM;
+	R().maxAccel = BIGNUM;
+	R().maxBraking = BIGNUM;
+	R().maxTurnRate = BIGNUM;
+	R().flags = 0;
+	R().closeEnoughDist = m_template->m_closeEnoughDist;
 	setFlag(IS_CLOSE_ENOUGH_DIST_3D, m_template->m_isCloseEnoughDist3D);
 #ifdef CIRCLE_FOR_LANDING
-	m_circleThresh = 0.0f;
+	R().circleThresh = 0.0f;
 #endif
-	m_preferredHeight = m_template->m_preferredHeight;
-	m_preferredHeightDamping = m_template->m_preferredHeightDamping;
+	R().preferredHeight = m_template->m_preferredHeight;
+	R().preferredHeightDamping = m_template->m_preferredHeightDamping;
 
-	m_angleOffset = GameLogicRandomValueReal(-PI/6, PI/6);
-	m_offsetIncrement = (PI/40) * (GameLogicRandomValueReal(0.8f, 1.2f)/m_template->m_wanderLengthFactor);
+	R().angleOffset = GameLogicRandomValueReal(-PI/6, PI/6);
+	R().offsetIncrement = (PI/40) * (GameLogicRandomValueReal(0.8f, 1.2f)/m_template->m_wanderLengthFactor);
 	setFlag(OFFSET_INCREASING, GameLogicRandomValue(0,1));
-	m_donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_SECOND;
+	R().donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_SECOND;
 }
 
 //-------------------------------------------------------------------------------------------------
 Locomotor::Locomotor(const Locomotor& that)
 {
-	m_angleOffset = 0.0f;
-	m_maintainPos.zero();
+	m_gxRow = GxComponentPool<GxLocoState>::the().alloc();
+	R().angleOffset = 0.0f;
+	R().maintainPos.zero();
 	m_template = that.m_template;
-	m_brakingFactor = that.m_brakingFactor;
-	m_maxLift = that.m_maxLift;
-	m_maxSpeed = that.m_maxSpeed;
-	m_maxAccel = that.m_maxAccel;
-	m_maxBraking = that.m_maxBraking;
-	m_maxTurnRate = that.m_maxTurnRate;
-	m_flags = that.m_flags;
-	m_closeEnoughDist = that.m_closeEnoughDist;
+	R().brakingFactor = that.R().brakingFactor;
+	R().maxLift = that.R().maxLift;
+	R().maxSpeed = that.R().maxSpeed;
+	R().maxAccel = that.R().maxAccel;
+	R().maxBraking = that.R().maxBraking;
+	R().maxTurnRate = that.R().maxTurnRate;
+	R().flags = that.R().flags;
+	R().closeEnoughDist = that.R().closeEnoughDist;
 #ifdef CIRCLE_FOR_LANDING
-	m_circleThresh = that.m_circleThresh;
+	R().circleThresh = that.R().circleThresh;
 #endif
-	m_preferredHeight = that.m_preferredHeight;
-	m_preferredHeightDamping = that.m_preferredHeightDamping;
-	m_angleOffset = that.m_angleOffset;
-	m_offsetIncrement = that.m_offsetIncrement;
+	R().preferredHeight = that.R().preferredHeight;
+	R().preferredHeightDamping = that.R().preferredHeightDamping;
+	R().angleOffset = that.R().angleOffset;
+	R().offsetIncrement = that.R().offsetIncrement;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -698,19 +702,19 @@ Locomotor& Locomotor::operator=(const Locomotor& that)
 	if (this != &that)
 	{
 		m_template = that.m_template;
-		m_brakingFactor = that.m_brakingFactor;
-		m_maxLift = that.m_maxLift;
-		m_maxSpeed = that.m_maxSpeed;
-		m_maxAccel = that.m_maxAccel;
-		m_maxBraking = that.m_maxBraking;
-		m_maxTurnRate = that.m_maxTurnRate;
-		m_flags = that.m_flags;
-		m_closeEnoughDist = that.m_closeEnoughDist;
+		R().brakingFactor = that.R().brakingFactor;
+		R().maxLift = that.R().maxLift;
+		R().maxSpeed = that.R().maxSpeed;
+		R().maxAccel = that.R().maxAccel;
+		R().maxBraking = that.R().maxBraking;
+		R().maxTurnRate = that.R().maxTurnRate;
+		R().flags = that.R().flags;
+		R().closeEnoughDist = that.R().closeEnoughDist;
 #ifdef CIRCLE_FOR_LANDING
-		m_circleThresh = that.m_circleThresh;
+		R().circleThresh = that.R().circleThresh;
 #endif
-		m_preferredHeight = that.m_preferredHeight;
-		m_preferredHeightDamping = that.m_preferredHeightDamping;
+		R().preferredHeight = that.R().preferredHeight;
+		R().preferredHeightDamping = that.R().preferredHeightDamping;
 	}
 	return *this;
 }
@@ -718,6 +722,7 @@ Locomotor& Locomotor::operator=(const Locomotor& that)
 //-------------------------------------------------------------------------------------------------
 Locomotor::~Locomotor()
 {
+	GxComponentPool<GxLocoState>::the().release(m_gxRow);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -741,25 +746,25 @@ void Locomotor::xfer( Xfer *xfer )
 	xfer->xferVersion( &version, currentVersion );
 
 	if (version>=2) {
-		xfer->xferUnsignedInt(&m_donutTimer);
+		xfer->xferUnsignedInt(&R().donutTimer);
 	}
 
-	xfer->xferCoord3D(&m_maintainPos);
-	xfer->xferReal(&m_brakingFactor);
-	xfer->xferReal(&m_maxLift);
-	xfer->xferReal(&m_maxSpeed);
-	xfer->xferReal(&m_maxAccel);
-	xfer->xferReal(&m_maxBraking);
-	xfer->xferReal(&m_maxTurnRate);
-	xfer->xferReal(&m_closeEnoughDist);
+	xfer->xferCoord3D(&R().maintainPos);
+	xfer->xferReal(&R().brakingFactor);
+	xfer->xferReal(&R().maxLift);
+	xfer->xferReal(&R().maxSpeed);
+	xfer->xferReal(&R().maxAccel);
+	xfer->xferReal(&R().maxBraking);
+	xfer->xferReal(&R().maxTurnRate);
+	xfer->xferReal(&R().closeEnoughDist);
 #ifdef CIRCLE_FOR_LANDING
 	DEBUG_CRASH(("not supported, must fix me"));
 #endif
-	xfer->xferUnsignedInt(&m_flags);
-	xfer->xferReal(&m_preferredHeight);
-	xfer->xferReal(&m_preferredHeightDamping);
-	xfer->xferReal(&m_angleOffset);
-	xfer->xferReal(&m_offsetIncrement);
+	xfer->xferUnsignedInt(&R().flags);
+	xfer->xferReal(&R().preferredHeight);
+	xfer->xferReal(&R().preferredHeightDamping);
+	xfer->xferReal(&R().angleOffset);
+	xfer->xferReal(&R().offsetIncrement);
 
 }
 
@@ -775,7 +780,7 @@ void Locomotor::loadPostProcess()
 void Locomotor::startMove()
 {
 	// Reset the donut timer.
-	m_donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_SECOND;
+	R().donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_SECOND;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -788,8 +793,8 @@ Real Locomotor::getMaxSpeedForCondition(BodyDamageType condition) const
 	else
 		speed = m_template->m_maxSpeedDamaged;
 
-	if (speed > m_maxSpeed)
-		speed = m_maxSpeed;
+	if (speed > R().maxSpeed)
+		speed = R().maxSpeed;
 
 	return speed;
 }
@@ -804,8 +809,8 @@ Real Locomotor::getMaxTurnRate(BodyDamageType condition) const
 	else
 		turn = m_template->m_maxTurnRateDamaged;
 
-	if (turn > m_maxTurnRate)
-		turn = m_maxTurnRate;
+	if (turn > R().maxTurnRate)
+		turn = R().maxTurnRate;
 
 	const Real TURN_FACTOR = 2;
 	if (getFlag(ULTRA_ACCURATE))
@@ -824,8 +829,8 @@ Real Locomotor::getMaxAcceleration(BodyDamageType condition) const
 	else
 		accel = m_template->m_accelerationDamaged;
 
-	if (accel > m_maxAccel)
-		accel = m_maxAccel;
+	if (accel > R().maxAccel)
+		accel = R().maxAccel;
 
 	return accel;
 }
@@ -835,8 +840,8 @@ Real Locomotor::getBraking() const
 {
 	Real braking = m_template->m_braking;
 
-	if (braking > m_maxBraking)
-		braking = m_maxBraking;
+	if (braking > R().maxBraking)
+		braking = R().maxBraking;
 
 	return braking;
 }
@@ -851,8 +856,8 @@ Real Locomotor::getMaxLift(BodyDamageType condition) const
 	else
 		lift = m_template->m_liftDamaged;
 
-	if (lift > m_maxLift)
-		lift = m_maxLift;
+	if (lift > R().maxLift)
+		lift = R().maxLift;
 
 	return lift;
 }
@@ -956,7 +961,7 @@ void Locomotor::locoUpdate_moveTowardsPosition(Object* obj, const Coord3D& goalP
 	if (onPathDistToGoal>PATHFIND_CELL_SIZE_F && onPathDistToGoal > distToStopAtMaxSpeed)
 	{
 		setFlag(IS_BRAKING, false);
-		m_brakingFactor = 1.0f;
+		R().brakingFactor = 1.0f;
 	}
 	PhysicsBehavior *physics = obj->getPhysics();
 	if (physics == nullptr)
@@ -1208,7 +1213,7 @@ void Locomotor::moveTowardsPositionTreads(Object* obj, PhysicsBehavior *physics,
  	if (onPathDistToGoal < slowDownDist && !getFlag(IS_BRAKING) && !getFlag(NO_SLOW_DOWN_AS_APPROACHING_DEST))
 	{
 		setFlag(IS_BRAKING, true);
-		m_brakingFactor = 1.1f;
+		R().brakingFactor = 1.1f;
 	}
 
 	if (onPathDistToGoal>PATHFIND_CELL_SIZE_F && onPathDistToGoal > 2.0*slowDownDist)
@@ -1218,10 +1223,10 @@ void Locomotor::moveTowardsPositionTreads(Object* obj, PhysicsBehavior *physics,
 
 	if (getFlag(IS_BRAKING))
 	{
-		m_brakingFactor = slowDownDist/onPathDistToGoal;
-		m_brakingFactor *= m_brakingFactor;
-		if (m_brakingFactor>MAX_BRAKING_FACTOR) {
-			m_brakingFactor = MAX_BRAKING_FACTOR;
+		R().brakingFactor = slowDownDist/onPathDistToGoal;
+		R().brakingFactor *= R().brakingFactor;
+		if (R().brakingFactor>MAX_BRAKING_FACTOR) {
+			R().brakingFactor = MAX_BRAKING_FACTOR;
 		}
 		if (slowDownDist>onPathDistToGoal) {
 			goalSpeed = actualSpeed-getBraking();
@@ -1236,7 +1241,7 @@ void Locomotor::moveTowardsPositionTreads(Object* obj, PhysicsBehavior *physics,
 
 
 	//DEBUG_LOG(("Actual speed %f, Braking factor %f, slowDownDist %f, Pathdist %f, goalSpeed %f",
-	//	actualSpeed, m_brakingFactor, slowDownDist, onPathDistToGoal, goalSpeed));
+	//	actualSpeed, R().brakingFactor, slowDownDist, onPathDistToGoal, goalSpeed));
 
 	//
 	// Maintain goal speed
@@ -1245,7 +1250,7 @@ void Locomotor::moveTowardsPositionTreads(Object* obj, PhysicsBehavior *physics,
 	if (speedDelta != 0.0f)
 	{
 		Real mass = physics->getMass();
-		Real acceleration = (speedDelta > 0.0f) ? maxAcceleration : -m_brakingFactor*getBraking();
+		Real acceleration = (speedDelta > 0.0f) ? maxAcceleration : -R().brakingFactor*getBraking();
 		Real accelForce = mass * acceleration;
 
 		/*
@@ -1407,7 +1412,7 @@ void Locomotor::moveTowardsPositionWheels(Object* obj, PhysicsBehavior *physics,
 	if (onPathDistToGoal < effectiveSlowDownDist && !getFlag(IS_BRAKING) && !getFlag(NO_SLOW_DOWN_AS_APPROACHING_DEST))
 	{
 		setFlag(IS_BRAKING, true);
-		m_brakingFactor = 1.1f;
+		R().brakingFactor = 1.1f;
 	}
 
 
@@ -1417,21 +1422,21 @@ void Locomotor::moveTowardsPositionWheels(Object* obj, PhysicsBehavior *physics,
 	}
 
  	if (onPathDistToGoal > DONUT_DISTANCE) {
-		m_donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_SECOND;
+		R().donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_SECOND;
 	} else {
-		if (m_donutTimer < TheGameLogic->getFrame()) {
+		if (R().donutTimer < TheGameLogic->getFrame()) {
 			setFlag(IS_BRAKING, true);
 		}
 	}
 
 	if (getFlag(IS_BRAKING))
 	{
-		m_brakingFactor = slowDownDist/onPathDistToGoal;
-		m_brakingFactor *= m_brakingFactor;
-		if (m_brakingFactor>MAX_BRAKING_FACTOR) {
-			m_brakingFactor = MAX_BRAKING_FACTOR;
+		R().brakingFactor = slowDownDist/onPathDistToGoal;
+		R().brakingFactor *= R().brakingFactor;
+		if (R().brakingFactor>MAX_BRAKING_FACTOR) {
+			R().brakingFactor = MAX_BRAKING_FACTOR;
 		}
-		m_brakingFactor = 1.0f;
+		R().brakingFactor = 1.0f;
 		if (slowDownDist>onPathDistToGoal) {
 			goalSpeed = actualSpeed-getBraking();
 			if (goalSpeed<0.0f) goalSpeed= 0.0f;
@@ -1445,7 +1450,7 @@ void Locomotor::moveTowardsPositionWheels(Object* obj, PhysicsBehavior *physics,
 
 
 	//DEBUG_LOG(("Actual speed %f, Braking factor %f, slowDownDist %f, Pathdist %f, goalSpeed %f",
-	//	actualSpeed, m_brakingFactor, slowDownDist, onPathDistToGoal, goalSpeed));
+	//	actualSpeed, R().brakingFactor, slowDownDist, onPathDistToGoal, goalSpeed));
 
 
 	// Wheeled can only turn while moving.
@@ -1481,9 +1486,9 @@ void Locomotor::moveTowardsPositionWheels(Object* obj, PhysicsBehavior *physics,
 		Real mass = physics->getMass();
 		Real acceleration;
 		if (moveBackwards) {
-			acceleration = (speedDelta < 0.0f) ? -maxAcceleration : m_brakingFactor*getBraking();
+			acceleration = (speedDelta < 0.0f) ? -maxAcceleration : R().brakingFactor*getBraking();
 		}	else {
-			acceleration = (speedDelta > 0.0f) ? maxAcceleration : -m_brakingFactor*getBraking();
+			acceleration = (speedDelta > 0.0f) ? maxAcceleration : -R().brakingFactor*getBraking();
 		}
 		Real accelForce = mass * acceleration;
 
@@ -1633,17 +1638,17 @@ void Locomotor::moveTowardsPositionLegs(Object* obj, PhysicsBehavior *physics, c
 		Real angleLimit = PI/8 * m_template->m_wanderWidthFactor;
 		// This is the wander offline code - it forces the desired angle away from the goal, so we wander back & forth.  jba.
 		if (getFlag(OFFSET_INCREASING)) {
-			m_angleOffset += m_offsetIncrement*actualSpeed;
-			if (m_angleOffset > angleLimit) {
+			R().angleOffset += R().offsetIncrement*actualSpeed;
+			if (R().angleOffset > angleLimit) {
 				setFlag(OFFSET_INCREASING, false);
 			}
 		} else {
-			m_angleOffset -= m_offsetIncrement*actualSpeed;
-			if (m_angleOffset<-angleLimit) {
+			R().angleOffset -= R().offsetIncrement*actualSpeed;
+			if (R().angleOffset<-angleLimit) {
 				setFlag(OFFSET_INCREASING, true);
 			}
 		}
-		desiredAngle = normalizeAngle(desiredAngle+m_angleOffset);
+		desiredAngle = normalizeAngle(desiredAngle+R().angleOffset);
 	}
 
 	Real relAngle = stdAngleDiff(desiredAngle, angle);
@@ -1835,7 +1840,7 @@ void Locomotor::moveTowardsPositionClimb(Object* obj, PhysicsBehavior *physics, 
 void Locomotor::moveTowardsPositionWings(Object* obj, PhysicsBehavior *physics, const Coord3D& goalPos, Real onPathDistToGoal, Real desiredSpeed)
 {
 #ifdef CIRCLE_FOR_LANDING
-	if (m_circleThresh > 0.0f)
+	if (R().circleThresh > 0.0f)
 	{
 		// if we are going a mostly-vertical maneuver, circle in order to
 		// gain/lose altitude, then resume course...
@@ -1843,7 +1848,7 @@ void Locomotor::moveTowardsPositionWings(Object* obj, PhysicsBehavior *physics, 
 		Real dx = goalPos.x - pos->x;
 		Real dy = goalPos.y - pos->y;
 		Real dz = goalPos.z - pos->z;
-		if (fabs(dz) > m_circleThresh)
+		if (fabs(dz) > R().circleThresh)
 		{
 			// aim for the spot on the opposite side of the circle.
 
@@ -1925,11 +1930,11 @@ void Locomotor::moveTowardsPositionThrust(Object* obj, PhysicsBehavior *physics,
 
 	//out of the handleBehaviorZ() function
 	Coord3D pos = *obj->getPosition();
-	if( m_preferredHeight != 0.0f && !getFlag(PRECISE_Z_POS) )
+	if( R().preferredHeight != 0.0f && !getFlag(PRECISE_Z_POS) )
 	{
 		// If we have a preferred flight height, and we haven't been told explicitly to ignore it...
 		Real surfaceHt =  getSurfaceHtAtPt(pos.x, pos.y);
-		localGoalPos.z = m_preferredHeight + surfaceHt;
+		localGoalPos.z = R().preferredHeight + surfaceHt;
 //		localGoalPos.z = goalPos.z;
 		Real delta = localGoalPos.z - pos.z;
 		delta *= getPreferredHeightDamping();
@@ -1939,7 +1944,7 @@ void Locomotor::moveTowardsPositionThrust(Object* obj, PhysicsBehavior *physics,
 		// closer we get to the preferred height, less we adjust z-thrust,
 		// so we tend to "level out" at that height. we don't use this till
 		// below, but go ahead and calc it now...
-		Real MAX_VERTICAL_DAMP_RANGE = m_preferredHeight * 0.5;
+		Real MAX_VERTICAL_DAMP_RANGE = R().preferredHeight * 0.5;
 		delta = fabs(delta);
 		if (delta > MAX_VERTICAL_DAMP_RANGE)
 			delta = MAX_VERTICAL_DAMP_RANGE;
@@ -2241,7 +2246,7 @@ Bool Locomotor::handleBehaviorZ(Object* obj, PhysicsBehavior *physics, const Coo
 				Coord3D pos = *obj->getPosition();
 				Bool surfaceRel = (m_template->m_behaviorZ == Z_FIXED_SURFACE_RELATIVE_HEIGHT);
 				Real surfaceHt = surfaceRel ? getSurfaceHtAtPt(pos.x, pos.y) : 0.0f;
-				pos.z = m_preferredHeight + (surfaceRel ? surfaceHt : 0);
+				pos.z = R().preferredHeight + (surfaceRel ? surfaceHt : 0);
 				obj->setPosition(&pos);
 			}
 			break;
@@ -2253,7 +2258,7 @@ Bool Locomotor::handleBehaviorZ(Object* obj, PhysicsBehavior *physics, const Coo
 				Coord3D pos = *obj->getPosition();
 				Real surfaceHt = ThePartitionManager->getGroundOrStructureHeight(pos.x, pos.y);
 
-					pos.z = m_preferredHeight + surfaceHt;
+					pos.z = R().preferredHeight + surfaceHt;
 
 					obj->setPosition(&pos);
 
@@ -2262,7 +2267,7 @@ Bool Locomotor::handleBehaviorZ(Object* obj, PhysicsBehavior *physics, const Coo
 		case Z_SMOOTH_RELATIVE_TO_HIGHEST_LAYER:
 			requiresConstantCalling = TRUE;
 			{
-				if (m_preferredHeight != 0.0f || getFlag(PRECISE_Z_POS))
+				if (R().preferredHeight != 0.0f || getFlag(PRECISE_Z_POS))
 				{
 					Coord3D pos = *obj->getPosition();
 
@@ -2276,7 +2281,7 @@ Bool Locomotor::handleBehaviorZ(Object* obj, PhysicsBehavior *physics, const Coo
 					const Bool clip = false;	// return the height, even if off the edge of the bridge proper.
 					surfaceHt = TheTerrainLogic->getLayerHeight( pos.x, pos.y, layerAtDest, &normal, clip );
 
-					Real preferredHeight = m_preferredHeight + surfaceHt;
+					Real preferredHeight = R().preferredHeight + surfaceHt;
 					if (getFlag(PRECISE_Z_POS))
 						preferredHeight = goalPos.z;
 
@@ -2303,13 +2308,13 @@ Bool Locomotor::handleBehaviorZ(Object* obj, PhysicsBehavior *physics, const Coo
 		case Z_ABSOLUTE_HEIGHT:
 			requiresConstantCalling = TRUE;
 			{
-				if (m_preferredHeight != 0.0f || getFlag(PRECISE_Z_POS))
+				if (R().preferredHeight != 0.0f || getFlag(PRECISE_Z_POS))
 				{
 					Coord3D pos = *obj->getPosition();
 
 					Bool surfaceRel = (m_template->m_behaviorZ == Z_SURFACE_RELATIVE_HEIGHT);
 					Real surfaceHt = surfaceRel ? getSurfaceHtAtPt(pos.x, pos.y) : 0.0f;
-					Real preferredHeight = m_preferredHeight + (surfaceRel ? surfaceHt : 0);
+					Real preferredHeight = R().preferredHeight + (surfaceRel ? surfaceHt : 0);
 					if (getFlag(PRECISE_Z_POS))
 						preferredHeight = goalPos.z;
 
@@ -2427,11 +2432,11 @@ Bool Locomotor::locoUpdate_maintainCurrentPosition(Object* obj)
 {
 	if (!getFlag(MAINTAIN_POS_IS_VALID))
 	{
-		m_maintainPos = *obj->getPosition();
+		R().maintainPos = *obj->getPosition();
 		setFlag(MAINTAIN_POS_IS_VALID, true);
 	}
 
-	m_donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_SECOND;
+	R().donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_SECOND;
 	setFlag(IS_BRAKING, false);
 	PhysicsBehavior *physics = obj->getPhysics();
 	if (physics == nullptr)
@@ -2441,7 +2446,7 @@ Bool Locomotor::locoUpdate_maintainCurrentPosition(Object* obj)
 	}
 
 #ifdef DEBUG_OBJECT_ID_EXISTS
-//	DEBUG_ASSERTLOG(obj->getID() != TheObjectIDToDebug, ("locoUpdate_maintainCurrentPosition %f %f %f, speed %f (%f)",m_maintainPos.x,m_maintainPos.y,m_maintainPos.z,physics->getSpeed(),physics->getForwardSpeed2D()));
+//	DEBUG_ASSERTLOG(obj->getID() != TheObjectIDToDebug, ("locoUpdate_maintainCurrentPosition %f %f %f, speed %f (%f)",R().maintainPos.x,R().maintainPos.y,R().maintainPos.z,physics->getSpeed(),physics->getForwardSpeed2D()));
 #endif
 
 	Bool requiresConstantCalling = TRUE;	// assume the worst.
@@ -2484,7 +2489,7 @@ Bool Locomotor::locoUpdate_maintainCurrentPosition(Object* obj)
 	}
 
 	// but we do need to do this even if not moving, for hovering/Thrusting things.
-	if (handleBehaviorZ(obj, physics, m_maintainPos))
+	if (handleBehaviorZ(obj, physics, R().maintainPos))
 		requiresConstantCalling = TRUE;
 
 	return requiresConstantCalling;
@@ -2495,7 +2500,7 @@ void Locomotor::maintainCurrentPositionThrust(Object* obj, PhysicsBehavior *phys
 {
 	DEBUG_ASSERTCRASH(getFlag(MAINTAIN_POS_IS_VALID), ("invalid maintain pos"));
 	/// @todo srj -- should these also use the "circling radius" stuff, like wings?
-	moveTowardsPositionThrust(obj, physics, m_maintainPos, 0, getMinSpeed());
+	moveTowardsPositionThrust(obj, physics, R().maintainPos, 0, getMinSpeed());
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2514,8 +2519,8 @@ void Locomotor::maintainCurrentPositionWings(Object* obj, PhysicsBehavior *physi
 
 		// find the direction towards our "maintain pos"
 		const Coord3D* pos = obj->getPosition();
-		Real dx = m_maintainPos.x - pos->x;
-		Real dy = m_maintainPos.y - pos->y;
+		Real dx = R().maintainPos.x - pos->x;
+		Real dy = R().maintainPos.y - pos->y;
 		Real angleTowardMaintainPos =
 				(isNearlyZero(dx) && isNearlyZero(dy)) ?
 				obj->getOrientation() :
@@ -2530,7 +2535,7 @@ void Locomotor::maintainCurrentPositionWings(Object* obj, PhysicsBehavior *physi
 		angleTowardMaintainPos += aimDir;
 
 		// project a spot "radius" dist away from it, in that dir
-		Coord3D desiredPos = m_maintainPos;
+		Coord3D desiredPos = R().maintainPos;
 		desiredPos.x += Cos(angleTowardMaintainPos) * turnRadius;
 		desiredPos.y += Sin(angleTowardMaintainPos) * turnRadius;
 		moveTowardsPositionWings(obj, physics, desiredPos, 0, m_template->m_minSpeed);

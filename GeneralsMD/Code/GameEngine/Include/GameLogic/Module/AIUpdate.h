@@ -231,6 +231,8 @@ enum AIFreeToExitType CPP_11(: Int) // Note - written out in save/load xfer, don
  * The AIUpdateInterface module contains the interface to the AI system,
  * and performs the actual AI behaviors.
  */
+struct GxCpopRow;
+struct ClosestPointOnPathInfo;
 struct GxAIUpdateInterfaceRow;
 class AIUpdateInterface : public UpdateModule, public AICommandInterface
 {
@@ -470,6 +472,8 @@ public:
 	Bool isWaitingForPath() const;
 	void gxMovementPassStep();
 	void gxSetMoving(Bool on);	///< web port: in / out of the store's MOVE list (state change only)
+	void gxMoveKernelStep(GxCpopRow &row, UnsignedInt frame);	///< web port: movement kernel, this unit's route point
+	Bool gxTakeKernelPoint(const Coord3D &pos, ClosestPointOnPathInfo &info) const;	///< web port: the kernel point, if still valid
 	Bool gxWantsClosestSpot() const;
 	const Coord3D * gxRequestedDest() const;	///< web port: the destination of the waiting request
 	Bool gxPlainRequest() const;	///< web port: a plain move request is waiting	///< web port (match rule routeQueue): the queued search is a closest-spot one
