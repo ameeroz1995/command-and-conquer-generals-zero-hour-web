@@ -37,6 +37,7 @@
 #include <windows.h>
 
 #include "Common/crc.h"
+#include "Common/GxUnitStore.h"
 #include "Common/CRCDebug.h"
 #include "Common/GameState.h"
 #include "Common/GlobalData.h"
@@ -3112,6 +3113,9 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 		{
 			m_renderObject = W3DDisplay::m_assetManager->Create_Render_Obj(newState->m_modelName.str(), draw->getScale(), m_hexColor);
 			DEBUG_ASSERTCRASH(m_renderObject, ("*** ASSET ERROR: Model %s not found!",newState->m_modelName.str()));
+			// store's ANIM bit (combat): the bone workers take their units from the store's ANIM list
+			if (m_renderObject && m_renderObject->Class_ID() == RenderObjClass::CLASSID_HLOD && draw->getObject())
+				TheGxUnitStore.setMask(draw->getObject(), GXB_BIT(GXB_ANIM));
 		}
 
 		//BONEPOS_LOG(("validateStuff() from within W3DModelDraw::setModelState()"));

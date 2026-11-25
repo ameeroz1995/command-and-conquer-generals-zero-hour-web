@@ -63,6 +63,13 @@ public:
 	std::vector<int>							cell;			///< partition cell index, -1 unknown
 	std::vector<GxBehaviourMask>	mask;			///< behaviour bits (GXB_BIT)
 
+	// ---- combat block (round 4, combat agent): weapons ----
+	std::vector<int>							target;			///< current victim ObjectID, 0 none (write-through: AIUpdateInterface::setCurrentVictim)
+	std::vector<unsigned int>			weaponReady;	///< frame a weapon's reload / pre-attack ends (weapon-status pass); 0 = look now
+	std::vector<unsigned int>			weaponSig;		///< weapon-status pass: ammo/status signature last shown on the drawable
+	void setTarget(const Object *o, int victimId);
+	// ---- end combat block ----
+
 	int size() const { return (int)obj.size(); }
 	/// changes whenever any slot may have moved or been freed (compact, remove): cache slots against it
 	unsigned int epoch() const { return m_epoch; }

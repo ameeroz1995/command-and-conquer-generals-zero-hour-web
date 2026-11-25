@@ -28,6 +28,7 @@
 // Subsequently : John Ahlquist 2002 and a cast of thousands.
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxUnitStore.h"
 
 #define DEFINE_LOCOMOTORSET_NAMES					// for TheLocomotorSetNames[]
 #define DEFINE_AUTOACQUIRE_NAMES
@@ -4366,6 +4367,7 @@ void AIUpdateInterface::setCurrentVictim( const Object *victim )
 		// the victim.
 		m_currentVictimID = victim->getID();
 	}
+	TheGxUnitStore.setTarget(getObject(), (int)m_currentVictimID);	// store column (combat): the weapon-status pass looks at units with a target
 }
 
 /**

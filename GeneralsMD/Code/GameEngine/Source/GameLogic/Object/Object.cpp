@@ -4955,6 +4955,40 @@ void Object::adjustModelConditionForWeaponStatus()
 }
 
 //-------------------------------------------------------------------------------------------------
+// weaponSkip (combat, third word bit 19; runs inside the weaponPass store pass). Exact: it makes the
+// same getStatus() calls the full update would (they refresh the weapon's saved status), and skips
+// only the drawable updates, which would repeat the values the drawable already shows. Writes the
+// store's weaponReady (the soonest reload / pre-attack end) and weaponSig (what the drawable shows).
+Bool Object::gxWeaponStatusQuiet(Int target, UnsignedInt &ready, UnsignedInt &sig)
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	UnsignedInt nextReady = ~0u;
+	UnsignedInt h = (UnsignedInt)m_weaponSet.getCurWeaponSlot() * 2654435761u;
+	Bool quiet = target == 0 && !testStatus(OBJECT_STATUS_IS_ATTACKING) && m_drawable != nullptr;
+	for (int i = 0; i < WEAPONSLOT_COUNT; ++i)
+	{
+		const Weapon* w = m_weaponSet.getWeaponInWeaponSlot((WeaponSlotType)i);
+		if (!w)
+		{
+			if (m_lastWeaponCondition[i] != WSF_NONE) quiet = false;
+			continue;
+		}
+		if (w->getLastShotFrame() == now || m_lastWeaponCondition[i] != WSF_NONE) quiet = false;
+		if (!quiet) break;
+		const UnsignedInt ammo = w->getRemainingAmmo();	// calls getStatus(), as the full update does
+		h = (h ^ ammo ^ ((UnsignedInt)w->getClipSize() << 20) ^ ((UnsignedInt)i << 28)) * 16777619u;
+		const UnsignedInt a = w->getPossibleNextShotFrame(), b = w->getPreAttackFinishedFrame();
+		if (a > now && a < nextReady) nextReady = a;
+		if (b > now && b < nextReady) nextReady = b;
+	}
+	ready = nextReady;
+	if (!quiet) { sig = ~0u; return false; }
+	if (h == sig) return true;
+	sig = h;
+	return false;
+}
+
+//-------------------------------------------------------------------------------------------------
 Bool Object::hasGhostObject() const
 {
 	if (m_partitionData == nullptr)

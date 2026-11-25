@@ -3587,3 +3587,30 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
   returns the store's Coord3D, arrays reserved for 16k units so the pointer stays put within a frame).
   Position stays in the Object's matrix with write-through (x/y/z), likewise radius and player.
 - Same game: referee replay matches (9,000 frames, build store-1).
+
+## 2026-11-25 — Round 4, combat: weapons and damage as managers over GxUnitStore (all off)
+
+- damageQueue (match rule 524288, third word bit 18): WeaponTemplate::dealDamageInternal queues
+  (victim ID, DamageInfoInput) instead of calling attemptDamage; gxApplyDamageQueue applies the
+  tick's damage in victim-ID order (each victim's hits in the order dealt) after the update queue and
+  the movement and weapon-status passes, and again after TheWeaponStore's delayed weapons, so nothing
+  is queued between ticks (saves). Damage dealt while applying (death explosions) is applied in
+  further rounds. Referee (rule off) matches; a recording with it on replays to a match; verify mode
+  1631 checks, 0 mismatches. Damage share off → on (dealDamageInternal vs queue + apply, load 20-50):
+  1.0 → 1.7%, 1.6 → 1.1%, 0.9 → 1.0%, 1.8 → 0.7%: the same attemptDamage calls, later and sorted.
+- Store columns (combat block in GxUnitStore.h/.cpp, compacted with the rest): target (write-through
+  from AIUpdateInterface::setCurrentVictim), weaponReady (soonest reload / pre-attack end, written
+  by the weapon-status pass), weaponSig (ammo/status the drawable shows).
+- weaponPass now walks pass(GXB_WEAPON) (bit set when a helper joins, cleared when the rule goes
+  off and it is woken). The old weaponPass recording still replays to a match.
+- weaponSkip (third word bit 19, same game): units with no target, not attacking, no shot this frame,
+  no weapon pose and an unchanged ammo/status signature skip the drawable updates; the getStatus()
+  calls (which refresh the weapon's saved status) still run, so it is exact: the weaponPass recording
+  replays to a match with it on. Weapon-status share 0.4-0.6% → 0.0-0.1%.
+- animStoreList (third word bit 27, mt, drawing only): the bone workers take their units from
+  pass(GXB_ANIM) (set when W3DModelDraw creates an HLod model) plus the visibility check, instead of
+  scanning the scene's render list. mt referee with boneWorker + boneAhead + animStoreList matches.
+- Not moved to the store: particle motion (particles are not units; the store has no particle data),
+  and weaponReady is written but nothing decides on it yet (a skip on it alone would not be exact:
+  some reload events, e.g. setClipPercentFull, do not know their object).
+- fps pairs ran at load 15-56 (other agents profiling) and are not usable; all four switches off.

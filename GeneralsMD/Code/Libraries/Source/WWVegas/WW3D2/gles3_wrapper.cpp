@@ -482,6 +482,8 @@ void GLES3_Begin_Scene() {
                  | (o.disabledList === false ? 0 : 256)  // bit 8: end-of-tick disabled check visits a list of disabled objects, not every object (GameLogic.cpp; same game)
                  | (o.weaponPass === true ? 65536 : 0)    // bit 16: match rule weaponPass, armed units' weapon status in one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
                  | (o.damageQueue === true ? 262144 : 0)   // bit 18: match rule damageQueue, weapon damage queued in the tick and applied in victim-ID order (Weapon.cpp)
+                 | (o.weaponSkip === true ? 524288 : 0)    // bit 19: weaponSkip, with weaponPass: the store pass skips armed units whose weapon pose would not change (Object.cpp; same game)
+                 | (o.animStoreList === true ? 134217728 : 0)  // bit 27: animStoreList, the bone workers take their units from the store's ANIM list (W3DScene.cpp)
                  | (o.boneWorker === true ? 131072 : 0)   // bit 17: boneWorker, mt build: visible units' bones computed on a worker thread while the terrain draws (animobj.cpp, W3DScene.cpp)
                  | (o.particleWorker === false ? 0 : 16777216)  // bit 24: particleWorker (on), mt build: existing particles move on a worker during the draw when frames are long (ParticleSys.cpp)
                  | (o.boneAhead === true ? 8388608 : 0);  // bit 23: boneAhead, mt build: drawn units' next poses decoded on a worker while the game logic runs (animobj.cpp, W3DScene.cpp)
