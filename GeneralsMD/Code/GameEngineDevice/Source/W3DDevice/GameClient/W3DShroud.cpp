@@ -523,6 +523,9 @@ TextureClass *DummyTexture=nullptr;
 /** Updates video memory surface with currently visible shroud data */
 void W3DShroud::render(CameraClass *cam)
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(13); // draw counts by kind (benchmark)
+#endif
 	if (!m_pSrcTexture)
 		return; //nothing to update from.  Must be in reset state.
 

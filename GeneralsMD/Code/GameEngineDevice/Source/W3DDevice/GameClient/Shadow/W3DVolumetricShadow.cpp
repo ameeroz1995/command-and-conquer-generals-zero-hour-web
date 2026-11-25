@@ -3409,6 +3409,9 @@ void W3DVolumetricShadowManager::renderStencilShadows()
 
 void W3DVolumetricShadowManager::renderShadows( Bool forceStencilFill )
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(8); // draw counts by kind (benchmark)
+#endif
 	W3DVolumetricShadow *shadow;
 	Int numRenderedShadows = 0;
 

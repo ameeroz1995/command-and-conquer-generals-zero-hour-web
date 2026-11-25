@@ -21,6 +21,7 @@
 #if defined(__EMSCRIPTEN__)
 
 #include "gles3_wrapper.h"
+#include "gles3_webgpu.h"
 #include <emscripten/html5.h>
 #include <emscripten/em_asm.h>
 #include <cstring>
@@ -47,7 +48,8 @@ static GLES3_PipelineState g_State;
 static bool g_Initialized = false;
 static bool g_SceneDirty = true; // GXScene inputs changed since the last upload (Upload_Scene_Block)
 static double g_RenderScale = 1.0;  // Module.gxRenderScale, read about once a second
-static int g_SwapCount = 0;         // frames presented, for Module.gxFps (render scale Auto)
+static int g_SwapCount = 0;
+int gx_total_swaps = 0;         // frames presented, for Module.gxFps (render scale Auto)
 double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gles3_mainloop) -> Module.gxWorkMs
 static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
@@ -64,10 +66,12 @@ static int g_PageSwitches4 = 0;
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
+static bool g_MultiDraw = false; // WEBGL_multi_draw (GLES3_Draw_Triangles_Multi)
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
 // Ground cache (GLES3_Ground_Cache_Begin): every texture and buffer upload takes the next
 // serial, so "same texture id" also means "same contents" in a draw's fingerprint.
 unsigned int gx_content_serial = 0;
+int gx_draw_cat = 0; unsigned gx_draw_cat_count[16] = {}; unsigned gx_ui_why[2] = {}; // draws by kind, set by scopes in the render functions
 static std::vector<unsigned int> g_TexSerial; // by GL texture id
 int gx_gc_hits = 0, gx_gc_captures = 0, gx_gc_plain = 0, gx_gc_slides = 0;
 const float* gx_skin_palette = nullptr; unsigned int gx_skin_bones = 0; GLuint gx_skin_bone_buffer = 0; // a skinned instanced draw in progress (with gx_instance_count)
@@ -265,18 +269,26 @@ bool GLES3_Init(void* hwnd, bool lite) {
     attrs.preserveDrawingBuffer = false;
     attrs.powerPreference = EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
 
-    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_create_context("#canvas", &attrs);
+    // WebGPU drawing (gles3_webgpu.cpp): the game canvas belongs to WebGPU; this WebGL2 context
+    // goes on a hidden canvas, so GL calls the WebGPU path does not divert stay harmless.
+    const bool webgpu = GXW_Init() && EM_ASM_INT({
+        if (!document.getElementById('gxgl')) { var c = document.createElement('canvas'); c.id = 'gxgl'; c.width = 16; c.height = 16; c.style.display = 'none'; document.body.appendChild(c); }
+        return 1; }) != 0;
+    if (webgpu) attrs.antialias = 0;
+    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_create_context(webgpu ? "#gxgl" : "#canvas", &attrs);
     if (ctx <= 0) {
         fprintf(stderr, "ERROR: Failed to create WebGL 2.0 context (code: %d)\n", ctx);
         return false;
     }
     emscripten_webgl_make_context_current(ctx);
+    g_MultiDraw = emscripten_webgl_enable_extension(ctx, "WEBGL_multi_draw") != 0;
     {
         GLint samples = 0;
         glGetIntegerv(GL_SAMPLES, &samples);
         // Not on a software GPU: there a full-size canvas costs more than the smaller 3D
         // pass saves (2-core SwiftShader: 1-2 fps vs 3-7 with the whole canvas scaled).
         g_Scaled3D = samples == 0 && !EM_ASM_INT({ return window.gxSoftwareGL ? 1 : 0; });
+        if (webgpu) g_Scaled3D = false; // render scale: not on WebGPU yet
         EM_ASM({ Module.gxScaled3D = $0; if (window.gxRepinCanvas) window.gxRepinCanvas(); }, g_Scaled3D ? 1 : 0);
     }
 
@@ -424,6 +436,7 @@ void GLES3_Precompile_Programs();
 void GLES3_Begin_Scene() {
     g_CanvasSizeStale = true;
     static bool precompiled = false; // the programs the last sessions needed (item 21)
+    if (GXW_On()) { precompiled = true; g_PageSwitches &= ~(1 | 8 | 128); }
     if (!precompiled) {
         precompiled = true;
         if (MAIN_THREAD_EM_ASM_INT({ var o = typeof window !== 'undefined' && window.GeneralsX && window.GeneralsX.opt; return o && o.precompile === false ? 0 : 1; }))
@@ -478,6 +491,10 @@ void GLES3_Begin_Scene() {
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+                 | (o.multiDraw === true ? 1073741824 : 0)   // bit 30: different rigid parts of one material in one multi-draw call (dx8renderer.cpp)
+                 | (o.multiLights === true ? 536870912 : 0)   // bit 29: ... each with its own lights, so parts in different light join too
+                 | (o.uiMerge === false ? 0 : 268435456)       // bit 28: consecutive interface pictures with one texture drawn together (render2d.cpp)
+                 | (o.sortMaterials === false ? 0 : 67108864)   // bit 26: see-through draws with equal materials merge (sortingrenderer.cpp)
                  | (o.cpopSegments === true ? 1 : 0)   // bit 0: route-following reads each route's segments from one flat array (AIPathfind.cpp; same game)
                  | (o.moveAfterTick === true ? 2 : 0)   // bit 1: match rule moveAfterTick, every unit's locomotion in one pass at the end of the tick (AIUpdate.cpp)
                  | (o.groupRoute === true ? 4 : 0)      // bit 2: match rule groupRoute, one route search per group order (AIGroup.cpp)
@@ -534,6 +551,31 @@ void GLES3_Begin_Scene() {
                  | (o.allyTable === false ? 0 : 1073741824); // bit 30: who-is-an-ally answers from a table (Player.cpp; same game)
         });
         g_RenderScale = sc < 0.25 ? 0.25 : sc > 1.0 ? 1.0 : sc;
+        {   // GXCAT: draws per frame by kind over the last second (benchmark logs)
+            static int last_swaps = 0; extern int gx_total_swaps;
+            const int frames = gx_total_swaps - last_swaps; last_swaps = gx_total_swaps;
+            if (frames > 0) {
+                static const char* names[16] = { "other", "terrain", "water", "rigid", "skin", "particles", "sorted", "ui", "shadows",
+                                                 "tracks", "lines", "trees", "roads", "shroud", "smudge", "dazzle" };
+                char line[512]; int n = snprintf(line, sizeof(line), "GXCAT frames=%d", frames);
+                for (int c = 0; c < 16; c++) { n += snprintf(line + n, sizeof(line) - n, " %s=%.0f", names[c], gx_draw_cat_count[c] / (double)frames); gx_draw_cat_count[c] = 0; }
+                printf("%s\n", line);
+                extern unsigned gx_inst_why[12];
+                printf("GXINST skin=%.0f sorted=%.0f strip=%.0f alpha=%.0f additive=%.0f userdata=%.0f lone=%.0f lighting=%.0f other=%.0f cap=%.0f batches=%.0f instances=%.0f\n",
+                       gx_inst_why[0] / (double)frames, gx_inst_why[1] / (double)frames, gx_inst_why[2] / (double)frames, gx_inst_why[3] / (double)frames,
+                       gx_inst_why[4] / (double)frames, gx_inst_why[5] / (double)frames, gx_inst_why[6] / (double)frames, gx_inst_why[7] / (double)frames,
+                       gx_inst_why[8] / (double)frames, gx_inst_why[9] / (double)frames, gx_inst_why[10] / (double)frames, gx_inst_why[11] / (double)frames);
+                memset(gx_inst_why, 0, sizeof(gx_inst_why));
+                extern unsigned gx_sort_why[6]; extern unsigned gx_ui_why[2];
+                printf("GXSORT shader=%.0f material=%.0f texture=%.0f view=%.0f lights=%.0f merged=%.0f  GXUI mergeable=%.0f other=%.0f\n",
+                       gx_sort_why[0] / (double)frames, gx_sort_why[1] / (double)frames, gx_sort_why[2] / (double)frames,
+                       gx_sort_why[3] / (double)frames, gx_sort_why[4] / (double)frames, gx_sort_why[5] / (double)frames,
+                       gx_ui_why[0] / (double)frames, gx_ui_why[1] / (double)frames);
+                memset(gx_sort_why, 0, sizeof(gx_sort_why)); memset(gx_ui_why, 0, sizeof(gx_ui_why));
+            }
+        }
+        // Not on WebGPU yet: shroud fold, ground cache, pan cache, unit batching, GPU skinning.
+        if (GXW_On()) g_PageSwitches &= ~(1 | 8 | 128);
 #ifdef __EMSCRIPTEN_PTHREADS__
         // Worker build: the canvas belongs to this thread, so the page can't resize it.
         static double last_canvas_scale = 0;
@@ -605,7 +647,7 @@ void GLES3_End_3D() {
 
 void GLES3_End_Scene(bool flip_frame) {
     GLES3_End_3D(); // in case a frame ended inside the 3D pass
-    if (flip_frame && TheSDL3Window && !GLES3_WORKER_BUILD) {
+    if (flip_frame && TheSDL3Window && !GLES3_WORKER_BUILD && !GXW_On()) {
         SDL_GL_SwapWindow(TheSDL3Window);
     }
 }
@@ -634,6 +676,7 @@ static void GX_Bench_Send_Shot() {
 }
 
 void GLES3_Swap_Buffers() {
+    if (GXW_On()) gx_bench_shot = 0; // thumbnails: not on WebGPU yet
     if (gx_bench_shot) GX_Bench_Send_Shot();
     // Frames presented per second, logged every 5 s (works on the game thread too, where
     // the page cannot see the frames). GXFRAME lines are read by the benchmark scripts.
@@ -642,6 +685,8 @@ void GLES3_Swap_Buffers() {
     if (t0 == 0) t0 = now;
     if (++n, now - t0 >= 5000.0) { printf("GXFRAME fps=%.1f\n", n * 1000.0 / (now - t0)); t0 = now; n = 0; }
     g_SwapCount++;
+    gx_total_swaps++;
+    if (GXW_On()) { GXW_Present(); return; }
     if (TheSDL3Window && !GLES3_WORKER_BUILD) {
         SDL_GL_SwapWindow(TheSDL3Window);
     }
@@ -650,6 +695,7 @@ void GLES3_Swap_Buffers() {
 void GLES3_Clear(bool clear_color, bool clear_z_stencil,
                   float r, float g, float b, float a,
                   float z, unsigned int stencil) {
+    if (GXW_On()) { GXW_Clear(clear_color, clear_z_stencil, r, g, b, a, z, stencil); return; }
     GLbitfield mask = 0;
     if (clear_color) {
         glClearColor(r, g, b, a);
@@ -696,6 +742,29 @@ void GLES3_Set_Render_State(unsigned int state, unsigned int value) {
     if (state == GLES3_RS_FOGCOLOR || state == GLES3_RS_FOGSTART || state == GLES3_RS_FOGEND ||
         state == GLES3_RS_AMBIENT || state == GLES3_RS_TEXTUREFACTOR)
         g_SceneDirty = true;
+
+    if (GXW_On()) { // the pipeline is resolved at draw time; keep the values the shaders read
+        switch (state) {
+            case GLES3_RS_ALPHATESTENABLE: g_State.alpha_test_enabled = value != 0; break;
+            case GLES3_RS_ALPHAREF: g_State.alpha_ref = value; break;
+            case GLES3_RS_ALPHAFUNC: g_State.alpha_func = value; break;
+            case GLES3_RS_FOGENABLE: g_State.fog_enabled = value != 0; break;
+            case GLES3_RS_FOGCOLOR:
+                g_State.fog_color[0] = ((value >> 16) & 0xFF) / 255.0f; g_State.fog_color[1] = ((value >> 8) & 0xFF) / 255.0f;
+                g_State.fog_color[2] = (value & 0xFF) / 255.0f; break;
+            case GLES3_RS_LIGHTING: g_State.lighting_enabled = value != 0; break;
+            case GLES3_RS_AMBIENT:
+                g_State.global_ambient[0] = ((value >> 16) & 0xFF) / 255.0f; g_State.global_ambient[1] = ((value >> 8) & 0xFF) / 255.0f;
+                g_State.global_ambient[2] = (value & 0xFF) / 255.0f; g_State.global_ambient[3] = ((value >> 24) & 0xFF) / 255.0f; break;
+            case GLES3_RS_FOGSTART: memcpy(&g_State.fog_start, &value, sizeof(float)); break;
+            case GLES3_RS_FOGEND: memcpy(&g_State.fog_end, &value, sizeof(float)); break;
+            case GLES3_RS_TEXTUREFACTOR:
+                g_State.texture_factor[0] = ((value >> 16) & 0xFF) / 255.0f; g_State.texture_factor[1] = ((value >> 8) & 0xFF) / 255.0f;
+                g_State.texture_factor[2] = (value & 0xFF) / 255.0f; g_State.texture_factor[3] = ((value >> 24) & 0xFF) / 255.0f; break;
+            default: break;
+        }
+        return;
+    }
 
     switch (state) {
         case GLES3_RS_ZENABLE:
@@ -913,6 +982,7 @@ void GLES3_Set_Viewport(unsigned int x, unsigned int y,
         h = (unsigned int)((y + h) * sy + 0.5) - y2;
         x = x2; y = y2;
     }
+    if (GXW_On()) { GXW_Viewport((int)x, (int)y, (int)w, (int)h, min_z, max_z); return; }
     int gl_y = canvas_h - (int)y - (int)h;
     if (gl_y < 0) gl_y = 0;
     
@@ -1018,6 +1088,7 @@ void GLES3_Apply_Texture_Stage_Parameters(unsigned int stage) {
 void GLES3_Set_Texture(unsigned int stage, GLuint gl_texture) {
     if (stage >= 8) return;
     g_State.bound_textures[stage] = gl_texture;
+    if (GXW_On()) return; // bound at draw time
     if (g_UnitTexture[stage] != gl_texture) {
         Active_Unit(stage);
         glBindTexture(GL_TEXTURE_2D, gl_texture);
@@ -1032,6 +1103,7 @@ bool GLES3_Set_Shroud_Fold(GLuint tex, const float* d3d_matrix) {
     // A folded draw needs its own program; if the slots are nearly used up (they are never
     // freed), refuse, so the engine draws the separate shroud pass instead of no shroud.
     if (tex && GLES3_Free_Program_Slots() < 64) tex = 0;
+    if (GXW_On()) tex = 0; // not on WebGPU yet: the engine draws the shroud pass
     if (!(g_PageSwitches & 16)) tex = 0; // specialised shaders switched off: only they can fold
     g_State.shroud_tex = tex;
     if (!tex) return false;
@@ -1062,6 +1134,7 @@ void GLES3_Set_Texture_Stage_State(unsigned int stage, unsigned int state,
                                     unsigned int value) {
     if (stage >= 8 || state >= GLES3_TSS_MAX) return;
     g_State.texture_stage_state[stage][state] = value;
+    if (GXW_On()) return; // samplers are picked at draw time
 
     // Only the wrap and filter states feed the sampler.
     bool sampler_state = state == GLES3_TSS_ADDRESSU || state == GLES3_TSS_ADDRESSV ||
@@ -1366,6 +1439,12 @@ std::string GLES3_PS_Generate_GLSL(unsigned int handle) {
     return g;
 }
 
+const int* GLES3_PS_Program(unsigned int handle, int* count) {
+    if (handle == 0 || handle > g_PixelShaders.size()) { *count = 0; return nullptr; }
+    *count = g_PixelShaders[handle - 1].count;
+    return g_PixelShaders[handle - 1].data;
+}
+
 void GLES3_Set_Pixel_Shader(unsigned int handle) {
     g_State.pixel_shader = handle <= g_PixelShaders.size() ? handle : 0;
 }
@@ -1602,6 +1681,7 @@ static bool GC_Slide() {
 }
 
 bool GLES3_Ground_Cache_Begin() {
+    if (GXW_On()) return false;
     if (!(g_PageSwitches & 8) || g_GC.mode || g_GC.w < 0) return false;
     if (g_In3DPass) { g_GC.tw = g_FboW; g_GC.th = g_FboH; }
     else {
@@ -1731,6 +1811,7 @@ void GLES3_Draw_Triangles(unsigned int prim_type,
 
 // GPU skinning. One buffer of bone numbers (one unsigned short per vertex) per skinned model.
 GLuint GLES3_Skin_Bone_Buffer(const unsigned short* bones, unsigned int count) {
+    if (GXW_On()) return GXW_Bone_Buffer(bones, count);
     GLuint b = 0;
     glGenBuffers(1, &b);
     GLES3_Bind_Array_Buffer(b);
@@ -1876,6 +1957,75 @@ void GLES3_Draw_Triangles_Instanced(unsigned int prim_type,
     g_State.triangles_drawn += prim_count * instance_count;
 }
 
+
+// ---------------------------------------------------------------------------
+// Multi-part draw (Settings switch multiDraw): the rigid parts of one material group, whatever
+// their meshes, in one multiDrawElementsWEBGL call. Each part's world matrix and stage 0 uv offset
+// are rows of a float texture (unit 6) that the vertex shader reads by gl_DrawID.
+// ---------------------------------------------------------------------------
+static GLES3_FFKey g_SlotKey[GLES3_PROGRAM_SLOTS]; // the setup of each specialised program slot
+const int* gx_multi_counts = nullptr; const int* gx_multi_offsets = nullptr; unsigned int gx_multi_count = 0;
+const float* gx_multi_matrices = nullptr; const float* gx_multi_uv = nullptr; const float* gx_multi_lights = nullptr;
+bool GLES3_Multi_Draw_Available() { return g_MultiDraw && !GXW_On() && (g_PageSwitches & 16); }
+EM_JS(void, gx_js_multi_draw, (const int* counts, const int* offsets, int n), {
+  var e = GLctx.gxMD || (GLctx.gxMD = GLctx.getExtension('WEBGL_multi_draw'));
+  e.multiDrawElementsWEBGL(0x0004, HEAP32, counts >> 2, 0x1403, HEAP32, offsets >> 2, n);
+});
+bool GLES3_Draw_Triangles_Multi(const int* index_counts, const int* byte_offsets, unsigned int count,
+                                const float* world_matrices, const float* uv_offsets, const float* light_rows) {
+    if (!count || !GLES3_Multi_Draw_Available()) return false;
+    const int W = light_rows ? 26 : 5; // texels per draw: matrix, uv offset [, ambient, 4 x 5 light]
+    if (g_GC.mode == 1) { g_GC.unsafe = true; return true; } // not expected inside the ground pass
+    g_State.multi_draw = light_rows ? 2 : 1;
+    Apply_Pipeline_State();
+    g_State.multi_draw = 0;
+    if (g_ActiveSlot < 1024 || g_SlotKey[g_ActiveSlot].mdraw != (light_rows ? 2 : 1)) return false; // no specialised slot left: one by one
+    // A ring of textures per row width: a call never rewrites the rows that an earlier call of the
+    // frame may still be reading (an in-place rewrite showed stray polygons under machine load).
+    enum { RING = 8 };
+    static GLuint texs[2][RING] = {}; static int ths[2][RING] = {}; static unsigned ring[2] = {};
+    const int wi = light_rows ? 1 : 0;
+    const unsigned ri = ring[wi]++ % RING;
+    GLuint& tex = texs[wi][ri];
+    int& th = ths[wi][ri];
+    static std::vector<float> rows;
+    const size_t rf = (size_t)W * 4; // floats per row
+    rows.resize((size_t)count * rf);
+    for (unsigned int i = 0; i < count; i++) {
+        float* r = &rows[i * rf];
+        memcpy(r, world_matrices + i * 16, 16 * sizeof(float));
+        r[16] = uv_offsets ? uv_offsets[i * 2] : 0.0f;
+        r[17] = uv_offsets ? uv_offsets[i * 2 + 1] : 0.0f;
+        r[18] = r[19] = 0.0f;
+        if (light_rows) memcpy(r + 20, light_rows + (size_t)i * GLES3_MULTI_LIGHT_FLOATS, GLES3_MULTI_LIGHT_FLOATS * sizeof(float));
+    }
+    Active_Unit(6);
+    if (!tex) glGenTextures(1, &tex);
+    if (g_UnitTexture[6] != tex) { glBindTexture(GL_TEXTURE_2D, tex); g_UnitTexture[6] = tex; }
+    if (g_UnitSampler[6] != 0) { glBindSampler(6, 0); g_UnitSampler[6] = 0; }
+    if ((int)count > th) {
+        th = (int)count < 1024 ? 1024 : (int)count; // groups are capped at 1024: allocated once
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, W, th, 0, GL_RGBA, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, W, (GLsizei)count, GL_RGBA, GL_FLOAT, rows.data());
+    static std::unordered_map<GLuint, GLint> locs;
+    auto it = locs.find(g_State.active_program);
+    if (it == locs.end()) {
+        GLint l = glGetUniformLocation(g_State.active_program, "u_DrawTex");
+        if (l != -1) glUniform1i(l, 6);
+        it = locs.emplace(g_State.active_program, l).first;
+    }
+    gx_js_multi_draw(index_counts, byte_offsets, (int)count);
+    gx_stat_gl_draws++;
+    unsigned int tris = 0;
+    for (unsigned int i = 0; i < count; i++) tris += (unsigned)index_counts[i] / 3;
+    gx_stat_triangles += tris;
+    g_State.draw_calls++;
+    g_State.triangles_drawn += tris;
+    return true;
+}
 
 /*
 ** Draw (non-indexed) — Maps to glDrawArrays.
@@ -2292,8 +2442,7 @@ unsigned int GLES3_ShaderManager::Hash_Pipeline_Config(
 // Texture stage setups compiled to straight-line GLSL get their own program slot (1024 and up).
 // Through the interpreter, a software or weak GPU runs every branch of every op, argument and
 // texture lookup for every pixel; the UI and the shroud pass cost most of a low-end frame there.
-static GLES3_FFKey g_SlotKey[GLES3_PROGRAM_SLOTS];
-static int g_SlotCount = 1024;
+static int g_SlotCount = 1024; // (g_SlotKey: defined with the multi-part draw above)
 int gx_ff_slots = 0; // GXLAYOUT log line
 int GLES3_Free_Program_Slots() { return GLES3_PROGRAM_SLOTS - g_SlotCount; }
 struct FFKeyHash {
@@ -2395,6 +2544,7 @@ unsigned int GLES3_ShaderManager::Program_Slot(const GLES3_PipelineState& state,
     k.base_hi = hash >> 8;
     if (state.alpha_test_enabled) k.afunc = state.alpha_func <= 8 ? state.alpha_func : 8;
     k.fold = fold ? 1 : 0;
+    k.mdraw = pre ? 0 : state.multi_draw;
     if (!pre) {
         // Vertex side: texture coordinates of the stages the variant runs (all four for a
         // pixel shader), light types and material colour sources, as the uniforms carried them.
@@ -2522,7 +2672,7 @@ void GLES3_ShaderManager::Install_Program(unsigned int hash, GLuint program) {
 // A specialised slot may draw with the general shader while it compiles, unless it folds the
 // fog of war in (the general shader can't, and the separate fog pass was skipped for it).
 bool GLES3_ShaderManager::Can_Fall_Back(unsigned int hash) {
-    return hash >= 1024 && hash < GLES3_PROGRAM_SLOTS && !g_SlotKey[hash].fold;
+    return hash >= 1024 && hash < GLES3_PROGRAM_SLOTS && !g_SlotKey[hash].fold && !g_SlotKey[hash].mdraw;
 }
 unsigned int GLES3_ShaderManager::Fallback_Slot(unsigned int hash) {
     return g_SlotKey[hash].base_lo | (g_SlotKey[hash].base_hi << 8);

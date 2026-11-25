@@ -43,6 +43,9 @@
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
+#ifdef __EMSCRIPTEN__
+#include <emscripten/em_asm.h>
+#endif
 #include <algorithm>
 #include <cstdint>
 #include "dx8renderer.h"
@@ -820,6 +823,9 @@ void DX8RigidFVFCategoryContainer::Log(bool only_visible)
 
 void DX8RigidFVFCategoryContainer::Render()
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(3); // draw counts by kind (benchmark)
+#endif
 	if (!Anything_To_Render()) return;
 	AnythingToRender=false;
 
@@ -1315,6 +1321,9 @@ void DX8SkinFVFCategoryContainer::Log(bool only_visible)
 
 void DX8SkinFVFCategoryContainer::Render()
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(4); // draw counts by kind (benchmark)
+#endif
 	SNAPSHOT_SAY(("DX8SkinFVFCategoryContainer::Render()"));
 	if (!Anything_To_Render()) {
 		SNAPSHOT_SAY(("Nothing to render"));
@@ -1822,6 +1831,48 @@ static const std::vector<unsigned short> & GX_Skin_Indices(DX8PolygonRendererCla
 // LightEnvironmentClass, but units standing in the same light hold the same values, so two
 // environments are compared by what they contain: comparing the pointers never batched
 // anything (400 identical tanks were 4000+ draw calls).
+// Why rigid draws stay single (GXINST log line, gles3_wrapper.cpp): 0 skin, 1 sorted, 2 strip,
+// 3 alpha, 4 additive, 5 user data, 6 lone (next task is another part), 7 lighting differs,
+// 8 other mismatch, 9 cap reached; 10 batches drawn, 11 instances in them.
+unsigned gx_inst_why[12] = {};
+// Per-part lighting (multiLights): parts may join a multi-part draw when their lights have the same
+// layout (count, point or directional); the values go per part (GX_Light_Row).
+static bool Same_Light_Shape(const LightEnvironmentClass * a, const LightEnvironmentClass * b)
+{
+	if (a == b) return true;
+	if (a == nullptr || b == nullptr) return false;
+	const int n = a->Get_Light_Count();
+	if (n != b->Get_Light_Count() || n > 4) return false;
+	for (int i = 0; i < n; i++) if (a->isPointLight(i) != b->isPointLight(i)) return false;
+	return true;
+}
+// One part's ambient and lights as DX8Wrapper::Set_Light_Environment hands them to the shader
+// (GLES3_MULTI_LIGHT_FLOATS floats: ambient, then 4 x diffuse, ambient, position + range, direction, attenuation + type).
+static void GX_Light_Row(const LightEnvironmentClass * e, float * o)
+{
+	memset(o, 0, GLES3_MULTI_LIGHT_FLOATS * sizeof(float));
+	if (!e) return;
+	const unsigned c = DX8Wrapper::Convert_Color(e->Get_Equivalent_Ambient(), 0.0f);
+	o[0] = ((c >> 16) & 0xFF) / 255.0f; o[1] = ((c >> 8) & 0xFF) / 255.0f; o[2] = (c & 0xFF) / 255.0f; o[3] = ((c >> 24) & 0xFF) / 255.0f;
+	const int n = e->Get_Light_Count();
+	for (int l = 0; l < n && l < 4; l++) {
+		float * L = o + 4 + l * 20;
+		if (e->isPointLight(l)) {
+			const Vector3 d = e->getPointDiffuse(l), a = e->getPointAmbient(l), p = e->getPointCenter(l);
+			const double ra = e->getPointIrad(l), rb = e->getPointOrad(l);
+			L[0] = d.X; L[1] = d.Y; L[2] = d.Z;
+			L[4] = a.X; L[5] = a.Y; L[6] = a.Z;
+			L[8] = p.X; L[9] = p.Y; L[10] = p.Z; L[11] = (float)rb;
+			L[16] = 1.0f; L[17] = fabs(ra - rb) < 1e-5 ? 0.0f : (float)0.1 / (float)ra; L[18] = 8.0f / (float)(rb * rb); L[19] = 1.0f;
+		} else {
+			const Vector3 d = e->Get_Light_Diffuse(l), dir = -e->Get_Light_Direction(l);
+			L[0] = d.X; L[1] = d.Y; L[2] = d.Z;
+			L[12] = dir.X; L[13] = dir.Y; L[14] = dir.Z;
+			L[19] = 3.0f;
+		}
+	}
+}
+
 static bool Same_Lighting(const LightEnvironmentClass * a, const LightEnvironmentClass * b)
 {
 	if (a == b) return true;
@@ -2060,6 +2111,109 @@ void DX8TextureCategoryClass::Render()
 		}
 		bool can_instance = batch_units && !mesh->Peek_Model()->Get_Flag(MeshModelClass::SKIN) && !is_sorting && !renderer->Is_Strip() && (mesh->Get_Alpha_Override() == 1.0f) && !mesh->Is_Additive() && (!mesh->Get_User_Data() || tread_mapper) && (!DX8RendererDebugger::Is_Enabled() || !mesh->Is_Disabled_By_Debugger());
 
+		if (batch_units && !can_instance) {
+			const int why = mesh->Peek_Model()->Get_Flag(MeshModelClass::SKIN) ? 0 : is_sorting ? 1 : renderer->Is_Strip() ? 2 :
+				mesh->Get_Alpha_Override() != 1.0f ? 3 : mesh->Is_Additive() ? 4 : 5;
+			gx_inst_why[why]++;
+		}
+		// Multi-part draw (Settings switch multiDraw): every rigid part of this material group that
+		// stands in the same light, whatever its mesh, in one call (DX8Wrapper::Draw_Triangles_Multi).
+		if (can_instance && (GLES3_Page_Switches3() & 1073741824) && GLES3_Multi_Draw_Available()) {
+			const bool per_part_lights = (GLES3_Page_Switches3() & 536870912) != 0;
+			auto joins = [&](PolyRenderTaskClass * t) {
+				MeshClass * m = t->Peek_Mesh();
+				DX8PolygonRendererClass * r = t->Peek_Polygon_Renderer();
+				// No empty parts (they draw nothing).
+				if (r->Get_Index_Count() < 3) return false;
+				if (m->Get_Base_Vertex_Offset() != mesh->Get_Base_Vertex_Offset() || m->Peek_Model()->Get_Flag(MeshModelClass::SKIN) || r->Is_Strip() ||
+				    m->Get_Alpha_Override() != 1.0f || m->Is_Additive()) return false;
+				if (m->Peek_Model()->Get_Flag(MeshGeometryClass::SORT) && WW3D::Is_Sorting_Enabled()) return false;
+				if (DX8RendererDebugger::Is_Enabled() && m->Is_Disabled_By_Debugger()) return false;
+				const bool tread = m->Get_User_Data() && *(int *)m->Get_User_Data() == RenderObjClass::USER_DATA_MATERIAL_OVERRIDE;
+				if (tread ? !tread_mapper : m->Get_User_Data() != nullptr) return false;
+				return per_part_lights ? Same_Light_Shape(m->Get_Lighting_Environment(), mesh->Get_Lighting_Environment())
+				                       : Same_Lighting(m->Get_Lighting_Environment(), mesh->Get_Lighting_Environment());
+			};
+			static std::vector<PolyRenderTaskClass*> group;
+			group.clear();
+			if (renderer->Get_Index_Count() >= 3)
+				for (PolyRenderTaskClass * t = prt; t && group.size() < 1024; t = t->Get_Next_Visible())
+					if (t == prt || joins(t)) group.push_back(t);
+			if (group.size() >= 2) {
+				static std::vector<float> mats, uvs, lights;
+				static std::vector<int> counts, offsets;
+				const size_t n = group.size();
+				mats.resize(n * 16); counts.resize(n); offsets.resize(n);
+				if (tread_mapper) uvs.resize(n * 2);
+				if (per_part_lights) lights.resize(n * GLES3_MULTI_LIGHT_FLOATS);
+				for (size_t b = 0; b < n; ++b) {
+					MeshClass * b_mesh = group[b]->Peek_Mesh();
+					DX8PolygonRendererClass * r = group[b]->Peek_Polygon_Renderer();
+					const Matrix3D * world_transform = &b_mesh->Get_Transform();
+					Matrix3D tmp_world;
+					if (b_mesh->Is_Transform_Identity()) { // as the one-by-one path: its stored transform isn't used
+						tmp_world.Make_Identity();
+						world_transform = &tmp_world;
+					} else if (b_mesh->Peek_Model()->Get_Flag(MeshModelClass::ALIGNED)) {
+						Vector3 mesh_position, camera_z_vector;
+						TheDX8MeshRenderer.Peek_Camera()->Get_Transform().Get_Z_Vector(&camera_z_vector);
+						b_mesh->Get_Transform().Get_Translation(&mesh_position);
+						tmp_world.Obj_Look_At(mesh_position, mesh_position + camera_z_vector, 0.0f);
+						world_transform = &tmp_world;
+					} else if (b_mesh->Peek_Model()->Get_Flag(MeshModelClass::ORIENTED)) {
+						Vector3 mesh_position, camera_position;
+						TheDX8MeshRenderer.Peek_Camera()->Get_Transform().Get_Translation(&camera_position);
+						b_mesh->Get_Transform().Get_Translation(&mesh_position);
+						tmp_world.Obj_Look_At(mesh_position, camera_position, 0.0f);
+						world_transform = &tmp_world;
+					}
+					D3DMATRIX dxm = To_D3DMATRIX(*world_transform);
+					memcpy(&mats[b * 16], &dxm, 16 * sizeof(float));
+					if (per_part_lights) GX_Light_Row(b_mesh->Get_Lighting_Environment(), &lights[b * GLES3_MULTI_LIGHT_FLOATS]);
+					counts[b] = (int)r->Get_Index_Count();
+					offsets[b] = (int)(r->Get_Index_Offset() * 2);
+					if (tread_mapper) {
+						const RenderObjClass::Material_Override * ov = (const RenderObjClass::Material_Override *)b_mesh->Get_User_Data();
+						uvs[b * 2 + 0] = ov->customUVOffset.X - WWMath::Floor(ov->customUVOffset.X);
+						uvs[b * 2 + 1] = ov->customUVOffset.Y - WWMath::Floor(ov->customUVOffset.Y);
+					}
+				}
+				LightEnvironmentClass * lenv = mesh->Get_Lighting_Environment();
+				if (lenv != nullptr) DX8Wrapper::Set_Light_Environment(lenv);
+				DX8Wrapper::Set_Index_Buffer_Index_Offset(mesh->Get_Base_Vertex_Offset());
+				if (tread_mapper) {
+					Vector2 old_offset;
+					const unsigned int old_sync = tread_mapper->Get_LastUsedSyncTime();
+					tread_mapper->Get_Current_UV_Offset(old_offset);
+					tread_mapper->Set_LastUsedSyncTime(WW3D::Get_Sync_Time());
+					tread_mapper->Set_Current_UV_Offset(Vector2(0.0f, 0.0f));
+					DX8Wrapper::Set_Material(nullptr);
+					DX8Wrapper::Set_Material(vmaterial);
+					DX8Wrapper::Draw_Triangles_Multi(counts.data(), offsets.data(), (unsigned)n, mats.data(), uvs.data(), per_part_lights ? lights.data() : nullptr);
+					tread_mapper->Set_LastUsedSyncTime(old_sync);
+					tread_mapper->Set_Current_UV_Offset(old_offset);
+					DX8Wrapper::Set_Material(nullptr);
+					DX8Wrapper::Set_Material(vmaterial);
+				} else {
+					DX8Wrapper::Draw_Triangles_Multi(counts.data(), offsets.data(), (unsigned)n, mats.data(), nullptr, per_part_lights ? lights.data() : nullptr);
+				}
+				gx_inst_why[10]++; gx_inst_why[11] += (unsigned)n;
+				// Take the drawn tasks out of the list (they are spread through it).
+				static std::unordered_set<PolyRenderTaskClass*> drawn;
+				drawn.clear();
+				drawn.insert(group.begin(), group.end());
+				PolyRenderTaskClass * keep_head = nullptr, * keep_tail = nullptr;
+				for (PolyRenderTaskClass * t = render_task_head; t; ) {
+					PolyRenderTaskClass * next = t->Get_Next_Visible();
+					if (drawn.count(t)) { delete t; }
+					else { t->Set_Next_Visible(nullptr); if (keep_tail) keep_tail->Set_Next_Visible(t); else keep_head = t; keep_tail = t; }
+					t = next;
+				}
+				render_task_head = keep_head;
+				prt = (last_prt == nullptr) ? render_task_head : last_prt->Get_Next_Visible();
+				continue;
+			}
+		}
 		if (can_instance) {
 			int batch_count = 1;
 			PolyRenderTaskClass* batch_tasks[128];
@@ -2087,6 +2241,13 @@ void DX8TextureCategoryClass::Render()
 					break;
 				}
 			}
+			if (batch_count >= 128) gx_inst_why[9]++;
+			else if (batch_count == 1) {
+				if (!lookahead || lookahead->Peek_Polygon_Renderer() != renderer) gx_inst_why[6]++;
+				else if (!Same_Lighting(lookahead->Peek_Mesh()->Get_Lighting_Environment(), mesh->Get_Lighting_Environment())) gx_inst_why[7]++;
+				else gx_inst_why[8]++;
+			}
+			if (batch_count > 1) { gx_inst_why[10]++; gx_inst_why[11] += batch_count; }
 
 			if (batch_count > 1) {
 				// Prepare the world matrices

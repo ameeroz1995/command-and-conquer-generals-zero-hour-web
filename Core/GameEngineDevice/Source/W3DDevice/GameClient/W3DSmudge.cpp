@@ -302,6 +302,9 @@ Bool W3DSmudgeManager::testHardwareSupport()
 
 void W3DSmudgeManager::render(RenderInfoClass &rinfo)
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(14); // draw counts by kind (benchmark)
+#endif
 	//Verify that the card supports the effect.
 	if (!testHardwareSupport())
 		return;
