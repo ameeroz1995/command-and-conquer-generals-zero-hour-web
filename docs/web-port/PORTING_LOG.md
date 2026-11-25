@@ -3571,6 +3571,22 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
 - Read: defaults give strikes +4–7% and aftermath +4–6%, armies flat. The match rules add armies +10%,
   strikes +13–17%, and aftermath 1% lows +60%; aftermath average fps is 2–4% lower with the rules on.
 
+## 2026-11-25 — Round 4: GxUnitStore, first version (shared by all logic agents)
+
+- Core/GameEngine/Include/Common/GxUnitStore.h + GameLogic/Object/GxUnitStore.cpp: one slot per
+  live Object in dense arrays (id, Object*, x/y/z, vel, radius, player, playerBit, cell, 64-bit
+  behaviour mask), in ascending object-ID order. pass(bit) returns the dense slot list of a mask bit,
+  rebuilt only when a mask changes or units come and go. Holes from removed objects are closed at
+  most once per logic frame, at the first pass(), so slots never move inside a frame once a pass ran;
+  epoch() changes whenever a slot may have moved or been freed (cache slots against it).
+- Hooked into Object: setID adds (creation and load; a load can bring IDs out of order, the next
+  compaction sorts), ~Object removes, reactToTransformChange writes x/y/z, setGeometryInfo the
+  radius, setOrRestoreTeam the player; default mask bits PHYS / AI / COLLIDE set when the modules
+  exist. cell is -1 until the partition writes it.
+- Source of truth: the store holds PhysicsBehavior's velocity (the member is gone; getVelocity()
+  returns the store's Coord3D, arrays reserved for 16k units so the pointer stays put within a frame).
+  Position stays in the Object's matrix with write-through (x/y/z), likewise radius and player.
+- Same game: referee replay matches (9,000 frames, build store-1).
 ## 2026-11-25 — Round 4 (range searches as a manager): measured before building
 
 - Repeats within a tick (counters per frame on searcher, range, distance type and filter classes;
