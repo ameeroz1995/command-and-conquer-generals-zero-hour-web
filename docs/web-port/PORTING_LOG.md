@@ -3876,3 +3876,17 @@ Stays default off.
   enemies the filters look for, so two players' searches from one spot could share an answer); the laser
   verify skips its comparison under scanManager. Changes the scanManager game: new recording query-mgr4.rep.
   Referee replay on query-25 matches.
+- Built anyway (user rule: build what is asked): fogStamps (fourth word bit 14, default on). The shroud
+  counters are dense per-player Short arrays (truth; the cell struct is filled for CRC/save, refilled after
+  load); sight circles come from per-radius stamps (DiscreteCircle's spans recorded at (0,0)), applied 8 cells
+  at a time with wasm i16x8 (same arithmetic as addLooker/removeLooker), then the edge side effects for cells
+  whose status changed (they touch no counter). Verify: 5.2M cells checked, 0 mismatches; referee and
+  query-mgr4.rep replay. doShroudReveal 0.2 -> 0.1-0.2%, undo 0.1%.
+- fogKeep (bit 15, default on), the bigger nearby cost: getShroudedStatus was recomputed every frame for every
+  moving unit, because each move invalidated all players. A move that keeps the same cells (cellReuse's key)
+  now keeps statuses decided by the cells' shroud alone (off map / all shrouded / all clear / partly clear);
+  ones decided by the fogged branch (which also reads relationship and kinds) are invalidated as before.
+  Verify (recompute and compare): 1.74M checks, 0 mismatches; referee replay matches.
+  getShroudedStatus 0.5/0.7% -> 0.4/0.4% (armies/strikes, profile share).
+- scanManager store-list cull now uses max(circle, sphere) per slot (combat found "2 x circle" too small for
+  tall units): changes the scanManager game; new recording query-mgr5.rep replays to a match (query-27).
