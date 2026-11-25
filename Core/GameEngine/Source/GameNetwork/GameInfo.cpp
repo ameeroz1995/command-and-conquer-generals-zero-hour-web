@@ -1668,6 +1668,7 @@ void SkirmishGameInfo::loadPostProcess()
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
 extern int GLES3_Page_Switches2();
+extern int GLES3_Page_Switches3();
 #endif
 static UnsignedInt s_gxMatchRules = 0;
 static Bool s_gxMatchRulesFixed = FALSE;
@@ -1684,7 +1685,8 @@ unsigned int gxLocalMatchRules()
 		| ((s2 & 8192) ? GXRULE_SHARED_ROUTES : 0)			// bit 13: sharedRoutes
 		| ((s2 & 16384) ? GXRULE_ROUTE_BUDGET : 0)			// bit 14: routeBudget
 		| ((s2 & 1024) ? GXRULE_COLLIDE_EVERY2 : 0)			// bit 10: collideStagger
-		| ((s2 & 2048) ? GXRULE_COLLIDE_EVERY3 : 0);		// bit 11: collideStagger3
+		| ((s2 & 2048) ? GXRULE_COLLIDE_EVERY3 : 0)			// bit 11: collideStagger3
+		| ((GLES3_Page_Switches3() & 65536) ? GXRULE_WEAPON_PASS : 0);	// third word bit 16: weaponPass
 #else
 	return 0;
 #endif

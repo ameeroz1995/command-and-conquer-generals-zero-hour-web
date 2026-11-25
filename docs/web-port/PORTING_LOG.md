@@ -3135,3 +3135,42 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   GXVERIFY line mismatches 0.
 - A/B vs merge1 (live 445e8b8) and rules off/on: run at load 40-100 (five agents profiling), frame
   rates ~4 fps instead of ~13; not usable. To be rerun on a quiet machine.
+## 2026-11-25 — Visual staggering (combat agent; switches animStagger / soundStagger / particleStagger)
+
+- Drawing and sound only; the game logic never reads any of it. Plain Settings switches, no match
+  rule. Referee replay matches with all three on (combat-4, 9,000 frames).
+- animStagger (second word bit 23, **off**): a single-animation unit that is small on screen
+  (radius/distance < 1/50) and has not moved advances its bones every 2nd drawn frame
+  (Animatable3DObjClass::Render). Bone share stayed 1-2.7% either way; no measured gain, so off.
+- soundStagger (second word bit 25, on): 3D sounds still playing update position/volume every 3rd
+  frame (MilesAudioManager::processPlayingList); full update when the volume changes.
+- particleStagger (second word bit 30, on): each particle system steps its particles twice every
+  2nd logic frame, alternating systems by ID (ParticleSystem::update).
+- A/B on combat-4, off → on (two pairs, shares incl.):
+
+  | pair / phase | load | bones | particles | sound |
+  |---|---|---|---|---|
+  | 1 strikes | 38→53 | 1.7→2.7% | 1.0→1.3% | 0.1→0.0% |
+  | 1 armies | 23→15 | 1.0→0.8% | 1.6→1.2% | 0.2→0.1% |
+  | 2 strikes | 25→15 | 2.5→2.3% | 1.3→1.2% | 0.0→0.0% |
+  | 2 armies | 26→17 | 0.8→0.2% | 1.1→0.6% | 0.1→0.1% |
+
+  Inside the noise of this shared machine except particles (−0.1 to −0.5%). Screenshots show
+  different battle moments, nothing broken.
+
+## 2026-11-25 — Weapon status in one pass (combat agent; match rule weaponPass 16384, third word bit 16, off)
+
+- ObjectWeaponStatusHelper ran every frame for every armed unit through the update queue. With the
+  rule on, the helper does its first update, then leaves the queue (sleeps forever) and joins a list
+  sorted by object ID; gxWeaponStatusPass() in GameLogic::update, right after the sleepy-update
+  loop (movement pass first, then weapons), runs adjustModelConditionForWeaponStatus for every
+  listed object that is not disabled. Results drift (queue entries leave the heap, ties reorder),
+  so it is a match rule.
+- The hook is not guarded: if the rule goes off mid-game (single player, live switch) the pass wakes
+  every listed helper back into the queue and empties the list. A loaded save puts a sleeping helper
+  back in the queue.
+- Checks (combat-5): referee replay with the rule off matches; a recording made with the rule on
+  replays to a match; toggle test (verify mode, rule flipped every 200 frames, diagnostics removed since): each switch-off woke every listed helper (934, 1593, 1019, 710, 597) and each switch-on refilled the list (1596, 1024, 711, 598).
+- A/B off → on: status share 1.1→0.4% / 1.1→0.5% (strikes), 1.2→0.5% / 1.4→0.5% (armies),
+  i.e. −0.6 to −0.9% of the frame. fps armies/strikes: pair 2 strikes 11.5/10.2 → 14.1/10.8,
+  pair 2 armies 13.6/10.1 → 14.1/11.2; pair 1 noise in both directions (load 10↔29).

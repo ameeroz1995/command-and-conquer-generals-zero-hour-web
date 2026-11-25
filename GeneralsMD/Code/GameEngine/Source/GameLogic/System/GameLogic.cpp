@@ -86,6 +86,7 @@
 #include "GameLogic/CrateSystem.h"
 #include "GameLogic/FPUControl.h"
 #include "Common/GxMatchRules.h"
+#include "GameLogic/Module/ObjectWeaponStatusHelper.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Locomotor.h"
 #include "GameLogic/Object.h"
@@ -3886,6 +3887,11 @@ void GameLogic::update()
 	}
 
 	validateSleepyUpdate();
+
+	// match rule weaponPass (combat): armed objects' weapon status in one pass, object-ID order.
+	// Pass order after the update queue: movement first, then weapons. Called unguarded: it does
+	// nothing while no object has joined, and if the rule goes off it wakes the helpers it kept.
+	gxWeaponStatusPass();
 
 	// update the Artificial Intelligence system
 	{

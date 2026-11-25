@@ -52,7 +52,7 @@ double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gle
 static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 // Second switch word (the first is full): bit 0 contactTable, bit 1 sleepyKeys, bit 2 openHeap, bit 3 contactArray (game logic, same game).
-static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 8388608 | 33554432 | 1073741824 | 256 | 512 | 65536 | 131072 | 262144 | 524288;
+static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 33554432 | 1073741824 | 256 | 512 | 65536 | 131072 | 262144 | 524288;
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
@@ -451,7 +451,7 @@ void GLES3_Begin_Scene() {
                  | (o.boneCache === false ? 0 : 1048576)  // bit 20: loaded-missile bones found by index, not by name every frame (W3DModelDraw.cpp; drawing only)
                  | (o.lightCache === false ? 0 : 2097152)  // bit 21: headlight sub-objects listed once per model (W3DModelDraw.cpp; drawing only)
                  | (o.clipSkip === false ? 0 : 4194304)   // bit 22: loaded-missile display asked only of models that show it (Drawable.cpp; drawing only)
-                 | (o.animStagger === false ? 0 : 8388608)  // bit 23: still, small-on-screen units animate every 2nd drawn frame (animobj.cpp; drawing only)
+                 | (o.animStagger === true ? 8388608 : 0)  // bit 23 (off: no measured gain): still, small-on-screen units animate every 2nd drawn frame (animobj.cpp; drawing only)
                  | (o.soundStagger === false ? 0 : 33554432)  // bit 25: playing 3D sounds follow their unit every 3rd frame (MilesAudioManager.cpp; sound only)
                  | (o.particleStagger === false ? 0 : 1073741824)  // bit 30: particle systems step every 2nd frame with double steps (ParticleSys.cpp; drawing only)
                  | (o.cellReuse === false ? 0 : 256)  // bit 8: a moved unit still on the same map squares is moved to the front of their lists, not refilled (PartitionManager.cpp; same game)
@@ -465,7 +465,8 @@ void GLES3_Begin_Scene() {
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
-            return 0;   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+            return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+                 | (o.weaponPass === true ? 65536 : 0);   // bit 16: match rule weaponPass, armed units' weapon status in one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;
