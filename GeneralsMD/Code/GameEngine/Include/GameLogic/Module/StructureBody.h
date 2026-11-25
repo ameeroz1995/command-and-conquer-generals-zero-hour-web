@@ -30,6 +30,8 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
+
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/ActiveBody.h"
 
@@ -57,6 +59,13 @@ public:
 //-------------------------------------------------------------------------------------------------
 /** Structure body module */
 //-------------------------------------------------------------------------------------------------
+// web port (round 5, units are pure data): StructureBody's per-unit state, one row per module in
+// GxComponentPool<StructureBodyRow> (the module keeps only the row index, m_gxStructureBody)
+struct StructureBodyRow
+{
+	ObjectID m_constructorObjectID;					///< object that built this structure
+};
+
 class StructureBody : public ActiveBody
 {
 
@@ -69,10 +78,10 @@ public:
 	// virtual destructor prototype provided by memory pool declaration
 
 	void setConstructorObject( Object *obj );
-	ObjectID getConstructorObjectID() { return m_constructorObjectID; }
+	ObjectID getConstructorObjectID() { return m_gxStructureBody->m_constructorObjectID; }
 
 protected:
 
-	ObjectID m_constructorObjectID;					///< object that built this structure
+	GxRow<StructureBodyRow> m_gxStructureBody;	///< web port (round 5): this module's state, a row of its component pool
 
 };

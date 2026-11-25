@@ -2923,7 +2923,8 @@ void Object::setID( ObjectID id )
 	const int gxOld = TheGxUnitStore.slotOf(this);
 	const GxBehaviourMask gxMask = gxOld >= 0 ? TheGxUnitStore.mask[gxOld] : 0;
 	Coord3D gxVel; gxVel.zero();
-	if (gxOld >= 0) gxVel = TheGxUnitStore.velOf(gxOld);
+	Coord3D gxAcc; gxAcc.zero();
+	if (gxOld >= 0) { gxVel = TheGxUnitStore.velOf(gxOld); gxAcc = TheGxUnitStore.accelRef(gxOld); }
 	TheGxUnitStore.remove(this);
 
 	// assign new id
@@ -2934,7 +2935,7 @@ void Object::setID( ObjectID id )
 
 	TheGxUnitStore.add(this);
 	TheGxUnitStore.setMask(this, gxMask);
-	if (TheGxUnitStore.slotOf(this) >= 0) TheGxUnitStore.velRef(TheGxUnitStore.slotOf(this)) = gxVel;
+	if (TheGxUnitStore.slotOf(this) >= 0) { TheGxUnitStore.velRef(TheGxUnitStore.slotOf(this)) = gxVel; TheGxUnitStore.accelRef(TheGxUnitStore.slotOf(this)) = gxAcc; }
 	TheGxUnitStore.bumpEpoch();	// the slot changed
 
 }

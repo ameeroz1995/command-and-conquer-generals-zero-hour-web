@@ -29,6 +29,8 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
+
 #include "Common/Module.h"
 #include "GameLogic/Damage.h"
 #include "GameLogic/ArmorSet.h"
@@ -202,6 +204,13 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5, units are pure data): BodyModule's per-unit state, one row per module in
+// GxComponentPool<BodyModuleRow> (the module keeps only the row index, m_gxBodyModule)
+struct BodyModuleRow
+{
+	Real	m_damageScalar = 1.0f;
+};
+
 class BodyModule : public BehaviorModule, public BodyModuleInterface
 {
 
@@ -280,8 +289,8 @@ public:
 	virtual Bool isIndestructible() const { return TRUE; }
 
 	//Allows outside systems to apply defensive bonuses or penalties (they all stack as a multiplier!)
-	virtual void applyDamageScalar( Real scalar ) { m_damageScalar *= scalar; }
-	virtual Real getDamageScalar() const { return m_damageScalar; }
+	virtual void applyDamageScalar( Real scalar ) { m_gxBodyModule->m_damageScalar *= scalar; }
+	virtual Real getDamageScalar() const { return m_gxBodyModule->m_damageScalar; }
 
 	/**
 		Change the module's health by the given delta. Note that
@@ -302,8 +311,8 @@ protected:
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 
-	Real	m_damageScalar;
+	GxRow<BodyModuleRow> m_gxBodyModule;	///< web port (round 5): this module's state, a row of its component pool
 
 };
-inline BodyModule::BodyModule( Thing *thing, const ModuleData* moduleData ) : BehaviorModule( thing, moduleData ), m_damageScalar(1.0f) { }
+inline BodyModule::BodyModule( Thing *thing, const ModuleData* moduleData ) : BehaviorModule( thing, moduleData ) { }
 inline BodyModule::~BodyModule() { }

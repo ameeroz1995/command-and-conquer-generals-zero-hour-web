@@ -105,10 +105,14 @@
 extern int GLES3_Page_Switches();
 extern int GLES3_Page_Switches2();
 extern int gx_verify_mismatch, gx_verify_checked;	// GameLogic.cpp
-extern int GLES3_Page_Switches2();
+extern int GLES3_Page_Switches4();
+#ifdef __wasm_simd128__
+#include <wasm_simd128.h>
+#endif
 #else
 static int GLES3_Page_Switches() { return 0; }
 static int GLES3_Page_Switches2() { return 0; }
+static int GLES3_Page_Switches4() { return 0; }
 static int gx_verify_mismatch, gx_verify_checked;
 #endif
 static Bool g_gxPairOff = false;	// timing mode (gxPairTiming): this frame runs without pairPlace / pairOffer
@@ -3344,6 +3348,70 @@ void PartitionManager::shutdown()
 	m_worldExtents.hi.zero();
 }
 
+// web port (round 5): the broad phase's kernel input, filled on the main thread
+struct GxPairKernelIn
+{
+	Int n = 0, nx = 0;
+	std::vector<int> slot;				///< seeker k's store slot
+	std::vector<Int> rect;				///< seeker k's cells x0, y0, x1, y1
+	std::vector<PartitionData*> seeker;	///< for the apply step only (the kernel never reads it)
+	const int *start = nullptr, *cslot = nullptr;	///< per-cell blocks: start[c] .. start[c+1]
+	const float *cx = nullptr, *cy = nullptr, *cr = nullptr;	///< block copies of x, y, radius
+	const float *x = nullptr, *y = nullptr, *radius = nullptr;	///< store columns
+};
+static GxPairKernelIn s_gxPairIn;
+
+// web port (round 5): the collision broad phase kernel. For seekers [begin, end): every unit in the
+// cells of its rectangle within the pairPlace distance cut (4 units per instruction), written to out
+// as (seeker index, store slot) pairs, in the order the linked lists would visit them.
+// Reads: in (slot, rect, start, cslot, cx, cy, cr, x, y, radius). Writes: out[0 .. return) only.
+// No allocation, events, RNG or globals: safe on a worker thread for disjoint ranges with their own
+// out. Returns the number of ints written, or -1 if cap was too small (nothing else changed).
+static Int gxPairKernel(const GxPairKernelIn &in, Int begin, Int end, Int *out, Int cap)
+{
+	Int w = 0;
+	for (Int i = begin; i < end; ++i)
+	{
+		const int s = in.slot[i];
+		const float px0 = in.x[s], py0 = in.y[s], r = in.radius[s];
+		const Int *q = &in.rect[i * 4];
+		for (Int cy = q[1]; cy <= q[3]; ++cy)
+			for (Int cx = q[0]; cx <= q[2]; ++cx)
+			{
+				const int b = in.start[cy * in.nx + cx], en = in.start[cy * in.nx + cx + 1];
+				if (w + 2 * (en - b) > cap)
+					return -1;
+				int k = b;
+#ifdef __wasm_simd128__
+				const v128_t px = wasm_f32x4_splat(px0), py = wasm_f32x4_splat(py0), pr = wasm_f32x4_splat(r);
+				const v128_t c14 = wasm_f32x4_splat(1.4143f), one = wasm_f32x4_splat(1.0f);
+				for (; k + 4 <= en; k += 4)
+				{
+					const v128_t dx = wasm_f32x4_sub(wasm_v128_load(in.cx + k), px);
+					const v128_t dy = wasm_f32x4_sub(wasm_v128_load(in.cy + k), py);
+					const v128_t lim = wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_add(wasm_v128_load(in.cr + k), pr), c14), one);
+					const v128_t hit = wasm_f32x4_le(wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)), wasm_f32x4_mul(lim, lim));
+					const int bits = wasm_i32x4_bitmask(hit);
+					for (int j = 0; j < 4; ++j)
+						if ((bits >> j & 1) && in.cslot[k + j] != s)
+							{ out[w++] = i; out[w++] = in.cslot[k + j]; }
+				}
+#endif
+				for (; k < en; ++k)
+				{
+					const int t = in.cslot[k];
+					if (t == s)
+						continue;
+					const float dx = in.cx[k] - px0, dy = in.cy[k] - py0, lim = (in.cr[k] + r) * 1.4143f + 1.0f;
+					if (dx * dx + dy * dy > lim * lim)
+						continue;
+					out[w++] = i; out[w++] = t;
+				}
+			}
+	}
+	return w;
+}
+
 //-----------------------------------------------------------------------------
 //DECLARE_PERF_TIMER(PartitionManager_update)
 //-----------------------------------------------------------------------------
@@ -3398,6 +3466,77 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 	}
 
 	std::sort(seekers.begin(), seekers.end(), [](const PartitionData *a, const PartitionData *b) { return gxBefore(a, b); });
+
+	// web port (round 5, switch collideSimd, fourth word bit 1; same pairs as above): the grid as one
+	// block per cell (cell start/end, units in the same order the linked lists visit them) with the
+	// units' x, y, radius copied in, so the distance cut tests 4 units per instruction.
+	const Bool simd = (GLES3_Page_Switches4() & 2) != 0;
+	static std::vector<int> start, cslot;
+	static std::vector<float> cx_, cy_, cr_;
+	if (simd)
+	{
+		const int nc = nx * ny;
+		start.assign((size_t)nc + 1, 0);
+		for (int c = 0; c < nc; ++c)
+		{
+			int n = 0;
+			for (int k = head[c]; k >= 0; k = next[k]) ++n;
+			start[c + 1] = start[c] + n;
+		}
+		const size_t tot = (size_t)start[nc];
+		cslot.resize(tot + 3); cx_.resize(tot + 3); cy_.resize(tot + 3); cr_.resize(tot + 3);
+		for (int c = 0; c < nc; ++c)
+		{
+			int w = start[c];
+			for (int k = head[c]; k >= 0; k = next[k], ++w)
+			{
+				const int t = item[k];
+				cslot[w] = t; cx_[w] = st.x[t]; cy_[w] = st.y[t]; cr_[w] = st.radius[t];
+			}
+		}
+	}
+
+	if (simd)
+	{
+		// prepare (main thread): each seeker's slot and cell rectangle
+		GxPairKernelIn &in = s_gxPairIn;
+		in.n = 0;
+		in.slot.resize(seekers.size()); in.rect.resize(seekers.size() * 4); in.seeker.resize(seekers.size());
+		for (PartitionData *d : seekers)
+		{
+			const Object *o = d->getObject();
+			const int s = o ? o->gxStoreSlot() : -1;
+			if (s < 0)
+				continue;
+			const Real r = st.radius[s];
+			const Real e = (r + smallMax) * 1.4143f + 1.0f;
+			Int x0, y0, x1, y1;
+			pm->worldToCell(st.x[s] - e, st.y[s] - e, &x0, &y0);
+			pm->worldToCell(st.x[s] + e, st.y[s] + e, &x1, &y1);
+			Int *q = &in.rect[in.n * 4];
+			q[0] = max(x0, 0); q[1] = max(y0, 0); q[2] = min(x1, nx - 1); q[3] = min(y1, ny - 1);
+			in.slot[in.n] = s; in.seeker[in.n] = d; ++in.n;
+		}
+		in.nx = nx; in.start = start.data(); in.cslot = cslot.data(); in.cx = cx_.data(); in.cy = cy_.data(); in.cr = cr_.data();
+		in.x = st.x.data(); in.y = st.y.data(); in.radius = st.radius.data();
+		// kernel over all seekers (a job system can split [0, n) into ranges with one output each)
+		static std::vector<Int> out;
+		if (out.size() < 4096) out.resize(4096);
+		Int got;
+		while ((got = gxPairKernel(in, 0, in.n, out.data(), (Int)out.size())) < 0)
+			out.resize(out.size() * 2);	// full: grow on the main thread and run again
+		// apply (main thread, seekers in object-ID order): collideStagger and the contact list
+		for (Int k = 0; k < got; k += 2)
+		{
+			PartitionData *d = in.seeker[out[k]];
+			PartitionData *that = st.obj[out[k + 1]]->friend_getPartitionData();
+			if (g_gxDeferStamp && that->gxDeferStamp() == g_gxDeferStamp && gxBefore(that, d))
+				continue;	// collideStagger, as in addPossibleCollisions
+			ct->addToContactList(d, that);
+		}
+		return;
+	}
+
 	for (PartitionData *d : seekers)
 	{
 		const Object *o = d->getObject();

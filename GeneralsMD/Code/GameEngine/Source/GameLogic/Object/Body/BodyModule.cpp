@@ -60,7 +60,7 @@ void BodyModule::xfer( Xfer *xfer )
 	BehaviorModule::xfer( xfer );
 
 	// damage scalar
-	xfer->xferReal( &m_damageScalar );
+	xfer->xferReal( &m_gxBodyModule->m_damageScalar );
 
 }
 

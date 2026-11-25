@@ -43,7 +43,7 @@ StructureBody::StructureBody( Thing *thing, const ModuleData* moduleData )
 							: ActiveBody( thing, moduleData )
 {
 
-	m_constructorObjectID = INVALID_ID;
+	m_gxStructureBody->m_constructorObjectID = INVALID_ID;
 
 }
 
@@ -60,7 +60,7 @@ void StructureBody::setConstructorObject( Object *obj )
 {
 
 	if( obj )
-		m_constructorObjectID = obj->getID();
+		m_gxStructureBody->m_constructorObjectID = obj->getID();
 
 }
 
@@ -92,7 +92,7 @@ void StructureBody::xfer( Xfer *xfer )
 	ActiveBody::xfer( xfer );
 
 	// constructor object id
-	xfer->xferObjectID( &m_constructorObjectID );
+	xfer->xferObjectID( &m_gxStructureBody->m_constructorObjectID );
 
 }
 

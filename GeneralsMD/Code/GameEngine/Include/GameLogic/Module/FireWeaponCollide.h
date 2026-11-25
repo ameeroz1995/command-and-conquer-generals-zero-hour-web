@@ -29,6 +29,8 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
+
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/CollideModule.h"
 #include "GameLogic/Weapon.h"
@@ -55,6 +57,14 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5, units are pure data): FireWeaponCollide's per-unit state, one row per module in
+// GxComponentPool<FireWeaponCollideRow> (the module keeps only the row index, m_gxFireWeaponCollide)
+struct FireWeaponCollideRow
+{
+	Weapon* m_collideWeapon = nullptr;
+	Bool m_everFired;
+};
+
 class FireWeaponCollide : public CollideModule
 {
 
@@ -73,7 +83,6 @@ protected:
 	virtual Bool shouldFireWeapon();
 
 private:
-	Weapon* m_collideWeapon;
-	Bool m_everFired;
+	GxRow<FireWeaponCollideRow> m_gxFireWeaponCollide;	///< web port (round 5): this module's state, a row of its component pool
 
 };

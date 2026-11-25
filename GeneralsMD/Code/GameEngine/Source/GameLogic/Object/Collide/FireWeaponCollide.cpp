@@ -55,18 +55,17 @@ void FireWeaponCollideModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 FireWeaponCollide::FireWeaponCollide( Thing *thing, const ModuleData* moduleData ) :
-	CollideModule( thing, moduleData ),
-	m_collideWeapon(nullptr)
+	CollideModule( thing, moduleData )
 {
-	m_collideWeapon = TheWeaponStore->allocateNewWeapon(getFireWeaponCollideModuleData()->m_collideWeaponTemplate, PRIMARY_WEAPON);
-	m_everFired = FALSE;
+	m_gxFireWeaponCollide->m_collideWeapon = TheWeaponStore->allocateNewWeapon(getFireWeaponCollideModuleData()->m_collideWeaponTemplate, PRIMARY_WEAPON);
+	m_gxFireWeaponCollide->m_everFired = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 FireWeaponCollide::~FireWeaponCollide()
 {
-	deleteInstance(m_collideWeapon);
+	deleteInstance(m_gxFireWeaponCollide->m_collideWeapon);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -85,8 +84,8 @@ void FireWeaponCollide::onCollide( Object *other, const Coord3D *loc, const Coor
 	// warrants the "do it eventually if we need it" clause.
 	if( shouldFireWeapon() )
 	{
-		m_collideWeapon->loadAmmoNow( me );
-		m_collideWeapon->fireWeapon( me, other );
+		m_gxFireWeaponCollide->m_collideWeapon->loadAmmoNow( me );
+		m_gxFireWeaponCollide->m_collideWeapon->fireWeapon( me, other );
 	}
 }
 
@@ -105,7 +104,7 @@ Bool FireWeaponCollide::shouldFireWeapon()
 	if( status.testForAny( d->m_forbiddenStatus ) )
 		return FALSE;
 
-	if( m_everFired && d->m_fireOnce )
+	if( m_gxFireWeaponCollide->m_everFired && d->m_fireOnce )
 		return FALSE;// can only fire once ever
 
 	return TRUE;
@@ -139,26 +138,26 @@ void FireWeaponCollide::xfer( Xfer *xfer )
 	CollideModule::xfer( xfer );
 
 	// weapon
-	Bool collideWeaponPresent = m_collideWeapon ? TRUE : FALSE;
+	Bool collideWeaponPresent = m_gxFireWeaponCollide->m_collideWeapon ? TRUE : FALSE;
 	xfer->xferBool( &collideWeaponPresent );
 	if( collideWeaponPresent )
 	{
 
-		DEBUG_ASSERTCRASH( m_collideWeapon != nullptr,
-											 ("FireWeaponCollide::xfer - m_collideWeapon present mismatch") );
-		xfer->xferSnapshot( m_collideWeapon );
+		DEBUG_ASSERTCRASH( m_gxFireWeaponCollide->m_collideWeapon != nullptr,
+											 ("FireWeaponCollide::xfer - m_gxFireWeaponCollide->m_collideWeapon present mismatch") );
+		xfer->xferSnapshot( m_gxFireWeaponCollide->m_collideWeapon );
 
 	}
 	else
 	{
 
-		DEBUG_ASSERTCRASH( m_collideWeapon == nullptr,
-											 ("FireWeaponCollide::Xfer - m_collideWeapon missing mismatch" ));
+		DEBUG_ASSERTCRASH( m_gxFireWeaponCollide->m_collideWeapon == nullptr,
+											 ("FireWeaponCollide::Xfer - m_gxFireWeaponCollide->m_collideWeapon missing mismatch" ));
 
 	}
 
 	// ever fired
-	xfer->xferBool( &m_everFired );
+	xfer->xferBool( &m_gxFireWeaponCollide->m_everFired );
 
 }
 

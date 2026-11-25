@@ -473,7 +473,9 @@ void GLES3_Begin_Scene() {
         });
         g_PageSwitches4 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
-            return 0;   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+            return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+                 | (o.physSimd === true ? 1 : 0)   // bit 0: with physBulk, physics integration for all due units in one SIMD pass over the store columns (PhysicsUpdate.cpp; rides on match rule physBulk)
+                 | (o.collideSimd === false ? 0 : 2);   // bit 1: with storePairs, the broad phase's distance cut 4 units per instruction over per-cell blocks (PartitionManager.cpp; same pairs as storePairs)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
