@@ -2047,7 +2047,7 @@
               sec.style.cssText = 'margin-bottom: 10px; border: 1px solid var(--gx-mute); padding: 6px 8px;';
               var sum = document.createElement('summary');
               sum.style.cssText = 'cursor: pointer; font-size: 10px; letter-spacing: 2px;';
-              var count = document.createElement('span'); count.style.cssText = 'color: var(--gx-mute); margin-left: 8px;';
+              var count = document.createElement('span'); count.style.cssText = 'color: var(--gx-mute); margin-left: 8px; white-space: nowrap;';
               var recount = function () { count.textContent = c.items.filter(function (p) { return window.GeneralsX.opt[p.key]; }).length + ' / ' + c.items.length + ' ON'; };
               sum.appendChild(document.createTextNode(c.name)); sum.appendChild(count); recount();
               var cnote = document.createElement('div');
