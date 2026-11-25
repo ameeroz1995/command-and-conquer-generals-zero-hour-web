@@ -475,7 +475,7 @@
         <div style="font-size: 9px; color: var(--gx-mute); margin-left: 20px; margin-top: 3px;">When a match can't hold 60 but stays above about 33 fps, show an even 30 instead of an uneven rate. Applies at once.</div>
       </div>
 
-      <!-- One switch per optimisation, built from gxPerf (script below). -->
+      <!-- One switch per optimisation, built from gxPerf and grouped by category (script below). -->
       <div style="margin: 18px 0 8px; font-size: 10px; letter-spacing: 2px; border-top: 1px solid var(--gx-mute); padding-top: 10px;">PERFORMANCE SWITCHES</div>
       <div id="gx-perf-toggles"></div>
 
@@ -2018,10 +2018,46 @@
             window.GeneralsX.settings.steady30 = steadyCb.checked; // the engine reads it about once a second
             saveSettings();
           });
-          // Performance switches: one checkbox each, from window.gxPerf.
+          // Performance switches: one checkbox each, from window.gxPerf, grouped by category.
+          // A switch not listed in any category lands in OTHER, so a new switch always shows.
           (function () {
-            var box = document.getElementById('gx-perf-toggles');
-            window.gxPerf.forEach(function (p) {
+            var cats = [
+              { name: 'MANAGER PATTERN', note: 'Unit data kept in one store, and each game system run as one pass over all its units, in unit order.',
+                keys: ['positionInStore', 'updatePasses', 'moveAfterTick', 'physBulk', 'storePairs', 'scanManager', 'weaponPass', 'weaponSkip', 'damageQueue', 'animStoreList', 'disabledList'] },
+              { name: 'ROUTE PLANNING', note: 'How units find their way: shared route maps, route reuse and how much planning each frame does.',
+                keys: ['flowFields', 'lazyFields', 'gpuFlowFields', 'flowCover', 'coarseStart', 'groupRoute', 'routeQueue', 'routeCache', 'routeRefine', 'sharedRoutes', 'routeBudget', 'ignoreUnitsInPaths', 'openHeap', 'cellBits', 'cpopSegments'] },
+              { name: 'COMPUTATION', note: 'Cheaper game logic: searches, collisions, physics and bookkeeping.',
+                keys: ['enemySearchSkip', 'searchSlotSkip', 'denseCellMask', 'searchCache', 'laserFilters', 'lazyScans', 'collisionOrder', 'contactTable', 'contactArray', 'leanPairs', 'pairPlace', 'pairOffer', 'cellReuse', 'crushFirst', 'collideList', 'collideStagger', 'collideStagger3', 'physReuse', 'allyTable', 'sleepyKeys', 'fastDestroy', 'uiScanCache', 'fastInvSqrt'] },
+              { name: 'MULTI-THREADING', note: 'Work moved to a second processor core. Multi-threaded build only.',
+                keys: ['boneWorker', 'boneAhead', 'particleWorker'] },
+              { name: 'DRAWING', note: 'Fewer and cheaper draw calls, and work skipped that the screen would not show.',
+                keys: ['groundCache', 'panCache', 'shroudFold', 'terrainCull', 'unitBatching', 'gpuSkinning', 'uiBatching', 'sortBatching', 'multiDraw', 'reuseLayouts', 'fastShaders', 'skipCompare', 'skipSameUploads', 'freeTextureCopies', 'boneCache', 'lightCache', 'clipSkip', 'animStagger', 'particleStagger', 'bilinear', 'mediump', 'desync'] },
+              { name: 'LOADING, SOUND AND MEMORY', note: 'Files, shaders and sounds prepared ahead or in the background.',
+                keys: ['precompile', 'asyncShaders', 'bigFileCache', 'warmBattleFiles', 'asyncSounds', 'soundStagger'] }
+            ];
+            var byKey = {}, placed = {};
+            window.gxPerf.forEach(function (p) { byKey[p.key] = p; });
+            cats.forEach(function (c) { c.items = c.keys.filter(function (k) { return byKey[k]; }).map(function (k) { placed[k] = 1; return byKey[k]; }); });
+            var rest = window.gxPerf.filter(function (p) { return !placed[p.key]; });
+            if (rest.length) cats.push({ name: 'OTHER', note: 'Switches not yet sorted into a category.', items: rest });
+            var root = document.getElementById('gx-perf-toggles');
+            cats.forEach(function (c, ci) {
+              if (!c.items.length) return;
+              var sec = document.createElement('details'); sec.open = ci === 0;
+              sec.style.cssText = 'margin-bottom: 10px; border: 1px solid var(--gx-mute); padding: 6px 8px;';
+              var sum = document.createElement('summary');
+              sum.style.cssText = 'cursor: pointer; font-size: 10px; letter-spacing: 2px;';
+              var count = document.createElement('span'); count.style.cssText = 'color: var(--gx-mute); margin-left: 8px;';
+              var recount = function () { count.textContent = c.items.filter(function (p) { return window.GeneralsX.opt[p.key]; }).length + ' / ' + c.items.length + ' ON'; };
+              sum.appendChild(document.createTextNode(c.name)); sum.appendChild(count); recount();
+              var cnote = document.createElement('div');
+              cnote.style.cssText = 'font-size: 9px; color: var(--gx-mute); margin: 6px 0 10px;';
+              cnote.textContent = c.note;
+              sec.appendChild(sum); sec.appendChild(cnote); root.appendChild(sec);
+              c.items.forEach(function (p) { addSwitch(p, sec, recount); });
+            });
+          })();
+          function addSwitch(p, box, recount) {
               var wrap = document.createElement('div'); wrap.style.marginBottom = '12px';
               var label = document.createElement('label');
               label.style.cssText = 'display: flex; align-items: center; cursor: pointer; font-size: 11px; letter-spacing: 1px;';
@@ -2037,10 +2073,10 @@
                 window.GeneralsX.settings[p.key] = cb.checked;
                 window.gxPerfApply(); // the engine reads GeneralsX.opt about once a second
                 saveSettings();
+                recount();
                 if (p.reload) location.reload();
               });
-            });
-          })();
+          }
           var fpsCb = document.getElementById('gx-setting-fps');
           fpsCb.checked = window.GeneralsX.settings.showFps === true;
           fpsCb.addEventListener('change', function() {
