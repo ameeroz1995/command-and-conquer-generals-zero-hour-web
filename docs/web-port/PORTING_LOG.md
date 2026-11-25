@@ -3597,3 +3597,19 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
 - After rounds 1-3 range searches are ~1.5-2% of the frame (paired timing: 0.17 of the plain walk),
   so a per-tick result cache can save well under 0.1% of the frame. A one-pass batch of every unit's
   scans would need the AI callers to submit requests instead of calling (ai agent's code).
+
+## 2026-11-25 — Round 4: per-tick search snapshot measured, slower, not kept; store hooks kept
+
+- Kept (exact): the partition writes each unit's centre cell into GxUnitStore (setCell, when the
+  centre cell changes; -1 off the map), and units with an AI get the GXB_SCAN behaviour bit (they run
+  the idle enemy scans). Replay matches; verify 0 mismatches (96k searches).
+- Tried (match rule scanSnapshot 262144, third word bit 12): at the first search of a tick every
+  cell's entries (place, radius, player slot, module) copied into one flat array in cell-list order,
+  rebuilt when a PartitionData is destroyed; that tick's scans read it instead of the cell lists.
+  Paired timing in verify runs (copy time counted on the fast side; load 21-34): fast / plain walk
+  0.43 and 0.37 with it vs 0.18 and 0.17 without; 0.5-1% of searches gave a different result.
+  Copying ~all COIs every tick costs more than the ~100 searches a tick it serves (the live lists
+  already skip other players and far entries without reading units). Removed; the rule value is
+  free again. Patch kept outside the repo (side-session notes, logic-query-scansnapshot.patch).
+- With the earlier count (5.5% of searches repeat within a tick, 0 enemy-target scans), a per-tick
+  result cache can save under 0.1% of the frame: not built.

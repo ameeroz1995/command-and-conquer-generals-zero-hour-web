@@ -77,6 +77,7 @@
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/StealthUpdate.h"
 #include "GameLogic/PartitionManager.h"
+#include "Common/GxUnitStore.h"
 #include "Common/Recorder.h"
 #include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/Squad.h"
@@ -2445,6 +2446,8 @@ void PartitionData::updateCellsTouched()
 	const PartitionCell *currentCell = ThePartitionManager->getCellAt( currentCellIndexX, currentCellIndexY );
 	if(obj && currentCell != m_lastCell )
 	{
+		// web port (round 4): the unit store's centre cell (-1 off the map)
+		TheGxUnitStore.setCell(obj, currentCell ? currentCellIndexY * ThePartitionManager->getCellCountX() + currentCellIndexX : -1);
 		// To not expose PartitionCells, he will think in terms of points.  He will
 		// unlook at a point and look at the new point.  We do the rounding and the
 		// changing into PartitionCells
