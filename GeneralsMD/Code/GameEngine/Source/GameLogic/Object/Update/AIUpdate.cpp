@@ -28,6 +28,7 @@
 // Subsequently : John Ahlquist 2002 and a cast of thousands.
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxUnitStore.h"
 
 #define DEFINE_LOCOMOTORSET_NAMES					// for TheLocomotorSetNames[]
 #define DEFINE_AUTOACQUIRE_NAMES
@@ -1045,8 +1046,26 @@ void AIUpdateInterface::friend_notifyStateMachineChanged()
  * The "main loop" of the AI subsystem
  */
 DECLARE_PERF_TIMER(AIUpdateInterface_update)
-// web port (match rule moveAfterTick): units whose AI updated this tick, in update-queue order
-static std::vector<ObjectID> s_gxMovementQueue;
+// web port (match rule moveAfterTick, round 4): the movement manager. Units whose AI updated this
+// tick set their flag (indexed by GxUnitStore slot, stable within the frame); the pass walks the
+// store's MOVE list, in object-ID order, and runs each flagged unit's locomotion.
+static std::vector<unsigned char> s_gxMoveFlag;	// by store slot
+static Bool s_gxMoveAny = FALSE;
+
+void gxQueueMovement(Object *obj)
+{
+	// the store compacts at the first pass() of a frame: ask for the list first, so the slots we flag
+	// stay put for the rest of the frame
+	static UnsignedInt s_frame = ~0u;
+	if (s_frame != TheGameLogic->getFrame()) { s_frame = TheGameLogic->getFrame(); TheGxUnitStore.pass(GXB_MOVE); }
+	const int s = TheGxUnitStore.slotOf(obj);
+	if (s < 0) return;
+	if (!(TheGxUnitStore.mask[s] & GXB_BIT(GXB_MOVE)))
+		TheGxUnitStore.setMask(obj, GXB_BIT(GXB_MOVE));
+	if ((int)s_gxMoveFlag.size() < TheGxUnitStore.size()) s_gxMoveFlag.resize(TheGxUnitStore.size() + 256, 0);
+	s_gxMoveFlag[s] = 1;
+	s_gxMoveAny = TRUE;
+}
 
 void AIUpdateInterface::gxMovementPassStep()
 {
@@ -1059,18 +1078,24 @@ void AIUpdateInterface::gxMovementPassStep()
 
 void gxRunMovementPass()
 {
-	if (s_gxMovementQueue.empty())
+	if (!s_gxMoveAny)
 		return;
-	for (size_t i = 0; i < s_gxMovementQueue.size(); ++i)
+	s_gxMoveAny = FALSE;
+	const std::vector<int> &list = TheGxUnitStore.pass(GXB_MOVE);
+	for (size_t i = 0; i < list.size(); ++i)
 	{
-		Object *obj = TheGameLogic->findObjectByID(s_gxMovementQueue[i]);
+		const int s = list[i];
+		if (s >= (int)s_gxMoveFlag.size() || !s_gxMoveFlag[s])
+			continue;
+		s_gxMoveFlag[s] = 0;
+		Object *obj = TheGxUnitStore.obj[s];
 		if (!obj || obj->isDestroyed())
 			continue;
 		AIUpdateInterface *ai = obj->getAI();
 		if (ai)
 			ai->gxMovementPassStep();
 	}
-	s_gxMovementQueue.clear();
+	std::fill(s_gxMoveFlag.begin(), s_gxMoveFlag.end(), 0);	// flags of units removed meanwhile
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1190,7 +1215,8 @@ UpdateSleepTime AIUpdateInterface::update()
 	// update queue (gxRunMovementPass), in this same order; the pass wakes us earlier if needed
 	extern bool gxMatchRule(unsigned int rule);
 	if (gxMatchRule(32768 /* GXRULE_MOVE_AFTER_TICK */)) {
-		s_gxMovementQueue.push_back(getObject()->getID());
+		extern void gxQueueMovement(Object *obj);
+		gxQueueMovement(getObject());
 	} else {
 	UpdateSleepTime tmp = doLocomotor();
 	if (tmp < subMachineSleep)
