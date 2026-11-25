@@ -86,7 +86,6 @@ public:
 	virtual UpdateSleepTime update()										{ return UPDATE_SLEEP_FOREVER; }
 
 protected:
-	Coord3D m_worldCoordSpawnPoints[MAX_SPAWN_POINTS];///< Where my little friends will be created
 
 	// Required func to fulfill Module requirement
 
@@ -98,6 +97,7 @@ public:
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
 	struct GxState
 	{
+		Coord3D worldCoordSpawnPoints[MAX_SPAWN_POINTS]; ///< Where my little friends will be created
 		Bool bonesInitialized; ///< To prevent creation bugs, only init the World coords when first asked for one
 		Int spawnPointCount; ///< How many in the array are actually live and valid
 		Real worldAngleSpawnPoints[MAX_SPAWN_POINTS]; ///< And what direction they should face

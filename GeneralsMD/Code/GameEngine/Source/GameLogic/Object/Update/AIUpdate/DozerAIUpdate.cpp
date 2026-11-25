@@ -29,6 +29,7 @@
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxComponentPool.h"
 
 #include "Common/ActionManager.h"
 #include "Common/Team.h"
@@ -96,12 +97,24 @@ protected:
 
 protected:
 
-	DozerTask m_task;							///< our task
-	Int m_failedAttempts;					/**< counter for successive unsuccessful attempts to pick
-																		 and move to an action position */
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		DozerTask task; ///< our task
+		Int failedAttempts; ///< counter for successive unsuccessful attempts to pick and move to an action position
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(DozerActionPickActionPosState)
+inline DozerActionPickActionPosState::GxState &DozerActionPickActionPosState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+DozerActionPickActionPosState::~DozerActionPickActionPosState()
+{
+	GxComponentPool<GxState>::the().release(m_gxRow);
+}
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -109,9 +122,10 @@ DozerActionPickActionPosState::DozerActionPickActionPosState( StateMachine *mach
 																															DozerTask task ) :
 															 State( machine, "DozerActionPickActionPosState" )
 {
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
-	m_task = task;
-	m_failedAttempts = 0;
+	R().task = task;
+	R().failedAttempts = 0;
 
 }
 
@@ -132,8 +146,8 @@ void DozerActionPickActionPosState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUser(&m_task, sizeof(m_task));
-	xfer->xferInt(&m_failedAttempts);
+	xfer->xferUser(&R().task, sizeof(R().task));
+	xfer->xferInt(&R().failedAttempts);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -164,7 +178,7 @@ StateReturnType DozerActionPickActionPosState::update()
 	}
 
 	// get the object we're concerned with for our task
-	Object *goalObject = TheGameLogic->findObjectByID( dozerAI->getTaskTarget( m_task ) );
+	Object *goalObject = TheGameLogic->findObjectByID( dozerAI->getTaskTarget( R().task ) );
 
 	// if there is no goal, get out of this machine with a failure code (success is done in the action state )
 	if( goalObject == nullptr )
@@ -174,7 +188,7 @@ StateReturnType DozerActionPickActionPosState::update()
 		getMachine()->setGoalObject( nullptr );
 
 		// cancel our task
-		dozerAI->cancelTask( m_task );
+		dozerAI->cancelTask( R().task );
 
 		// exit with failure
 		return STATE_FAILURE;
@@ -183,7 +197,7 @@ StateReturnType DozerActionPickActionPosState::update()
 
 	// pick a location to move to
 	Coord3D goalPos;
-	const Coord3D *pos = dozerAI->getDockPoint( m_task, DOZER_DOCK_POINT_START );
+	const Coord3D *pos = dozerAI->getDockPoint( R().task, DOZER_DOCK_POINT_START );
 	if( pos )
 		goalPos = *pos;
 	else
@@ -242,7 +256,8 @@ class DozerActionMoveToActionPosState : public State
 
 public:
 
-	DozerActionMoveToActionPosState( StateMachine *machine, DozerTask task ) : State( machine, "DozerActionMoveToActionPosState" ) { m_task = task; }
+	DozerActionMoveToActionPosState( StateMachine *machine, DozerTask task ) : State( machine, "DozerActionMoveToActionPosState" ) {
+		m_gxRow = GxComponentPool<GxState>::the().alloc(); R().task = task; }
 	virtual StateReturnType update();
 
 protected:
@@ -253,10 +268,23 @@ protected:
 
 protected:
 
-	DozerTask m_task;						///< our task
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		DozerTask task; ///< our task
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(DozerActionMoveToActionPosState)
+inline DozerActionMoveToActionPosState::GxState &DozerActionMoveToActionPosState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+DozerActionMoveToActionPosState::~DozerActionMoveToActionPosState()
+{
+	GxComponentPool<GxState>::the().release(m_gxRow);
+}
 
 // ------------------------------------------------------------------------------------------------
 /** CRC */
@@ -275,7 +303,7 @@ void DozerActionMoveToActionPosState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUser(&m_task, sizeof(m_task));
+	xfer->xferUser(&R().task, sizeof(R().task));
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -300,13 +328,13 @@ StateReturnType DozerActionMoveToActionPosState::update()
 
 	AIUpdateInterface *ai = dozer->getAIUpdateInterface();
 	ObjectID currentRepairer = goalObject->getSoleHealingBenefactor();
-	if( m_task==DOZER_TASK_REPAIR && currentRepairer != INVALID_ID && currentRepairer != dozer->getID() )//oops I guess someone beat me to it!
+	if( R().task==DOZER_TASK_REPAIR && currentRepairer != INVALID_ID && currentRepairer != dozer->getID() )//oops I guess someone beat me to it!
 	{
 		if ( ai )
 		{
 			DozerAIInterface *dozerAI = ai->getDozerAIInterface();
 			if ( dozerAI )
-				dozerAI->internalTaskComplete( m_task );
+				dozerAI->internalTaskComplete( R().task );
 		}
 		getMachine()->setGoalObject( nullptr );
 		return STATE_FAILURE;
@@ -321,14 +349,14 @@ StateReturnType DozerActionMoveToActionPosState::update()
 	// First will register, and idle for a frame, second will see first as not active and say yes
 	// Next frame, first will start the build task, without reasking validity
 	// Infinite number of workers can be told to build something with just two in progress buildings
-	if( (m_task == DOZER_TASK_BUILD) && goalObject && (goalObject->getBuilderID() != dozer->getID()) )
+	if( (R().task == DOZER_TASK_BUILD) && goalObject && (goalObject->getBuilderID() != dozer->getID()) )
 	{
 		// Geebus.  Returning failure is ignored, so you have to explicitly make the ai stop trying to restart the machine
 		if ( ai )
 		{
 			DozerAIInterface *dozerAI = ai->getDozerAIInterface();
 			if ( dozerAI )
-				dozerAI->internalTaskComplete( m_task );
+				dozerAI->internalTaskComplete( R().task );
 		}
 		getMachine()->setGoalObject( nullptr );
 		return STATE_FAILURE;
@@ -343,7 +371,7 @@ StateReturnType DozerActionMoveToActionPosState::update()
 
 	if( distSqr <= allowableDistanceSqr )
 	{
-		if( m_task == DOZER_TASK_BUILD )
+		if( R().task == DOZER_TASK_BUILD )
 		{
 
 			//
@@ -383,8 +411,9 @@ public:
 
 	DozerActionDoActionState( StateMachine *machine, DozerTask task ) : State( machine, "DozerActionDoActionState" )
 	{
-		m_task = task;
-		m_enterFrame = 0;
+		m_gxRow = GxComponentPool<GxState>::the().alloc();
+		R().task = task;
+		R().enterFrame = 0;
 	}
 	virtual StateReturnType update();
 	virtual StateReturnType onEnter();
@@ -398,11 +427,24 @@ protected:
 
 protected:
 
-	DozerTask m_task;						///< our task
-	UnsignedInt m_enterFrame;		///< frame we entered this state on
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		DozerTask task; ///< our task
+		UnsignedInt enterFrame; ///< frame we entered this state on
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(DozerActionDoActionState)
+inline DozerActionDoActionState::GxState &DozerActionDoActionState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+DozerActionDoActionState::~DozerActionDoActionState()
+{
+	GxComponentPool<GxState>::the().release(m_gxRow);
+}
 
 // ------------------------------------------------------------------------------------------------
 /** CRC */
@@ -421,8 +463,8 @@ void DozerActionDoActionState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUser(&m_task, sizeof(m_task));
-	xfer->xferUnsignedInt(&m_enterFrame);
+	xfer->xferUser(&R().task, sizeof(R().task));
+	xfer->xferUnsignedInt(&R().enterFrame);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -446,10 +488,10 @@ StateReturnType DozerActionDoActionState::onEnter()
 	// DozerAIUpdate *dozerAI = static_cast<DozerAIUpdate *>(dozer->getAIUpdateInterface());
 
 	// record the frame we came in on
-	m_enterFrame = TheGameLogic->getFrame();
+	R().enterFrame = TheGameLogic->getFrame();
 
 	// when building, we have additional movement that we will for docking
-	if( m_task == DOZER_TASK_BUILD )
+	if( R().task == DOZER_TASK_BUILD )
 		dozerAI->setBuildSubTask( DOZER_SELECT_BUILD_DOCK_LOCATION );
 
 	return STATE_CONTINUE;
@@ -486,7 +528,7 @@ StateReturnType DozerActionDoActionState::update()
 
 	// do the task
 	Bool complete = FALSE;
-	switch( m_task )
+	switch( R().task )
 	{
 
 		//---------------------------------------------------------------------------------------------
@@ -499,7 +541,7 @@ StateReturnType DozerActionDoActionState::update()
 			// if we need to select the dock location and move there do so
 			if( dozerAI->getBuildSubTask() == DOZER_SELECT_BUILD_DOCK_LOCATION )
 			{
-				const Coord3D *dockLocation = dozerAI->getDockPoint( m_task, DOZER_DOCK_POINT_ACTION );
+				const Coord3D *dockLocation = dozerAI->getDockPoint( R().task, DOZER_DOCK_POINT_ACTION );
 				if( dockLocation )
 					ai->aiMoveToPosition( dockLocation, CMD_FROM_AI );
 
@@ -642,7 +684,7 @@ StateReturnType DozerActionDoActionState::update()
 					complete = TRUE;
 
 					// move off to the end dock position if present
-					const Coord3D *endPos = dozerAI->getDockPoint( m_task, DOZER_DOCK_POINT_END );
+					const Coord3D *endPos = dozerAI->getDockPoint( R().task, DOZER_DOCK_POINT_END );
 					Coord3D pos = *dozer->getPosition();
 					if( endPos ) {
 						pos = *endPos;
@@ -721,7 +763,7 @@ StateReturnType DozerActionDoActionState::update()
 						// this is done by attemptHealingFromSoleBenefactor() which lets the beneficiary of the healing
 						// remember who has been healing it, and will return false to everybody else
 						//or if the goalObject is already receiving healing, I must stop, since my healing is getting rejected here
-						dozerAI->internalTaskComplete( m_task );
+						dozerAI->internalTaskComplete( R().task );
 						getMachine()->setGoalObject( nullptr );
 						return STATE_FAILURE;
 					}
@@ -763,7 +805,7 @@ StateReturnType DozerActionDoActionState::update()
 	{
 
 		// this task is now complete, remove it from dozer consideration
-		dozerAI->internalTaskComplete( m_task );
+		dozerAI->internalTaskComplete( R().task );
 
 		// to be clean get rid of the goal object we set
 		getMachine()->setGoalObject( nullptr );
@@ -803,19 +845,33 @@ protected:
 
 protected:
 
-	DozerTask m_task;				///< the task of this action state machine
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		DozerTask task; ///< the task of this action state machine
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(DozerActionStateMachine)
+inline DozerActionStateMachine::GxState &DozerActionStateMachine::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+DozerActionStateMachine::~DozerActionStateMachine()
+{
+	GxComponentPool<GxState>::the().release(m_gxRow);
+}
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 DozerActionStateMachine::DozerActionStateMachine( Object *owner, DozerTask task ) :
 												 StateMachine( owner, "DozerActionStateMachine" )
 {
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
 	// initialize our task
-	m_task = task;
+	R().task = task;
 
 	// order matters: first state is the default state.
 	defineState( DOZER_ACTION_PICK_ACTION_POS, newInstance(DozerActionPickActionPosState)( this, task ), DOZER_ACTION_MOVE_TO_ACTION_POS, EXIT_MACHINE_WITH_FAILURE );
@@ -841,7 +897,7 @@ void DozerActionStateMachine::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUser(&m_task, sizeof(m_task));
+	xfer->xferUser(&R().task, sizeof(R().task));
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -968,9 +1024,10 @@ public:
 
 	DozerPrimaryIdleState( StateMachine *machine ) : State( machine, "DozerPrimaryIdleState" )
 	{
-		m_idleTooLongTimestamp = 0;
-		m_idlePlayerNumber = 0;
-		m_isMarkedAsIdle   = FALSE;
+		m_gxRow = GxComponentPool<GxState>::the().alloc();
+		R().idleTooLongTimestamp = 0;
+		R().idlePlayerNumber = 0;
+		R().isMarkedAsIdle   = FALSE;
 	}
 	virtual StateReturnType update();
 	virtual StateReturnType onEnter();
@@ -984,11 +1041,24 @@ protected:
 
 protected:
 
-	UnsignedInt m_idleTooLongTimestamp;		///< when this is more than our idle too long time we try to do something about it
-	Int m_idlePlayerNumber;				///< Remember what list we were added to.
-	Bool m_isMarkedAsIdle;
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		UnsignedInt idleTooLongTimestamp; ///< when this is more than our idle too long time we try to do something about it
+		Int idlePlayerNumber; ///< Remember what list we were added to.
+		Bool isMarkedAsIdle;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(DozerPrimaryIdleState)
+inline DozerPrimaryIdleState::GxState &DozerPrimaryIdleState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+DozerPrimaryIdleState::~DozerPrimaryIdleState()
+{
+	GxComponentPool<GxState>::the().release(m_gxRow);
+}
 
 // ------------------------------------------------------------------------------------------------
 /** CRC */
@@ -1007,9 +1077,9 @@ void DozerPrimaryIdleState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_idleTooLongTimestamp);
-	xfer->xferInt(&m_idlePlayerNumber);
-	xfer->xferBool(&m_isMarkedAsIdle);
+	xfer->xferUnsignedInt(&R().idleTooLongTimestamp);
+	xfer->xferInt(&R().idlePlayerNumber);
+	xfer->xferBool(&R().isMarkedAsIdle);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1030,9 +1100,9 @@ StateReturnType DozerPrimaryIdleState::onEnter()
 	// upon entering this state we begin tracking how long we're idle for to try to do something
 	// about it every once in a while
 	//
-	m_idleTooLongTimestamp = TheGameLogic->getFrame();
+	R().idleTooLongTimestamp = TheGameLogic->getFrame();
 		//if(TheGameLogic->getFrame() > m_idleNotifyTimestamp + NOTIFY_AFTER_TIME)
-	m_isMarkedAsIdle = FALSE;
+	R().isMarkedAsIdle = FALSE;
 
 	getMachineOwner()->setWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL);//maybe go clear some mines, if I feel like it
 
@@ -1045,11 +1115,11 @@ StateReturnType DozerPrimaryIdleState::onEnter()
 //-------------------------------------------------------------------------------------------------
 void DozerPrimaryIdleState::onExit( StateExitType status )
 {
-	if(m_isMarkedAsIdle)
+	if(R().isMarkedAsIdle)
 	{
-		TheInGameUI->removeIdleWorker(getMachineOwner(), m_idlePlayerNumber);
-		m_idlePlayerNumber = -1;
-		m_isMarkedAsIdle = FALSE;
+		TheInGameUI->removeIdleWorker(getMachineOwner(), R().idlePlayerNumber);
+		R().idlePlayerNumber = -1;
+		R().isMarkedAsIdle = FALSE;
 	}
 }
 
@@ -1075,19 +1145,19 @@ StateReturnType DozerPrimaryIdleState::update()
 	// we don't want to add in if we're already in the list or if
 	// we're "Effectively dead"
 	//
-	if( ai->isIdle() && !m_isMarkedAsIdle && !dozer->isEffectivelyDead())
+	if( ai->isIdle() && !R().isMarkedAsIdle && !dozer->isEffectivelyDead())
 	{
-		m_idlePlayerNumber = dozer->gxPlayerIndex();
+		R().idlePlayerNumber = dozer->gxPlayerIndex();
 		TheInGameUI->addIdleWorker(getMachineOwner());
-		m_isMarkedAsIdle = TRUE;
+		R().isMarkedAsIdle = TRUE;
 		getMachineOwner()->setWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL);//maybe go clear some mines, if I feel like it
 
 	}
-	if( m_isMarkedAsIdle && (!ai->isIdle() || dozer->isEffectivelyDead()))
+	if( R().isMarkedAsIdle && (!ai->isIdle() || dozer->isEffectivelyDead()))
 	{
-		TheInGameUI->removeIdleWorker(getMachineOwner(), m_idlePlayerNumber);
-		m_idlePlayerNumber = -1;
-		m_isMarkedAsIdle = FALSE;
+		TheInGameUI->removeIdleWorker(getMachineOwner(), R().idlePlayerNumber);
+		R().idlePlayerNumber = -1;
+		R().isMarkedAsIdle = FALSE;
 	}
 
 	//
@@ -1095,13 +1165,13 @@ StateReturnType DozerPrimaryIdleState::update()
 	// our idle too long timestamp
 	//
 	if( !ai->isIdle() )
-		m_idleTooLongTimestamp = TheGameLogic->getFrame();
+		R().idleTooLongTimestamp = TheGameLogic->getFrame();
 
 	//
 	// if we're just sitting here in idle, and there is no task pending ... after so long we'll
 	// try to go to the nearest command center
 	//
-	if( TheGameLogic->getFrame() - m_idleTooLongTimestamp > dozerAI->getBoredTime() &&
+	if( TheGameLogic->getFrame() - R().idleTooLongTimestamp > dozerAI->getBoredTime() &&
 			dozerAI->isAnyTaskPending() == FALSE )
 	{
 
@@ -1110,7 +1180,7 @@ StateReturnType DozerPrimaryIdleState::update()
 		// we'll only try it every once in a while so set our idle too long timestamp to the
 		// current frame
 		//
-		m_idleTooLongTimestamp = TheGameLogic->getFrame();
+		R().idleTooLongTimestamp = TheGameLogic->getFrame();
 
 		// try to find something around us that we can repair
 		Object *repairTarget = findObjectToRepair( dozer );
@@ -1151,15 +1221,16 @@ public:
 
 	DozerActionState( StateMachine *machine, DozerTask task ) : State( machine, "DozerActionState" )
 	{
+		m_gxRow = GxComponentPool<GxState>::the().alloc();
 		m_task = task;
-		m_actionMachine = newInstance(DozerActionStateMachine)( getMachineOwner(), task );
-		m_actionMachine->initDefaultState();
+		R().actionMachine = newInstance(DozerActionStateMachine)( getMachineOwner(), task );
+		R().actionMachine->initDefaultState();
 	}
 	/*
 		Note that we DON'T use CONVERT_SLEEP_TO_CONTINUE; since we're not doing anything else
 		interesting in update, we can sleep when this machine sleeps
 	*/
-	virtual StateReturnType update() { return m_actionMachine->updateStateMachine(); }
+	virtual StateReturnType update() { return R().actionMachine->updateStateMachine(); }
 
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
@@ -1173,10 +1244,20 @@ protected:
 protected:
 
 	DozerTask m_task;									// task for this state (and therefore sub-machine too)
-	StateMachine *m_actionMachine;
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		StateMachine * actionMachine;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-inline DozerActionState::~DozerActionState() { deleteInstance(m_actionMachine); }
+inline DozerActionState::GxState &DozerActionState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+inline DozerActionState::~DozerActionState() { deleteInstance(R().actionMachine); GxComponentPool<GxState>::the().release(m_gxRow); }
 
 // ------------------------------------------------------------------------------------------------
 /** CRC */
@@ -1196,7 +1277,7 @@ void DozerActionState::xfer( Xfer *xfer )
   xfer->xferVersion( &version, currentVersion );
 
 	xfer->xferUser(&m_task, sizeof(m_task));
-	xfer->xferSnapshot(m_actionMachine);
+	xfer->xferSnapshot(R().actionMachine);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1227,7 +1308,7 @@ StateReturnType DozerActionState::onEnter()
 	// into doing an action, we need to reset our state machine to do that action as it may
 	// have been left in any state from the previous time we ran it
 	//
-	m_actionMachine->resetToDefaultState();
+	R().actionMachine->resetToDefaultState();
 
 	return STATE_CONTINUE;
 

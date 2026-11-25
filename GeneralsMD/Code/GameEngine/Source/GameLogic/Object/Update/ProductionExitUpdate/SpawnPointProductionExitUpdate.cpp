@@ -49,7 +49,7 @@ SpawnPointProductionExitUpdate::SpawnPointProductionExitUpdate( Thing *thing, co
 	R().spawnPointCount = 0;
 	for( Int positionIndex = 0; positionIndex < MAX_SPAWN_POINTS; positionIndex++ )
 	{
-		m_worldCoordSpawnPoints[positionIndex].zero();
+		R().worldCoordSpawnPoints[positionIndex].zero();
 		R().worldAngleSpawnPoints[positionIndex] = 0.0f;
 		R().spawnPointOccupier[positionIndex] = INVALID_ID;
 	}
@@ -89,7 +89,7 @@ void SpawnPointProductionExitUpdate::exitObjectViaDoor( Object *newObj, ExitDoor
 		Real createAngle;
 
 		// Get the location from our bone array
-		createPoint = m_worldCoordSpawnPoints[positionIndex];
+		createPoint = R().worldCoordSpawnPoints[positionIndex];
 
 		// make sure the point is on the terrain
 		createPoint.z = TheTerrainLogic ? TheTerrainLogic->getLayerHeight( createPoint.x, createPoint.y, creationObject->getLayer()) : 0.0f;
@@ -167,9 +167,9 @@ void SpawnPointProductionExitUpdate::initializeBonePositions()
 		me->convertBonePosToWorldPos( nullptr, currentTransform, nullptr, currentTransform );
 
 		// Then save the world coord and angle
-		m_worldCoordSpawnPoints[matrixIndex].x = currentTransform->Get_X_Translation();
-		m_worldCoordSpawnPoints[matrixIndex].y = currentTransform->Get_Y_Translation();
-		m_worldCoordSpawnPoints[matrixIndex].z = 0; //set at creation time
+		R().worldCoordSpawnPoints[matrixIndex].x = currentTransform->Get_X_Translation();
+		R().worldCoordSpawnPoints[matrixIndex].y = currentTransform->Get_Y_Translation();
+		R().worldCoordSpawnPoints[matrixIndex].z = 0; //set at creation time
 
 		R().worldAngleSpawnPoints[matrixIndex] = currentTransform->Get_Z_Rotation();
 	}
@@ -223,7 +223,7 @@ void SpawnPointProductionExitUpdate::xfer( Xfer *xfer )
 	//
 	//	Bool R().bonesInitialized;													///< To prevent creation bugs, only init the World coords when first asked for one
 	//	Int R().spawnPointCount;														///< How many in the array are actually live and valid
-	//	Coord3D m_worldCoordSpawnPoints[MAX_SPAWN_POINTS];///< Where my little friends will be created
+	//	Coord3D R().worldCoordSpawnPoints[MAX_SPAWN_POINTS];///< Where my little friends will be created
 	//	Real R().worldAngleSpawnPoints[MAX_SPAWN_POINTS];		///< And what direction they should face
 
 	// spawn point occupants

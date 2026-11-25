@@ -112,7 +112,7 @@ DeliverPayloadAIUpdate::DeliverPayloadAIUpdate( Thing *thing, const ModuleData* 
 {
 	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	R().deliverPayloadStateMachine = nullptr;
-	m_targetPos.zero();
+	R().targetPos.zero();
 	R().moveToPos.zero();
 	R().visibleItemsDelivered = 0;
 	R().deliveryDecal.clear();
@@ -271,7 +271,7 @@ void DeliverPayloadAIUpdate::deliverPayload(
 	R().deliverPayloadStateMachine = nullptr;
 
 	R().moveToPos = *moveToPos;
-	m_targetPos = *targetPos;
+	R().targetPos = *targetPos;
 	R().data			= *data;
 
 	R().deliveryDecal.clear();
@@ -436,7 +436,7 @@ void DeliverPayloadAIUpdate::xfer( Xfer *xfer )
  // extend base class
 	AIUpdateInterface::xfer(xfer);
 
-	xfer->xferCoord3D(&m_targetPos);
+	xfer->xferCoord3D(&R().targetPos);
 	xfer->xferCoord3D(&R().moveToPos);
 	xfer->xferInt(&R().visibleItemsDelivered);
 	xfer->xferUser(&R().diveState, sizeof(R().diveState));
@@ -663,8 +663,8 @@ void DeliveringState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_dropDelayLeft);
-	xfer->xferBool(&m_didOpen);
+	xfer->xferUnsignedInt(&R().dropDelayLeft);
+	xfer->xferBool(&R().didOpen);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -687,17 +687,17 @@ StateReturnType DeliveringState::onEnter() // Open the pod bay doors, Hal
 
 				/// @todo srj -- for now, this assumes at most one door
 	owner->clearAndSetModelConditionState( MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING );
-	m_dropDelayLeft = ai->getDoorDelay();
-	m_didOpen = false;
+	R().dropDelayLeft = ai->getDoorDelay();
+	R().didOpen = false;
 	return STATE_CONTINUE;
 }
 
 //-------------------------------------------------------------------------------------------------
 StateReturnType DeliveringState::update() // Kick a dude out every so often
 {
-	if (m_dropDelayLeft > 0)
+	if (R().dropDelayLeft > 0)
 	{
-		--m_dropDelayLeft;
+		--R().dropDelayLeft;
 		return STATE_CONTINUE;
 	}
 
@@ -710,8 +710,8 @@ StateReturnType DeliveringState::update() // Kick a dude out every so often
 
 	ai->friend_setFreeToExit(true);
 
-	m_didOpen = true;
-	m_dropDelayLeft = ai->getDropDelay();
+	R().didOpen = true;
+	R().dropDelayLeft = ai->getDropDelay();
 
 	if (!ai->isCloseEnoughToTarget())
 		return STATE_FAILURE;
@@ -927,7 +927,7 @@ void DeliveringState::onExit( StateExitType ) // Close the doors
 	if (ai)
 		ai->friend_setFreeToExit(false);
 
-	DEBUG_ASSERTCRASH(m_didOpen, ("Not enough time for the doors to open to drop anything!"));
+	DEBUG_ASSERTCRASH(R().didOpen, ("Not enough time for the doors to open to drop anything!"));
 				/// @todo srj -- for now, this assumes at most one door
 	owner->clearAndSetModelConditionState( MODELCONDITION_DOOR_1_OPENING, MODELCONDITION_DOOR_1_CLOSING );
 }
@@ -953,7 +953,7 @@ void ConsiderNewApproachState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferInt(&m_numberEntriesToState);
+	xfer->xferInt(&R().numberEntriesToState);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -974,10 +974,10 @@ StateReturnType ConsiderNewApproachState::onEnter() // Increment local counter o
 		return STATE_FAILURE;
 	}
 
-	++m_numberEntriesToState;
+	++R().numberEntriesToState;
 
-	DEBUG_LOG(("Considering approach #%d...",m_numberEntriesToState));
-	if( m_numberEntriesToState > ai->getMaxNumberAttempts() )
+	DEBUG_LOG(("Considering approach #%d...",R().numberEntriesToState));
+	if( R().numberEntriesToState > ai->getMaxNumberAttempts() )
 	{
 		DEBUG_LOG(("Too many approaches! Time to give up."));
 		return STATE_FAILURE;
@@ -1065,7 +1065,7 @@ void RecoverFromOffMapState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_reEntryFrame);
+	xfer->xferUnsignedInt(&R().reEntryFrame);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1093,7 +1093,7 @@ StateReturnType RecoverFromOffMapState::onEnter() // Increment local counter o' 
   // maneuvering.
   Real timeToTravelThatDist;
 	/*Real minTurnRadius =*/ ai->calcMinTurnRadius(&timeToTravelThatDist);
-  m_reEntryFrame = TheGameLogic->getFrame() + REAL_TO_INT_CEIL(timeToTravelThatDist);
+  R().reEntryFrame = TheGameLogic->getFrame() + REAL_TO_INT_CEIL(timeToTravelThatDist);
 
 	// kill its momentum
 	PhysicsBehavior* physics = owner->getPhysics();
@@ -1109,7 +1109,7 @@ StateReturnType RecoverFromOffMapState::onEnter() // Increment local counter o' 
 //-------------------------------------------------------------------------------------------------
 StateReturnType RecoverFromOffMapState::update() // Success if we should try again, failure if we should give up
 {
-	if (TheGameLogic->getFrame() < m_reEntryFrame)
+	if (TheGameLogic->getFrame() < R().reEntryFrame)
 		return STATE_CONTINUE;
 
 	Object *owner = getMachineOwner();
@@ -1188,7 +1188,7 @@ StateReturnType HeadOffMapState::onEnter() // Give move order out of town
 	ai->friend_setAcceptingCommands(false);
 
 
-  owner->getUnitDirectionVector3D( facingDirectionUponDelivery );
+  owner->getUnitDirectionVector3D( R().facingDirectionUponDelivery );
 
 	return STATE_CONTINUE;
 }
@@ -1212,9 +1212,9 @@ StateReturnType HeadOffMapState::update()
   {
     Coord3D currentDirection;
     owner->getUnitDirectionVector3D( currentDirection );
-  	Real dot = facingDirectionUponDelivery.x * currentDirection.x
-             + facingDirectionUponDelivery.y * currentDirection.y
-             + facingDirectionUponDelivery.z * currentDirection.z;
+  	Real dot = R().facingDirectionUponDelivery.x * currentDirection.x
+             + R().facingDirectionUponDelivery.y * currentDirection.y
+             + R().facingDirectionUponDelivery.z * currentDirection.z;
 
     if ( dot < 0.3f )
       owner->kill();

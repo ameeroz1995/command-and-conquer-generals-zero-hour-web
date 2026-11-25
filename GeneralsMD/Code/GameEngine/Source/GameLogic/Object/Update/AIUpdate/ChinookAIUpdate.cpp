@@ -25,6 +25,7 @@
 // ChinookAIUpdate.cpp //////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxComponentPool.h"
 
 #define DEFINE_VETERANCY_NAMES				// for TheVeterancyNames[]
 
@@ -191,8 +192,6 @@ class ChinookTakeoffOrLandingState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(ChinookTakeoffOrLandingState, "ChinookTakeoffOrLandingState")
 private:
-	Coord3D		m_destLoc;
-	Bool			m_landing;
 
 protected:
 	// snapshot interface
@@ -208,8 +207,8 @@ protected:
 		XferVersion version = currentVersion;
 		xfer->xferVersion( &version, currentVersion );
 
-		xfer->xferCoord3D(&m_destLoc);
-		xfer->xferBool(&m_landing);
+		xfer->xferCoord3D(&R().destLoc);
+		xfer->xferBool(&R().landing);
 	}
 
 	virtual void loadPostProcess()
@@ -218,9 +217,11 @@ protected:
 	}
 
 public:
-	ChinookTakeoffOrLandingState( StateMachine *machine, Bool landing ) : m_landing(landing), State( machine, "ChinookTakeoffOrLandingState" )
+	ChinookTakeoffOrLandingState( StateMachine *machine, Bool landing ) :  State( machine, "ChinookTakeoffOrLandingState" )
 	{
-		m_destLoc.zero();
+		m_gxRow = GxComponentPool<GxState>::the().alloc();
+		R().landing = landing;
+		R().destLoc.zero();
 	}
 
 	virtual StateReturnType onEnter()
@@ -228,9 +229,9 @@ public:
 		Object* obj = getMachineOwner();
 		ChinookAIUpdate* ai = (ChinookAIUpdate*)obj->getAIUpdateInterface();
 
-		ai->friend_setFlightStatus(m_landing ? CHINOOK_LANDING : CHINOOK_TAKING_OFF);
+		ai->friend_setFlightStatus(R().landing ? CHINOOK_LANDING : CHINOOK_TAKING_OFF);
 
-		if( m_landing )
+		if( R().landing )
 		{
 			// A chinook given transport duty loses his supplies.
 			while( ai->loseOneBox() );
@@ -244,19 +245,19 @@ public:
 		loco->setUsePreciseZPos(true);
 		loco->setUltraAccurate(true);
 
-		m_destLoc = *obj->getPosition();
+		R().destLoc = *obj->getPosition();
 		const Bool onlyHealthyBridges = true;	// ignore dead bridges.
-		PathfindLayerEnum layerAtDest = TheTerrainLogic->getHighestLayerForDestination(&m_destLoc, onlyHealthyBridges);
-		m_destLoc.z = TheTerrainLogic->getLayerHeight(m_destLoc.x, m_destLoc.y, layerAtDest);
-		if (m_landing)
+		PathfindLayerEnum layerAtDest = TheTerrainLogic->getHighestLayerForDestination(&R().destLoc, onlyHealthyBridges);
+		R().destLoc.z = TheTerrainLogic->getLayerHeight(R().destLoc.x, R().destLoc.y, layerAtDest);
+		if (R().landing)
 		{
 			Coord3D tmp;
 			FindPositionOptions options;
 			options.maxRadius = obj->getBoundingCircleRadius() * 100.0f;
-			if (ThePartitionManager->findPositionAround(&m_destLoc, &options, &tmp))
+			if (ThePartitionManager->findPositionAround(&R().destLoc, &options, &tmp))
 			{
-				m_destLoc = tmp;
-				TheAI->pathfinder()->adjustToLandingDestination(obj, &m_destLoc);
+				R().destLoc = tmp;
+				TheAI->pathfinder()->adjustToLandingDestination(obj, &R().destLoc);
 			}
 			// recalc, since it may have changed. note that findPositionAround() will ALWAYS
 			// return a position on the ground proper, so if our initial search start pos was
@@ -265,15 +266,15 @@ public:
 			// the position on the ground at that xy is clear, it will be clear for both the
 			// ground proper and the bridge itself.) also note: don't call objectInteractsWithBridgeLayer(),
 			// since it assumes that things that aren't close in z shouldn't interact.
-			tmp = m_destLoc;
+			tmp = R().destLoc;
 			tmp.z = obj->getPosition()->z;
 			layerAtDest = TheTerrainLogic->getHighestLayerForDestination(&tmp, onlyHealthyBridges);
-			m_destLoc.z = TheTerrainLogic->getLayerHeight(m_destLoc.x, m_destLoc.y, layerAtDest);
+			R().destLoc.z = TheTerrainLogic->getLayerHeight(R().destLoc.x, R().destLoc.y, layerAtDest);
 			obj->setLayer(layerAtDest);
 		}
 		else
 		{
-			m_destLoc.z += loco->getPreferredHeight();
+			R().destLoc.z += loco->getPreferredHeight();
 			obj->setLayer(LAYER_GROUND);
 		}
 
@@ -288,11 +289,11 @@ public:
 
 		ChinookAIUpdate* ai = (ChinookAIUpdate*)obj->getAIUpdateInterface();
 
-		ai->setLocomotorGoalPositionExplicit(m_destLoc);
+		ai->setLocomotorGoalPositionExplicit(R().destLoc);
 
 		const Real THRESH = 3.0f;
 		const Real THRESH_SQR = THRESH*THRESH;
-		if (calcDistSqr(*obj->getPosition(), m_destLoc) <= THRESH_SQR)
+		if (calcDistSqr(*obj->getPosition(), R().destLoc) <= THRESH_SQR)
 			return STATE_SUCCESS;
 
 		return STATE_CONTINUE;
@@ -303,7 +304,7 @@ public:
 		Object* obj = getMachineOwner();
 		ChinookAIUpdate* ai = (ChinookAIUpdate*)obj->getAIUpdateInterface();
 
-		ai->friend_setFlightStatus(m_landing ? CHINOOK_LANDED : CHINOOK_FLYING);
+		ai->friend_setFlightStatus(R().landing ? CHINOOK_LANDED : CHINOOK_FLYING);
 
 		// Paranoia checks - sometimes onExit is called when we are
 		// shutting down, and not all pieces are valid.  CurLocomotor
@@ -318,7 +319,7 @@ public:
 				loco->setMaxLift(BIGNUM);
 		}
 
-		if (m_landing)
+		if (R().landing)
 		{
 			ai->chooseLocomotorSet(LOCOMOTORSET_TAXIING);
 		}
@@ -332,8 +333,23 @@ public:
 
 	}
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		Coord3D destLoc;
+		Bool landing;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(ChinookTakeoffOrLandingState)
+inline ChinookTakeoffOrLandingState::GxState &ChinookTakeoffOrLandingState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+ChinookTakeoffOrLandingState::~ChinookTakeoffOrLandingState()
+{
+	GxComponentPool<GxState>::the().release(m_gxRow);
+}
 
 //-------------------------------------------------------------------------------------------------
 class ChinookCombatDropState : public State
@@ -353,11 +369,10 @@ private:
 		UnsignedInt							nextDropTime;
 		std::list<ObjectID>			rappellerIDs;
 	};
-	std::vector<RopeInfo>			m_ropes;
 
 	void removeDoneRappellers()
 	{
-		for (std::vector<RopeInfo>::iterator it = m_ropes.begin(); it != m_ropes.end(); ++it)
+		for (std::vector<RopeInfo>::iterator it = R().ropes.begin(); it != R().ropes.end(); ++it)
 		{
 			for (std::list<ObjectID>::iterator oit = it->rappellerIDs.begin(); oit != it->rappellerIDs.end(); )
 			{
@@ -428,19 +443,19 @@ protected:
 		XferVersion version = currentVersion;
 		xfer->xferVersion( &version, currentVersion );
 
-		Int numRopes = m_ropes.size();
+		Int numRopes = R().ropes.size();
 		xfer->xferInt(&numRopes);
 
 		if (version >= 2)
 		{
 			if (xfer->getXferMode() == XFER_LOAD)
 			{
-				if (!m_ropes.empty())
+				if (!R().ropes.empty())
 				{
 					DEBUG_CRASH(( "ChinookCombatDropState - ropes should be empty" ));
 					throw SC_INVALID_DATA;
 				}
-				m_ropes.resize(numRopes);
+				R().ropes.resize(numRopes);
 			}
 
 			for (Int i = 0; i < numRopes; ++i)
@@ -448,7 +463,7 @@ protected:
 				RopeInfo info;
 				if (xfer->getXferMode() == XFER_SAVE)
 				{
-					info = m_ropes[i];
+					info = R().ropes[i];
 					// always overwrite this, since it's probably stale
 					info.ropeID = info.ropeDrawable ? info.ropeDrawable->getID() : INVALID_DRAWABLE_ID;
 				}
@@ -462,7 +477,7 @@ protected:
 				if (xfer->getXferMode() == XFER_LOAD)
 				{
 					info.ropeDrawable = nullptr;	// filled in via loadPostProcess
-					m_ropes[i] = info;
+					R().ropes[i] = info;
 				}
 			}
 		}
@@ -470,7 +485,7 @@ protected:
 
 	virtual void loadPostProcess()
 	{
-		for (std::vector<RopeInfo>::iterator it = m_ropes.begin(); it != m_ropes.end(); ++it)
+		for (std::vector<RopeInfo>::iterator it = R().ropes.begin(); it != R().ropes.end(); ++it)
 		{
 			it->ropeDrawable = TheGameClient->findDrawableByID(it->ropeID);
 			// always nuke this, since we're done with it till we save/load again
@@ -479,7 +494,8 @@ protected:
 	}
 
 public:
-	ChinookCombatDropState( StateMachine *machine ): State( machine, "ChinookCombatDropState" ) { }
+	ChinookCombatDropState( StateMachine *machine ): State( machine, "ChinookCombatDropState" ) {
+		m_gxRow = GxComponentPool<GxState>::the().alloc(); }
 
 	// --------------
 	virtual StateReturnType onEnter()
@@ -515,7 +531,7 @@ public:
 		if (numRopes <= 0)
 			return STATE_FAILURE;
 
-		m_ropes.clear();
+		R().ropes.clear();
 		for (Int i = 0; i < numRopes; ++i)
 		{
 			RopeInfo info;
@@ -541,7 +557,7 @@ public:
 			info.nextDropTime = now + GameLogicRandomValue(d->m_perRopeDelayMin, d->m_perRopeDelayMax) - d->m_perRopeDelayMin;
 			info.rappellerIDs.clear();
 
-			m_ropes.push_back(info);
+			R().ropes.push_back(info);
 		}
 
 		return STATE_CONTINUE;
@@ -566,7 +582,7 @@ public:
 
 		// ok, now check each rope: if it's empty, or we're at the next drop time, spawn a new rappeller
 		Int numRopesInUse = 0;
-		for (std::vector<RopeInfo>::iterator it = m_ropes.begin(); it != m_ropes.end(); ++it)
+		for (std::vector<RopeInfo>::iterator it = R().ropes.begin(); it != R().ropes.end(); ++it)
 		{
 			if (it->ropeLen < it->ropeLenMax)
 			{
@@ -652,7 +668,7 @@ public:
 		if (obj->isEffectivelyDead())
 		{
 			// oops. drop the rangers.
-			for (std::vector<RopeInfo>::iterator it = m_ropes.begin(); it != m_ropes.end(); ++it)
+			for (std::vector<RopeInfo>::iterator it = R().ropes.begin(); it != R().ropes.end(); ++it)
 			{
 				for (std::list<ObjectID>::iterator oit = it->rappellerIDs.begin(); oit != it->rappellerIDs.end(); ++oit)
 				{
@@ -667,23 +683,37 @@ public:
 		}
 
 		UnsignedInt now = TheGameLogic->getFrame();
-		for (size_t i = 0; i < m_ropes.size(); ++i)
+		for (size_t i = 0; i < R().ropes.size(); ++i)
 		{
-			if (m_ropes[i].ropeDrawable)
+			if (R().ropes[i].ropeDrawable)
 			{
 				const UnsignedInt ROPE_EXPIRATION_TIME = LOGICFRAMES_PER_SECOND * 5;
 				const Real initialSpeed = TheGlobalData->m_gravity * 30;	// give it a little kick
-				setRopeSpeed(m_ropes[i].ropeDrawable, initialSpeed, d->m_ropeDropSpeed, TheGlobalData->m_gravity);
-				m_ropes[i].ropeDrawable->setExpirationDate(now + ROPE_EXPIRATION_TIME);
-				m_ropes[i].ropeDrawable = nullptr; // we're done with it, so null it so we won't save it
+				setRopeSpeed(R().ropes[i].ropeDrawable, initialSpeed, d->m_ropeDropSpeed, TheGlobalData->m_gravity);
+				R().ropes[i].ropeDrawable->setExpirationDate(now + ROPE_EXPIRATION_TIME);
+				R().ropes[i].ropeDrawable = nullptr; // we're done with it, so null it so we won't save it
 			}
 		}
 
-		m_ropes.clear();
+		R().ropes.clear();
 	}
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		std::vector<RopeInfo> ropes;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(ChinookCombatDropState)
+inline ChinookCombatDropState::GxState &ChinookCombatDropState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+ChinookCombatDropState::~ChinookCombatDropState()
+{
+	GxComponentPool<GxState>::the().release(m_gxRow);
+}
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -693,9 +723,6 @@ class ChinookMoveToBldgState : public AIMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(ChinookMoveToBldgState, "ChinookMoveToBldgState")
 private:
-	Real m_oldPreferredHeight;
-	Real m_newPreferredHeight;
-	Real m_destZ;
 protected:
 	// snapshot interface
 	virtual void crc( Xfer *xfer )
@@ -710,9 +737,9 @@ protected:
 		XferVersion version = currentVersion;
 		xfer->xferVersion( &version, currentVersion );
 
-		xfer->xferReal(&m_oldPreferredHeight);
-		xfer->xferReal(&m_newPreferredHeight);
-		xfer->xferReal(&m_destZ);
+		xfer->xferReal(&R().oldPreferredHeight);
+		xfer->xferReal(&R().newPreferredHeight);
+		xfer->xferReal(&R().destZ);
 	}
 
 	virtual void loadPostProcess()
@@ -721,7 +748,8 @@ protected:
 	}
 
 public:
-	ChinookMoveToBldgState( StateMachine *machine ): AIMoveToState( machine ) { }
+	ChinookMoveToBldgState( StateMachine *machine ): AIMoveToState( machine ) {
+		m_gxRow = GxComponentPool<GxState>::the().alloc(); }
 
 	virtual StateReturnType onEnter()
 	{
@@ -730,26 +758,26 @@ public:
 		const ChinookAIUpdateModuleData* d = ai->friend_getData();
 		Locomotor* loco = ai->getCurLocomotor();
 		loco->setUltraAccurate(true);
-		m_oldPreferredHeight = loco->getPreferredHeight();
-		m_newPreferredHeight = m_oldPreferredHeight;
+		R().oldPreferredHeight = loco->getPreferredHeight();
+		R().newPreferredHeight = R().oldPreferredHeight;
 
 		const Coord3D* destPos;
 		Object* bldg = getMachineGoalObject();
 		if (bldg != nullptr && !bldg->isEffectivelyDead() && bldg->isKindOf(KINDOF_STRUCTURE))
 		{
 			destPos = bldg->getPosition();
-			m_newPreferredHeight = bldg->getGeometryInfo().getMaxHeightAbovePosition() + d->m_minDropHeight;
-			if (m_newPreferredHeight < m_oldPreferredHeight)
-				m_newPreferredHeight = m_oldPreferredHeight;
+			R().newPreferredHeight = bldg->getGeometryInfo().getMaxHeightAbovePosition() + d->m_minDropHeight;
+			if (R().newPreferredHeight < R().oldPreferredHeight)
+				R().newPreferredHeight = R().oldPreferredHeight;
 		}
 		else
 		{
 			destPos = getMachineGoalPosition();
 		}
 
-		loco->setPreferredHeight(m_newPreferredHeight);
+		loco->setPreferredHeight(R().newPreferredHeight);
 
-		m_destZ = TheTerrainLogic->getGroundHeight(destPos->x, destPos->y) + m_newPreferredHeight;
+		R().destZ = TheTerrainLogic->getGroundHeight(destPos->x, destPos->y) + R().newPreferredHeight;
 
 		return AIMoveToState::onEnter();
 	}
@@ -762,7 +790,7 @@ public:
 		StateReturnType status = AIMoveToState::update();
 
 		const Real THRESH = 3.0f;
-		if (status != STATE_CONTINUE && fabs(obj->getPosition()->z - m_destZ) > THRESH)
+		if (status != STATE_CONTINUE && fabs(obj->getPosition()->z - R().destZ) > THRESH)
 			status = STATE_CONTINUE;
 
 		return status;
@@ -773,13 +801,29 @@ public:
 		Object* obj = getMachineOwner();
 		ChinookAIUpdate* ai = (ChinookAIUpdate*)obj->getAIUpdateInterface();
 		Locomotor* loco = ai->getCurLocomotor();
-		loco->setPreferredHeight(m_oldPreferredHeight);
+		loco->setPreferredHeight(R().oldPreferredHeight);
 		loco->setUltraAccurate(false);
 		AIMoveToState::onExit(status);
 	}
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		Real oldPreferredHeight;
+		Real newPreferredHeight;
+		Real destZ;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(ChinookMoveToBldgState)
+inline ChinookMoveToBldgState::GxState &ChinookMoveToBldgState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+ChinookMoveToBldgState::~ChinookMoveToBldgState()
+{
+	GxComponentPool<GxState>::the().release(m_gxRow);
+}
 
 //-----------------------------------------------------------------------------------------------------------
 /**

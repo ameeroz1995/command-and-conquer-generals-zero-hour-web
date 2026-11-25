@@ -284,7 +284,7 @@ void UnpackingState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_framesRemaining);
+	xfer->xferUnsignedInt(&R().framesRemaining);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -314,8 +314,8 @@ StateReturnType UnpackingState::onEnter()
 
 	Real variationFactor = ai->getPackUnpackVariationFactor();
 	Real variation = GameLogicRandomValueReal( 1.0f - variationFactor, 1.0f + variationFactor );
-	m_framesRemaining = ai->getUnpackTime() * variation; //In frames
-	owner->getDrawable()->setAnimationLoopDuration( m_framesRemaining );
+	R().framesRemaining = ai->getUnpackTime() * variation; //In frames
+	owner->getDrawable()->setAnimationLoopDuration( R().framesRemaining );
 
 	return STATE_CONTINUE;
 }
@@ -331,9 +331,9 @@ StateReturnType UnpackingState::update()
 	// Why HackInterent wasn't included within specialability I can't figure out, but... too late to change now.
 	owner->setModelConditionState( MODELCONDITION_UNPACKING );
 
-	if( m_framesRemaining > 0 )
+	if( R().framesRemaining > 0 )
 	{
-		m_framesRemaining--;
+		R().framesRemaining--;
 	}
 	else
 	{
@@ -373,7 +373,7 @@ void PackingState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_framesRemaining);
+	xfer->xferUnsignedInt(&R().framesRemaining);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -402,8 +402,8 @@ StateReturnType PackingState::onEnter()
 
 	Real variationFactor = ai->getPackUnpackVariationFactor();
 	Real variation = GameLogicRandomValueReal( 1.0f - variationFactor, 1.0f + variationFactor );
-	m_framesRemaining = ai->getPackTime() * variation; //In frames
-	owner->getDrawable()->setAnimationLoopDuration( m_framesRemaining );
+	R().framesRemaining = ai->getPackTime() * variation; //In frames
+	owner->getDrawable()->setAnimationLoopDuration( R().framesRemaining );
 	return STATE_CONTINUE;
 }
 
@@ -413,9 +413,9 @@ StateReturnType PackingState::update()
 //	Object *owner = getMachineOwner();
 //	HackInternetAIUpdate *ai = (HackInternetAIUpdate*)owner->getAIUpdateInterface();
 
-	if( m_framesRemaining > 0 )
+	if( R().framesRemaining > 0 )
 	{
-		m_framesRemaining--;
+		R().framesRemaining--;
 	}
 	else
 	{
@@ -449,7 +449,7 @@ void HackInternetState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_framesRemaining);
+	xfer->xferUnsignedInt(&R().framesRemaining);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -473,7 +473,7 @@ StateReturnType HackInternetState::onEnter()
 	owner->clearAndSetModelConditionFlags( MAKE_MODELCONDITION_MASK( MODELCONDITION_UNPACKING ),
 																				 MAKE_MODELCONDITION_MASK( MODELCONDITION_FIRING_A ) );
 
-	m_framesRemaining = ai->getCashUpdateDelay();
+	R().framesRemaining = ai->getCashUpdateDelay();
 
 	return STATE_CONTINUE;
 }
@@ -494,10 +494,10 @@ StateReturnType HackInternetState::update()
 		return STATE_CONTINUE;
 	}
 
-	if( m_framesRemaining > 0 )
+	if( R().framesRemaining > 0 )
 	{
 		//Decrement frame counter.
-		m_framesRemaining--;
+		R().framesRemaining--;
 	}
 	else
 	{
@@ -584,7 +584,7 @@ StateReturnType HackInternetState::update()
 
 
 		//Reset timer and start a new cycle.
-		m_framesRemaining = ai->getCashUpdateDelay();
+		R().framesRemaining = ai->getCashUpdateDelay();
 
 	}
 
