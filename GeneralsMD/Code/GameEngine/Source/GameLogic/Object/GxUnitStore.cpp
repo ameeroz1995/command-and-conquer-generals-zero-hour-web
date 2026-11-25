@@ -77,10 +77,12 @@ void GxUnitStore::add(Object *o)
 		m_slotById.resize(std::max<size_t>(oid + 1, m_slotById.size() * 2), -1);
 	m_slotById[oid] = (int)obj.size() - 1;
 	o->gxSetStoreSlot((int)obj.size() - 1);
-	if (GLES3_Page_Switches3() & 128)
-		o->gxSetPosInStore(true);	// switch positionInStore: from now on the store holds the position
+	// switch hotInStore (round 5, one data switch): the store holds every hot field, position included;
+	// positionInStore alone moves only the position (kept for comparison)
+	if ((GLES3_Page_Switches3() & 128) || (GLES3_Page_Switches4() & 4))
+		o->gxSetPosInStore(true);
 	if (GLES3_Page_Switches4() & 4)
-		o->gxSetHotInStore(true);	// switch hotInStore: status, disabled, layer, geometry, angle, transform in the columns
+		o->gxSetHotInStore(true);	// status, disabled, layer, geometry, angle, transform in the columns
 }
 
 //-------------------------------------------------------------------------------------------------
