@@ -2685,7 +2685,7 @@ void GameLogic::gxPassMerge()
 	gxPassMergeJoin();
 }
 
-static const Int GX_KIND_BIT0 = 32, GX_KIND_MAX = 28;	// GxUnitStore behaviour bits 32-59 (ai); 60-63 misc per phase
+static const Int GX_KIND_BIT0 = 32, GX_KIND_MAX = 24;	// GxUnitStore behaviour bits 32-55 (ai); 56-59 ai kernels; 60-63 misc per phase
 static const Int GX_MISC_BIT0 = 60;
 
 Int GameLogic::gxKindOf(UpdateModulePtr u, Bool create)
@@ -3950,8 +3950,23 @@ extern __int64 Total_Load_3D_Assets;
 static void gxRunKernels( Int phase );	// round 5 kernels (defined with the registry below)
 
 // ------------------------------------------------------------------------------------------------
+// Web port (round 5, measuring rule "fps is not the measure"): logic time per tick and the update
+// loop's own time, from wall-clock reads used only for this report (never in the simulation).
+// Printed every 300 ticks as GXTIME lines: averages over those ticks, plus load-independent counters.
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+static double gxNowMs() { return emscripten_get_now(); }
+#else
+static double gxNowMs() { return 0.0; }
+#endif
+double gx_time_kernels_ms = 0.0;	// accumulated by gxRunKernels
+unsigned gx_count_module_calls = 0, gx_count_kernel_slots = 0;
+static double s_gxTimeLogic = 0.0, s_gxTimeLoop = 0.0;
+static UnsignedInt s_gxTimeTicks = 0;
+
 void GameLogic::update()
 {
+	const double gxT0 = gxNowMs();	// GXTIME report
 	USE_PERF_TIMER(GameLogic_update)
 
 	LatchRestore<Bool> inUpdateLatch(m_isInUpdate, TRUE);
@@ -4083,6 +4098,7 @@ void GameLogic::update()
 	}
 #endif
 
+	const double gxLoop0 = gxNowMs();	// GXTIME: the update loop (queue, passes, kernels)
 	extern bool gxMatchRule(unsigned int rule);
 	if (gxMatchRule(131072))
 	{
@@ -4097,6 +4113,7 @@ void GameLogic::update()
 			{
 				m_curUpdateModule = u;
 				sleepLen = u->update();
+				++gx_count_module_calls;
 				if (sleepLen < 1)
 					sleepLen = UPDATE_SLEEP_NONE;
 				m_curUpdateModule = nullptr;
@@ -4281,6 +4298,7 @@ void GameLogic::update()
 				m_curUpdateModule = u;
 
 				sleepLen = u->update();
+				++gx_count_module_calls;
 				DEBUG_ASSERTCRASH(sleepLen > 0, ("you may not return 0 from update"));
 				if (sleepLen < 1)
 					sleepLen = UPDATE_SLEEP_NONE;
@@ -4297,6 +4315,7 @@ void GameLogic::update()
 	}
 
 	}
+	s_gxTimeLoop += gxNowMs() - gxLoop0;
 	validateSleepyUpdate();
 
 	// web port (match rule moveAfterTick, paths agent): every unit's locomotion in one pass
@@ -4344,6 +4363,18 @@ void GameLogic::update()
 
 
 
+
+	// GXTIME report
+	s_gxTimeLogic += gxNowMs() - gxT0;
+	if (++s_gxTimeTicks >= 300)
+	{
+		const double n = (double)s_gxTimeTicks;
+		printf("GXTIME f%u: logic %.3f ms/tick, update loop %.3f ms/tick (kernels %.3f), module calls %.0f/tick, kernel slots %.0f/tick\n",
+			getFrame(), s_gxTimeLogic / n, s_gxTimeLoop / n, gx_time_kernels_ms / n, gx_count_module_calls / n, gx_count_kernel_slots / n);
+		s_gxTimeLogic = s_gxTimeLoop = gx_time_kernels_ms = 0.0;
+		gx_count_module_calls = gx_count_kernel_slots = 0;
+		s_gxTimeTicks = 0;
+	}
 
 	// increment world time
 	if (!m_startNewGame)
@@ -4547,8 +4578,12 @@ static void gxRunKernels( Int phase )
 		slots = TheGxUnitStore.pass(e.bit);	// copied: apply may change masks
 		const Int n = (Int)slots.size();
 		if (!n) continue;
+		extern double gx_time_kernels_ms; extern unsigned gx_count_kernel_slots;
+		const double t0 = gxNowMs();
 		if (e.kernel) e.kernel(slots.data(), 0, n);
 		if (e.apply) e.apply(slots.data(), n);
+		gx_time_kernels_ms += gxNowMs() - t0;
+		gx_count_kernel_slots += (unsigned)n;
 	}
 }
 
