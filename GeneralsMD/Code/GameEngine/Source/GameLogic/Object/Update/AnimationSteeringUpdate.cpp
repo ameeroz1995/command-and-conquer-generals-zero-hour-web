@@ -64,7 +64,6 @@ AnimationSteeringUpdate::AnimationSteeringUpdate( Thing *thing, const ModuleData
 //-------------------------------------------------------------------------------------------------
 AnimationSteeringUpdate::~AnimationSteeringUpdate()
 {
-	GxModuleList<AnimationSteeringUpdate>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
@@ -141,7 +140,6 @@ static void gxSteerApply(Drawable *draw, GxSteerOp op)
 }
 
 // web port (round 5): the range kernel through ai's hook, at the start of this module's phase
-GX_PATHS_KERNEL(AnimationSteeringUpdate, GXB_PK_STEER, PHASE_NORMAL)
 void AnimationSteeringUpdate::gxKernelStep(UnsignedInt now)
 {
 	// reads: its row, its physics turning, the frame, the module data; writes: its row (state + op)
@@ -155,7 +153,7 @@ void AnimationSteeringUpdate::gxKernelStep(UnsignedInt now)
 
 UpdateSleepTime AnimationSteeringUpdate::update()
 {
-	GX_PK_JOIN(AnimationSteeringUpdate, GXB_PK_STEER)
+	GX_PK_JOIN(AnimationSteeringUpdate)
 	PhysicsBehavior *physics = getObject()->getPhysics();
 	Drawable *draw = getObject()->getDrawable();
 	const UnsignedInt now = TheGameLogic->getFrame();
