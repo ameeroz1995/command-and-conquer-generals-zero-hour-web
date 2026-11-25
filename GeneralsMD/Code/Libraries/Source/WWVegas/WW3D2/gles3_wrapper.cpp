@@ -480,6 +480,7 @@ void GLES3_Begin_Scene() {
                  | (o.crushFirst === false ? 0 : 16)   // bit 4: crush tests compare crush levels before the ally lookup (Object.cpp; same game)
                  | (o.collideList === false ? 0 : 32)  // bit 5: each unit lists its collide modules once instead of asking every module per collision (Object.cpp; same game)
                  | (o.disabledList === false ? 0 : 256)  // bit 8: end-of-tick disabled check visits a list of disabled objects, not every object (GameLogic.cpp; same game)
+                 | (o.scanManager === true ? 4096 : 0)    // bit 12: match rule scanManager, range searches as a manager: per-tick store lists, scan pass, result cache (PartitionManager.cpp)
                  | (o.weaponPass === true ? 65536 : 0)    // bit 16: match rule weaponPass, armed units' weapon status in one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
                  | (o.boneWorker === true ? 131072 : 0)   // bit 17: boneWorker, mt build: visible units' bones computed on a worker thread while the terrain draws (animobj.cpp, W3DScene.cpp)
                  | (o.particleWorker === false ? 0 : 16777216)  // bit 24: particleWorker (on), mt build: existing particles move on a worker during the draw when frames are long (ParticleSys.cpp)

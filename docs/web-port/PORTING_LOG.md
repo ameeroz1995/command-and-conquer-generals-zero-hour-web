@@ -3613,3 +3613,24 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
   free again. Patch kept outside the repo (side-session notes, logic-query-scansnapshot.patch).
 - With the earlier count (5.5% of searches repeat within a tick, 0 enemy-target scans), a per-tick
   result cache can save under 0.1% of the frame: not built.
+
+## 2026-11-25 — Round 4 line 7: range searches as a manager (match rule scanManager 262144, third word bit 12, default off)
+
+- Built on the user's 100%-adoption bar although it measured slower. Three parts, one switch (so all
+  players agree on one rule value):
+  - per-tick lists: at the first search of a tick every store slot in the partition goes into the
+    cells its circle covers, in slot (object-ID) order; scans read the store's obj / player / x / y /
+    radius columns and open a unit only when it is near (twice the bounding circle stands in for the
+    sphere);
+  - scan pass: then one pass over pass(GXB_SCAN) in object-ID order reruns each unit's plain enemy
+    scan from last tick (AI::findClosestEnemy reports them via gxScanNoteRequest; the pass's own scans
+    don't count, else every unit rescans every tick: first version, 403k pass scans per run);
+  - result cache: within a tick a search with the same searcher / point, range, distance type, mode
+    and filter classes reuses the first answer (units destroyed since are left out).
+- Verify runs (paired; the pass counted on the manager side; load 15-28): manager / plain walk 0.81
+  and 0.80, vs 0.18 for the default (exact) path. Cache hits ~24% of searches; ~22% of answers differ
+  from a plain walk at the moment of the call (answers as of the tick's first search, slot order).
+- Deterministic: recorded 9003 frames with it on, played back: matches. Referee replay (rule off)
+  matches. Screenshot of the fight with it on: normal. fps pairs: load 20-48, all hit the time limit
+  (unusable).
+- Store hooks (line 2): GXB_SCAN set once for AI units at creation; never re-tested per tick.
