@@ -84,6 +84,7 @@ AutoFindHealingUpdate::AutoFindHealingUpdate( Thing *thing, const ModuleData* mo
 	m_gxRow = gxTable().add(this);
 
 	R().m_nextScanFrames						= 0;
+	R().m_gxReload = getAutoFindHealingUpdateModuleData()->m_scanFrames;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -114,12 +115,9 @@ UpdateSleepTime AutoFindHealingUpdate::update()
 	const AutoFindHealingUpdateModuleData *data = getAutoFindHealingUpdateModuleData();
 
 	//Optimized firing at acquired target
-	if( R().m_nextScanFrames > 0 )
-	{
-		R().m_nextScanFrames--;
+	// round 5: the countdown is a kernel (GxComponentTable.h); this apply step commits it
+	if( !gxCountdownCommit(gxTable(), R(), TheGameLogic->getFrame(), &GxRow::m_nextScanFrames, &GxRow::m_gxReload) )
 		return UPDATE_SLEEP_NONE;
-	}
-	R().m_nextScanFrames = data->m_scanFrames;
 
 	AIUpdateInterface *ai = obj->getAI();
 	if (ai==nullptr) return UPDATE_SLEEP_NONE;

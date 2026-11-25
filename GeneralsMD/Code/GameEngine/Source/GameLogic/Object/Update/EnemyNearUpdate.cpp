@@ -37,6 +37,7 @@
 #include "GameLogic/Module/EnemyNearUpdate.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/AI.h"
+#include "GameLogic/GameLogic.h"
 #include "GameLogic/Module/AIUpdate.h"
 
 GX_COMPONENT_TABLE_DEFINE(EnemyNearUpdate)
@@ -49,6 +50,7 @@ EnemyNearUpdate::EnemyNearUpdate( Thing *thing, const ModuleData* moduleData ) :
 {
 	m_gxRow = gxTable().add(this);
 	R().m_enemyNear = false;
+	R().m_gxReload = getEnemyNearUpdateModuleData()->m_enemyScanDelayTime;
 	R().m_enemyScanDelay = 0;
 
 	// bias a random amount so everyone doesn't spike at once
@@ -70,17 +72,12 @@ EnemyNearUpdate::~EnemyNearUpdate()
 void EnemyNearUpdate::checkForEnemies()
 {
 	// periodic enemy checks
-	if (R().m_enemyScanDelay == 0)
+	// round 5: the countdown is a kernel (GxComponentTable.h); this apply step commits it and scans
+	if (gxCountdownCommit(gxTable(), R(), TheGameLogic->getFrame(), &GxRow::m_enemyScanDelay, &GxRow::m_gxReload))
 	{
-		R().m_enemyScanDelay = getEnemyNearUpdateModuleData()->m_enemyScanDelayTime;
-
 		Real visionRange = getObject()->getVisionRange();
 		Object* enemy = TheAI->findClosestEnemy( getObject(), visionRange, AI::CAN_SEE );
 		R().m_enemyNear = (enemy != nullptr);
-	}
-	else
-	{
-		--R().m_enemyScanDelay;
 	}
 }
 

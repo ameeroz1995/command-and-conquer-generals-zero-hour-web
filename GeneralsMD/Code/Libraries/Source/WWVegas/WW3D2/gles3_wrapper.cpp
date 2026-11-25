@@ -473,7 +473,8 @@ void GLES3_Begin_Scene() {
         });
         g_PageSwitches4 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
-            return 0;   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+            return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+                 | (o.rowKernels === false ? 0 : 4096);   // bit 12: scan countdowns of EnemyNear/AutoFindHealing/PointDefenseLaser run as one kernel per table (GxComponentTable.h; same game)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

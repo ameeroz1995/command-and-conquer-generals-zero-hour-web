@@ -87,6 +87,7 @@ PointDefenseLaserUpdate::PointDefenseLaserUpdate( Thing *thing, const ModuleData
 
 	R().m_bestTargetID = INVALID_ID;
 	R().m_nextScanFrames = 0;
+	R().m_gxReload = getPointDefenseLaserUpdateModuleData()->m_scanFrames;
 	R().m_nextShotAvailableInFrames = 0;
 	R().m_inRange  					= false;
 	setWakeFrame(getObject(), UPDATE_SLEEP_NONE);// No starting sleep, but we want to sleep later.
@@ -145,13 +146,12 @@ UpdateSleepTime PointDefenseLaserUpdate::update()
 	const PointDefenseLaserUpdateModuleData *data = getPointDefenseLaserUpdateModuleData();
 
 	//Optimized firing at acquired target
-	if( R().m_nextScanFrames > 0 )
+	// round 5: the countdown is a kernel (GxComponentTable.h); this apply step commits it
+	if( !gxCountdownCommit(gxTable(), R(), TheGameLogic->getFrame(), &GxRow::m_nextScanFrames, &GxRow::m_gxReload) )
 	{
-		R().m_nextScanFrames--;
 		fireWhenReady(); //Only happens if something is tracked.
 		return UPDATE_SLEEP_NONE;
 	}
-	R().m_nextScanFrames = data->m_scanFrames;
 
 	//Periodic scanning (expensive)
 	if( scanClosestTarget() )

@@ -64,6 +64,8 @@ public:
 // Web port (round 5): EnemyNearUpdate's per-unit state, one row per module in its component table
 struct EnemyNearUpdateRow
 {
+	Int m_gxReload;	///< scan countdown reload (module data, copied for the kernel)
+	GxTick m_gxTick;	///< countdown kernel output
 	UnsignedInt m_enemyScanDelay;
 	Bool m_enemyNear;
 };
