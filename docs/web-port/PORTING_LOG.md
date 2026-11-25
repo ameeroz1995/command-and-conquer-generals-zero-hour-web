@@ -3553,3 +3553,20 @@ transition tests and state updates, which read their own unit and the world; the
   combat-13 mt, load 2-5, fps armies / strikes / aftermath off → on: 21.0/15.9/28.7 → 21.2/15.9/30.4,
   20.4/15.9/28.9 → 20.7/15.7/28.9. Replay matches. Nothing slower: **particleWorker on by default**
   (no effect on the single-thread build). boneAhead and boneWorker stay off.
+
+## 2026-11-25: round-3 logic branches merged (paths, collide, ai, query, combat → 2754c81)
+
+Build merge3r (opt 0e5f777f…, mt 9670fc49…). Conflicts were switch words, match-rule lists and
+PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: movement pass, then weapon pass.
+
+- Same game: referee replay matches over 9000 frames, opt and mt; verify mismatches 0. A recording made
+  with every match rule on (header rules F0EEEA) replays to a match.
+- A/B on a quiet machine (load 2–7), fps armies / strikes / aftermath:
+  - merge2 → merge3r defaults, p1: 18.1→17.5 / 13.4→14.0 / 24.4→25.3; p2: 18.0→18.0 / 13.5→14.1 / 23.8→25.3.
+  - mt: 16.6→16.5 / 13.0→13.9 / 24.2→25.1.
+  - merge3r match rules off → on (sharedRoutes, routeBudget, collideStagger3, lazyScans, groupRoute,
+    routeQueue, routeCache, routeRefine, flowCover, moveAfterTick, physBulk, pairOffer, weaponPass):
+    - p1: 17.0→18.9 / 14.3→16.7 / 27.8→27.3, aftermath 1% low 11.2→17.8.
+    - p2: 18.3→20.2 / 14.2→16.0 / 27.0→25.8, aftermath 1% low 9.4→15.3.
+- Read: defaults give strikes +4–7% and aftermath +4–6%, armies flat. The match rules add armies +10%,
+  strikes +13–17%, and aftermath 1% lows +60%; aftermath average fps is 2–4% lower with the rules on.
