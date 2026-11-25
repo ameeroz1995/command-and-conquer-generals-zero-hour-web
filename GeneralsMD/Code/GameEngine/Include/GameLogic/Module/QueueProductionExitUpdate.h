@@ -109,12 +109,17 @@ public:
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
 	struct GxState
 	{
+		UnsignedInt gxOpFrame; ///< web port: frame + 1 of the kernel result (0: none)
+		Int gxOp; ///< web port: the kernel result
+		Bool gxJoined; ///< web port: in the kernel list
+		Int gxId; ///< web port: object ID when it joined
 		UnsignedInt currentDelay; ///< When this hits zero, I can exit again
 		Coord3D rallyPoint; ///< Where units should move to after they have reached the "natural" rally point
 		Bool rallyPointExists; ///< Only move to the rally point if this is true
 		Real creationClearDistance; ///< I can think of myself as ready when the previous guy is this far away.
 		UnsignedInt currentBurstCount; ///< how many times must I still override the delay timer
 	};
+	void gxKernelStep(UnsignedInt now);	///< web port: this unit's kernel step (GxPathsKernels.h)
 	GxState &R() const;
 private:
 	int m_gxRow;

@@ -25,6 +25,7 @@
 // JetAIUpdate.cpp //////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "GameLogic/Module/GxPathsKernels.h"
 #include "Common/GxComponentPool.h"
 
 #define DEFINE_LOCOMOTORSET_NAMES
@@ -1975,6 +1976,7 @@ JetAIUpdate::JetAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdat
 //-------------------------------------------------------------------------------------------------
 JetAIUpdate::~JetAIUpdate()
 {
+	GxModuleList<JetAIUpdate>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 	if (R().lockonDrawable)
 	{
@@ -2104,8 +2106,20 @@ static Bool gxJetTimerKernel(JetAIUpdate::GxState &r, Bool attacking, UnsignedIn
 	return attackLocoExpired;
 }
 
+// web port (round 5): the range kernel through ai's hook, at the start of this module's phase
+GX_PATHS_KERNEL(JetAIUpdate, GXB_PK_JET, PHASE_INITIAL)
+void JetAIUpdate::gxKernelStep(UnsignedInt now)
+{
+	// reads: its attacking status, the frame, the module data; writes: its row (timers, op)
+	GX_PK_WILL_UPDATE
+	const JetAIUpdateModuleData* d = getJetAIUpdateModuleData();
+	R().gxOp = gxJetTimerKernel(R(), getObject()->testStatus(OBJECT_STATUS_IS_ATTACKING), now, d->m_attackLocoPersistTime, d->m_attackersMissPersistTime) ? 1 : 0;
+	R().gxOpFrame = now + 1;
+}
+
 UpdateSleepTime JetAIUpdate::update()
 {
+	GX_PK_JOIN(JetAIUpdate, GXB_PK_JET)
 	const JetAIUpdateModuleData* d = getJetAIUpdateModuleData();
 
 	getProducerLocation();
@@ -2239,7 +2253,7 @@ UpdateSleepTime JetAIUpdate::update()
 		jet->clearModelConditionState(MODELCONDITION_JETEXHAUST);
 
 	// web port (round 5 addendum): the timers are the kernel; the locomotor reset is the apply step
-	if (gxJetTimerKernel(R(), jet->testStatus(OBJECT_STATUS_IS_ATTACKING), now, d->m_attackLocoPersistTime, d->m_attackersMissPersistTime))
+	if (GX_PK_HAVE(now) ? R().gxOp != 0 : gxJetTimerKernel(R(), jet->testStatus(OBJECT_STATUS_IS_ATTACKING), now, d->m_attackLocoPersistTime, d->m_attackersMissPersistTime))
 	{
 #if !RETAIL_COMPATIBLE_CRC
 		// TheSuperHackers @bugfix arcticdolphin 04/03/2026 Reset locomotor when attack locomotor timer expires.

@@ -27,6 +27,7 @@
 // Desc:   A standard ai update that also handles units that must deploy to attack and pack before moving.
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "GameLogic/Module/GxPathsKernels.h"
 
 #include "Common/Player.h"
 #include "Common/ThingFactory.h"
@@ -62,6 +63,7 @@ DeployStyleAIUpdate::DeployStyleAIUpdate( Thing *thing, const ModuleData* module
 //-------------------------------------------------------------------------------------------------
 DeployStyleAIUpdate::~DeployStyleAIUpdate()
 {
+	GxModuleList<DeployStyleAIUpdate>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
@@ -144,8 +146,20 @@ static GxDeployOps gxDeployKernel(DeployStateTypes st, UnsignedInt frameToWait, 
 }
 #undef GX_DEPLOY_OP
 
+// web port (round 5): the range kernel through ai's hook, at the start of this module's phase
+GX_PATHS_KERNEL(DeployStyleAIUpdate, GXB_PK_DEPLOY, PHASE_INITIAL)
+void DeployStyleAIUpdate::gxKernelStep(UnsignedInt now)
+{
+	// reads: its row (state, deploy timer), the frame; writes: its row (op: 0 none, else 1 + new state)
+	GX_PK_WILL_UPDATE
+	const GxDeployOps ops = gxDeployTimerKernel(R().state, R().frameToWaitForDeploy, now);
+	R().gxOp = ops.n ? 1 + (Int)ops.state[0] : 0;
+	R().gxOpFrame = now + 1;
+}
+
 UpdateSleepTime DeployStyleAIUpdate::update()
 {
+	GX_PK_JOIN(DeployStyleAIUpdate, GXB_PK_DEPLOY)
 	// have to call our parent's isIdle, because we override it to never return true
 	// when we have a pending command...
 	Object *self = getObject();
@@ -185,7 +199,14 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 	// web port (round 5 addendum): two kernels, each followed by its apply (setMyState: model
 	// conditions, timers, sounds). First the deploy timer, then the decision, with the turret facts
 	// gathered after the first change as before.
-	GxDeployOps ops = gxDeployTimerKernel(R().state, R().frameToWaitForDeploy, now);
+	GxDeployOps ops;
+	if (GX_PK_HAVE(now))
+	{
+		ops.n = R().gxOp ? 1 : 0;
+		if (ops.n) { ops.state[0] = (DeployStateTypes)(R().gxOp - 1); ops.reverse[0] = FALSE; }
+	}
+	else
+		ops = gxDeployTimerKernel(R().state, R().frameToWaitForDeploy, now);
 	for( Int k = 0; k < ops.n; ++k )
 		setMyState( ops.state[k], ops.reverse[k] );
 	Bool turretMustCenter = FALSE, turretCentered = FALSE;

@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "GameLogic/Module/GxPathsKernels.h"
 #include "Common/Debug.h"
 #include "Common/Xfer.h"
 #include "GameClient/Drawable.h"
@@ -108,6 +109,7 @@ DockUpdate::DockUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateMod
 
 DockUpdate::~DockUpdate()
 {
+	GxModuleList<DockUpdate>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
@@ -431,11 +433,29 @@ static void gxDockKernel(DockUpdate::GxState &r)
 	}
 }
 
-UpdateSleepTime DockUpdate::update()
+// web port (round 5): the range kernel through ai's hook, at the start of this module's phase
+GX_PATHS_KERNEL(DockUpdate, GXB_PK_DOCK, PHASE_NORMAL)
+void DockUpdate::gxKernelStep(UnsignedInt now)
 {
+	// reads/writes: its row only (entrance permission); op 1 = the open-dock branch was taken
+	GX_PK_WILL_UPDATE
+	R().gxOp = 0;
 	if( R().activeDocker == INVALID_ID  &&  !R().dockCrippled )
 	{
 		gxDockKernel(R());
+		R().gxOp = 1;
+	}
+	R().gxOpFrame = now + 1;
+}
+
+UpdateSleepTime DockUpdate::update()
+{
+	GX_PK_JOIN(DockUpdate, GXB_PK_DOCK)
+	const Bool kernelRan = GX_PK_HAVE(TheGameLogic->getFrame());
+	if( kernelRan ? R().gxOp == 1 : ( R().activeDocker == INVALID_ID  &&  !R().dockCrippled ) )
+	{
+		if( !kernelRan )
+			gxDockKernel(R());
 	}
 	else if ( getObject()->isKindOf( KINDOF_SUPPLY_SOURCE ) )
 	{

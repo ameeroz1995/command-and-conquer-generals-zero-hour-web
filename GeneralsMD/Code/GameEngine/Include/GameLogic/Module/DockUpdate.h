@@ -145,6 +145,10 @@ public:
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
 	struct GxState
 	{
+		UnsignedInt gxOpFrame; ///< web port: frame + 1 of the kernel result (0: none)
+		Int gxOp; ///< web port: the kernel result
+		Bool gxJoined; ///< web port: in the kernel list
+		Int gxId; ///< web port: object ID when it joined
 		Coord3D enterPosition;
 		Coord3D dockPosition;
 		Coord3D exitPosition;
@@ -159,6 +163,7 @@ public:
 		Bool dockCrippled; ///< Has game logic set me as crippled?
 		Bool dockOpen; ///< Is the dock open for dockers
 	};
+	void gxKernelStep(UnsignedInt now);	///< web port: this unit's kernel step (GxPathsKernels.h)
 	GxState &R() const;
 private:
 	int m_gxRow;

@@ -29,6 +29,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "GameLogic/Module/GxPathsKernels.h"
 
 #include "Common/Xfer.h"
 #include "GameLogic/Object.h"
@@ -87,6 +88,7 @@ FloatUpdate::FloatUpdate( Thing *thing, const ModuleData *moduleData )
 // ------------------------------------------------------------------------------------------------
 FloatUpdate::~FloatUpdate()
 {
+	GxModuleList<FloatUpdate>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
@@ -105,14 +107,35 @@ static Bool gxFloatKernel(const FloatUpdate::GxState &r, const Coord3D &pos, Coo
 	return TRUE;
 }
 
+// web port (round 5): the range kernel through ai's hook, at the start of this module's phase
+GX_PATHS_KERNEL(FloatUpdate, GXB_PK_FLOAT, PHASE_NORMAL)
+void FloatUpdate::gxKernelStep(UnsignedInt now)
+{
+	// reads: its row, its position, the terrain's water heights; writes: its row (op, position)
+	GX_PK_WILL_UPDATE
+	Coord3D p;
+	R().gxOp = gxFloatKernel(R(), *getObject()->getPosition(), p) ? 1 : 0;
+	R().gxPos = p;
+	R().gxOpFrame = now + 1;
+}
+
 UpdateSleepTime FloatUpdate::update()
 {
+	GX_PK_JOIN(FloatUpdate, GXB_PK_FLOAT)
 /// @todo srj use SLEEPY_UPDATE here
 
 	// web port (round 5 addendum): kernel = the water-surface position (reads its row, its position
 	// and the terrain's water heights, read-only in the tick; writes nothing); apply = setPosition.
 	Coord3D newPos;
-	if (gxFloatKernel(R(), *getObject()->getPosition(), newPos))
+	if (GX_PK_HAVE(TheGameLogic->getFrame()))
+	{
+		if (R().gxOp)
+		{
+			newPos = R().gxPos;
+			getObject()->setPosition( &newPos );
+		}
+	}
+	else if (gxFloatKernel(R(), *getObject()->getPosition(), newPos))
 		getObject()->setPosition( &newPos );
 
 	Drawable *draw = getObject()->getDrawable();

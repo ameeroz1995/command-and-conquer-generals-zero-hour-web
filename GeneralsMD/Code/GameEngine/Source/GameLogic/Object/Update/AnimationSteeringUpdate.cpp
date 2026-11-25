@@ -29,6 +29,7 @@
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "GameLogic/Module/GxPathsKernels.h"
 
 #include "Common/ModelState.h"
 #include "Common/Xfer.h"
@@ -63,6 +64,7 @@ AnimationSteeringUpdate::AnimationSteeringUpdate( Thing *thing, const ModuleData
 //-------------------------------------------------------------------------------------------------
 AnimationSteeringUpdate::~AnimationSteeringUpdate()
 {
+	GxModuleList<AnimationSteeringUpdate>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
@@ -138,12 +140,27 @@ static void gxSteerApply(Drawable *draw, GxSteerOp op)
 	}
 }
 
+// web port (round 5): the range kernel through ai's hook, at the start of this module's phase
+GX_PATHS_KERNEL(AnimationSteeringUpdate, GXB_PK_STEER, PHASE_NORMAL)
+void AnimationSteeringUpdate::gxKernelStep(UnsignedInt now)
+{
+	// reads: its row, its physics turning, the frame, the module data; writes: its row (state + op)
+	GX_PK_WILL_UPDATE
+	PhysicsBehavior *physics = getObject()->getPhysics();
+	if (!physics || !getObject()->getDrawable())
+		return;
+	R().gxOp = gxSteerKernel(R(), physics->getTurning(), now, getAnimationSteeringUpdateModuleData()->m_transitionFrames);
+	R().gxOpFrame = now + 1;
+}
+
 UpdateSleepTime AnimationSteeringUpdate::update()
 {
+	GX_PK_JOIN(AnimationSteeringUpdate, GXB_PK_STEER)
 	PhysicsBehavior *physics = getObject()->getPhysics();
 	Drawable *draw = getObject()->getDrawable();
-	if (physics && draw)
-		gxSteerApply(draw, gxSteerKernel(R(), physics->getTurning(), TheGameLogic->getFrame(),
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if (physics && draw)	// apply the kernel's op (computed now when the kernels are off)
+		gxSteerApply(draw, GX_PK_HAVE(now) ? (GxSteerOp)R().gxOp : gxSteerKernel(R(), physics->getTurning(), now,
 			getAnimationSteeringUpdateModuleData()->m_transitionFrames));
 	return UPDATE_SLEEP_NONE;
 }

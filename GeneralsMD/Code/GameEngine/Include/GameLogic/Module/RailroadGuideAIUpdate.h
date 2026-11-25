@@ -280,6 +280,10 @@ public:
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
 	struct GxState
 	{
+		UnsignedInt gxOpFrame; ///< web port: frame + 1 of the kernel result (0: none)
+		Int gxOp; ///< web port: the kernel result
+		Bool gxJoined; ///< web port: in the kernel list
+		Int gxId; ///< web port: object ID when it joined
 		PullInfo conductorPullInfo; ///< the lead carriage's pull along the track
 		StationTask nextStationTask;
 		ObjectID trailerID; ///< the ID of the object I am directly pulling
@@ -307,6 +311,7 @@ public:
 	};
 	enum GxConductorOp { GXCOND_NONE, GXCOND_STOPPED, GXCOND_DEPART, GXCOND_WHISTLE, GXCOND_RUNNING };
 	static GxConductorOp gxConductorKernel(GxState &r, Real braking, UnsignedInt waitAtStationTime, Real acceleration, Real speedMax);	///< web port: conductor kernel
+	void gxKernelStep(UnsignedInt now);	///< web port: this unit's kernel step (GxPathsKernels.h)
 	GxState &R() const;
 private:
 	int m_gxRow;

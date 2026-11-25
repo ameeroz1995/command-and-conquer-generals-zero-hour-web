@@ -27,6 +27,7 @@
 // Desc:   Implementation of missile behavior
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "GameLogic/Module/GxPathsKernels.h"
 
 #include "Common/Thing.h"
 #include "Common/ThingTemplate.h"
@@ -142,6 +143,7 @@ MissileAIUpdate::MissileAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 //-------------------------------------------------------------------------------------------------
 MissileAIUpdate::~MissileAIUpdate()
 {
+	GxModuleList<MissileAIUpdate>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 	tossExhaust();
 }
@@ -665,12 +667,23 @@ static Bool gxMissileKernel(MissileAIUpdate::GxState &r, const Coord3D &newPos, 
 	return FALSE;
 }
 
+// web port (round 5): the range kernel through ai's hook, at the start of this module's phase
+GX_PATHS_KERNEL(MissileAIUpdate, GXB_PK_MISSILE, PHASE_INITIAL)
+void MissileAIUpdate::gxKernelStep(UnsignedInt now)
+{
+	// reads: its row, its position, the frame; writes: its row (distance flown, decoy timer, op)
+	GX_PK_WILL_UPDATE
+	R().gxOp = gxMissileKernel(R(), *getObject()->getPosition(), now) ? 1 : 0;
+	R().gxOpFrame = now + 1;
+}
+
 UpdateSleepTime MissileAIUpdate::update()
 {
+	GX_PK_JOIN(MissileAIUpdate, GXB_PK_MISSILE)
 	Coord3D newPos = *getObject()->getPosition();
 	//If this missile has been marked to divert to countermeasures, check when
 	//that will occur, then do it when the timer expires (the kernel says when; apply below).
-	if( gxMissileKernel(R(), newPos, TheGameLogic->getFrame()) )
+	if( GX_PK_HAVE(TheGameLogic->getFrame()) ? R().gxOp != 0 : gxMissileKernel(R(), newPos, TheGameLogic->getFrame()) )
 	{
 		Object *missile = getObject();
 		m_noDamage = TRUE;

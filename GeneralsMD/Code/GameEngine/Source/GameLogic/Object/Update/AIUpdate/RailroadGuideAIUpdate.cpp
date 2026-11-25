@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"
+#include "GameLogic/Module/GxPathsKernels.h"
 
 #include "Common/Player.h"
 #include "Common/ThingFactory.h"
@@ -169,6 +170,7 @@ RailroadBehavior::RailroadBehavior( Thing *thing, const ModuleData *moduleData )
 //-------------------------------------------------------------------------------------------------
 RailroadBehavior::~RailroadBehavior()
 {
+	GxModuleList<RailroadBehavior>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 
 	TheAudio->removeAudioEvent( R().runningSound.getPlayingHandle() );// no more chugchug when I'm dead
@@ -710,8 +712,22 @@ RailroadBehavior::GxConductorOp RailroadBehavior::gxConductorKernel(GxState &r, 
 	return GXCOND_NONE;
 }
 
+// web port (round 5): the range kernel through ai's hook, at the start of this module's phase
+GX_PATHS_KERNEL(RailroadBehavior, GXB_PK_TRAIN, PHASE_PHYSICS)
+void RailroadBehavior::gxKernelStep(UnsignedInt now)
+{
+	// reads: its row, the module data; writes: its row (conductor state, speed, wait timer, op)
+	GX_PK_WILL_UPDATE
+	if ( !R().trackDataLoaded || !R().track || !R().isLocomotive )
+		return;
+	const RailroadBehaviorModuleData *modData = getRailroadBehaviorModuleData();
+	R().gxOp = gxConductorKernel(R(), modData->m_braking, modData->m_waitAtStationTime, modData->m_acceleration, modData->m_speedMax);
+	R().gxOpFrame = now + 1;
+}
+
 UpdateSleepTime RailroadBehavior::update()
 {
+	GX_PK_JOIN(RailroadBehavior, GXB_PK_TRAIN)
 
 
 	// load the waypoint data if not loaded
@@ -741,7 +757,8 @@ UpdateSleepTime RailroadBehavior::update()
 	if ( R().isLocomotive )
 	{
 		// web port (round 5 addendum): the conductor kernel moves the state and speed; apply here
-		switch (gxConductorKernel(R(), modData->m_braking, modData->m_waitAtStationTime, modData->m_acceleration, modData->m_speedMax))
+		switch (GX_PK_HAVE(TheGameLogic->getFrame()) ? (GxConductorOp)R().gxOp
+			: gxConductorKernel(R(), modData->m_braking, modData->m_waitAtStationTime, modData->m_acceleration, modData->m_speedMax))
 		{
 			case GXCOND_STOPPED:	// at the station: a wall, and let the passengers off
 				makeAWallOutOfThisTrain( TRUE );

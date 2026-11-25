@@ -135,6 +135,10 @@ public:
 	// this module object is the facade (INI, xfer, crc) holding its row handle.
 	struct GxState
 	{
+		UnsignedInt gxOpFrame; ///< web port: frame + 1 of the kernel result (0: none)
+		Int gxOp; ///< web port: the kernel result
+		Bool gxJoined; ///< web port: in the kernel list
+		Int gxId; ///< web port: object ID when it joined
 		MissileStateType state; ///< the behavior state of the missile
 		UnsignedInt stateTimestamp; ///< time of state change
 		UnsignedInt nextTargetTrackTime; ///< if nonzero, how often we update our target pos
@@ -150,6 +154,7 @@ public:
 		Bool isArmed; ///< if true, missile will explode on contact
 		Bool isJammed; ///< No target, just shooting at a scattered position
 	};
+	void gxKernelStep(UnsignedInt now);	///< web port: this unit's kernel step (GxPathsKernels.h)
 	GxState &R() const;
 private:
 	int m_gxRow;
