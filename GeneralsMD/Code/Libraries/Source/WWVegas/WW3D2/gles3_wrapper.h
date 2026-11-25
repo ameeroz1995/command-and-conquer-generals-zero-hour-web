@@ -329,6 +329,7 @@ bool GLES3_Set_Shroud_Fold(GLuint tex, const float *d3d_matrix); // false: not f
 int GLES3_Page_Switches();
 int GLES3_Page_Switches2();
 int GLES3_Page_Switches3();	///< third switch word (logic agents, round 3)
+int GLES3_Page_Switches4();	///< fourth switch word (logic agents, round 5)
 // Ground cache (gles3_wrapper.cpp): wrap the terrain's base draws in
 //   const bool gc = GLES3_Ground_Cache_Begin(); do { ... } while (gc && GLES3_Ground_Cache_Again());
 bool GLES3_Ground_Cache_Begin();

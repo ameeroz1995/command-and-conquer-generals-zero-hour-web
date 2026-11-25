@@ -58,6 +58,10 @@ int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
 static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 134217728;	// collide 4-5, ai 8, particleWorker 24 on
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
+// Fourth switch word (round 5: units as pure data). Bits by owner: collide 0-5, ai 6-11, query 12-17,
+// paths 18-23, combat 24-29. Default: the bits whose switches default on.
+static int g_PageSwitches4 = 0;
+int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
@@ -466,6 +470,10 @@ void GLES3_Begin_Scene() {
                  | (o.searchCache === false ? 0 : 524288)    // bit 19: range searches turn far entries away by a cached position (PartitionManager.cpp; same game)
                  | (o.pairPlace === false ? 0 : 268435456)   // bit 28: touching pairs clearly apart by their kept places are done without reading the units (PartitionManager.cpp; same game)
                  | (o.pairOffer === true ? 536870912 : 0);   // bit 29: match rule spatialPairs: clearly-apart neighbours are not offered as pairs (PartitionManager.cpp; changes the game)
+        });
+        g_PageSwitches4 = EM_ASM_INT({
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            return 0;   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
