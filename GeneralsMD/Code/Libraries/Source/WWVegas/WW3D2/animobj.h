@@ -123,6 +123,9 @@ public:
 	// boneWorker (third switch word bit 17, mt build, drawing only): the bone worker thread runs
 	// this for each visible object while the main thread draws the terrain (RTS3DScene).
 	void							gxPrepareBones(const Vector3 & camPos);
+	// boneAhead (third switch word bit 23): queue this object's next pose for the worker; use it
+	void							gxAheadQueue(size_t & pose);
+	bool							gxAheadApply();
 
 protected:
 
@@ -166,6 +169,8 @@ protected:
 	bool								gxBonesDue(const Vector3 & camPos);
 	bool								gxHasSounds() const;
 	unsigned							GxBonesFrame = ~0u;	// WW3D frame the worker prepared the bones for
+	unsigned							GxAheadGen = 0;		// boneAhead snapshot this object is in (GxAheadIdx)
+	int								GxAheadIdx = 0;
 
 protected:
 
@@ -336,3 +341,8 @@ bool gxBoneWorkerOn();
 void gxBoneWorkerAdd(RenderObjClass * robj);
 void gxBoneWorkerStart(const Vector3 & camPos);
 void gxBoneWorkerJoin();
+// boneAhead: snapshot the drawn objects at the end of the object draw (starts the worker); join at
+// the start of the next draw
+void gxBoneAheadSnapshot(RenderObjClass * const * objs, int count);
+void gxBoneAheadJoin();
+bool gxBoneAheadWanted();	// switch on, or poses still held from when it was

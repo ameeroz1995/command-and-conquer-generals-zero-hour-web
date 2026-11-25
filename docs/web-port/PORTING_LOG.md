@@ -3197,3 +3197,30 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   - main thread takes the remaining jobs: 18.7/13.7/25.0 → 17.7/14.3/27.7,
     20.9/15.0/28.4 → 21.5/15.5/28.7 (strikes +3-4%, armies −5% / +3%)
 - Off by default until more pairs show armies is not slower.
+- More pairs (combat-9, load 2-12): armies 20.0 → 15.6 (one 130 ms frame, likely the worker
+  pthread starting on first use) and 19.6 → 20.7; strikes 14.9 → 14.3 and 9.7 → 15.6. Stays off.
+  The worker threads now start on the first scene draw (the menu) when any worker switch is on.
+- Worker threads decode animations without the shared caches (motchan.cpp, thread_local
+  gxAnimNoCache): the game logic decodes bones too (Get_Bone_Transform), and a cache index raced
+  by a worker could otherwise be left wrong for the logic's next lookup.
+
+## 2026-11-25 — Unit poses ahead during the logic; particles on a worker (combat agent; boneAhead bit 23, particleWorker bit 24, third word, mt, off)
+
+- boneAhead: at the end of frame N's object draw every visible unit playing one compressed animation
+  is snapshotted (a reference on the animation, its next frame predicted from the last step). The
+  worker decodes each bone's translation / rotation / visibility while the logic runs frame N+1; the
+  draw of N+1 builds the bone hierarchy from them (HTreeClass::gxAnimUpdateFromPose) if the unit
+  still plays that animation, else decodes as before. The worker never touches the unit. At most one
+  frame of animation lag.
+- particleWorker: ParticleSystem::update keeps emission, the particle cap and system logic on the
+  main thread and queues the motion of the existing particles. The worker moves them between the end
+  of ParticleSystemManager::update (inside W3DDisplay::draw) and doParticles, a window in which
+  nothing creates, frees or reads particles; at the join the main thread deletes the dead ones
+  (memory pools are main-thread only). Also joined on manager update, reset and save.
+- Replay (mt, boneWorker + boneAhead + particleWorker on) matches. Screenshots normal.
+- A/B mt, quiet machine (load 1-4), fps armies / strikes / aftermath, off → on:
+  - boneAhead: 20.1/15.7/29.4 → 21.2/15.2/28.8, 21.2/15.4/29.1 → 21.0/15.3/28.5 (no gain; the
+    decode it moves is a small part of the bone work)
+  - particleWorker: 21.5/15.4/28.4 → 21.5/16.2/27.5, 20.1/15.5/27.8 → 21.5/15.9/27.4 (strikes +3-5%,
+    armies 0/+7%, aftermath −1 to −3%)
+- Both off: boneAhead gains nothing; particleWorker is slower in the aftermath in both pairs.

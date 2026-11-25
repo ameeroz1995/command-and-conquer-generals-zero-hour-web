@@ -1897,6 +1897,79 @@ const ParticleInfo *ParticleSystem::generateParticleInfo( Int particleNum, Int p
 // ------------------------------------------------------------------------------------------------
 /** Update this particle system, potentially generating new particles */
 // ------------------------------------------------------------------------------------------------
+// particleWorker (third switch word bit 24, mt build, drawing only). Between the end of
+// ParticleSystemManager::update (W3DDisplay::draw) and doParticles nothing creates, frees or reads
+// particles: creation and the particle cap run only in ParticleSystem::update and systems are
+// deleted only in ParticleSystemManager::update. The worker (worker slot 2, animobj.cpp) moves the
+// queued systems' particles in that window; the main thread takes systems too when it reaches the
+// join, then deletes the particles that died (memory pools are main-thread only).
+#include <atomic>
+#include <vector>
+static std::vector<ParticleSystem *> s_gxPartQueue;
+static std::atomic<size_t> s_gxPartNext(0);
+static bool s_gxPartStarted = false;
+extern void gxWorkerStart(int slot, void (*task)());
+extern bool gxWorkerJoin(int slot);
+
+void ParticleSystem::gxParticleDrain()
+{
+	for (size_t i; (i = s_gxPartNext.fetch_add(1)) < s_gxPartQueue.size();)
+	{
+		ParticleSystem *sys = s_gxPartQueue[i];
+		const Real gravity = sys->m_gravity;
+		for (Particle *p = sys->m_systemParticlesHead; p; p = p->m_systemNext)
+		{
+			Bool alive = true;
+			for (Int step = 0; step < sys->m_gxSteps && alive; ++step)
+			{
+				if (gravity != 0.0f)
+				{
+					Coord3D force;
+					force.x = 0.0f;
+					force.y = 0.0f;
+					force.z = gravity;
+					p->applyForce( &force );
+				}
+				alive = p->update();
+			}
+			p->m_gxDead = !alive;
+		}
+	}
+}
+
+void ParticleSystem::gxParticleStart()
+{
+	if (s_gxPartQueue.empty())
+		return;
+	s_gxPartNext = 0;
+	s_gxPartStarted = true;
+	gxWorkerStart(2, ParticleSystem::gxParticleDrain);
+}
+
+void ParticleSystem::gxParticleJoin()
+{
+	if (s_gxPartQueue.empty())
+		return;
+	if (s_gxPartStarted)
+		gxWorkerJoin(2);
+	else
+		gxParticleDrain();	// queued but never started (no draw): move them here
+	s_gxPartStarted = false;
+	for (size_t i = 0; i < s_gxPartQueue.size(); ++i)
+	{
+		ParticleSystem *sys = s_gxPartQueue[i];
+		sys->m_gxSteps = 0;
+		for (Particle *p = sys->m_systemParticlesHead; p;)
+		{
+			Particle *next = p->m_systemNext;
+			if (p->m_gxDead)
+				deleteInstance(p);
+			p = next;
+		}
+	}
+	s_gxPartQueue.clear();
+}
+
 Bool ParticleSystem::update( Int localPlayerIndex  )
 {
 	if (TheGlobalData->m_useFX == FALSE)
@@ -2102,6 +2175,15 @@ Bool ParticleSystem::update( Int localPlayerIndex  )
 	Int gxSteps = 1;
 	if (GLES3_Page_Switches2() & 1073741824)
 		gxSteps = ((TheGameLogic->getFrame() + (UnsignedInt)m_systemID) & 1) ? 0 : 2;
+	extern int GLES3_Page_Switches3();
+	extern bool gxWorkersAvailable();
+	if (gxSteps && (GLES3_Page_Switches3() & 16777216) && gxWorkersAvailable())
+	{
+		// particleWorker (third switch word bit 24): the worker moves them during the draw
+		m_gxSteps = gxSteps;
+		s_gxPartQueue.push_back(this);
+		gxSteps = 0;
+	}
 	Particle *p = gxSteps ? m_systemParticlesHead : nullptr;
 	Particle *oldParticle;
 	while (p)
@@ -2956,6 +3038,8 @@ void ParticleSystemManager::init()
 // ------------------------------------------------------------------------------------------------
 void ParticleSystemManager::reset()
 {
+	ParticleSystem::gxParticleJoin();	// particleWorker: nothing in flight
+
 	while (!m_allParticleSystemList.empty())
 	{
 		DEBUG_ASSERTCRASH(m_allParticleSystemList.front() != nullptr, ("ParticleSystemManager::reset: ParticleSystem is null"));
@@ -2997,6 +3081,7 @@ void ParticleSystemManager::update()
 	if (m_lastLogicFrameUpdate == TheGameLogic->getFrame()) {
 		return;
 	}
+	ParticleSystem::gxParticleJoin();	// particleWorker: last frame's moves are in
 
 	// update the last logic frame.
 	m_lastLogicFrameUpdate = TheGameLogic->getFrame();
@@ -3014,6 +3099,7 @@ void ParticleSystemManager::update()
 			deleteInstance(sys);
 		}
 	}
+	ParticleSystem::gxParticleStart();	// particleWorker: the queued particles move during the draw
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -3312,6 +3398,8 @@ void ParticleSystemManager::crc( Xfer *xfer )
 // ------------------------------------------------------------------------------------------------
 void ParticleSystemManager::xfer( Xfer *xfer )
 {
+	ParticleSystem::gxParticleJoin();	// particleWorker: nothing in flight
+
 
 	// version
 	XferVersion currentVersion = 1;

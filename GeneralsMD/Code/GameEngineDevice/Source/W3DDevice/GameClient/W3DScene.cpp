@@ -56,6 +56,7 @@
 #include "W3DDevice/GameClient/W3DShroud.h"
 #include "WW3D2/camera.h"
 #include "WW3D2/animobj.h"
+#include <vector>
 #include "WW3D2/dx8renderer.h"
 #include "WW3D2/sortingrenderer.h"
 #include "WW3D2/dx8wrapper.h"
@@ -1108,6 +1109,7 @@ void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 #endif
 
 	RenderObjClass *terrainObject=nullptr,*robj;
+	gxBoneAheadJoin();	// boneAhead: the poses the worker decoded while the logic ran are ready
 	m_translucentObjectsCount = 0;	//start of new frame so no translucent objects
 	m_occludedObjectsCount = 0;
 
@@ -1208,6 +1210,19 @@ void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 #endif
 				renderOneObject(rinfo, robj, localPlayerIndex);
 		}
+	}
+
+	// boneAhead (third switch word bit 23, mt build, drawing only): the drawn units' next poses are
+	// decoded on the worker thread while the game logic runs the next frame.
+	if (terrainObject && m_customPassMode == SCENE_PASS_DEFAULT && !ShaderClass::Is_Backface_Culling_Inverted() && gxBoneAheadWanted()) {
+		static std::vector<RenderObjClass *> drawn;
+		drawn.clear();
+		for (it.First(&RenderList); !it.Is_Done(); it.Next()) {
+			RenderObjClass * r = it.Peek_Obj();
+			if (r->Class_ID() == RenderObjClass::CLASSID_HLOD && r->Is_Really_Visible())
+				drawn.push_back(r);
+		}
+		gxBoneAheadSnapshot(drawn.data(), (int)drawn.size());
 	}
 
 	//Tell shadow manager to render shadows at the end of this frame
