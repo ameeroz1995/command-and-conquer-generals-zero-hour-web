@@ -3890,3 +3890,11 @@ Stays default off.
   getShroudedStatus 0.5/0.7% -> 0.4/0.4% (armies/strikes, profile share).
 - scanManager store-list cull now uses max(circle, sphere) per slot (combat found "2 x circle" too small for
   tall units): changes the scanManager game; new recording query-mgr5.rep replays to a match (query-27).
+
+## Measuring (rule "fps is not the measure", 2026-11-25): Common/GxTime.h, switch tickTiming (fourth word bit 16, off)
+- Header-only: GXT_LOGIC around TheGameLogic->UPDATE() and frame intervals in GameEngine::update; systems add
+  their own scope timers (GxTimeScope) and work counters (gxCount). Every 300 ticks one console line
+  "GXTIME ticks N: logic X ms/tick; ...; frames F, p99 P ms, over 100 ms K" (averages since start).
+- Query hooks: search ms, searches / cells / entries / units opened / SIMD-culled; fog reveal ms, circles,
+  cells touched (stamp and span paths alike), fog status calls / recomputes / kept.
+- Other lanes: add ids to the enums in GxTime.h; one logic timer for everyone (GameEngine.cpp).

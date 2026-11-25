@@ -56,6 +56,7 @@
 #include "Common/GxMatchRules.h"
 #include "Common/ActionManager.h"
 #include "Common/DiscreteCircle.h"
+#include "Common/GxTime.h"
 #include "Common/GameEngine.h"
 #include "Common/GameState.h"
 #include "Common/GameUtility.h"
@@ -1856,6 +1857,7 @@ void PartitionData::friend_setShroudednessPrevious(Int playerIndex, ObjectShroud
 //-----------------------------------------------------------------------------
 ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 {
+	gxCount(GXC_FOG_STATUS_CALLS);	// tickTiming
 	// sanity
 	DEBUG_ASSERTCRASH( playerIndex >= 0 && playerIndex < MAX_PLAYER_COUNT,
 										 ("PartitionData::getShroudedStatus - Invalid player index '%d'", playerIndex) );
@@ -1876,6 +1878,7 @@ ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 	if (m_shroudedness[playerIndex] == OBJECTSHROUD_INVALID)
 	{
 #endif
+		gxCount(GXC_FOG_RECOMPUTES);	// tickTiming
 		Int shroudedCells = 0;
 		Int foggedCells = 0;
 		CellAndObjectIntersection* coi = m_coiArray;
@@ -2560,6 +2563,7 @@ void PartitionData::updateCellsTouched()
 		{
 			if ((m_gxPure >> i & 1) && m_shroudedness[i] != OBJECTSHROUD_INVALID)
 			{
+				gxCount(GXC_FOG_KEPT);	// tickTiming
 				if (!gxVerify)
 					continue;
 				const ObjectShroudStatus kept = m_shroudedness[i];
@@ -4287,6 +4291,8 @@ Object *PartitionManager::getClosestObjects(
 	Coord3D *closestVecArg
 )
 {
+	GxTimeScope gxT(GXT_SEARCH);	// tickTiming (Common/GxTime.h)
+	gxCount(GXC_SEARCHES);
 	UnsignedInt flags = 0;
 	UnsignedInt mask = 0xffffffffu;
 #ifdef __EMSCRIPTEN__
@@ -4580,6 +4586,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 			if ((gxFlags & GX_GCO_DENSE) && !(g_gxCellMasks[gxY * m_cellCountX + gxX] & gxEnemyMask))
 				continue;
 			PartitionCell* thisCell = &m_cells[gxY * m_cellCountX + gxX];
+			gxCount(GXC_SEARCH_CELLS);
 			// Web port (switch enemySearchSkip): when the first filter keeps only objects of some
 			// players' (gxEnemySlots), a cell holding nobody of those players can't add anything.
 			// Same result and order: those objects would all be rejected by that filter, and the
@@ -4604,6 +4611,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 				for (Int k = s_gxSnapStart[ci]; k < kEnd; ++k)
 				{
 					const Int s = s_gxSnapSlots[k];
+					gxCount(GXC_SEARCH_ENTRIES);
 #ifdef __wasm_simd128__
 					if (gxSimd && ((k - s_gxSnapStart[ci]) & 3) == 0)
 					{
@@ -4620,6 +4628,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 							const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy));
 							gxLanes = (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim))));	// keep unless "> lim^2", as the scalar test (NaN kept)
 							g_gxSimdCulled += 4 - __builtin_popcount(gxLanes);
+							gxCount(GXC_SIMD_CULLED, 4 - __builtin_popcount(gxLanes));
 						}
 					}
 					if (!((gxLanes >> ((k - s_gxSnapStart[ci]) & 3)) & 1))
@@ -4647,7 +4656,8 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 
 					Real thisDistSqr;
 					Coord3D distVec;
-					if (!(*distProc)(objPos, objToUse, thisObj->getPosition(), thisObj, thisDistSqr, distVec, closestDistSqr))
+					gxCount(GXC_SEARCH_UNITS);
+				if (!(*distProc)(objPos, objToUse, thisObj->getPosition(), thisObj, thisDistSqr, distVec, closestDistSqr))
 						continue;
 					if (!filtersAllow(filters, thisObj))
 						continue;
@@ -4704,6 +4714,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 					if (!thisCoi)
 						break;
 				}
+				gxCount(GXC_SEARCH_ENTRIES);
 				if (gxCache)
 				{
 					const Real dx = thisCoi->gxX() - px, dy = thisCoi->gxY() - py, lim = gxLimit + thisCoi->gxR();
@@ -4726,6 +4737,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 
 				Real thisDistSqr;
 				Coord3D distVec;
+				gxCount(GXC_SEARCH_UNITS);
 				if (!(*distProc)(objPos, objToUse, thisObj->getPosition(), thisObj, thisDistSqr, distVec, closestDistSqr))
 					continue;
 
@@ -5339,6 +5351,7 @@ static void gxSpanLook(Int x1, Int x2, Int y, Int p, Bool add)
 		return;
 	if (x1 < 0) x1 = 0;
 	if (x2 >= W) x2 = W - 1;
+	gxCount(GXC_FOG_CELLS, x2 - x1 + 1);
 	Int x = x1;
 #ifdef __wasm_simd128__
 	Short *cur = g_gxShroudCur + p * g_gxShroudN + y * W;
@@ -5409,6 +5422,8 @@ static void gxStampLook(Int cx, Int cy, Int r, PlayerMaskType playerMask, Bool a
 // allies.  They'll use the RevealWholeDamnMap series, which call addLooker directly.
 void PartitionManager::doShroudReveal(Real centerX, Real centerY, Real radius, PlayerMaskType playerMask)
 {
+	GxTimeScope gxT(GXT_FOG_REVEAL);	// tickTiming
+	gxCount(GXC_FOG_CIRCLES);
 	Int cellCenterX, cellCenterY;
 	worldToCell(centerX, centerY, &cellCenterX, &cellCenterY);
 
@@ -5482,6 +5497,8 @@ void PartitionManager::resetPendingUndoShroudRevealQueue()
 //-----------------------------------------------------------------------------
 void PartitionManager::undoShroudReveal(Real centerX, Real centerY, Real radius, PlayerMaskType playerMask)
 {
+	GxTimeScope gxT(GXT_FOG_REVEAL);	// tickTiming
+	gxCount(GXC_FOG_CIRCLES);
 	Int cellCenterX, cellCenterY;
 	worldToCell(centerX, centerY, &cellCenterX, &cellCenterY);
 
@@ -7053,6 +7070,7 @@ void hLineAddLooker(Int x1, Int x2, Int y, void *playerIndexVoid)
 {
 	if (y < 0 || y >= ThePartitionManager->m_cellCountY || x1 >= ThePartitionManager->m_cellCountX || x2 < 0)
 		return;
+	gxCount(GXC_FOG_CELLS, min(x2, ThePartitionManager->m_cellCountX - 1) - max(x1, 0) + 1);	// tickTiming
 
 	Int playerIndex = (Int)(playerIndexVoid);
 
@@ -7070,6 +7088,7 @@ void hLineRemoveLooker(Int x1, Int x2, Int y, void *playerIndexVoid)
 {
 	if (y < 0 || y >= ThePartitionManager->m_cellCountY || x1 >= ThePartitionManager->m_cellCountX || x2 < 0)
 		return;
+	gxCount(GXC_FOG_CELLS, min(x2, ThePartitionManager->m_cellCountX - 1) - max(x1, 0) + 1);	// tickTiming
 
 	Int playerIndex = (Int)(playerIndexVoid);
 
