@@ -1698,6 +1698,7 @@ unsigned int gxLocalMatchRules()
 		| ((GLES3_Page_Switches3() & 4096) ? GXRULE_SCAN_MANAGER : 0)	// third word bit 12: scanManager
 		| ((GLES3_Page_Switches3() & 65536) ? GXRULE_WEAPON_PASS : 0)	// third word bit 16: weaponPass
 		| ((GLES3_Page_Switches3() & 512) ? GXRULE_UPDATE_PASSES : 0)	// third word bit 9: updatePasses
+		| ((GLES3_Page_Switches3() & 262144) ? GXRULE_DAMAGE_QUEUE : 0)	// third word bit 18: damageQueue
 		| ((GLES3_Page_Switches3() & 64) ? GXRULE_STORE_PAIRS : 0);	// third word bit 6: storePairs
 #else
 	return 0;

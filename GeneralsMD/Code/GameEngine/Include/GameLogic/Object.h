@@ -499,6 +499,11 @@ public:
 	const Weapon* getCurrentWeapon(WeaponSlotType* wslot = nullptr) const;
 	void setFiringConditionForCurrentWeapon() const;
 	void adjustModelConditionForWeaponStatus();	///< Check to see if I should change my model condition.
+	/// weaponSkip (combat, store pass): true when adjustModelConditionForWeaponStatus would change nothing
+	/// this frame (no target, not attacking, no shot, pose already none, ammo/status as last shown)
+	Bool gxWeaponStatusQuiet(Int target, UnsignedInt &ready, UnsignedInt &sig);
+	Bool gxWeaponStillQuiet() const;	///< weaponSkip: quiet at the last look and weaponReady not reached
+	ObjectWeaponStatusHelper* gxWeaponStatusHelper() const { return m_wsHelper; }
 	void fireCurrentWeapon(Object *target);
 	void fireCurrentWeapon(const Coord3D* pos);
 	void preFireCurrentWeapon( const Object *victim );

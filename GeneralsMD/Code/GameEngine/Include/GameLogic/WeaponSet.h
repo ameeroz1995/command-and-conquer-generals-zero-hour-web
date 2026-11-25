@@ -197,6 +197,7 @@ private:
 	const WeaponTemplateSet*	m_curWeaponTemplateSet;
 	Weapon*										m_weapons[WEAPONSLOT_COUNT];
 	WeaponSlotType						m_curWeapon;
+	ObjectID									m_gxOwner = INVALID_ID;	///< weaponSkip: the unit holding this set
 	WeaponLockType						m_curWeaponLockedStatus;
 	UnsignedInt								m_filledWeaponSlotMask;
 	Int												m_totalAntiMask;						///< anti mask of all current weapons
@@ -213,6 +214,8 @@ protected:
 	virtual void loadPostProcess();
 
 public:
+	void gxSetOwner(ObjectID id);	///< weaponSkip: set by updateWeaponSet and after a load
+	void gxTouch() const;
 
 	WeaponSet();
 	~WeaponSet();

@@ -4296,6 +4296,9 @@ void GameLogic::update()
 	// Pass order after the update queue: movement first, then weapons. Called unguarded: it does
 	// nothing while no object has joined, and if the rule goes off it wakes the helpers it kept.
 	gxWeaponStatusPass();
+	// match rule damageQueue (combat): the tick's weapon damage applied in victim-ID order. Called
+	// unguarded: the queue is empty when the rule is off.
+	{ extern void gxApplyDamageQueue(); gxApplyDamageQueue(); }
 
 	// update the Artificial Intelligence system
 	{
@@ -4323,6 +4326,7 @@ void GameLogic::update()
 	TheCommandList->reset();
 
 	TheWeaponStore->UPDATE();
+	{ extern void gxApplyDamageQueue(); gxApplyDamageQueue(); }	// damageQueue: delayed weapons' damage too; nothing left queued between ticks
 	TheLocomotorStore->UPDATE();
 	TheVictoryConditions->UPDATE();
 

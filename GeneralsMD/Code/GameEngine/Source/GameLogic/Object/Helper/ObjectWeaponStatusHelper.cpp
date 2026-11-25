@@ -33,66 +33,70 @@
 #include "GameLogic/Module/ObjectWeaponStatusHelper.h"
 #include "Common/GxMatchRules.h"
 #include "GameLogic/GameLogic.h"
+#include "GameLogic/Object.h"
+#include "Common/GxUnitStore.h"
 #include <algorithm>
 #include <vector>
 
-// match rule weaponPass: the armed objects whose weapon status the end-of-tick pass keeps,
-// sorted by object ID (a removed one leaves a null until the next pass).
-static std::vector<ObjectWeaponStatusHelper*> s_gxWsList;
-
-static bool gxWsLess(ObjectWeaponStatusHelper* a, ObjectID id)
-{
-	return a && a->gxObject()->getID() < id;
-}
-
+// match rule weaponPass: an armed object whose helper joined the pass has the store's GXB_WEAPON bit;
+// the end-of-tick pass walks the store's WEAPON list (object-ID order).
 Bool ObjectWeaponStatusHelper::gxJoinWeaponStatusPass()
 {
 	if (!gxMatchRule(GXRULE_WEAPON_PASS))
 		return false;
-	// nulls sort anywhere; compact first so the list is strictly ordered for the search
-	s_gxWsList.erase(std::remove(s_gxWsList.begin(), s_gxWsList.end(), (ObjectWeaponStatusHelper*)nullptr), s_gxWsList.end());
-	const ObjectID id = getObject()->getID();
-	std::vector<ObjectWeaponStatusHelper*>::iterator it = std::lower_bound(s_gxWsList.begin(), s_gxWsList.end(), id, gxWsLess);
-	if (it == s_gxWsList.end() || *it != this)
-		s_gxWsList.insert(it, this);
+	TheGxUnitStore.setMask(getObject(), GXB_BIT(GXB_WEAPON));
 	return true;
 }
 
 void gxWeaponStatusPass()
 {
-	if (s_gxWsList.empty())
+	GxUnitStore &st = TheGxUnitStore;
+	const std::vector<int> &list = st.pass(GXB_WEAPON);
+	if (list.empty())
 		return;
 	if (!gxMatchRule(GXRULE_WEAPON_PASS))
 	{
 		// the rule went off (single player, Settings): hand every object back to its own update
-		for (size_t i = 0; i < s_gxWsList.size(); ++i)
-			if (s_gxWsList[i])
-				s_gxWsList[i]->gxWake();
-		s_gxWsList.clear();
+		const std::vector<int> slots(list);	// setMask rebuilds the list
+		for (size_t i = 0; i < slots.size(); ++i)
+		{
+			Object* obj = st.obj[slots[i]];
+			if (!obj)
+				continue;
+			if (ObjectWeaponStatusHelper* h = obj->gxWeaponStatusHelper())
+				h->gxWake();
+			st.setMask(obj, 0, GXB_BIT(GXB_WEAPON));
+		}
 		return;
 	}
-	size_t w = 0;
-	for (size_t i = 0; i < s_gxWsList.size(); ++i)
+	// weaponSkip (third word bit 19, same game): skip the units for which the update changes nothing
+	extern int GLES3_Page_Switches3();
+	const bool skip = (GLES3_Page_Switches3() & 524288) != 0;
+	const UnsignedInt now = TheGameLogic->getFrame();
+	for (size_t i = 0; i < list.size(); ++i)
 	{
-		ObjectWeaponStatusHelper* h = s_gxWsList[i];
-		if (!h)
-			continue;
-		s_gxWsList[w++] = h;
-		Object* obj = h->gxObject();
+		const int s = list[i];
+		Object* obj = st.obj[s];
 		// as the update queue would: a disabled object's helper does not run
-		if (!obj->isDisabled())
-			obj->adjustModelConditionForWeaponStatus();
+		if (!obj || obj->isDisabled())
+			continue;
+		if (skip)
+		{
+			// cooldown column: no target, quiet last time, nothing touched its weapons, no reload or
+			// pre-attack ending yet: skip outright
+			if (st.target[s] == 0 && st.weaponReady[s] > now && st.weaponSig[s] != ~0u && obj->gxWeaponStillQuiet())
+				continue;
+			if (obj->gxWeaponStatusQuiet(st.target[s], st.weaponReady[s], st.weaponSig[s]))
+				continue;
+		}
+		obj->adjustModelConditionForWeaponStatus();
 	}
-	s_gxWsList.resize(w);
 }
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 ObjectWeaponStatusHelper::~ObjectWeaponStatusHelper()
 {
-	std::vector<ObjectWeaponStatusHelper*>::iterator it = std::find(s_gxWsList.begin(), s_gxWsList.end(), this);
-	if (it != s_gxWsList.end())
-		*it = nullptr;
 
 }
 

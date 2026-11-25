@@ -668,9 +668,9 @@ public:
 	Real getPercentReadyToFire() const;
 
 	// do not ever use this unless you are weaponset.cpp
-	void setPossibleNextShotFrame( UnsignedInt frameNum ) { m_whenWeCanFireAgain = frameNum; }
-	void setPreAttackFinishedFrame( UnsignedInt frameNum ) { m_whenPreAttackFinished = frameNum; }
-	void setLastReloadStartedFrame( UnsignedInt frameNum ) { m_whenLastReloadStarted = frameNum; }
+	void setPossibleNextShotFrame( UnsignedInt frameNum ) { m_whenWeCanFireAgain = frameNum; gxTouch(); }
+	void setPreAttackFinishedFrame( UnsignedInt frameNum ) { m_whenPreAttackFinished = frameNum; gxTouch(); }
+	void setLastReloadStartedFrame( UnsignedInt frameNum ) { m_whenLastReloadStarted = frameNum; gxTouch(); }
 
 	//Transfer the reload times and status from the passed in weapon.
 	void transferNextShotStatsFrom( const Weapon &weapon );
@@ -802,6 +802,11 @@ private:
 	UnsignedInt								m_whenPreAttackFinished;		///< the frame the pre attack will complete.
 	UnsignedInt								m_whenLastReloadStarted;		///< the frame the current reload/between-shots began. (only valid if status is RELOADING_CLIP or BETWEEN_FIRING_SHOTS)
 	UnsignedInt								m_lastFireFrame;						///< frame a shot was last fired on
+	ObjectID									m_gxOwner = INVALID_ID;				///< weaponSkip: the unit whose WeaponSet holds this weapon (0: none)
+public:
+	void gxSetOwner(ObjectID id) { m_gxOwner = id; gxTouch(); }
+	void gxTouch() const;		///< tell the store's weapon-status pass this unit's weapons changed
+private:
 	UnsignedInt								m_suspendFXFrame;						///< The fireFX can be suspended for any delay, in frames, then they will execute as normal
 	ObjectID									m_projectileStreamID;				///< the object that is tracking our stream if we have one.  It can't go away without us.
 	Int												m_maxShotCount;							///< used for limiting consecutive firing
@@ -812,7 +817,7 @@ private:
 	Bool											m_leechWeaponRangeActive;		///< This weapon has unlimited range until attack state is aborted!
 
 	// setter function for status that should not be used outside this class
-	void setStatus( WeaponStatus status) { m_status = status; }
+	void setStatus( WeaponStatus status) { m_status = status; gxTouch(); }
 };
 
 //-------------------------------------------------------------------------------------------------

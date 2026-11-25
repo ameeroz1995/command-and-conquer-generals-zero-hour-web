@@ -4382,6 +4382,7 @@ void AIUpdateInterface::setCurrentVictim( const Object *victim )
 		// the victim.
 		m_currentVictimID = victim->getID();
 	}
+	TheGxUnitStore.setTarget(getObject(), (int)m_currentVictimID);	// store column (combat): the weapon-status pass looks at units with a target
 }
 
 /**

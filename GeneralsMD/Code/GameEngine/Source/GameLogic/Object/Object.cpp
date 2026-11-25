@@ -4596,6 +4596,8 @@ void Object::xfer( Xfer *xfer )
 
 		// do the weaponSet itself after all the weapon-related stuff, just in case
 		xfer->xferSnapshot(&m_weaponSet);
+		if (xfer->getXferMode() == XFER_LOAD)
+			m_weaponSet.gxSetOwner(getID());	// weaponSkip: weapons report their changes under this unit
 
 		m_specialPowerBits.xfer( xfer );
 
@@ -4973,6 +4975,54 @@ void Object::adjustModelConditionForWeaponStatus()
 			}
 		}
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+// weaponSkip (combat, third word bit 19; runs inside the weaponPass store pass). Exact: it makes the
+// same getStatus() calls the full update would (they refresh the weapon's saved status), and skips
+// only the drawable updates, which would repeat the values the drawable already shows. Writes the
+// store's weaponReady (the soonest reload / pre-attack end) and weaponSig (what the drawable shows).
+// weaponSkip, first test: was this unit quiet when the pass last looked (no pose, not attacking)?
+// With the store's weaponReady still in the future, nothing in its weapons can have changed: every
+// change to a weapon (shot, reload, ammo, pre-attack, slot) zeroes weaponReady, and getStatus()
+// only changes the saved status at the frames weaponReady holds. So the whole update is skipped.
+Bool Object::gxWeaponStillQuiet() const
+{
+	if (m_drawable == nullptr || testStatus(OBJECT_STATUS_IS_ATTACKING))
+		return false;
+	for (int i = 0; i < WEAPONSLOT_COUNT; ++i)
+		if (m_lastWeaponCondition[i] != WSF_NONE)
+			return false;
+	return true;
+}
+
+Bool Object::gxWeaponStatusQuiet(Int target, UnsignedInt &ready, UnsignedInt &sig)
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	UnsignedInt nextReady = ~0u;
+	UnsignedInt h = (UnsignedInt)m_weaponSet.getCurWeaponSlot() * 2654435761u;
+	Bool quiet = target == 0 && !testStatus(OBJECT_STATUS_IS_ATTACKING) && m_drawable != nullptr;
+	for (int i = 0; i < WEAPONSLOT_COUNT; ++i)
+	{
+		const Weapon* w = m_weaponSet.getWeaponInWeaponSlot((WeaponSlotType)i);
+		if (!w)
+		{
+			if (m_lastWeaponCondition[i] != WSF_NONE) quiet = false;
+			continue;
+		}
+		if (w->getLastShotFrame() == now || m_lastWeaponCondition[i] != WSF_NONE) quiet = false;
+		if (!quiet) break;
+		const UnsignedInt ammo = w->getRemainingAmmo();	// calls getStatus(), as the full update does
+		h = (h ^ ammo ^ ((UnsignedInt)w->getClipSize() << 20) ^ ((UnsignedInt)i << 28)) * 16777619u;
+		const UnsignedInt a = w->getPossibleNextShotFrame(), b = w->getPreAttackFinishedFrame();
+		if (a > now && a < nextReady) nextReady = a;
+		if (b > now && b < nextReady) nextReady = b;
+	}
+	if (!quiet) { sig = ~0u; ready = 0; return false; }
+	ready = nextReady;
+	if (h == sig) return true;
+	sig = h;
+	return false;
 }
 
 //-------------------------------------------------------------------------------------------------

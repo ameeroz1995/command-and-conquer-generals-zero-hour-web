@@ -44,6 +44,7 @@ void GxUnitStore::add(Object *o)
 		const size_t n = 16384;	// ponytail: past this the arrays reallocate, which moves getPosition()/getVelocity() pointers
 		id.reserve(n); obj.reserve(n); pos.reserve(n); vel.reserve(n);
 		radius.reserve(n); player.reserve(n); playerBit.reserve(n); cell.reserve(n); mask.reserve(n);
+		target.reserve(n); weaponReady.reserve(n); weaponSig.reserve(n);	// combat block
 	}
 	const Coord3D *p = o->getPosition();
 	const Player *pl = o->getControllingPlayer();
@@ -59,6 +60,7 @@ void GxUnitStore::add(Object *o)
 	playerBit.push_back(pi >= 0 ? (1u << pi) : 0u);
 	cell.push_back(-1);
 	mask.push_back(0);
+	target.push_back(0); weaponReady.push_back(0); weaponSig.push_back(~0u);	// combat block
 
 	if (oid >= (int)m_slotById.size())
 		m_slotById.resize(std::max<size_t>(oid + 1, m_slotById.size() * 2), -1);
@@ -121,6 +123,14 @@ void GxUnitStore::setCell(const Object *o, int cellIndex)
 	if (s >= 0) cell[s] = cellIndex;
 }
 
+// ---- combat block ----
+void GxUnitStore::setTarget(const Object *o, int victimId)
+{
+	const int s = slotOf(o);
+	if (s >= 0 && target[s] != victimId) { target[s] = victimId; weaponReady[s] = 0; }
+}
+// ---- end combat block ----
+
 //-------------------------------------------------------------------------------------------------
 template <class T> static void gxPermute(std::vector<T> &v, const std::vector<int> &order)
 {
@@ -148,6 +158,7 @@ void GxUnitStore::compact()
 	gxPermute(vel, order);
 	gxPermute(radius, order); gxPermute(player, order); gxPermute(playerBit, order);
 	gxPermute(cell, order); gxPermute(mask, order);
+	gxPermute(target, order); gxPermute(weaponReady, order); gxPermute(weaponSig, order);	// combat block
 
 	for (int s = 0; s < (int)obj.size(); ++s)
 	{

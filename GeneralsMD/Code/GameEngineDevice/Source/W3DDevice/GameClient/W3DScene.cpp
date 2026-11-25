@@ -57,6 +57,8 @@
 #include "WW3D2/camera.h"
 #include "WW3D2/animobj.h"
 #include <vector>
+#include "Common/GxUnitStore.h"
+#include "W3DDevice/GameClient/Module/W3DModelDraw.h"
 #include "WW3D2/dx8renderer.h"
 #include "WW3D2/sortingrenderer.h"
 #include "WW3D2/dx8wrapper.h"
@@ -1102,6 +1104,42 @@ void RTS3DScene::Render(RenderInfoClass & rinfo)
 /** Custom render method for the RTS3DScene, custom render properties for our
   * particular game go here */
 //=============================================================================
+// The visible animated units' HLods for the bone workers. animStoreList (third switch word bit
+// 27): taken from the store's ANIM list (units whose model is an HLod, object-ID order); otherwise
+// by scanning the scene's render list.
+static void gxCollectAnimated(RefRenderObjListClass &renderList, std::vector<RenderObjClass *> &out)
+{
+	out.clear();
+	extern int GLES3_Page_Switches3();
+	if (GLES3_Page_Switches3() & 134217728)
+	{
+		GxUnitStore &st = TheGxUnitStore;
+		const std::vector<int> &list = st.pass(GXB_ANIM);
+		for (size_t i = 0; i < list.size(); ++i)
+		{
+			Object *obj = st.obj[list[i]];
+			Drawable *draw = obj ? obj->getDrawable() : nullptr;
+			if (!draw)
+				continue;
+			for (DrawModule **dm = draw->getDrawModules(); *dm; ++dm)
+			{
+				W3DModelDraw *md = dynamic_cast<W3DModelDraw *>(*dm);
+				RenderObjClass *r = md ? md->getRenderObject() : nullptr;
+				if (r && r->Class_ID() == RenderObjClass::CLASSID_HLOD && r->Is_Really_Visible())
+					out.push_back(r);
+			}
+		}
+		return;
+	}
+	RefRenderObjListIterator it(&renderList);
+	for (it.First(); !it.Is_Done(); it.Next())
+	{
+		RenderObjClass *r = it.Peek_Obj();
+		if (r->Class_ID() == RenderObjClass::CLASSID_HLOD && r->Is_Really_Visible())
+			out.push_back(r);
+	}
+}
+
 void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 {
 #ifdef DIRTY_CONDITION_FLAGS
@@ -1146,11 +1184,10 @@ void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 	const bool gxBones = terrainObject && m_customPassMode == SCENE_PASS_DEFAULT &&
 		!ShaderClass::Is_Backface_Culling_Inverted() && gxBoneWorkerOn();
 	if (gxBones) {
-		for (it.First(&RenderList); !it.Is_Done(); it.Next()) {
-			RenderObjClass * r = it.Peek_Obj();
-			if (r->Class_ID() == RenderObjClass::CLASSID_HLOD && r->Is_Really_Visible())
-				gxBoneWorkerAdd(r);
-		}
+		static std::vector<RenderObjClass *> animated;
+		gxCollectAnimated(RenderList, animated);
+		for (size_t i = 0; i < animated.size(); ++i)
+			gxBoneWorkerAdd(animated[i]);
 		gxBoneWorkerStart(rinfo.Camera.Get_Position());
 	}
 
@@ -1216,12 +1253,7 @@ void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 	// decoded on the worker thread while the game logic runs the next frame.
 	if (terrainObject && m_customPassMode == SCENE_PASS_DEFAULT && !ShaderClass::Is_Backface_Culling_Inverted() && gxBoneAheadWanted()) {
 		static std::vector<RenderObjClass *> drawn;
-		drawn.clear();
-		for (it.First(&RenderList); !it.Is_Done(); it.Next()) {
-			RenderObjClass * r = it.Peek_Obj();
-			if (r->Class_ID() == RenderObjClass::CLASSID_HLOD && r->Is_Really_Visible())
-				drawn.push_back(r);
-		}
+		gxCollectAnimated(RenderList, drawn);
 		gxBoneAheadSnapshot(drawn.data(), (int)drawn.size());
 	}
 
