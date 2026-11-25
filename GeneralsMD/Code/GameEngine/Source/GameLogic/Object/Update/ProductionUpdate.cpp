@@ -898,7 +898,7 @@ UpdateSleepTime ProductionUpdate::update()
 
 			// notify the script engine
 			TheScriptEngine->notifyOfCompletedUpgrade(
-				us->getControllingPlayer()->getPlayerIndex(),
+				us->gxPlayerIndex(),
 				upgrade->getUpgradeName(),
 				us->getID());
 

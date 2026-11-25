@@ -1700,7 +1700,7 @@ void Drawable::calcPhysicsXformTreads( const Locomotor *locomotor, PhysicsXformI
 
 		// compute maximum distance between objects, if their edges just touched
 		Real ourSize = getDrawableGeometryInfo().getBoundingCircleRadius();
-		Real otherSize = overlapped->getGeometryInfo().getBoundingCircleRadius();
+		Real otherSize = overlapped->getBoundingCircleRadius();
 		Real maxCenterDist = otherSize + ourSize;
 
 		// shrink the overlap distance a bit to avoid floating

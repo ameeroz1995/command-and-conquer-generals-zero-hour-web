@@ -484,7 +484,7 @@ void RailroadBehavior::playImpactSound(Object *victim, const Coord3D *impactPosi
 
 	// This sound really should only be played at the position where the collision occurs.
 	// Therefore, set the player index of the sound to be the player index of the victim object.
-	impact.setPlayerIndex( victim->getControllingPlayer()->getPlayerIndex() );
+	impact.setPlayerIndex( victim->gxPlayerIndex() );
 
 	TheAudio->addAudioEvent( &impact );
 }

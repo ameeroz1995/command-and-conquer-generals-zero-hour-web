@@ -52,6 +52,8 @@
 #include <emscripten.h>
 #endif
 
+#include "Common/GxUnitStore.h"
+#include "Common/GxMatchRules.h"
 #include "Common/ActionManager.h"
 #include "Common/DiscreteCircle.h"
 #include "Common/GameEngine.h"
@@ -840,8 +842,8 @@ static Bool distCalcProc_BoundaryAndBoundary_2D(
 
 	Real shrinkFactor = 1.0f;
 	Real shrunkenDistSqr = actualDistSqr;
-	Real totalRad = (objA ? objA->getGeometryInfo().getBoundingCircleRadius() : 0.0f) +
-							(objB ? objB->getGeometryInfo().getBoundingCircleRadius() : 0.0f);
+	Real totalRad = (objA ? objA->getBoundingCircleRadius() : 0.0f) +
+							(objB ? objB->getBoundingCircleRadius() : 0.0f);
 
 	if (totalRad > 0.0f)
 	{
@@ -2172,6 +2174,13 @@ void PartitionData::doSmallFill(
 
 //-----------------------------------------------------------------------------
 static UnsignedInt g_gxDeferStamp = 0;	// collideStagger: this frame's stamp (frame + 1), 0 when off
+// a deterministic order for two partition datas: object ID (ghosts, with no object, first)
+static inline Bool gxBefore(const PartitionData *a, const PartitionData *b)
+{
+	const Object *oa = a->getObject(), *ob = b->getObject();
+	const UnsignedInt ia = oa ? (UnsignedInt)oa->getID() : 0, ib = ob ? (UnsignedInt)ob->getID() : 0;
+	return ia < ib;
+}
 
 void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 {
@@ -2215,8 +2224,9 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 			if (this != that)
 			{
 				// collideStagger: a neighbour waiting its turn this frame checks this pair itself on
-				// its turn, unless it sorts after us (then we do it now): each pair once per cycle
-				if (g_gxDeferStamp && that->gxDeferStamp() == g_gxDeferStamp && that < this)
+				// its turn, unless it sorts after us (then we do it now): each pair once per cycle.
+				// Sorted by object ID (was by address, which can differ between machines)
+				if (g_gxDeferStamp && that->gxDeferStamp() == g_gxDeferStamp && gxBefore(that, this))
 					continue;
 				ctList->addToContactList(this, that);
 			}
@@ -3008,8 +3018,8 @@ void PartitionContactList::gxProcessPair(PartitionData*& a, PartitionData*& b)
 					++gx_verify_mismatch;
 					printf("GXVERIFY pair place mismatch: %u and %u touch; kept %.1f,%.1f r%.1f / %.1f,%.1f r%.1f; real %.1f,%.1f r%.1f type %d / %.1f,%.1f r%.1f type %d; %s / %s\n", o1->getID(), o2->getID(),
 						a->gxX(), a->gxY(), a->gxR(), b->gxX(), b->gxY(), b->gxR(),
-						o1->getPosition()->x, o1->getPosition()->y, o1->getGeometryInfo().getBoundingCircleRadius(), (int)o1->getGeometryInfo().getGeomType(),
-						o2->getPosition()->x, o2->getPosition()->y, o2->getGeometryInfo().getBoundingCircleRadius(), (int)o2->getGeometryInfo().getGeomType(),
+						o1->getPosition()->x, o1->getPosition()->y, o1->getBoundingCircleRadius(), (int)o1->getGeometryInfo().getGeomType(),
+						o2->getPosition()->x, o2->getPosition()->y, o2->getBoundingCircleRadius(), (int)o2->getGeometryInfo().getGeomType(),
 						o1->getTemplate()->getName().str(), o2->getTemplate()->getName().str());
 				}
 				if (gx_verify_checked % 50000 == 0)
@@ -3329,6 +3339,89 @@ void PartitionManager::shutdown()
 
 //-----------------------------------------------------------------------------
 //DECLARE_PERF_TIMER(PartitionManager_update)
+//-----------------------------------------------------------------------------
+// Web port (round 4, match rule storePairs 65536): the collision broad phase over the unit store.
+// Every unit the partition holds is put in a grid by the store's cell index (its centre cell);
+// units larger than half a cell are put in every cell under their bounding square instead. Each
+// unit that needs a collision check this frame (in object-ID order) is offered every unit within
+// reach in that grid: a footprint-sized square for the large ones, footprint plus the largest small
+// radius for the small ones, then the same distance cut as pairPlace. The contact list drops
+// repeats. Drift: the pairs come in a different order than from the partition's cell lists, and a
+// unit is paired by where it is now rather than by the cells it touched when last updated.
+static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionContactList *ct)
+{
+	GxUnitStore &st = TheGxUnitStore;
+	PartitionManager *pm = ThePartitionManager;
+	const Int nx = pm->getCellCountX(), ny = pm->getCellCountY();
+	const Real bigR = pm->getCellSize() * 0.5f;
+	static std::vector<int> head, next, item;
+	head.assign((size_t)nx * ny, -1);
+	next.clear(); item.clear();
+	Real smallMax = 0.0f;
+	for (int s = 0; s < st.size(); ++s)
+	{
+		Object *o = st.obj[s];
+		PartitionData *pd = o ? o->friend_getPartitionData() : nullptr;
+		if (!pd || pd->friend_getCoiInUseCount() == 0)
+			continue;	// not in the partition's cells (e.g. inside a transport)
+		const Real r = st.radius[s];
+		const Coord3D &p = st.pos[s];
+		Int x0, y0, x1, y1;
+		if (r <= bigR)
+		{
+			if (r > smallMax) smallMax = r;
+			const int c = st.cell[s];	// the store's cell index (written by the partition)
+			if (c >= 0) { x0 = c % nx; y0 = c / nx; }
+			else pm->worldToCell(p.x, p.y, &x0, &y0);
+			x1 = x0; y1 = y0;
+		}
+		else
+		{
+			const Real e = r * 1.4143f + 1.0f;
+			pm->worldToCell(p.x - e, p.y - e, &x0, &y0);
+			pm->worldToCell(p.x + e, p.y + e, &x1, &y1);
+		}
+		x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, nx - 1); y1 = min(y1, ny - 1);
+		for (Int cy = y0; cy <= y1; ++cy)
+			for (Int cx = x0; cx <= x1; ++cx)
+			{
+				const int c = cy * nx + cx;
+				item.push_back(s); next.push_back(head[c]); head[c] = (int)item.size() - 1;
+			}
+	}
+
+	std::sort(seekers.begin(), seekers.end(), [](const PartitionData *a, const PartitionData *b) { return gxBefore(a, b); });
+	for (PartitionData *d : seekers)
+	{
+		const Object *o = d->getObject();
+		const int s = o ? o->gxStoreSlot() : -1;
+		if (s < 0)
+			continue;
+		const Real r = st.radius[s];
+		const Coord3D &p = st.pos[s];
+		const Real e = (r + smallMax) * 1.4143f + 1.0f;
+		Int x0, y0, x1, y1;
+		pm->worldToCell(p.x - e, p.y - e, &x0, &y0);
+		pm->worldToCell(p.x + e, p.y + e, &x1, &y1);
+		x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, nx - 1); y1 = min(y1, ny - 1);
+		for (Int cy = y0; cy <= y1; ++cy)
+			for (Int cx = x0; cx <= x1; ++cx)
+				for (int k = head[cy * nx + cx]; k >= 0; k = next[k])
+				{
+					const int t = item[k];
+					if (t == s)
+						continue;
+					const Real dx = st.pos[t].x - p.x, dy = st.pos[t].y - p.y, lim = (st.radius[t] + r) * 1.4143f + 1.0f;
+					if (dx * dx + dy * dy > lim * lim)
+						continue;
+					PartitionData *that = st.obj[t]->friend_getPartitionData();
+					if (g_gxDeferStamp && that->gxDeferStamp() == g_gxDeferStamp && gxBefore(that, d))
+						continue;	// collideStagger, as in addPossibleCollisions
+					ct->addToContactList(d, that);
+				}
+	}
+}
+
 void PartitionManager::update()
 {
 	//USE_PERF_TIMER(PartitionManager_update)
@@ -3374,6 +3467,9 @@ void PartitionManager::update()
 		const UnsignedInt gxFrame = TheGameLogic ? TheGameLogic->getFrame() : 0;
 		static std::vector<ObjectID> s_gxLater;
 		s_gxLater.clear();
+		static std::vector<PartitionData*> s_gxSeekers;
+		s_gxSeekers.clear();
+		const Bool gxStorePairs = gxMatchRule(GXRULE_STORE_PAIRS);
 		g_gxDeferStamp = 0;
 		if (gxEvery > 1)
 		{
@@ -3417,11 +3513,15 @@ void PartitionManager::update()
 				// (its cells are still updated now, so range searches see where it is)
 				if (g_gxDeferStamp && dirty->gxDeferStamp() == g_gxDeferStamp)
 					s_gxLater.push_back(dirty->getObject()->getID());
+				else if (gxStorePairs)
+					s_gxSeekers.push_back(dirty);	// storePairs: offered below, from the unit store
 				else
 					dirty->addPossibleCollisions(&ctList);
 			}
 		}
 
+		if (gxStorePairs)
+			gxStoreBroadPhase(s_gxSeekers, &ctList);
 		ctList.processContactList();
 		// put the deferred units back on the dirty list (found by ID: a reaction may have removed them)
 		for (ObjectID id : s_gxLater)
@@ -4084,7 +4184,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 	const Bool gxBoundary = dc == FROM_BOUNDINGSPHERE_2D || dc == FROM_BOUNDINGSPHERE_3D;
 	Real gxMyR = 0.0f;
 	if (gxBoundary && objToUse)
-		gxMyR = max(objToUse->getGeometryInfo().getBoundingCircleRadius(), objToUse->getGeometryInfo().getBoundingSphereRadius());
+		gxMyR = max(objToUse->getBoundingCircleRadius(), objToUse->getGeometryInfo().getBoundingSphereRadius());
 	Real gxLimit = gxCache ? sqrtf(closestDistSqr) + gxMyR + 1.0f : 0.0f;
 	const Real px = objPos->x, py = objPos->y;
 

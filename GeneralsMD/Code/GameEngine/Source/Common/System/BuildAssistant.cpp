@@ -711,7 +711,7 @@ LegalBuildCode BuildAssistant::isLocationClearOfObjects( const Coord3D *worldPos
 		}
 
 #if !RETAIL_COMPATIBLE_CRC
-		if (builderObject && them->getShroudedStatus(builderObject->getControllingPlayer()->getPlayerIndex()) >= OBJECTSHROUD_FOGGED)
+		if (builderObject && them->getShroudedStatus(builderObject->gxPlayerIndex()) >= OBJECTSHROUD_FOGGED)
 			return LBC_SHROUD;
 #endif
 
@@ -872,7 +872,7 @@ LegalBuildCode BuildAssistant::isLocationClearOfObjects( const Coord3D *worldPos
 
 		// an immobile object will obstruct our building no matter what team it's on
 		if ( them->isKindOf( KINDOF_IMMOBILE ) )	{
-			Bool shrouded = builderObject && them->getShroudedStatus(builderObject->getControllingPlayer()->getPlayerIndex()) >= OBJECTSHROUD_FOGGED;
+			Bool shrouded = builderObject && them->getShroudedStatus(builderObject->gxPlayerIndex()) >= OBJECTSHROUD_FOGGED;
 			/* Check for overlap of my exit rectangle to his geom info. */
 			if (checkMyExit && ThePartitionManager->geomCollidesWithGeom(them->getPosition(), hisBounds, them->getOrientation(),
 				&myExitPos, myGeom, angle)) {
@@ -935,7 +935,7 @@ LegalBuildCode BuildAssistant::isLocationLegalToBuild( const Coord3D *worldPos,
 			ThePartitionManager->worldToCell(worldPos->x, worldPos->y, &x, &y);
 			Int playerIndex = -1;
 			if (builderObject && builderObject->getControllingPlayer())
-				playerIndex = builderObject->getControllingPlayer()->getPlayerIndex();
+				playerIndex = builderObject->gxPlayerIndex();
 			DEBUG_ASSERTCRASH(playerIndex >= 0, ("isLocationLegalToBuild() needs a builderObject with a team to check for shroud"));
 			if( ThePartitionManager->getShroudStatusForPlayer(playerIndex, x, y) != CELLSHROUD_CLEAR )
 			{
