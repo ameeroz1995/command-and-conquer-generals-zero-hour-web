@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/ObjectHelper.h"
+#include "GameLogic/GxComponentTable.h"
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
@@ -41,6 +42,12 @@ class SubdualDamageHelperModuleData : public ModuleData
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+// Web port (round 5): SubdualDamageHelper's per-unit state, one row per module in its component table
+struct SubdualDamageHelperRow
+{
+	UnsignedInt m_healingStepCountdown;
+};
+
 class SubdualDamageHelper : public ObjectHelper
 {
 
@@ -58,5 +65,6 @@ public:
 	void notifySubdualDamage( Real amount );
 
 protected:
-	UnsignedInt m_healingStepCountdown;
+
+	GX_COMPONENT_ROWS(SubdualDamageHelper, SubdualDamageHelperRow)
 };

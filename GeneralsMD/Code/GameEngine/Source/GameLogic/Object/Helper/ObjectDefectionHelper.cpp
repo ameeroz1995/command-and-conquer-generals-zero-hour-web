@@ -37,6 +37,7 @@
 #include "GameLogic/Module/ObjectDefectionHelper.h"
 
 
+
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 ObjectDefectionHelper::~ObjectDefectionHelper()
@@ -56,12 +57,12 @@ UpdateSleepTime ObjectDefectionHelper::update()
 		return UPDATE_SLEEP_FOREVER;
 
 	UnsignedInt now = TheGameLogic->getFrame();
-	if (now >= m_defectionDetectionEnd)
+	if (now >= R().m_defectionDetectionEnd)
 	{
 		obj->friend_setUndetectedDefector(FALSE);
 
 		// timer has reached zero, so we flash white once!!!! -- lorenzen
-		if (draw && m_doDefectorFX)
+		if (draw && R().m_doDefectorFX)
 		{
 			RGBColor white = {1,1,1};
 			if (draw)
@@ -85,12 +86,12 @@ UpdateSleepTime ObjectDefectionHelper::update()
 		return UPDATE_SLEEP_FOREVER;	// hey, we're done.
 	}
 
-	if (draw && m_doDefectorFX) // skip fx if merely 'invulnerable'
+	if (draw && R().m_doDefectorFX) // skip fx if merely 'invulnerable'
 	{
-		Bool lastPhase = ( ((Int)m_defectionDetectionFlashPhase) & 1 );// were we in a flashy phase last frame?
-		UnsignedInt timeLeft = m_defectionDetectionEnd - now;
-		m_defectionDetectionFlashPhase += 0.5f * ( 1.0f - ((Real)timeLeft / DEFECTION_DETECTION_TIME_MAX ) );
-		Bool thisPhase = ( ((Int)m_defectionDetectionFlashPhase) & 1 );// are we in a flashy phase this frame?
+		Bool lastPhase = ( ((Int)R().m_defectionDetectionFlashPhase) & 1 );// were we in a flashy phase last frame?
+		UnsignedInt timeLeft = R().m_defectionDetectionEnd - now;
+		R().m_defectionDetectionFlashPhase += 0.5f * ( 1.0f - ((Real)timeLeft / DEFECTION_DETECTION_TIME_MAX ) );
+		Bool thisPhase = ( ((Int)R().m_defectionDetectionFlashPhase) & 1 );// are we in a flashy phase this frame?
 
 		if ( lastPhase && ( ! thisPhase ) )
 		{
@@ -119,10 +120,10 @@ void ObjectDefectionHelper::startDefectionTimer(UnsignedInt numFrames, Bool with
 	}
 
 	UnsignedInt now = TheGameLogic->getFrame();
-	m_defectionDetectionStart = now;
-	m_defectionDetectionEnd = now + numFrames;
-	m_defectionDetectionFlashPhase = 0.0f;
-	m_doDefectorFX = withDefectorFX;
+	R().m_defectionDetectionStart = now;
+	R().m_defectionDetectionEnd = now + numFrames;
+	R().m_defectionDetectionFlashPhase = 0.0f;
+	R().m_doDefectorFX = withDefectorFX;
 
 	setWakeFrame(obj, UPDATE_SLEEP_NONE);
 }
@@ -155,16 +156,16 @@ void ObjectDefectionHelper::xfer( Xfer *xfer )
 	ObjectHelper::xfer( xfer );
 
 	// detection start
-	xfer->xferUnsignedInt( &m_defectionDetectionStart );
+	xfer->xferUnsignedInt( &R().m_defectionDetectionStart );
 
 	// detection end
-	xfer->xferUnsignedInt( &m_defectionDetectionEnd );
+	xfer->xferUnsignedInt( &R().m_defectionDetectionEnd );
 
 	// flash phase
-	xfer->xferReal( &m_defectionDetectionFlashPhase );
+	xfer->xferReal( &R().m_defectionDetectionFlashPhase );
 
 	// do defector fx
-	xfer->xferBool( &m_doDefectorFX );
+	xfer->xferBool( &R().m_doDefectorFX );
 
 }
 

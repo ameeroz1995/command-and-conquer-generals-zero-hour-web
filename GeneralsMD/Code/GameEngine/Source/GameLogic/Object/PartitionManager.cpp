@@ -56,6 +56,7 @@
 #include "Common/GxMatchRules.h"
 #include "Common/ActionManager.h"
 #include "Common/DiscreteCircle.h"
+#include "Common/GxTime.h"
 #include "Common/GameEngine.h"
 #include "Common/GameState.h"
 #include "Common/GameUtility.h"
@@ -1257,6 +1258,8 @@ static Int gxSlotOf(const PartitionData *module)
 // it, so the counts may be stale; searches stop skipping for the rest of the game.
 Bool g_gxCellCountsStale = false;
 UnsignedInt *g_gxCellMasks = nullptr;
+Short *g_gxShroudCur = nullptr, *g_gxShroudAct = nullptr;
+Int g_gxShroudN = 0;
 Int g_gxCellMaskW = 0;
 
 void CellAndObjectIntersection::gxSetPlayerSlot(Int slot)
@@ -1471,19 +1474,53 @@ void PartitionCell::invalidateShroudedStatusForAllCois(Int playerIndex)
 }
 
 //-----------------------------------------------------------------------------
+void PartitionCell::gxShroudToStruct()
+{
+	if (!g_gxShroudCur)
+		return;
+	for (Int p = 0; p < MAX_PLAYER_COUNT; ++p)
+	{
+		m_shroudLevel[p].m_currentShroud = gxCur(p);
+		m_shroudLevel[p].m_activeShroudLevel = gxAct(p);
+	}
+}
+
+void PartitionCell::gxShroudFromStruct()
+{
+	if (!g_gxShroudCur)
+		return;
+	for (Int p = 0; p < MAX_PLAYER_COUNT; ++p)
+	{
+		gxCur(p) = m_shroudLevel[p].m_currentShroud;
+		gxAct(p) = m_shroudLevel[p].m_activeShroudLevel;
+	}
+}
+
+void PartitionCell::gxShroudEdge(Int playerIndex, CellShroudStatus newShroud)
+{
+	// as addLooker / removeLooker on an edge trigger
+	invalidateShroudedStatusForAllCois( playerIndex );
+	if( playerIndex == rts::getObservedOrLocalPlayer()->getPlayerIndex() )
+	{
+		TheDisplay->setShroudLevel(m_cellX, m_cellY, newShroud);
+		TheRadar->setShroudLevel(m_cellX, m_cellY, newShroud);
+	}
+}
+
+//-----------------------------------------------------------------------------
 void PartitionCell::addLooker(Int playerIndex)
 {
 	CellShroudStatus oldShroud = getShroudStatusForPlayer( playerIndex );
 	// The decreasing Algorithm: A 1 will go straight to -1, otherwise it just gets decremented
-	m_shroudLevel[playerIndex].m_currentShroud = min( m_shroudLevel[playerIndex].m_currentShroud - 1, -1 );
+	gxCur(playerIndex) = min( gxCur(playerIndex) - 1, -1 );
 
 	CellShroudStatus newShroud = getShroudStatusForPlayer( playerIndex );
 
 //	DEBUG_LOG(( "ADD    %d, %d.  CS = %d, AS = %d for player %d.",
 //							m_cellX,
 //							m_cellY,
-//							m_shroudLevel[playerIndex].m_currentShroud,
-//							m_shroudLevel[playerIndex].m_activeShroudLevel,
+//							gxCur(playerIndex),
+//							gxAct(playerIndex),
 //							playerIndex
 //							));
 
@@ -1506,20 +1543,20 @@ void PartitionCell::removeLooker(Int playerIndex)
 {
 	CellShroudStatus oldShroud = getShroudStatusForPlayer( playerIndex );
 	// the increasing Algorithm: a -1 goes up to min(1,activeLevel), otherwise it just gets incremented
-	if( m_shroudLevel[playerIndex].m_currentShroud == -1 )
-		m_shroudLevel[playerIndex].m_currentShroud = min( m_shroudLevel[playerIndex].m_activeShroudLevel, (Short)1 );
+	if( gxCur(playerIndex) == -1 )
+		gxCur(playerIndex) = min( gxAct(playerIndex), (Short)1 );
 	else
 	{
-		DEBUG_ASSERTCRASH( m_shroudLevel[playerIndex].m_currentShroud < 0, ("Someone is RemoveLooker-ing on a cell that is not looked at.  This will make a permanent shroud blob.") );
-		m_shroudLevel[playerIndex].m_currentShroud++;
+		DEBUG_ASSERTCRASH( gxCur(playerIndex) < 0, ("Someone is RemoveLooker-ing on a cell that is not looked at.  This will make a permanent shroud blob.") );
+		gxCur(playerIndex)++;
 	}
 	CellShroudStatus newShroud = getShroudStatusForPlayer( playerIndex );
 
 //	DEBUG_LOG(( "REMOVE %d, %d.  CS = %d, AS = %d for player %d.",
 //							m_cellX,
 //							m_cellY,
-//							m_shroudLevel[playerIndex].m_currentShroud,
-//							m_shroudLevel[playerIndex].m_activeShroudLevel,
+//							gxCur(playerIndex),
+//							gxAct(playerIndex),
 //							playerIndex
 //							));
 
@@ -1543,10 +1580,10 @@ void PartitionCell::addShrouder( Int playerIndex )
 	CellShroudStatus oldShroud = getShroudStatusForPlayer( playerIndex );
 	// Increasing active shroud: activeLevel gets incremented, and CS is set to 1 if at zero
 	// do the algorithm
-	m_shroudLevel[playerIndex].m_activeShroudLevel++;
-	if( m_shroudLevel[playerIndex].m_currentShroud == 0 )
+	gxAct(playerIndex)++;
+	if( gxCur(playerIndex) == 0 )
 	{
-		m_shroudLevel[playerIndex].m_currentShroud = 1;
+		gxCur(playerIndex) = 1;
 	}
 	CellShroudStatus newShroud = getShroudStatusForPlayer( playerIndex );
 
@@ -1569,15 +1606,15 @@ void PartitionCell::removeShrouder( Int playerIndex )
 {
 	// Decreasing active shroud: just decrement activeLevel.  This will never result in a client change.
 	// Either it was passive shroud and is now active, or it was being looked at and still is.
-	m_shroudLevel[playerIndex].m_activeShroudLevel--;
-	DEBUG_ASSERTCRASH( m_shroudLevel[playerIndex].m_activeShroudLevel >= 0, ("Shroud generation has gone negative.  This can't happen.") );
+	gxAct(playerIndex)--;
+	DEBUG_ASSERTCRASH( gxAct(playerIndex) >= 0, ("Shroud generation has gone negative.  This can't happen.") );
 }
 
 //-----------------------------------------------------------------------------
 //Bool PartitionCell::isShroudedForPlayer( Int playerIndex ) const
 //{
 	// There isn't an absolute answer.  This cell is only shrouded in regards to a person
-//	return (m_shroudLevel[playerIndex].m_currentShroud == 1);
+//	return (gxCur(playerIndex) == 1);
 //}
 
 //-----------------------------------------------------------------------------
@@ -1585,9 +1622,9 @@ CellShroudStatus PartitionCell::getShroudStatusForPlayer( Int playerIndex ) cons
 {
 	// There are now three answers, but the question still requires "to whom"
 
-	if( m_shroudLevel[playerIndex].m_currentShroud == 1 )
+	if( gxCur(playerIndex) == 1 )
 		return CELLSHROUD_SHROUDED;
-	else if( m_shroudLevel[playerIndex].m_currentShroud == 0 )
+	else if( gxCur(playerIndex) == 0 )
 		return CELLSHROUD_FOGGED;// ie Nobody actively looking
 	else
 		return CELLSHROUD_CLEAR;
@@ -1707,6 +1744,7 @@ void PartitionCell::validateCoiList()
 void PartitionCell::crc( Xfer *xfer )
 {
 
+	gxShroudToStruct();
 	xfer->xferUser(&m_shroudLevel, sizeof(ShroudLevel) * MAX_PLAYER_COUNT);
 	xfer->xferUser(&m_cellX, sizeof(m_cellX));
 	xfer->xferUser(&m_cellY, sizeof(m_cellY));
@@ -1724,8 +1762,10 @@ void PartitionCell::xfer( Xfer *xfer )
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
-	// xfer shroud data
+	// xfer shroud data (web port: the dense counters are the truth; saved and loaded through the struct)
+	gxShroudToStruct();
 	xfer->xferUser( &m_shroudLevel, sizeof( ShroudLevel ) * MAX_PLAYER_COUNT );
+	gxShroudFromStruct();
 
 }
 
@@ -1761,10 +1801,12 @@ PartitionData::PartitionData()
 	m_lastCell = nullptr;
 	memset(m_gxFillKey, 0, sizeof(m_gxFillKey));
 	m_gxDeferStamp = 0;
+	m_gxPure = m_gxKeptMask = 0;
 	for (int i = 0; i < MAX_PLAYER_COUNT; ++i)
 	{
 		m_everSeenByPlayer[i] = false;
 		m_shroudedness[i] = OBJECTSHROUD_INVALID;
+		m_gxKept[i] = OBJECTSHROUD_INVALID;
 		m_shroudednessPrevious[i] = OBJECTSHROUD_INVALID;
 	}
 }
@@ -1819,6 +1861,7 @@ void PartitionData::friend_setShroudednessPrevious(Int playerIndex, ObjectShroud
 //-----------------------------------------------------------------------------
 ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 {
+	gxCount(GXC_FOG_STATUS_CALLS);	// tickTiming
 	// sanity
 	DEBUG_ASSERTCRASH( playerIndex >= 0 && playerIndex < MAX_PLAYER_COUNT,
 										 ("PartitionData::getShroudedStatus - Invalid player index '%d'", playerIndex) );
@@ -1839,6 +1882,7 @@ ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 	if (m_shroudedness[playerIndex] == OBJECTSHROUD_INVALID)
 	{
 #endif
+		gxCount(GXC_FOG_RECOMPUTES);	// tickTiming
 		Int shroudedCells = 0;
 		Int foggedCells = 0;
 		CellAndObjectIntersection* coi = m_coiArray;
@@ -1911,6 +1955,26 @@ ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 				m_ghostObject->freeSnapShot(playerIndex);
 			}
 		}
+		{
+			// fogKeep: which branch decided it (the fogged one also reads relationship and kinds)
+			const UnsignedShort bit = (UnsignedShort)(1u << playerIndex);
+			const Bool fogBranch = m_coiInUseCount && shroudedCells != m_coiInUseCount && shroudedCells + foggedCells == m_coiInUseCount;
+			if (fogBranch) m_gxPure &= ~bit; else m_gxPure |= bit;
+			if (m_gxKeptMask & bit)
+			{
+				extern int gx_verify_mismatch, gx_verify_checked;
+				m_gxKeptMask &= ~bit;
+				++gx_verify_checked;
+				if (m_gxKept[playerIndex] != m_shroudedness[playerIndex])
+				{
+					++gx_verify_mismatch;
+					printf("GXVERIFY fogKeep mismatch: object %u player %d kept %d now %d\n", m_object ? m_object->getID() : 0, playerIndex, m_gxKept[playerIndex], m_shroudedness[playerIndex]);
+				}
+				static Int s_gxKeepChecks;
+				if (++s_gxKeepChecks % 20000 == 0)
+					printf("GXVERIFY fogKeep checked %d (mismatches so far: all checks %d)\n", s_gxKeepChecks, gx_verify_mismatch);
+			}
+		}
 #ifndef DISABLE_INVALID_PREVENTION
  		if (m_coiInUseCount && updateShroudednessPrevious)
 		{
@@ -1924,6 +1988,25 @@ ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 	}
 
 	return m_shroudedness[playerIndex];
+}
+
+//-----------------------------------------------------------------------------
+void PartitionData::gxDebugDump() const
+{
+	CellAndObjectIntersection *coi = m_coiArray;
+	printf("GXVERIFY     coi in use %d of %d, slot now %d\n", m_coiInUseCount, m_coiArrayCount, gxSlotOf(this));
+	for (Int i = 0; i < m_coiArrayCount; ++i, ++coi)
+	{
+		PartitionCell *c = coi->getCell();
+		if (!c) { printf("GXVERIFY     coi %d: no cell (module %p)\n", i, (void*)coi->getModule()); continue; }
+		const Int sl = coi->gxPlayerSlot();
+		Bool inList = false;
+		for (CellAndObjectIntersection *h = c->gxSlotHead(sl); h; h = h->gxSlotNext()) if (h == coi) inList = true;
+		Bool inCell = false;
+		for (CellAndObjectIntersection *h = c->getFirstCoiInCell(); h; h = h->getNextCoi()) if (h == coi) inCell = true;
+		printf("GXVERIFY     coi %d: cell %d %d slot %d mask %x dense %x inSlotList %d inCell %d\n", i, c->getCellX(), c->getCellY(), sl,
+			c->gxPlayerMask(), g_gxCellMasks[c->getCellY() * g_gxCellMaskW + c->getCellX()], inList, inCell);
+	}
 }
 
 //-----------------------------------------------------------------------------
@@ -2393,6 +2476,7 @@ void PartitionData::updateCellsTouched()
 	// verify mode: the fast path runs on odd frames (so the range-search check sees lists it reordered)
 	// and the fill check on even ones
 	const Bool gxVerifyFast = gxVerify && TheGameLogic && (TheGameLogic->getFrame() & 1);
+	const Bool gxSameCells = key[0] != 0;	// the fill makes the same cells as last time (cellReuse's key; verified)
 	if (key[0] && (GLES3_Page_Switches2() & 256) && (!gxVerify || gxVerifyFast))
 	{
 		const Int slot = gxSlotOf(this);
@@ -2475,7 +2559,28 @@ void PartitionData::updateCellsTouched()
 
 	// if we have moved, our shroudedness status might be different for all players,
 	// so it must all be invalidated.
-	invalidateShroudedStatusForAllPlayers();
+	if (gxSameCells && (GLES3_Page_Switches4() & 32768))
+	{
+		// switch fogKeep: same cells, so a status decided by the cells' shroud alone still holds (a cell's
+		// shroud change invalidates its objects itself); the rest are invalidated as before
+		for (Int i = 0; i < MAX_PLAYER_COUNT; ++i)
+		{
+			if ((m_gxPure >> i & 1) && m_shroudedness[i] != OBJECTSHROUD_INVALID)
+			{
+				gxCount(GXC_FOG_KEPT);	// tickTiming
+				if (!gxVerify)
+					continue;
+				const ObjectShroudStatus kept = m_shroudedness[i];
+				invalidateShroudedStatusForPlayer(i);
+				m_gxKept[i] = kept;	// verify: recompute and compare (unless a real invalidation comes first)
+				m_gxKeptMask |= (UnsignedShort)(1u << i);
+				continue;
+			}
+			invalidateShroudedStatusForPlayer(i);
+		}
+	}
+	else
+		invalidateShroudedStatusForAllPlayers();
 
 #ifdef INTENSE_DEBUG
 	for (Int i = 0; i < m_coiInUseCount; i++)
@@ -2495,6 +2600,7 @@ void PartitionData::updateCellsTouched()
 //-----------------------------------------------------------------------------
 void PartitionData::invalidateShroudedStatusForPlayer(Int playerIndex)
 {
+	m_gxKeptMask &= (UnsignedShort)~(1u << playerIndex);	// fogKeep verify: a real invalidation, nothing to compare
 #ifndef DISABLE_INVALID_PREVENTION
 	if (m_shroudedness[playerIndex] != OBJECTSHROUD_INVALID && m_shroudedness[playerIndex] != OBJECTSHROUD_INVALID_BUT_PREVIOUS_VALID)
 #endif
@@ -3247,6 +3353,16 @@ void PartitionManager::init()
 		g_gxCellMasks = MSGNEW("PartitionManager_CellMasks") UnsignedInt[m_totalCellCount];
 		memset(g_gxCellMasks, 0, m_totalCellCount * sizeof(UnsignedInt));
 		g_gxCellMaskW = m_cellCountX;
+		delete [] g_gxShroudCur;
+		delete [] g_gxShroudAct;
+		g_gxShroudN = m_totalCellCount;
+		g_gxShroudCur = MSGNEW("PartitionManager_ShroudCur") Short[MAX_PLAYER_COUNT * m_totalCellCount];
+		g_gxShroudAct = MSGNEW("PartitionManager_ShroudAct") Short[MAX_PLAYER_COUNT * m_totalCellCount];
+		for (Int i = 0; i < MAX_PLAYER_COUNT * m_totalCellCount; ++i)
+		{
+			g_gxShroudCur[i] = 1;	// passive shroud (1, 0), as PartitionCell's constructor
+			g_gxShroudAct[i] = 0;
+		}
 		for (Int x = 0; x < m_cellCountX; x++)
 		{
 			for (Int y = 0; y < m_cellCountY; y++)
@@ -3339,6 +3455,10 @@ void PartitionManager::shutdown()
 	delete [] g_gxCellMasks;
 	g_gxCellMasks = nullptr;
 	g_gxCellMaskW = 0;
+	delete [] g_gxShroudCur;
+	delete [] g_gxShroudAct;
+	g_gxShroudCur = g_gxShroudAct = nullptr;
+	g_gxShroudN = 0;
 
 	m_cellSize = m_cellSizeInv = 0.0f;
 	m_cellCountX = 0;
@@ -4168,8 +4288,18 @@ static UnsignedInt gxEnemySlots(PartitionFilter **filters)
 // - Result cache: within a tick, a search with the same searcher (or point), range, distance type,
 //   mode and filter classes reuses the first answer (units that died since are left out).
 // Changes the game (answers as of the tick's first search): a match rule, default off.
+#ifdef __wasm_simd128__
+#include <wasm_simd128.h>
+#endif
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches4();
+#else
+static int GLES3_Page_Switches4() { return 0; }
+#endif
+static unsigned long long g_gxSimdCulled = 0;	// lanes the SIMD cull dropped (verify report)
 static std::vector<Int> s_gxSnapStart, s_gxSnapSlots;	// per cell: first index into slots; one more at the end
 static std::vector<UnsignedInt> s_gxSnapStamp;			// per slot: last search that looked at it
+static std::vector<Real> s_gxSnapR;	// per slot: max(bounding circle, bounding sphere) radius, as the COIs' cached place
 static UnsignedInt s_gxSnapSearch = 0, s_gxSnapFrame = ~0u, s_gxSnapEpoch = 0;
 struct GxScanRequest { UnsignedInt frame; Real range; UnsignedInt qualifiers; };
 static std::unordered_map<Int, GxScanRequest> s_gxScanRequests;	// by object ID: the last plain enemy scan asked for
@@ -4200,6 +4330,7 @@ static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
 	s_gxSnapStart.assign(cells + 1, 0);
 	if ((Int)s_gxSnapStamp.size() < n)
 		s_gxSnapStamp.resize(n, 0);
+	s_gxSnapR.resize(n);
 	static std::vector<Int> box;	// per slot: x0, y0, x1, y1 (x0 = -1: not in the partition)
 	box.resize(4 * n);
 	for (Int s = 0; s < n; ++s)
@@ -4209,6 +4340,7 @@ static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
 		if (!o || !o->friend_getPartitionData())
 			continue;
 		const Real r = S.radius[s];
+		s_gxSnapR[s] = max(r, o->getGeometryInfo().getBoundingSphereRadius());	// tall units: the sphere is up to ~3x the circle
 		Int x0, y0, x1, y1;
 		ThePartitionManager->worldToCell(S.x[s] - r, S.y[s] - r, &x0, &y0);
 		ThePartitionManager->worldToCell(S.x[s] + r, S.y[s] + r, &x1, &y1);
@@ -4298,6 +4430,8 @@ Object *PartitionManager::getClosestObjects(
 	Coord3D *closestVecArg
 )
 {
+	GxTimeScope gxT(GXT_SEARCH);	// tickTiming (Common/GxTime.h)
+	gxCount(GXC_SEARCHES);
 	UnsignedInt flags = 0;
 	UnsignedInt mask = 0xffffffffu;
 #ifdef __EMSCRIPTEN__
@@ -4428,7 +4562,10 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 	Coord3D vec;
 	vec.zero();
 	const unsigned long long key = gxSearchKey(obj, pos, maxDist, dc, filters, iterArg != nullptr);
-	std::unordered_map<unsigned long long, GxCachedSearch>::iterator c = s_gxSearchCache.find(key);
+	// a search from a point names no searcher, and its filters' state (whose enemies, which laser) is
+	// not in the key: never cached. A unit's search is keyed by the unit, which its filters are built from.
+	const Bool gxCacheable = obj != nullptr;
+	std::unordered_map<unsigned long long, GxCachedSearch>::iterator c = gxCacheable ? s_gxSearchCache.find(key) : s_gxSearchCache.end();
 	Bool hit = false;
 	if (c != s_gxSearchCache.end())
 	{
@@ -4458,6 +4595,9 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 	{
 		++gx_mgr_misses;
 		result = gxClosestImpl(obj, pos, maxDist, dc, filters, iterArg, &dist, &vec, flags | GX_GCO_SNAP, mask, nullptr);
+	}
+	if (!hit && gxCacheable)
+	{
 		GxCachedSearch &cs = s_gxSearchCache[key];
 		cs.closest = result ? result->getID() : INVALID_ID;
 		cs.dist = dist;
@@ -4500,8 +4640,8 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 		if (!same)
 			++gx_mgr_differ;
 		if (gx_gco_calls % 3000 == 0)
-			printf("GXVERIFY scan manager: searches %u, cache hits %u, misses %u, pass scans %u, answers differing from the plain walk %u; manager %.1f ms, plain %.1f ms\n",
-				gx_gco_calls, gx_mgr_hits, gx_mgr_misses, gx_mgr_pass, gx_mgr_differ, gx_gco_fastMs, gx_gco_refMs);
+			printf("GXVERIFY scan manager: searches %u, cache hits %u, misses %u, pass scans %u, answers differing from the plain walk %u; manager %.1f ms, plain %.1f ms; simd culled %llu\n",
+				gx_gco_calls, gx_mgr_hits, gx_mgr_misses, gx_mgr_pass, gx_mgr_differ, gx_gco_fastMs, gx_gco_refMs, g_gxSimdCulled);
 	}
 	return result;
 #else
@@ -4585,6 +4725,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 			if ((gxFlags & GX_GCO_DENSE) && !(g_gxCellMasks[gxY * m_cellCountX + gxX] & gxEnemyMask))
 				continue;
 			PartitionCell* thisCell = &m_cells[gxY * m_cellCountX + gxX];
+			gxCount(GXC_SEARCH_CELLS);
 			// Web port (switch enemySearchSkip): when the first filter keeps only objects of some
 			// players' (gxEnemySlots), a cell holding nobody of those players can't add anything.
 			// Same result and order: those objects would all be rejected by that filter, and the
@@ -4600,9 +4741,38 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 				// match rule scanManager: this tick's list of store slots for the cell, store columns first
 				const GxUnitStore &S = TheGxUnitStore;
 				const Int ci = gxY * m_cellCountX + gxX;
-				for (Int k = s_gxSnapStart[ci]; k < s_gxSnapStart[ci + 1]; ++k)
+				const Int kEnd = s_gxSnapStart[ci + 1];
+				// switch simdSearch (fourth word bit 13): the distance cull 4 slots at a time from the live
+				// x/y/radius columns. Same f32 ops as the scalar test below and the limit only shrinks, so
+				// a lane it drops the scalar test would drop too; kept lanes run the unchanged body.
+				const Bool gxSimd = gxCache && (GLES3_Page_Switches4() & 8192);
+				UnsignedInt gxLanes = ~0u;
+				for (Int k = s_gxSnapStart[ci]; k < kEnd; ++k)
 				{
 					const Int s = s_gxSnapSlots[k];
+					gxCount(GXC_SEARCH_ENTRIES);
+#ifdef __wasm_simd128__
+					if (gxSimd && ((k - s_gxSnapStart[ci]) & 3) == 0)
+					{
+						gxLanes = ~0u;
+						if (kEnd - k >= 4)
+						{
+							const Int *q = &s_gxSnapSlots[k];
+							const v128_t vx = wasm_f32x4_make(S.x[q[0]], S.x[q[1]], S.x[q[2]], S.x[q[3]]);
+							const v128_t vy = wasm_f32x4_make(S.y[q[0]], S.y[q[1]], S.y[q[2]], S.y[q[3]]);
+							const v128_t vr = wasm_f32x4_make(s_gxSnapR[q[0]], s_gxSnapR[q[1]], s_gxSnapR[q[2]], s_gxSnapR[q[3]]);
+							const v128_t dx = wasm_f32x4_sub(vx, wasm_f32x4_splat(px));
+							const v128_t dy = wasm_f32x4_sub(vy, wasm_f32x4_splat(py));
+							const v128_t lim = wasm_f32x4_add(wasm_f32x4_splat(gxLimit), vr);
+							const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy));
+							gxLanes = (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim))));	// keep unless "> lim^2", as the scalar test (NaN kept)
+							g_gxSimdCulled += 4 - __builtin_popcount(gxLanes);
+							gxCount(GXC_SIMD_CULLED, 4 - __builtin_popcount(gxLanes));
+						}
+					}
+					if (!((gxLanes >> ((k - s_gxSnapStart[ci]) & 3)) & 1))
+						continue;
+#endif
 					Object *thisObj = S.obj[s];
 					if (!thisObj || thisObj == obj)
 						continue;
@@ -4611,8 +4781,9 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 						continue;
 					if (gxCache)
 					{
-						// the store keeps the bounding circle; twice it stands in for the sphere
-						const Real dx = S.x[s] - px, dy = S.y[s] - py, lim = gxLimit + 2.0f * S.radius[s];
+						// as the COI walk's cached-place test: the larger of the circle and the sphere (combat found
+						// "twice the circle" too small for tall units and structures)
+						const Real dx = S.x[s] - px, dy = S.y[s] - py, lim = gxLimit + s_gxSnapR[s];
 						if (dx * dx + dy * dy > lim * lim)
 							continue;
 					}
@@ -4624,7 +4795,8 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 
 					Real thisDistSqr;
 					Coord3D distVec;
-					if (!(*distProc)(objPos, objToUse, thisObj->getPosition(), thisObj, thisDistSqr, distVec, closestDistSqr))
+					gxCount(GXC_SEARCH_UNITS);
+				if (!(*distProc)(objPos, objToUse, thisObj->getPosition(), thisObj, thisDistSqr, distVec, closestDistSqr))
 						continue;
 					if (!filtersAllow(filters, thisObj))
 						continue;
@@ -4681,6 +4853,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 					if (!thisCoi)
 						break;
 				}
+				gxCount(GXC_SEARCH_ENTRIES);
 				if (gxCache)
 				{
 					const Real dx = thisCoi->gxX() - px, dy = thisCoi->gxY() - py, lim = gxLimit + thisCoi->gxR();
@@ -4703,6 +4876,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 
 				Real thisDistSqr;
 				Coord3D distVec;
+				gxCount(GXC_SEARCH_UNITS);
 				if (!(*distProc)(objPos, objToUse, thisObj->getPosition(), thisObj, thisDistSqr, distVec, closestDistSqr))
 					continue;
 
@@ -5272,6 +5446,114 @@ Bool PartitionManager::findPositionAround( const Coord3D *center,
 }
 
 //-----------------------------------------------------------------------------
+// Web port (switch fogStamps, fourth word bit 14; same game): sight circles from precomputed stamps.
+// A stamp is DiscreteCircle's span list for one cell radius, recorded once at centre (0, 0) in
+// drawCircle's order (Bresenham offsets plus the centre, so the same spans as at any centre). A span
+// is applied to the dense shroud counters 8 cells at a time with wasm SIMD (kernel: the same
+// arithmetic as PartitionCell::addLooker / removeLooker, writing only the span's counters), then the
+// cells whose status changed get addLooker's side effects (apply: gxShroudEdge, left to right). The
+// side effects read and write no counter, so running them after the span's arithmetic changes nothing.
+struct GxSpan { Short x1, x2, dy; };
+static std::vector< std::vector<GxSpan> > s_gxStamps;
+unsigned long long g_gxFogVerifyChecked = 0, g_gxFogVerifyBad = 0;
+
+static const std::vector<GxSpan> &gxStamp(Int r)
+{
+	if (r >= (Int)s_gxStamps.size())
+		s_gxStamps.resize(r + 1);
+	std::vector<GxSpan> &st = s_gxStamps[r];
+	if (st.empty())
+	{
+		DiscreteCircle c(0, 0, r);
+		for (VecHorzLine::const_iterator it = c.getEdges().begin(); it != c.getEdges().end(); ++it)
+		{
+			GxSpan a = { (Short)it->xStart, (Short)it->xEnd, (Short)it->yPos };
+			st.push_back(a);
+			if (it->yPos != 0)
+			{
+				GxSpan b = { (Short)it->xStart, (Short)it->xEnd, (Short)-it->yPos };
+				st.push_back(b);
+			}
+		}
+	}
+	return st;
+}
+
+static inline CellShroudStatus gxShroudOf(Int v) { return v == 1 ? CELLSHROUD_SHROUDED : v == 0 ? CELLSHROUD_FOGGED : CELLSHROUD_CLEAR; }
+
+// One span of one player: cells x1..x2 of row y, clipped as hLineAddLooker does.
+static void gxSpanLook(Int x1, Int x2, Int y, Int p, Bool add)
+{
+	PartitionManager *pm = ThePartitionManager;
+	const Int W = g_gxCellMaskW;
+	if (!W || y < 0 || y >= g_gxShroudN / W || x1 >= W || x2 < 0)
+		return;
+	if (x1 < 0) x1 = 0;
+	if (x2 >= W) x2 = W - 1;
+	gxCount(GXC_FOG_CELLS, x2 - x1 + 1);
+	Int x = x1;
+#ifdef __wasm_simd128__
+	Short *cur = g_gxShroudCur + p * g_gxShroudN + y * W;
+	const Short *act = g_gxShroudAct + p * g_gxShroudN + y * W;
+	const Bool verify = (GLES3_Page_Switches() & 2097152) != 0;
+	const v128_t one = wasm_i16x8_splat(1), mone = wasm_i16x8_splat(-1), zero = wasm_i16x8_splat(0), two = wasm_i16x8_splat(2);
+	for (; x + 8 <= x2 + 1; x += 8)
+	{
+		Short before[8];
+		if (verify) memcpy(before, cur + x, sizeof(before));
+		// kernel: reads cur/act of these 8 cells, writes their cur
+		const v128_t o = wasm_v128_load(cur + x);
+		v128_t n;
+		if (add)
+			n = wasm_i16x8_min(wasm_i16x8_sub(o, one), mone);
+		else
+			n = wasm_v128_bitselect(wasm_i16x8_min(wasm_v128_load(act + x), one), wasm_i16x8_add(o, one), wasm_i16x8_eq(o, mone));
+		wasm_v128_store(cur + x, n);
+		// status: 2 shrouded (1), 1 fogged (0), 0 clear (anything else)
+		const v128_t so = wasm_v128_or(wasm_v128_and(wasm_i16x8_eq(o, one), two), wasm_v128_and(wasm_i16x8_eq(o, zero), one));
+		const v128_t sn = wasm_v128_or(wasm_v128_and(wasm_i16x8_eq(n, one), two), wasm_v128_and(wasm_i16x8_eq(n, zero), one));
+		// apply: the side effects of the cells whose status changed
+		for (UnsignedInt bits = (UnsignedInt)wasm_i16x8_bitmask(wasm_v128_not(wasm_i16x8_eq(so, sn))); bits; bits &= bits - 1)
+		{
+			const Int l = __builtin_ctz(bits);
+			pm->getCellAt(x + l, y)->gxShroudEdge(p, gxShroudOf(cur[x + l]));
+		}
+		if (verify)
+		{
+			for (Int l = 0; l < 8; ++l)
+			{
+				const Int v = before[l];
+				const Int want = add ? min(v - 1, -1) : (v == -1 ? min((Int)act[x + l], 1) : v + 1);
+				++g_gxFogVerifyChecked;
+				if (want != cur[x + l] && g_gxFogVerifyBad++ < 20)
+					printf("GXVERIFY fog stamp mismatch: cell %d %d player %d was %d got %d want %d\n", x + l, y, p, v, cur[x + l], want);
+			}
+			if ((g_gxFogVerifyChecked & 0xfffff) < 8)
+				printf("GXVERIFY fog stamps: cells checked %llu, mismatches %llu\n", g_gxFogVerifyChecked, g_gxFogVerifyBad);
+		}
+	}
+#endif
+	for (; x <= x2; ++x)
+	{
+		PartitionCell *cell = pm->getCellAt(x, y);
+		if (add) cell->addLooker(p); else cell->removeLooker(p);
+	}
+}
+
+static void gxStampLook(Int cx, Int cy, Int r, PlayerMaskType playerMask, Bool add)
+{
+	const std::vector<GxSpan> &st = gxStamp(r);
+	for (Int currentIndex = ThePlayerList->getPlayerCount() - 1; currentIndex >= 0; currentIndex--)
+	{
+		const Player *currentPlayer = ThePlayerList->getNthPlayer(currentIndex);
+		if (!BitIsSet(playerMask, currentPlayer->getPlayerMask()))
+			continue;
+		for (size_t k = 0; k < st.size(); ++k)
+			gxSpanLook(cx + st[k].x1, cx + st[k].x2, cy + st[k].dy, currentIndex, add);
+	}
+}
+
+//-----------------------------------------------------------------------------
 // This is the main accessor of the shroud system.  At this level, allies are taken
 // into consideration as specified by the caller.  Look/Unlook are the ones sending Ally info, as that
 // is in Object where Allies make sense.  AddLooker literally just adds a looker for the player you specify.
@@ -5279,12 +5561,20 @@ Bool PartitionManager::findPositionAround( const Coord3D *center,
 // allies.  They'll use the RevealWholeDamnMap series, which call addLooker directly.
 void PartitionManager::doShroudReveal(Real centerX, Real centerY, Real radius, PlayerMaskType playerMask)
 {
+	GxTimeScope gxT(GXT_FOG_REVEAL);	// tickTiming
+	gxCount(GXC_FOG_CIRCLES);
 	Int cellCenterX, cellCenterY;
 	worldToCell(centerX, centerY, &cellCenterX, &cellCenterY);
 
 	Int cellRadius = worldToCellDist(radius);
 	if (cellRadius < 1)
 		cellRadius = 1;
+
+	if (GLES3_Page_Switches4() & 16384)
+	{
+		gxStampLook(cellCenterX, cellCenterY, cellRadius, playerMask, TRUE);	// switch fogStamps
+		return;
+	}
 
 	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
 
@@ -5346,12 +5636,20 @@ void PartitionManager::resetPendingUndoShroudRevealQueue()
 //-----------------------------------------------------------------------------
 void PartitionManager::undoShroudReveal(Real centerX, Real centerY, Real radius, PlayerMaskType playerMask)
 {
+	GxTimeScope gxT(GXT_FOG_REVEAL);	// tickTiming
+	gxCount(GXC_FOG_CIRCLES);
 	Int cellCenterX, cellCenterY;
 	worldToCell(centerX, centerY, &cellCenterX, &cellCenterY);
 
 	Int cellRadius = worldToCellDist(radius);
 	if (cellRadius < 1)
 		cellRadius = 1;
+
+	if (GLES3_Page_Switches4() & 16384)
+	{
+		gxStampLook(cellCenterX, cellCenterY, cellRadius, playerMask, FALSE);	// switch fogStamps
+		return;
+	}
 
 	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
 
@@ -6911,6 +7209,7 @@ void hLineAddLooker(Int x1, Int x2, Int y, void *playerIndexVoid)
 {
 	if (y < 0 || y >= ThePartitionManager->m_cellCountY || x1 >= ThePartitionManager->m_cellCountX || x2 < 0)
 		return;
+	gxCount(GXC_FOG_CELLS, min(x2, ThePartitionManager->m_cellCountX - 1) - max(x1, 0) + 1);	// tickTiming
 
 	Int playerIndex = (Int)(playerIndexVoid);
 
@@ -6928,6 +7227,7 @@ void hLineRemoveLooker(Int x1, Int x2, Int y, void *playerIndexVoid)
 {
 	if (y < 0 || y >= ThePartitionManager->m_cellCountY || x1 >= ThePartitionManager->m_cellCountX || x2 < 0)
 		return;
+	gxCount(GXC_FOG_CELLS, min(x2, ThePartitionManager->m_cellCountX - 1) - max(x1, 0) + 1);	// tickTiming
 
 	Int playerIndex = (Int)(playerIndexVoid);
 

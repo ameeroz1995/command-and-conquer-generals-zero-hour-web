@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/ObjectHelper.h"
+#include "GameLogic/GxComponentTable.h"
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
@@ -41,6 +42,13 @@ class StatusDamageHelperModuleData : public ModuleData
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+// Web port (round 5): StatusDamageHelper's per-unit state, one row per module in its component table
+struct StatusDamageHelperRow
+{
+	ObjectStatusTypes m_statusToHeal;
+	UnsignedInt m_frameToHeal;
+};
+
 class StatusDamageHelper : public ObjectHelper
 {
 
@@ -58,7 +66,7 @@ public:
 	void doStatusDamage( ObjectStatusTypes status, Real duration );
 
 protected:
-	ObjectStatusTypes m_statusToHeal;
-	UnsignedInt m_frameToHeal;
 	void clearStatusCondition();
+
+	GX_COMPONENT_ROWS(StatusDamageHelper, StatusDamageHelperRow)
 };
