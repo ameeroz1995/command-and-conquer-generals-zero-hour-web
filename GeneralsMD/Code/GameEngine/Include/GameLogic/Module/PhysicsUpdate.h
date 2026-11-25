@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "Common/GxUnitStore.h"
 #include "Common/AudioEventRTS.h"
 #include "Common/GameAudio.h"
 #include "GameLogic/Module/BehaviorModule.h"
@@ -136,7 +137,7 @@ public:
 	Real getCenterOfMassOffset() const { return getPhysicsBehaviorModuleData()->m_centerOfMassOffset; }
 
 	const Coord3D *getAcceleration() const { return &m_prevAccel; }		///< get last frame's acceleration
-	const Coord3D *getVelocity() const { return &m_vel; }			///< get current velocity
+	const Coord3D *getVelocity() const { return &gxVel(); }			///< get current velocity
 	Real getVelocityMagnitude() const;																		///< return velocity magnitude (speed)
 	Real getForwardSpeed2D() const;															///< compute speed along object's 2d direction vector
 	Real getForwardSpeed3D() const;															///< compute speed along object's 3d direction vector
@@ -266,7 +267,7 @@ private:
 	DynamicAudioEventRTS*				m_bounceSound;						///< The sound for when this thing bounces, or nullptr
 	Coord3D											m_accel;									///< current acceleration
 	Coord3D											m_prevAccel;							///< last frame's acceleration
-	Coord3D											m_vel;										///< current velocity
+	// web port (round 4): the velocity lives in the unit store (TheGxUnitStore.vel), found by slot
 	PhysicsTurningType					m_turning;								///< 0 = not turning, -1 = turn negative, 1 = turn positive.
 	ObjectID										m_ignoreCollisionsWith;
 	Int													m_flags;
@@ -281,6 +282,17 @@ private:
 	mutable Real								m_velMag;									///< magnitude of cur vel (recalced when m_vel changes)
 
 	Bool												m_originalAllowBounce;		///< original state of allow bounce
+
+	// web port (match rule physBulk): the whole physics step of every due unit runs in one pass over
+	// the unit store's PHYS list (object-ID order) at the start of the physics phase
+	UnsignedInt									m_gxPreFrame;							///< frame whose step the physics pass already ran
+	UpdateSleepTime							m_gxSleep;								///< what that step returned
+	UpdateSleepTime gxStep();
+	void gxIntegrate();
+	static void gxBulkPass(UnsignedInt now);
+
+	/// the current velocity, in the unit store (web port, round 4)
+	Coord3D &gxVel() const;
 
 	void setFlag(PhysicsFlagsType f, Bool set) { if (set) m_flags |= f; else m_flags &= ~f; }
 	Bool getFlag(PhysicsFlagsType f) const { return (m_flags & f) != 0; }

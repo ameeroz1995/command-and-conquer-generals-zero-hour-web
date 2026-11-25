@@ -66,6 +66,8 @@
 #include "ww3d.h"
 #include "wwmemlog.h"
 #include "animatedsoundmgr.h"
+#include "rinfo.h"
+#include "camera.h"
 
 
 /***********************************************************************************************
@@ -289,15 +291,318 @@ void Animatable3DObjClass::Render(RenderInfoClass & rinfo)
 		return;
 	}
 
-	//
-	// Force the hierarchy to be recalculated for single animations.
-	//
-	const bool isSingleAnim = CurMotionMode == SINGLE_ANIM && ModeAnim.AnimMode != ANIM_MODE_MANUAL;
-
-	if (isSingleAnim || !Is_Hierarchy_Valid() || Are_Sub_Object_Transforms_Dirty()) {
+	// boneWorker: the worker already brought the bones to this frame (or found them not due)
+	if (GxBonesFrame == WW3D::Get_Frame_Count() && Is_Hierarchy_Valid() && !Are_Sub_Object_Transforms_Dirty()) {
+		return;
+	}
+	if (gxBonesDue(rinfo.Camera.Get_Position())) {
 		Update_Sub_Object_Transforms();
 	}
 }
+
+// Whether the bones must be updated for this drawn frame: always when the hierarchy is invalid;
+// for single animations every frame (the animation clock moves).
+bool Animatable3DObjClass::gxBonesDue(const Vector3 & camPos)
+{
+	if (!Is_Hierarchy_Valid() || Are_Sub_Object_Transforms_Dirty()) {
+		return true;
+	}
+	if (CurMotionMode != SINGLE_ANIM || ModeAnim.AnimMode == ANIM_MODE_MANUAL) {
+		return false;
+	}
+	// animStagger (second switch word bit 23, drawing only): a unit that has not moved and is
+	// small on screen advances its animation every 2nd drawn frame; the animation clock still
+	// runs, so the next update catches up the full time.
+	extern int GLES3_Page_Switches2();
+	if (GLES3_Page_Switches2() & 8388608) {
+		const SphereClass & s = CachedBoundingSphere;
+		const Vector3 d = s.Center - camPos;
+		const float r = s.Radius * 50.0f;		// staggered when radius/distance < 1/50
+		if (r * r < d.Length2() && ((WW3D::Get_Frame_Count() + ((unsigned)(size_t)this >> 6)) & 1)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool Animatable3DObjClass::gxHasSounds() const
+{
+	switch (CurMotionMode) {
+		case SINGLE_ANIM:
+			return ModeAnim.Motion && ModeAnim.Motion->Has_Embedded_Sounds();
+		case DOUBLE_ANIM:
+			return (ModeInterp.Motion0 && ModeInterp.Motion0->Has_Embedded_Sounds()) ||
+				(ModeInterp.Motion1 && ModeInterp.Motion1->Has_Embedded_Sounds());
+		case MULTIPLE_ANIM:
+			for (int i = 0; i < ModeCombo.AnimCombo->Get_Num_Anims(); i++) {
+				HAnimClass * m = ModeCombo.AnimCombo->Peek_Motion(i);
+				if (m && m->Has_Embedded_Sounds()) return true;
+			}
+			return false;
+		default:
+			return false;
+	}
+}
+
+// Worker thread. Sounds are main-thread only, so an object whose animation plays sounds is left to
+// Render. Writes only this object's own tree (its bones and its sub-objects' transforms).
+void Animatable3DObjClass::gxPrepareBones(const Vector3 & camPos)
+{
+	if (HTree == nullptr || Is_Not_Hidden_At_All() == false || gxHasSounds()) {
+		return;
+	}
+	if (gxBonesDue(camPos)) {
+		Update_Sub_Object_Transforms();
+	}
+	GxBonesFrame = WW3D::Get_Frame_Count();
+}
+
+// Worker threads for drawing-side animation work (mt build). gxAnimNoCache makes animation decode
+// on a worker skip the shared caches (motchan.cpp), so the game logic's own bone lookups never see
+// a worker's writes. ponytail: one pthread per job kind, plain mutex + condition variable; the main
+// thread also takes jobs when it arrives at the join, so it waits at most for one object.
+extern int GLES3_Page_Switches3();
+extern thread_local bool gxAnimNoCache;
+#ifdef __EMSCRIPTEN_PTHREADS__
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <vector>
+struct GxWorker {
+	void (*task)() = nullptr;
+	std::mutex m;
+	std::condition_variable cv;
+	unsigned gen = 0, done = 0;
+	bool pending = false, started = false;
+	static void loop(GxWorker * w)
+	{
+		gxAnimNoCache = true;
+		unsigned seen = 0;
+		for (;;) {
+			void (*t)();
+			{
+				std::unique_lock<std::mutex> lock(w->m);
+				w->cv.wait(lock, [&] { return w->gen != seen; });
+				seen = w->gen;
+				t = w->task;
+			}
+			t();
+			{
+				std::lock_guard<std::mutex> lock(w->m);
+				w->done = seen;
+			}
+			w->cv.notify_all();
+		}
+	}
+	void start(void (*t)())
+	{
+		warm();
+		{
+			std::lock_guard<std::mutex> lock(m);
+			task = t;
+			++gen;
+		}
+		pending = true;
+		cv.notify_all();
+	}
+	void warm()		// spawn the thread now (a pthread start can take ~100 ms), not mid-battle
+	{
+		if (!started) {
+			std::thread(loop, this).detach();
+			started = true;
+		}
+	}
+	bool join()		// main thread: help, then wait for the worker's last job; false if nothing ran
+	{
+		if (!pending) return false;
+		task();
+		std::unique_lock<std::mutex> lock(m);
+		cv.wait(lock, [&] { return done == gen; });
+		pending = false;
+		return true;
+	}
+};
+static GxWorker s_gxWorkers[3];	// 0 boneWorker, 1 boneAhead, 2 particleWorker (ParticleSys.cpp)
+#define GX_HAVE_WORKERS 1
+#endif
+
+// For other files (ParticleSys.cpp): run a job on worker slot 'slot' / wait for it. Without
+// pthreads gxWorkersAvailable() is false and callers keep their own path.
+#ifdef GX_HAVE_WORKERS
+bool gxWorkersAvailable() { return true; }
+void gxWorkerStart(int slot, void (*task)()) { s_gxWorkers[slot].start(task); }
+bool gxWorkerJoin(int slot) { return s_gxWorkers[slot].join(); }
+#else
+bool gxWorkersAvailable() { return false; }
+void gxWorkerStart(int, void (*task)()) { task(); }
+bool gxWorkerJoin(int) { return false; }
+#endif
+
+// boneWorker (third switch word bit 17): the visible objects (a reference held so none can go
+// away) get their bones on the worker while the main thread draws the terrain. The game logic is
+// not running during the draw.
+static std::vector<Animatable3DObjClass *> s_gxBoneJobs;
+static Vector3 s_gxBoneCam;
+#ifdef GX_HAVE_WORKERS
+static std::atomic<size_t> s_gxBoneNext(0);
+static void gxBoneDrain()
+{
+	for (size_t i; (i = s_gxBoneNext.fetch_add(1)) < s_gxBoneJobs.size();) {
+		s_gxBoneJobs[i]->gxPrepareBones(s_gxBoneCam);
+	}
+}
+bool gxBoneWorkerOn() { return (GLES3_Page_Switches3() & 131072) != 0; }
+#else
+bool gxBoneWorkerOn() { return false; }
+#endif
+
+void gxBoneWorkerAdd(RenderObjClass * robj)
+{
+	robj->Add_Ref();
+	s_gxBoneJobs.push_back(static_cast<Animatable3DObjClass *>(robj));
+}
+
+void gxBoneWorkerStart(const Vector3 & camPos)
+{
+#ifdef GX_HAVE_WORKERS
+	if (s_gxBoneJobs.empty()) return;
+	s_gxBoneCam = camPos;
+	s_gxBoneNext = 0;
+	s_gxWorkers[0].start(gxBoneDrain);
+#endif
+}
+
+void gxBoneWorkerJoin()
+{
+#ifdef GX_HAVE_WORKERS
+	s_gxWorkers[0].join();
+#endif
+	for (size_t i = 0; i < s_gxBoneJobs.size(); i++) {
+		s_gxBoneJobs[i]->Release_Ref();
+	}
+	s_gxBoneJobs.clear();
+}
+
+// boneAhead (third switch word bit 23): at the end of frame N's object draw each visible unit
+// playing one compressed animation is snapshotted (the animation held by a reference, its next
+// frame predicted from the last step). The worker decodes the per-bone translation / rotation /
+// visibility while the game logic runs frame N+1; frame N+1's draw builds the bone hierarchy from
+// them if the unit still plays that animation (else it decodes as before). The worker reads only
+// the animation data; the unit itself is not touched. One frame of animation lag at most.
+struct GxAheadJob { HAnimClass * motion; float frame; int pivots; int treePivots; size_t pose; };
+struct GxPivotPose { Vector3 t; Quaternion q; bool vis; };
+static std::vector<GxAheadJob> s_gxAheadJobs;
+static std::vector<GxPivotPose> s_gxAheadPose;
+static unsigned s_gxAheadGen = 1;
+static bool s_gxAheadReady = false;		// main thread: the worker finished this generation
+#ifdef GX_HAVE_WORKERS
+static std::atomic<size_t> s_gxAheadNext(0);
+static void gxAheadDrain()
+{
+	for (size_t i; (i = s_gxAheadNext.fetch_add(1)) < s_gxAheadJobs.size();) {
+		const GxAheadJob & j = s_gxAheadJobs[i];
+		GxPivotPose * p = &s_gxAheadPose[j.pose];
+		for (int piv = 1; piv < j.pivots; piv++, p++) {
+			j.motion->Get_Translation(p->t, piv, j.frame);
+			j.motion->Get_Orientation(p->q, piv, j.frame);
+			p->vis = j.motion->Get_Visibility(piv, j.frame);
+		}
+	}
+}
+#endif
+
+static bool gxAheadOn()
+{
+#ifdef GX_HAVE_WORKERS
+	return (GLES3_Page_Switches3() & 8388608) != 0;
+#else
+	return false;
+#endif
+}
+
+bool gxBoneAheadWanted() { return gxAheadOn() || !s_gxAheadJobs.empty(); }
+
+void gxBoneAheadJoin()
+{
+#ifdef GX_HAVE_WORKERS
+	// called at the start of every scene draw, so the first one (the menu) spawns the worker threads
+	// any of the worker switches (bits 17, 23, 24) will use
+	static bool warmed = false;
+	if (!warmed && (GLES3_Page_Switches3() & (131072 | 8388608 | 16777216))) {
+		for (int i = 0; i < 3; i++) s_gxWorkers[i].warm();
+		warmed = true;
+	}
+	if (s_gxWorkers[1].join()) {
+		s_gxAheadReady = true;
+	}
+#endif
+}
+
+void gxBoneAheadSnapshot(RenderObjClass * const * objs, int count)
+{
+	gxBoneAheadJoin();
+	for (size_t i = 0; i < s_gxAheadJobs.size(); i++) {
+		s_gxAheadJobs[i].motion->Release_Ref();
+	}
+	s_gxAheadJobs.clear();
+	s_gxAheadReady = false;
+	++s_gxAheadGen;
+	if (!gxAheadOn()) return;
+	size_t pose = 0;
+	for (int i = 0; i < count; i++) {
+		static_cast<Animatable3DObjClass *>(objs[i])->gxAheadQueue(pose);
+	}
+	if (s_gxAheadJobs.empty()) return;
+	if (s_gxAheadPose.size() < pose) s_gxAheadPose.resize(pose);
+#ifdef GX_HAVE_WORKERS
+	s_gxAheadNext = 0;
+	s_gxWorkers[1].start(gxAheadDrain);
+#endif
+}
+
+// main thread, from gxBoneAheadSnapshot
+void Animatable3DObjClass::gxAheadQueue(size_t & pose)
+{
+	if (HTree == nullptr || CurMotionMode != SINGLE_ANIM || ModeAnim.AnimMode == ANIM_MODE_MANUAL ||
+		ModeAnim.Motion == nullptr || gxHasSounds() || dynamic_cast<HCompressedAnimClass *>(ModeAnim.Motion) == nullptr) {
+		return;
+	}
+	HAnimClass * m = ModeAnim.Motion;
+	const float nf = (float)m->Get_Num_Frames();
+	float step = ModeAnim.Frame - ModeAnim.PrevFrame;
+	const bool backwards = ModeAnim.AnimMode == ANIM_MODE_LOOP_BACKWARDS || ModeAnim.AnimMode == ANIM_MODE_ONCE_BACKWARDS;
+	if (backwards ? step > 0.0f : step < 0.0f) step = 0.0f;		// it wrapped last frame: no estimate, repeat the frame
+	float f = ModeAnim.Frame + step;
+	if (f >= nf - 1.0f) f = (ModeAnim.AnimMode == ANIM_MODE_LOOP && f >= nf) ? f - nf : (ModeAnim.AnimMode == ANIM_MODE_LOOP ? f : nf - 1.0f);
+	if (f < 0.0f) f = ModeAnim.AnimMode == ANIM_MODE_LOOP_BACKWARDS ? f + nf : 0.0f;
+	GxAheadJob j;
+	j.motion = m;
+	j.frame = f;
+	j.treePivots = HTree->Num_Pivots();
+	j.pivots = m->Get_Num_Pivots() < j.treePivots ? m->Get_Num_Pivots() : j.treePivots;
+	j.pose = pose;
+	if (j.pivots < 2) return;
+	m->Add_Ref();
+	GxAheadIdx = (int)s_gxAheadJobs.size();
+	GxAheadGen = s_gxAheadGen;
+	pose += j.pivots - 1;
+	s_gxAheadJobs.push_back(j);
+}
+
+// main thread, Update_Sub_Object_Transforms (SINGLE_ANIM): the worker's pose if it is for this
+// animation and finished
+bool Animatable3DObjClass::gxAheadApply()
+{
+	if (!s_gxAheadReady || GxAheadGen != s_gxAheadGen) return false;
+	const GxAheadJob & j = s_gxAheadJobs[GxAheadIdx];
+	if (j.motion != ModeAnim.Motion || j.treePivots != HTree->Num_Pivots()) return false;
+	HTree->gxAnimUpdateFromPose(Transform, &s_gxAheadPose[j.pose].t, &s_gxAheadPose[j.pose].q, &s_gxAheadPose[j.pose].vis,
+		sizeof(GxPivotPose), j.pivots);
+	Set_Hierarchy_Valid(true);
+	return true;
+}
+
 
 /***********************************************************************************************
  * Animatable3DObjClass::Special_Render -- "special render" function for animatables           *
@@ -793,7 +1098,9 @@ void Animatable3DObjClass::Update_Sub_Object_Transforms()
 			if ( ModeAnim.AnimMode != ANIM_MODE_MANUAL ) {
 				Single_Anim_Progress();
 			}
-			Anim_Update(Transform,ModeAnim.Motion,ModeAnim.Frame);
+			if (!gxAheadApply()) {	// boneAhead: the worker's pose for this frame, if there is one
+				Anim_Update(Transform,ModeAnim.Motion,ModeAnim.Frame);
+			}
 
 			/*
 			**	Play any sounds that are triggered by this frame of animation

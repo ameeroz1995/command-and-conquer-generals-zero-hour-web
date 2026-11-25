@@ -594,6 +594,9 @@ static void priorityFunc(Object *obj, void *userData)
 Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifiers,
 														 const AttackPriorityInfo *info, PartitionFilter *optionalFilter)
 {
+	// web port (match rule scanManager): next tick's scan pass reruns this scan (PartitionManager.cpp)
+	extern void gxScanNoteRequest(const Object *me, Real range, UnsignedInt qualifiers, const AttackPriorityInfo *info, PartitionFilter *optionalFilter);
+	gxScanNoteRequest(me, range, qualifiers, info, optionalFilter);
 
 	if ((qualifiers & CAN_ATTACK) && !me->isAbleToAttack())
 	{
@@ -632,7 +635,7 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 	PartitionFilterInsignificantBuildings filterInsignificant(true, false);
 
 	// (optional) only stuff clear of fog
-	PartitionFilterFreeOfFog filterFogged(me->getControllingPlayer()->getPlayerIndex());
+	PartitionFilterFreeOfFog filterFogged(me->gxPlayerIndex());
 
 	PartitionFilter *filters[16];
 	Int numFilters = 0;

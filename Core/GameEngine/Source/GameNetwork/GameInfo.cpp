@@ -1666,8 +1666,10 @@ void SkirmishGameInfo::loadPostProcess()
 // Web port: match rules (Common/GxMatchRules.h)
 //----------------------------------------------------------------------------------------------------------
 #ifdef __EMSCRIPTEN__
+#include <emscripten.h>
 extern int GLES3_Page_Switches();
 extern int GLES3_Page_Switches2();
+extern int GLES3_Page_Switches3();
 #endif
 static UnsignedInt s_gxMatchRules = 0;
 static Bool s_gxMatchRulesFixed = FALSE;
@@ -1684,7 +1686,20 @@ unsigned int gxLocalMatchRules()
 		| ((s2 & 8192) ? GXRULE_SHARED_ROUTES : 0)			// bit 13: sharedRoutes
 		| ((s2 & 16384) ? GXRULE_ROUTE_BUDGET : 0)			// bit 14: routeBudget
 		| ((s2 & 1024) ? GXRULE_COLLIDE_EVERY2 : 0)			// bit 10: collideStagger
-		| ((s2 & 2048) ? GXRULE_COLLIDE_EVERY3 : 0);		// bit 11: collideStagger3
+		| ((s2 & 2048) ? GXRULE_COLLIDE_EVERY3 : 0)		// bit 11: collideStagger3
+		| ((GLES3_Page_Switches3() & 2) ? GXRULE_MOVE_AFTER_TICK : 0)	// third word bit 1: moveAfterTick
+		| ((GLES3_Page_Switches3() & 4) ? GXRULE_GROUP_ROUTE : 0)	// third word bit 2: groupRoute
+		| ((GLES3_Page_Switches3() & 8) ? GXRULE_ROUTE_QUEUE : 0)	// third word bit 3: routeQueue
+		| ((GLES3_Page_Switches3() & 1048576) ? GXRULE_ROUTE_CACHE : 0)	// third word bit 20: routeCache
+		| ((GLES3_Page_Switches3() & 2097152) ? GXRULE_ROUTE_REFINE : 0)	// third word bit 21: routeRefine
+		| ((GLES3_Page_Switches3() & 4194304) ? GXRULE_FLOW_COVER : 0)	// third word bit 22: flowCover
+		| ((s2 & 134217728) ? GXRULE_PHYS_BULK : 0)		// bit 27: physBulk
+		| ((s2 & 536870912) ? GXRULE_SPATIAL_PAIRS : 0)	// bit 29: pairOffer
+		| ((GLES3_Page_Switches3() & 4096) ? GXRULE_SCAN_MANAGER : 0)	// third word bit 12: scanManager
+		| ((GLES3_Page_Switches3() & 65536) ? GXRULE_WEAPON_PASS : 0)	// third word bit 16: weaponPass
+		| ((GLES3_Page_Switches3() & 512) ? GXRULE_UPDATE_PASSES : 0)	// third word bit 9: updatePasses
+		| ((GLES3_Page_Switches3() & 262144) ? GXRULE_DAMAGE_QUEUE : 0)	// third word bit 18: damageQueue
+		| ((GLES3_Page_Switches3() & 64) ? GXRULE_STORE_PAIRS : 0);	// third word bit 6: storePairs
 #else
 	return 0;
 #endif

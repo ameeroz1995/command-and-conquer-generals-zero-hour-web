@@ -243,6 +243,7 @@ protected:
 public:
 	Bool							m_inSystemList;
 	Bool							m_inOverallList;
+	Bool							m_gxDead = false;	///< particleWorker: the worker found it dead; deleted on the main thread
 
 	union
 	{
@@ -678,6 +679,16 @@ protected:
 
 protected:
 	Particle *				m_systemParticlesHead;
+	Int								m_gxSteps = 0;	///< particleWorker: steps queued for the worker this frame
+
+public:
+	// particleWorker (third switch word bit 24, mt build, drawing only): ParticleSystem::update keeps
+	// emission and system logic on the main thread and queues the motion of the existing particles;
+	// the worker moves them during the draw; the main thread deletes the dead ones at the join.
+	static void gxParticleStart();		///< end of ParticleSystemManager::update
+	static void gxParticleJoin();		///< before anything reads or frees particles
+	static void gxParticleDrain();		///< worker (and main at the join): move the queued particles
+protected:
 	Particle *				m_systemParticlesTail;
 
 	UnsignedInt				m_particleCount;								///< current count of particles for this system

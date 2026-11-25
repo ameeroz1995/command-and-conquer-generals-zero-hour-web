@@ -420,7 +420,7 @@ static bool Same_Sorting_State(const RenderStateStruct& a, const RenderStateStru
 	if (a.shader.Get_Bits() != b.shader.Get_Bits()) { gx_sort_why[0]++; return false; }
 	// Settings switch sortMaterials: separate material objects with the same contents (their CRC,
 	// which covers the colours, flags, sources and the mapper object) also merge.
-	if (a.material != b.material && !((GLES3_Page_Switches3() & 134217728) && a.material && b.material &&
+	if (a.material != b.material && !((GLES3_Page_Switches3() & 67108864) && a.material && b.material &&
 	    a.material->Get_CRC() == b.material->Get_CRC())) { gx_sort_why[1]++; return false; }
 	for (int i=0;i<DX8Wrapper::Get_Current_Caps()->Get_Max_Textures_Per_Pass();++i)
 		if (a.Textures[i] != b.Textures[i]) { gx_sort_why[2]++; return false; }

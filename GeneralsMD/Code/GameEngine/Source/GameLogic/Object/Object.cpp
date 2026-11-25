@@ -30,6 +30,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #define DEFINE_WEAPONCONDITIONMAP
+#include "Common/GxUnitStore.h"
 #include "Common/BitFlagsIO.h"
 #include "Common/BuildAssistant.h"
 #include "Common/Dict.h"
@@ -159,14 +160,14 @@ AsciiString DebugDescribeObject(const Object *obj)
 	{
 		ret.format("Object %d (%s) [%s, owned by player %d (%ls)]",
 			obj->getID(), obj->getName().str(), obj->getTemplate()->getName().str(),
-			obj->getControllingPlayer()->getPlayerIndex(),
+			obj->gxPlayerIndex(),
 			obj->getControllingPlayer()->getPlayerDisplayName().str());
 	}
 	else
 	{
 		ret.format("Object %d [%s, owned by player %d (%ls)]",
 			obj->getID(), obj->getTemplate()->getName().str(),
-			obj->getControllingPlayer()->getPlayerIndex(),
+			obj->gxPlayerIndex(),
 			obj->getControllingPlayer()->getPlayerDisplayName().str());
 	}
 
@@ -174,6 +175,17 @@ AsciiString DebugDescribeObject(const Object *obj)
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port: switch words (gles3_wrapper.cpp) and verify counters (GameLogic.cpp)
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches3();
+extern int gx_verify_mismatch, gx_verify_checked;
+#else
+static int GLES3_Page_Switches() { return 0; }
+static int GLES3_Page_Switches3() { return 0; }
+static int gx_verify_mismatch, gx_verify_checked;
+#endif
+
 //-------------------------------------------------------------------------------------------------
 Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatusMask, Team *team ) :
 	Thing(tt),
@@ -185,6 +197,7 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 	m_xferContainedByID(INVALID_ID),
 	m_containedByFrame(0),
 	m_behaviors(nullptr),
+	m_gxCollides(nullptr),
 	m_body(nullptr),
 	m_contain(nullptr),
   m_stealth(nullptr),
@@ -485,6 +498,16 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 	//Modules have now been completely created!
 	m_modulesReady = true;
 
+	// web port (round 4): the unit store's behaviour bits for what this object has
+	{
+		GxBehaviourMask m = 0;
+		if (getPhysics())	m |= GXB_BIT(GXB_PHYS);
+		if (getAI())		m |= GXB_BIT(GXB_AI) | GXB_BIT(GXB_SCAN);	// AI units run the idle enemy scans (query)
+		for (BehaviorModule** b = m_behaviors; *b; ++b)
+			if ((*b)->getCollide()) { m |= GXB_BIT(GXB_COLLIDE); break; }
+		TheGxUnitStore.setMask(this, m);
+	}
+
 	TheRadar->addObject( this );
 
 	// register the object with the GameLogic
@@ -594,6 +617,7 @@ void Object::initObject()
 //-------------------------------------------------------------------------------------------------
 Object::~Object()
 {
+	TheGxUnitStore.remove(this);	// web port (round 4)
 
 	// tell the AI the building is gone
 	/// @todo Generalize the notion of objects entering and leaving the world, so we don't have to special case this
@@ -654,6 +678,8 @@ Object::~Object()
 
 	delete [] m_behaviors;
 	m_behaviors = nullptr;
+	delete [] m_gxCollides;
+	m_gxCollides = nullptr;
 
 	deleteInstance(m_experienceTracker);
 	m_experienceTracker = nullptr;
@@ -776,9 +802,28 @@ void Object::onDestroy()
 
 //=============================================================================
 //=============================================================================
+// web port (round 4): the unit store holds the radius and the player index; the GeometryInfo and
+// the Team pointer are the cold data they are set from (setGeometryInfo, setOrRestoreTeam,
+// TeamPrototype::setControllingPlayer)
+Real Object::getBoundingCircleRadius() const
+{
+	const Int s = gxStoreSlot();
+	return s >= 0 ? TheGxUnitStore.radius[s] : m_geometryInfo.getBoundingCircleRadius();
+}
+
+Int Object::gxPlayerIndex() const
+{
+	const Int s = gxStoreSlot();
+	if (s >= 0)
+		return TheGxUnitStore.player[s];
+	const Player *p = getControllingPlayer();
+	return p ? p->getPlayerIndex() : -1;
+}
+
 void Object::setGeometryInfo(const GeometryInfo& geom)
 {
 	m_geometryInfo = geom;
+	TheGxUnitStore.setRadius(this, geom.getBoundingCircleRadius());	// web port (round 4)
 	if( m_partitionData )
 	{
 		// if our geometry changes, we unregister and re-register with the partitionmgr
@@ -879,6 +924,8 @@ void Object::setOrRestoreTeam( Team* team, Bool restoring )
 
 	// Switch //////////////////////////
 	m_team = team;
+	// web port (round 4): the store's player index (the truth for it) follows right away
+	TheGxUnitStore.setPlayer(this, m_team ? m_team->getControllingPlayer()->getPlayerIndex() : -1);
 	if (m_partitionData)
 		m_partitionData->gxTeamChanged();	// web port: per-cell player counts follow the owner
 
@@ -956,7 +1003,7 @@ Bool Object::checkAndDetonateBoobyTrap(const Object *victim)
 	filters[1] = &filterMapStatus;
 	filters[2] = nullptr;
 
-	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( getPosition(), BOOBY_TRAP_SCAN_RANGE + getGeometryInfo().getBoundingCircleRadius(),
+	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( getPosition(), BOOBY_TRAP_SCAN_RANGE + getBoundingCircleRadius(),
 		FROM_CENTER_2D, filters, ITER_SORTED_NEAR_TO_FAR );
 	MemoryPoolObjectHolder hold(iter);// This is the magic thing that frees the dynamically made iter in its destructor
 
@@ -1111,6 +1158,28 @@ void Object::setScriptStatus( ObjectScriptStatusBit bit, Bool set )
 
 //=============================================================================
 Bool Object::canCrushOrSquish(Object *otherObj, CrushSquishTestType testType ) const
+{
+	// web port (switch crushFirst, third word bit 4; same game): a crush-only test can only answer
+	// true when my crusher level is above its crushable level, so decide that before the ally
+	// lookup (getRelationship changes nothing, the answer is false either way)
+	if (testType == TEST_CRUSH_ONLY && otherObj && (GLES3_Page_Switches3() & 16)
+		&& getCrusherLevel() <= otherObj->getCrushableLevel())
+	{
+#ifdef __EMSCRIPTEN__
+		if (GLES3_Page_Switches() & 2097152)	// verify mode: the full test must say false too
+		{
+			static Int s_checked = 0, s_bad = 0;
+			++gx_verify_checked;
+			if (gxCanCrushOrSquishFull(otherObj, testType)) { ++gx_verify_mismatch; ++s_bad; printf("GXVERIFY crushFirst mismatch: %u vs %u\n", getID(), otherObj->getID()); }
+			if (++s_checked % 20000 == 0) printf("GXVERIFY crushFirst checked %d, mismatches %d\n", s_checked, s_bad);
+		}
+#endif
+		return false;
+	}
+	return gxCanCrushOrSquishFull(otherObj, testType);
+}
+
+Bool Object::gxCanCrushOrSquishFull(Object *otherObj, CrushSquishTestType testType ) const
 {
 	DEBUG_ASSERTCRASH(this, ("null this in canCrushOrSquish"));
 
@@ -1819,6 +1888,9 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
   	m_drawable->setTransformMatrix( this->getTransformMatrix() );
 	}
 
+	if (!gxPosInStore())
+		TheGxUnitStore.setPos(this, *getPosition());	// web port (round 4): write-through without positionInStore
+
 	// web port (switch searchCache): range searches keep a copy of where we are
 	if (m_partitionData)
 		m_partitionData->gxRefreshPlace();
@@ -2162,6 +2234,8 @@ void Object::setDisabledUntil( DisabledType type, UnsignedInt frame )
 
 		m_disabledTillFrame[ type ] = frame;
 		m_disabledMask.set( type, frame > TheGameLogic->getFrame() );
+		if( isDisabled() )
+			TheGameLogic->gxNoteDisabled( this );	// web port: keep the list of disabled objects (switch disabledList)
 
 		if( m_drawable )
 		{
@@ -2431,6 +2505,49 @@ void Object::updateTriggerAreaFlags()
 //-------------------------------------------------------------------------------------------------
 void Object::onCollide( Object *other, const Coord3D *loc, const Coord3D *normal )
 {
+	// web port (switch collideList, third word bit 5; same game): walk only the collide modules,
+	// listed once (in behaviour order) instead of asking every behaviour each collision.
+	// getCollide() is fixed per module and the behaviour list never changes after creation.
+	if (GLES3_Page_Switches3() & 32)
+	{
+		if (!m_gxCollides)
+		{
+			Int n = 0;
+			for (BehaviorModule** m = m_behaviors; *m; ++m)
+				if ((*m)->getCollide())
+					++n;
+			m_gxCollides = MSGNEW("ModulePtrs") CollideModuleInterface*[n + 1];
+			n = 0;
+			for (BehaviorModule** m = m_behaviors; *m; ++m)
+				if (CollideModuleInterface* c = (*m)->getCollide())
+					m_gxCollides[n++] = c;
+			m_gxCollides[n] = nullptr;
+		}
+#ifdef __EMSCRIPTEN__
+		else if (GLES3_Page_Switches() & 2097152)	// verify mode: the list still matches the behaviours
+		{
+			static Int s_checked = 0, s_bad = 0;
+			CollideModuleInterface** c = m_gxCollides;
+			Bool ok = true;
+			for (BehaviorModule** m = m_behaviors; *m; ++m)
+				if (CollideModuleInterface* cm = (*m)->getCollide())
+					ok = ok && *c && *c++ == cm;
+			ok = ok && *c == nullptr;
+			++gx_verify_checked;
+			if (!ok) { ++gx_verify_mismatch; ++s_bad; printf("GXVERIFY collideList mismatch: object %u\n", getID()); }
+			if (++s_checked % 20000 == 0) printf("GXVERIFY collideList checked %d, mismatches %d\n", s_checked, s_bad);
+		}
+#endif
+		for (CollideModuleInterface** c = m_gxCollides; *c; ++c)
+		{
+			// check each time thru the loop, in case a collide module sets it
+			if( getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) )
+				break;
+			(*c)->onCollide(other, loc, normal);
+		}
+		return;
+	}
+
 	for (BehaviorModule** m = m_behaviors; *m; ++m)
 	{
 		CollideModuleInterface* collide = (*m)->getCollide();
@@ -2802,11 +2919,23 @@ void Object::setID( ObjectID id )
 	// remove this objects previous id from the lookup table
 	TheGameLogic->removeObjectFromLookupTable( this );
 
+	// web port (round 4): the unit store keys slots by ID; keep the mask across the change
+	const int gxOld = TheGxUnitStore.slotOf(this);
+	const GxBehaviourMask gxMask = gxOld >= 0 ? TheGxUnitStore.mask[gxOld] : 0;
+	Coord3D gxVel; gxVel.zero();
+	if (gxOld >= 0) gxVel = TheGxUnitStore.vel[gxOld];
+	TheGxUnitStore.remove(this);
+
 	// assign new id
 	m_id = id;
 
 	// add new id to lookup table
 	TheGameLogic->addObjectToLookupTable( this );
+
+	TheGxUnitStore.add(this);
+	TheGxUnitStore.setMask(this, gxMask);
+	if (TheGxUnitStore.slotOf(this) >= 0) TheGxUnitStore.vel[TheGxUnitStore.slotOf(this)] = gxVel;
+	TheGxUnitStore.bumpEpoch();	// the slot changed
 
 }
 
@@ -3950,7 +4079,7 @@ void Object::crc( Xfer *xfer )
 	Bool doLogging = g_logObjectCRCs /* && getControllingPlayer()->getPlayerType() == PLAYER_HUMAN */;
 	if (doLogging)
 	{
-		tmp.format("CRC of Object %d (%s), owned by player %d, team: %d, ", m_id, getTemplate()->getName().str(), getControllingPlayer()->getPlayerIndex(), this->getTeam() ? this->getTeam()->getID() : TEAM_ID_INVALID);
+		tmp.format("CRC of Object %d (%s), owned by player %d, team: %d, ", m_id, getTemplate()->getName().str(), gxPlayerIndex(), this->getTeam() ? this->getTeam()->getID() : TEAM_ID_INVALID);
 		logString.concat(tmp);
 	}
 #endif // DEBUG_CRC
@@ -4467,6 +4596,8 @@ void Object::xfer( Xfer *xfer )
 
 		// do the weaponSet itself after all the weapon-related stuff, just in case
 		xfer->xferSnapshot(&m_weaponSet);
+		if (xfer->getXferMode() == XFER_LOAD)
+			m_weaponSet.gxSetOwner(getID());	// weaponSkip: weapons report their changes under this unit
 
 		m_specialPowerBits.xfer( xfer );
 
@@ -4696,7 +4827,7 @@ void Object::onDie( DamageInfo *damageInfo )
 	//Kris: Added nullptr check to prevent crash with combat bikes & their riders getting deleted on exit.
 	if( getControllingPlayer() )
 	{
-		TheInGameUI->removeIdleWorker( this, getControllingPlayer()->getPlayerIndex() );
+		TheInGameUI->removeIdleWorker( this, gxPlayerIndex() );
 	}
 
 	//When a GLA hole is in the process of rebuilding, and that rebuild is lost, we need to
@@ -4844,6 +4975,54 @@ void Object::adjustModelConditionForWeaponStatus()
 			}
 		}
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+// weaponSkip (combat, third word bit 19; runs inside the weaponPass store pass). Exact: it makes the
+// same getStatus() calls the full update would (they refresh the weapon's saved status), and skips
+// only the drawable updates, which would repeat the values the drawable already shows. Writes the
+// store's weaponReady (the soonest reload / pre-attack end) and weaponSig (what the drawable shows).
+// weaponSkip, first test: was this unit quiet when the pass last looked (no pose, not attacking)?
+// With the store's weaponReady still in the future, nothing in its weapons can have changed: every
+// change to a weapon (shot, reload, ammo, pre-attack, slot) zeroes weaponReady, and getStatus()
+// only changes the saved status at the frames weaponReady holds. So the whole update is skipped.
+Bool Object::gxWeaponStillQuiet() const
+{
+	if (m_drawable == nullptr || testStatus(OBJECT_STATUS_IS_ATTACKING))
+		return false;
+	for (int i = 0; i < WEAPONSLOT_COUNT; ++i)
+		if (m_lastWeaponCondition[i] != WSF_NONE)
+			return false;
+	return true;
+}
+
+Bool Object::gxWeaponStatusQuiet(Int target, UnsignedInt &ready, UnsignedInt &sig)
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	UnsignedInt nextReady = ~0u;
+	UnsignedInt h = (UnsignedInt)m_weaponSet.getCurWeaponSlot() * 2654435761u;
+	Bool quiet = target == 0 && !testStatus(OBJECT_STATUS_IS_ATTACKING) && m_drawable != nullptr;
+	for (int i = 0; i < WEAPONSLOT_COUNT; ++i)
+	{
+		const Weapon* w = m_weaponSet.getWeaponInWeaponSlot((WeaponSlotType)i);
+		if (!w)
+		{
+			if (m_lastWeaponCondition[i] != WSF_NONE) quiet = false;
+			continue;
+		}
+		if (w->getLastShotFrame() == now || m_lastWeaponCondition[i] != WSF_NONE) quiet = false;
+		if (!quiet) break;
+		const UnsignedInt ammo = w->getRemainingAmmo();	// calls getStatus(), as the full update does
+		h = (h ^ ammo ^ ((UnsignedInt)w->getClipSize() << 20) ^ ((UnsignedInt)i << 28)) * 16777619u;
+		const UnsignedInt a = w->getPossibleNextShotFrame(), b = w->getPreAttackFinishedFrame();
+		if (a > now && a < nextReady) nextReady = a;
+		if (b > now && b < nextReady) nextReady = b;
+	}
+	if (!quiet) { sig = ~0u; ready = 0; return false; }
+	ready = nextReady;
+	if (h == sig) return true;
+	sig = h;
+	return false;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5087,7 +5266,7 @@ void Object::look()
 				if( !stealthedAndNotDetected )
 				{
 					Coord3D pos = *getPosition();
-					PlayerMaskType thePlayersMask = ThePlayerList->getPlayersWithRelationship( getControllingPlayer()->getPlayerIndex(), ALLOW_ENEMIES | ALLOW_NEUTRAL );
+					PlayerMaskType thePlayersMask = ThePlayerList->getPlayersWithRelationship( gxPlayerIndex(), ALLOW_ENEMIES | ALLOW_NEUTRAL );
 					ThePartitionManager->doShroudReveal( pos.x, pos.y, shroudRevealToAllRange, thePlayersMask );
 					m_partitionRevealAllLastLook->m_where = pos;
 					m_partitionRevealAllLastLook->m_forWhom = thePlayersMask;
@@ -5228,7 +5407,7 @@ Real Object::getShroudClearingRange() const
 	{
 		//structures under construction have limited vision range.  For now, base it
 		//on the geometry extents so the structure can only see itself.
-		shroudClearingRange = getGeometryInfo().getBoundingCircleRadius();
+		shroudClearingRange = getBoundingCircleRadius();
 	}
 
 #if defined(RTS_DEBUG)

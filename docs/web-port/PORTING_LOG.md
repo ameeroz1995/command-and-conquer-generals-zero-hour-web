@@ -3102,6 +3102,75 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   collide-vs3A battle3) look the same: no units visibly inside each other.
 - Proposed default: every-3 for single player (both switches left off until the match-rule wiring).
 
+## 2026-11-24 — Round 3, movement as a data-oriented system: measured, not built
+
+- Profile on dc2f00b (paths-9), share of the frame, inclusive: AIUpdateInterface::doLocomotor
+  3.0% (strikes) / 3.3% (armies); all Locomotor:: code 1.8% / 1.9%, of which Locomotor's own code
+  is ~0.1% self (the rest is what it calls: physics forces, terrain heights);
+  Path::computePointOnPath 2.5% / 2.4% (partly inside doLocomotor); PhysicsBehavior::update
+  3.1% / 2.2% (the collide agent's system). Load was high (fps ~5), shares still comparable.
+- Ceiling: movement is ~3% of the frame. Flat arrays plus one bulk locomotion pass would keep the
+  same per-unit math and calls (physics, terrain, path walk), so even halving it saves ~1.5%.
+  That is below what the bench can show (A/B pairs swing 10-20% at today's load). Per the round-3
+  rule (prove the slice pays first), the rewrite was not started. Match rule 1024 and second-word
+  bits 24/25 are still free.
+- If anything here is worth doing, it is Path::computePointOnPath (2.5%): it walks the path's
+  node list for every moving unit every frame; its cache returns a stale answer only up to 20
+  times. An exact cheaper lookup (resume from the last segment) is a small, separate change.
+- computePointOnPath, counted (paths-10, battle benchmark): ~400 full computations a frame (of
+  ~1,300 calls; the rest hit its cache), each walking 30-48 path segments (flow-field routes keep
+  many nodes), ~15k segment visits a frame. An exact lookup must still test every segment for the
+  closest one, so a flat segment array only makes each visit cheaper: ~0.3-0.4% of the frame at
+  best, below what the bench resolves, and it needs an owner link plus invalidation in every
+  PathNode setter (paths are edited in place from AIUpdate and several Pathfinder functions). Not
+  built. A windowed search around the last closest segment would cut more but changes results
+  (match rule 1024), for well under 1% of the frame: not worth the visual checks.
+## 2026-11-24 — Round 3, update loop as a flat system (logic-ai agent): measured, stopped
+
+Merged perf/low-end dc2f00b first.
+
+What the loop is: m_sleepyUpdates is a binary heap of update modules keyed by
+(next frame << 2 | phase), with the key copy beside each entry already (sleepyKeys). Many entries
+share a key each frame, and the order among them, which is the simulation order, comes from the
+heap's exact sift mechanics. So a same-game rebuild must keep that heap algorithm; only where its
+data lives can change. Every entry popped is then run through its module's own update(), which
+touches the module and its object anyway.
+
+Share of the frame (build ai-5, load 30-52, inclusive): armies — sifting (rebalance*) 1.3%,
+GameLogic::update's own code 1.1%; strikes — 0.8% and 0.7%. AIUpdateInterface::update 6.4-7.8%,
+StateMachine::updateStateMachine 4.4-5.3%: the state work under it is mostly route searches, enemy
+searches and weapons (other agents' systems). Ceiling for rebuilding the loop: about 2%.
+
+Prototype (holeSift, bit 15): the sift held the moving entry aside and slid the others into the
+hole, writing the index into a module once per level instead of twice. Verify mode (the swapping
+sift replayed on copies every 97th call and compared, entry by entry, with indexes): 0 mismatches.
+Replay matched.
+- profile pair, strikes (load 8-12): sifting 1.6% off, 1.6% on.
+- A/B pairs, work ms off/on (load 8-30): armies 59.8/62.1, 67.5/51.9; strikes 85.5/97.6, 82.8/75.8;
+  aftermath 68.4/53.3, 43.8/75.3. Noise in both directions, no gain.
+The sift's cost is the cache misses on the entries that really move (their keys and their
+modules' index fields), which the hole does not avoid; the extra writes it saved were to the
+moving entry, already in cache. Not kept (code reverted), per this round's rule: the full flat
+rewrite of the loop cannot pay more than ~2% and the slice shows nothing.
+
+## 2026-11-24 — combat round 3: weapons + damage as a data-oriented system — measured, not built
+- Share of the frame, build combat-3 (merge dc2f00b, current switch defaults), profile inclusive:
+  | | strikes (load 60-70) | armies (load 38-55) |
+  |---|---|---|
+  | ObjectWeaponStatusHelper::update (the per-frame weapon-status pass) | 0.4% | 0.7% |
+  | WeaponTemplate::fireWeaponTemplate (firing, incl. damage) | 1.4% | 1.8% |
+  | of which dealDamageInternal / Object::attemptDamage / ActiveBody::attemptDamage | 0.7 / 0.7 / 0.6% | 1.0 / 0.9 / 0.8% |
+  | Weapon::getStatus, updateWeaponSet, chooseBestWeapon, range checks | ≤0.1% each | ≤0.1% each |
+  | GameLogic::update | 38% | 55% |
+- Only the weapon-status helper is a bulk loop (one entry per armed unit, every frame). Firing and
+  damage are events: they touch other objects, random numbers, FX and object creation, so they
+  stay in queue order and have no loop to flatten. Health is read through pointers by AI and
+  targeting at scattered times; a flat health table has no hot loop to speed up.
+- Ceiling: removing the status pass entirely (plus its update-queue entries) saves at most ~0.5-1%
+  of the frame. A/B pairs on this shared machine move ±9% between runs, so a flat-table rewrite
+  (weapon reload/clip/status + body health arrays, kept in sync with the old fields) could not be
+  shown to pay. Stopped before building it, per the round-3 rule. Bits 23/30 and match rule 16384
+  stay unused.
 ## 2026-11-24 — paths, ai and collide branches merged (dc2f00b); AI and collision rules are match rules
 
 - Merged perf/logic-paths (match rules, coarseStart), perf/logic-ai (sharedRoutes, routeBudget,
@@ -3117,3 +3186,659 @@ would wait twice as long); lazyScans OFF (~1% at best, units react up to 2 s lat
   GXVERIFY line mismatches 0.
 - A/B vs merge1 (live 445e8b8) and rules off/on: run at load 40-100 (five agents profiling), frame
   rates ~4 fps instead of ~13; not usable. To be rerun on a quiet machine.
+
+## 2026-11-25 — Route queue round: what fills it, group routes, route cache, flow cover (paths agent)
+
+- Correction: the earlier "90% of re-plans are goal moved" was wrong. Those requests were
+  projectiles' quick paths, which never enter the queue. A re-plan cooldown (N = 20/30/45 frames)
+  measured bit-identical to rule off: the moved-goal site fires 241 times per battle. Dropped, not
+  committed. The queue fills with new-order bursts: in the battle benchmark demand is ~6,300
+  searches in 1,050 frames at ~1,250 cells each, i.e. ~7,500 cells a frame against the 5,000 budget.
+  Search kinds (to frame 1,050): A* 6,390 (1,860 of them served by a flow field), closest-spot
+  1,467, attack approach 713. 3,986 repeat requests a battle are already merged by queueForPath.
+- cpopSegments (exact, third switch word bit 0, OFF): computePointOnPath reads each route's
+  optimized segments from one flat array kept on the Path (PathNode records its owner path; every
+  node setter marks the array stale). Referee replay matches; verify mode 0 mismatches. A/B
+  (paths-19, load 12-17), off -> on: armies 11.7 -> 11.3 and 11.1 -> 10.3 fps, strikes 8.5 -> 8.3
+  and 8.0 -> 6.9: no gain (both pairs a little lower, inside the noise), so it stays off.
+- moveAfterTick (match rule 32768, third word bit 1, off): units' locomotion runs in one pass after
+  the update queue (GameLogic::update, before the AI/pathfind and partition updates), in
+  update-queue order; the AI update no longer takes the locomotion's sleep, the pass wakes a unit
+  earlier when its locomotion needs it. Recorded with the rule on (GX=8002) and played back with
+  it off locally: matches. One pair (paths-19, load 11-20), off -> on: armies 11.6 -> 9.5, strikes
+  10.3 -> 11.5, aftermath 16.3 -> 8.6 fps: no clear gain; off.
+- coarseStart is now ON by default and applies to every move (no 200-unit minimum). Wrong-way
+  share at the switch: 4.2% (123 of 2,946).
+- routeQueue (match rule 1048576, third word bit 3, off): a request that finds the 512-slot queue
+  full waits in an overflow list instead of being dropped (the 512 slots are inside the pathfinder
+  CRC/xfer, so the slots themselves stay). Alone it holds 1,000+ requests and the average wait rose
+  (126 frames); dropped requests 1,054 -> 0.
+- groupRoute (match rule 1024, third word bit 2, off): a group move or attack-move plans one route
+  per kind of mover (same surfaces and crusher flag) from the member nearest that kind's centre;
+  members within 250 get a copy shifted by their offset (where a shifted point is blocked, half the
+  offset, then the route itself), used by their next route request instead of a queued search.
+- routeCache (match rule 2^21, third word bit 20, off): up to 64 recent routes; a unit of the same
+  kind and size starting within 4 cells of a cached start and going within 4 cells of its goal gets
+  the route shifted to it (blocked shifted points: a miss). Expires after 300 frames or when
+  buildings change.
+- flowCover (match rule 2^23, third word bit 22, off): flow fields serve moves over 8 cells (was
+  24); a field route uses almost none of the per-frame search budget.
+- Numbers (battle benchmark, to frame 1,050; load 14-22):
+  | rules | searches | cells/search | wait avg / worst (frames) | dropped | armies / strikes fps |
+  |---|---:|---:|---:|---:|---:|
+  | default | 6,286 | 1,255 | 42.1 / 217 | 1,054 | 10.5 / 9.4 |
+  | groupRoute + routeCache | 6,834 | 1,015 | 25.1 / 119 | 166 | 12.5 / 10.4 |
+  | + flowCover | 6,758 | 913 | 21.9 / 134 | 280 | 13.6 / 10.6 |
+  Whole run: 31.7 -> 18.6 -> 15.9 frames average wait. Group hints: 1,265 members followed a
+  group route; route cache: 719 hits. Still above the 6-frame target.
+- Determinism: recorded with groupRoute, routeCache, flowCover, routeQueue, moveAfterTick on
+  (GX=B08422) and played back with all of them off locally: matches. Referee replay matches.
+- Not built yet: routeRefine (rule 2^22, bit 21): zone-level plan, detailed only near the unit.
+
+## 2026-11-25 — routeRefine: a stretch at a time, and capped closest-spot searches (paths agent)
+
+- Cells per search kind (battle benchmark, to frame 1,050, default rules): route searches
+  (findPath) 4,584 x ~250 cells (flow fields and the zone-level search already keep them cheap);
+  closest-spot searches (findClosestPath: goal taken or blocked, attack approach) 1,467 x ~4,470
+  cells = 6.6M of the 7.9M cells searched (83%); attack paths 713 x ~250.
+- routeRefine (match rule 2^22, third switch word bit 21, off): (a) a move longer than 40 cells
+  searches in detail only to a point ~30 cells along the zone-level route, then follows the
+  zone-level route; when the unit is within 12 cells of the end of the detailed stretch, the move
+  state asks for the next one (such routes are not put in the route cache). (b) a closest-spot
+  search stops after 2,000 cells once it has a spot.
+- Numbers (to frame 1,050; whole run in brackets; load 14-22):
+  | rules | searches | closest-spot cells each | total cells | wait avg / worst (frames) |
+  |---|---:|---:|---:|---:|
+  | default | 6,286 | 4,471 | 7.87M | 42.1 / 217 (28.8) |
+  | routeRefine (stretches only, before the cap) | 6,182 | 4,782 | 8.35M | 47.3 / 231 (29.1) |
+  | routeRefine with the cap | 7,745 | 1,952 | 6.07M | 30.3 / 122 (22.1) |
+  | groupRoute + routeCache + flowCover | 6,758 | 2,758 | 6.17M | 21.9 / 134 (16.9) |
+  | + routeRefine (stretches only) | 7,489 | 2,943 | 6.46M | 15.2 / 87 (10.6) |
+  | + routeRefine with the cap | 8,306 | 1,660 | 4.72M | 9.4 / 42 (7.2) |
+  fps (single runs): default armies 15.3 / strikes 9.3; all four rules with the cap 12.5 / 9.4
+  (load 22); stretches-only set 16.6 / 12.0 (load 14).
+- Screenshots (armies and strikes) with all four rules on: the moving front stays spread along the
+  road, no single-point clumps, no units left behind; fights resolve.
+- Determinism (paths-22, no diagnostics): referee replay matches; recorded with groupRoute,
+  routeCache, flowCover, routeRefine, routeQueue and moveAfterTick on (GX=F08422) and played back
+  with all of them off locally: matches.
+
+## 2026-11-25 — Route-planning CPU share, and routeQueue staggering (paths agent)
+
+- Profile pairs (paths-23, armies phase, share of the frame; load 8-10 except the first "off" run,
+  which ended at 29), rules off -> groupRoute + routeCache + flowCover + routeRefine on:
+  AIUpdateInterface::computePath (all route planning) 19.3% -> 9.5% and 18.1% -> 9.5%;
+  findClosestPath 18.0% -> 6.9% and 15.5% -> 6.7%; findPath 1.3-2.5% -> 2.7-2.8%; flow fields
+  1.0-1.6% -> 1.8-1.9%. Route planning's CPU share halves; the same pair's fps were flat
+  (armies 14.2 -> 14.2, strikes 10.4 -> 10.1), the time going to the rest of the frame.
+- routeQueue (match rule 2^20, third word bit 3) now also staggers the queue: requests queued in
+  one frame become eligible 64 a frame, in request order; coarse starts (a zone-level search each)
+  run 32 a frame, in request order, instead of all at the order; and a closest-spot search does
+  not start once the frame has used half its 5,000 cells (it waits for the next frame). Budget
+  unchanged.
+- A/B, all four route rules on, routeQueue off -> on (load 8-10): strikes fps 10.5 -> 10.8 and
+  11.8 -> 12.4; strikes 1% low 4.2 -> 5.6 and 4.9 -> 6.0; strikes p90 126 -> 110 and 112 -> 96 ms;
+  frames over 100 ms in strikes 348 -> 251 and 188 -> 55, in armies 38 -> 21 and 9 -> 7. Slowest
+  battle frames (after the two loading frames) 366 -> 291 and 271 -> 252 ms.
+- Determinism: referee replay matches; recorded with the four route rules plus routeQueue on
+  (GX=F00422) and played back with them off locally: matches.
+## 2026-11-25 — Round 3: physics as flat arrays (bits 26 / 27) — measured, not built
+
+- Asked: PhysicsBehavior position/velocity/forces in flat arrays with one bulk integration pass.
+- Measured first (temporary timers in PhysicsBehavior::update, phase span = first to last physics
+  call of a frame; physics is the only PHASE_PHYSICS module, so it runs as one block; load 20-37,
+  strikes ~75 ms/frame, 1,000-3,000 physics steps per frame):
+  phase 4.2-9.7 ms/frame (~10% of a strike frame), split per frame:
+  forces + integration (what flat arrays would speed up) 0.5-1.3 ms;
+  terrain height + bounce 0.5-1.2 ms; setTransformMatrix 1.6-3.7 ms (drawable transform,
+  partition refresh/dirty, trigger areas, map extent); tail (airborne check = second terrain
+  query, landing, sleep time) 0.8-1.6 ms; the rest is update-queue dispatch and timer overhead.
+- Result: the integration math is ~1-1.5% of a strike frame. Even halving it (~0.5 ms) is far
+  below what the fps A/B pairs resolve, and a bulk pass could not move the rest: every step
+  writes the object's transform, which feeds the drawable, the partition and triggers in
+  update-queue order. Stopped per the round-3 rule; no code kept, bits 26 / 27 unused.
+- Where physics time actually goes: setTransformMatrix (~40% of the phase, ~4% of the frame).
+  Cheaper ideas there (skip the drawable/trigger work when the position did not change, reuse
+  the ground height from the step for the airborne check) are not data-layout changes; not done.
+- Rechecked after the rule change (drift allowed behind match rule 2048, behaviour-outer passes
+  approved), with the transform update split as well (build phys-2, load 11-24; extra timers
+  inflate it): per strike frame setTransformMatrix is drawable transform ~33%, partition
+  refresh/dirty ~18%, trigger areas + pathfinder position ~14%, map extent ~8%, the rest matrix
+  copies / yaw (atan2). Each piece is under ~1 ms of a ~90 ms frame, and a bulk physics pass
+  already exists (physics is its own update phase). Drift-allowed options considered and not
+  built: physics every 2nd frame for ground units (locomotors push every frame: visible jerks,
+  wrong speeds); bulk integrate-then-commit (same calls, same cost). Still nothing measurable;
+  match rule 2048 left unused.
+
+## 2026-11-25 — Physics flat pass built anyway (switch physReuse bit 26, on; match rule physBulk 2048 / bit 27, off)
+
+Built per the user's round-3 decision (small gains meant to add up). Two parts:
+- physReuse (second word bit 26, default ON, same game): the physics step already looks up the
+  ground height at the unit's x, y and layer; that is exactly what Object::calculateHeightAboveTerrain()
+  computes for the airborne check after the move, so the step stores it in the height cache
+  (Thing::gxSetHeightAboveTerrain) instead of a second terrain lookup. Only when the position after
+  setTransformMatrix still has that x, y. Verify mode: 1,060,000 checks in the battle, 0 mismatches.
+- physBulk (match rule GXRULE_PHYS_BULK 2048, second word bit 27, default OFF, drifts): at the first
+  physics update of a frame, one pass over a flat list of all PhysicsBehaviors (creation = object ID
+  order, compacted in the pass) integrates gravity, friction and velocity for every unit whose
+  physics runs this frame; each unit's own update then only moves it. A force applied to a unit
+  by another unit's physics step after the pass counts next frame (the drift). Units not covered
+  (woken during the phase, held) integrate inline as before.
+- Dropped: skipping setTransformMatrix when the matrix did not change. Not the same game: the
+  battle's physics call counts drifted from the first 150 frames (260 vs 261), and with only the
+  height reuse they match off exactly (261, 674, 1180, ... 1922). Setting an unchanged transform still
+  refreshes something the simulation reads (most likely the drawable's transform, which weapon
+  launch bones are read from).
+- Replays (final build phys-7, wasm c9e96a89…): referee replay matches (9,000 frames) with defaults and with physBulk on locally;
+  recorded a skirmish with physBulk on (phys-bulk6.rep, header rules 0x802) and it replays to a
+  match. Screenshots (phys6-bulk*/reuse*/off* battle2-7): normal fights, nothing stuck or piled up
+  (shots are taken by wall time, so scenes differ between runs).
+- A/B (build phys-6t, physics-phase timer, the first 6 windows of 150 frames that every run
+  reached = the same 8,858 physics calls for off/reuse; load 8-19, very noisy):
+  off 44.4 / 37.4 ms, physReuse 32.9 / 26.3 ms (-28%, both pairs), physBulk (+ physReuse)
+  28.5 / 33.8 ms (same as physReuse: one pair each way). Strikes fps off 5.8 / 8.2, physReuse
+  8.7 / 11.1, physBulk 10.7 / 8.4: load noise, physics is ~10% of a strike frame. physBulk gives
+  nothing measurable on its own and is not slower; left off for the combined measurement.
+
+## 2026-11-25 — Collisions: quicker crush check and collide-module list (third word bits 4 / 5, on, same game)
+
+- Measured first (build col-t1, temporary timers; they inflate everything, compare shares only):
+  per strike frame 4k-31k pairs offered, 1.4k-5k really touching; the geometry test is about a third
+  of the collision time, Object::onCollide on both sides two thirds; inside PhysicsBehavior::onCollide
+  AI processCollision ~1/3 (2k-7k calls per frame; AIUpdate.cpp, the ai agent's file this round) and
+  the crush check ~15%.
+- crushFirst (third word bit 4, Object.cpp): canCrushOrSquish(TEST_CRUSH_ONLY) can only answer true
+  when my crusher level is above its crushable level, so it decides that before the ally lookup
+  (getRelationship changes nothing). Verify mode: 1,240,000 checks in the battle, 0 mismatches.
+  Pairs (col-2t, crush-check time summed over the first 6 windows, load 10-20): off 12.80 / 11.44 ms,
+  on 11.92 / 12.00 ms: inside noise, not slower.
+- collideList (third word bit 5, Object.cpp): Object::onCollide asked every behaviour module (20-40
+  per unit) for its collide interface on every collision; now each object lists its collide modules
+  once (behaviour order, built on its first collision; getCollide() is fixed per module and the
+  behaviour list never changes after creation). Same status check before each module. Verify mode:
+  10,080,000 checks, 0 mismatches. Pairs (col-3t, Object::onCollide time outside PhysicsBehavior
+  summed over the first 6 windows, same 20,617 touching pairs per run, load 5-11): off 45.5 / 27.4 ms
+  (the first under a load spike), on 18.9 / 19.1 ms: about -30% of the dispatch.
+- Referee replay matches (9,000 frames) on col-2 and col-3.
+- physBulk pair rerun (phys-6t, load 6-10): off 30.6 / 22.8 ms, on 26.2 / 27.0 ms: same as before,
+  no gain, not slower.
+- crushFirst pair rerun at load 5-7 (col-3t, the first pair started at load 12): crush-check time
+  off 10.25 / 9.95 ms, on 10.77 / 9.33 ms: inside noise, not slower (kept on: same game).
+## 2026-11-24 — Round 3 update 3: drifting update loop (4-ary queue) built, measured, not kept (logic-ai)
+
+Merged perf/low-end 501981e first. Built behind match rule 4096 (GXRULE_UPDATE_LOOP, second-word
+bit 15, default off): the update queue as a 4-ary heap (half as deep, the moving entry held aside
+and the others sliding into the hole). The heap is binary at every game start and switches shape
+only at the start of the update pass by a rebuild, so record and playback follow the same steps.
+- Determinism: old referee replay matches (rule off); a skirmish recorded with the rule on replays
+  to a match (rules from the replay header 0x1002). Verify mode with the rule on: the queue is a
+  valid 4-ary heap with right indexes and keys every frame, 0 mismatches.
+- Profile pair, strikes (load 17-21): sifting 2.2% -> 1.9% of the frame.
+- A/B pairs off/on (load 15-30), work ms: armies 80.4/94.3, 59.0/76.5; strikes 116.9/141.8,
+  108.9/161.3 — and with the rule on the strike phase hit the benchmark's time limit both times.
+  Screenshots (~/generals-bench/ai-ul-{off1,on1}_battle*.png): at the same shot the armies had not
+  met yet with the rule on. The order of updates due on the same frame changes, and the battle
+  plays out differently and heavier; the queue itself got only 0.3 points cheaper.
+Not kept (code reverted): it is measurably slower in its own pairs. The update queue's turn order
+is part of how the battle unfolds; a cheaper queue would have to keep today's tie order.
+
+## 2026-11-25 — Round 3: update-loop flat pass (logic-ai), merged perf/low-end a0897b2
+
+Where GameLogic::update's own time goes (strikes, load 9-15): GameLogic::update self 1.1-1.5%,
+heap sifting (rebalance*) 1.1-1.7%; AIUpdateInterface::update 7.7-12.6% inclusive, of which the
+state machines' own dispatch is small (updateStateMachine self ~0.3-0.4%; the rest is the states'
+route, enemy-search and weapon work, other agents' systems). The ~4.5% figure did not reproduce.
+The heap's order is the simulation order (earlier entries: hole sift gave nothing exact, 4-ary heap
+drifted into slower battles), so this round's slice is the other per-tick walk in the loop.
+
+disabledList (third switch word bit 8, exact, default ON): the end-of-tick check for disabled
+objects walked every object in the game to find the few that are disabled. Now
+Object::setDisabledUntil adds the object to a flat list (and registerObject, for objects disabled
+before they were registered); the list is sorted into object-list order (each object gets a number
+when it is prepended, so the list is in descending numbers; rebuilt from the list itself after a
+reset or a load) and only those objects are checked; ones no longer disabled drop out.
+- Verify mode: every frame the listed disabled objects, in order, equal the full walk's, and the
+  list order is descending numbers: 0 mismatches (up to 538 disabled objects at once).
+- Old referee replay matches.
+- Profile pair, strikes (load 11): GameLogic::update self 1.5% -> 1.4%; the walk was ~0.1%.
+- A/B pairs off/on, work ms (load 10-24): armies 68.8/61.8, 59.1/61.4; strikes 110.4/102.2,
+  99.1/96.7; aftermath 51.2/51.2, 52.7/51.6. Within noise, not slower. Kept, default on.
+AI state dispatch as a flat pass: no slice found that pays. A state machine's per-tick cost is its
+transition tests and state updates, which read their own unit and the world; the dispatch itself
+(sleep check, virtual calls) is ~0.5% of the frame.
+## 2026-11-24 — Measured, not kept: 8x8 block masks for range searches (would-be switch blockMask, second word bit 24)
+
+- Built on 29c8869: per 8x8 block of cells, the OR of the cells' player masks, recomputed from the
+  dense cell masks whenever a cell's mask changes; the ring walk checked the block before the cell,
+  so the visited cells and their order were unchanged.
+- Same game: verify (every search against the plain walk) 0 mismatches in 4 runs, plus a direct check
+  that no skipped block held a wanted cell; referee replay matched over 9000 frames.
+- Paired timing (fast / plain walk): on 0.231 and 0.255, off 0.245 and 0.251: no difference. fps A/B
+  (blockMask off vs on): pair 1 unusable (load jumped 3 -> 24), pair 2 at load 9-12 strikes 13.7 ->
+  13.0, work 71.9 -> 76.0 ms. Reason: after the dense mask a skipped cell costs one 4-byte read from
+  a small array; the ring walk itself (offset list) is what's left, and blocks can't skip it without
+  changing the visit order. Removed; the patch is kept outside the repo
+  (side-session notes, logic-query-blockmask.patch).
+
+## 2026-11-25 — Round 3 (spatial data): touching-pair tests read kept places, not units (switch pairPlace, second word bit 28, on; match rule spatialPairs 8192 / switch pairOffer, bit 29, off)
+
+- Measured first (merged tree c182dee, profile at load 35-56, shares only): PartitionManager::update
+  15.0% of the strike frame (11.3% armies): pair building 3.4%, gxProcessPair reading both units
+  2.9%, shape tests 2.3%, collision reactions 2.7%; range searches 4.1%. ~87% of listed pairs don't
+  touch.
+- The flat data: every PartitionData now keeps x, y and max(bounding circle, sphere) radius (the same
+  copy its COIs already kept for range searches), refreshed on every transform change, cell update
+  and Z-geometry change.
+- pairPlace (exact): a listed pair whose kept places are farther apart than (rA + rB) x sqrt 2 + 1 is
+  finished from the two PartitionData alone: neither Object, its status bits nor the shape test is
+  read. The sqrt 2: the box-vs-cylinder test treats the circle as its bounding square (first version
+  used rA + rB and verify caught 4,836 touching pairs among 150M; with sqrt 2, 0 in 140M).
+- pairOffer (match rule 8192, changes the game slightly): the same test when a neighbour is offered,
+  so clearly-apart pairs never enter the pair table. Differs only when a collision reaction earlier
+  in the same frame moves a unit next to a dropped neighbour.
+- Same game (pairPlace): verify 0 mismatches (every skipped pair re-tested with the full shape test);
+  referee replay matches over 9000 frames. pairOffer: recorded 9003 frames with it on, played back:
+  matches the recording; referee replay (rule off) matches; screenshots of the crowded fight with it
+  on look normal (no stuck or stacked units).
+- Paired timing (hidden setting gxPairTiming: frames picked by a hash of the frame number run with
+  the features off; PartitionManager::update timed for both kinds, ~900 frames each):
+  pairPlace alone 10.65 -> 10.01 ms and 9.60 -> 9.29 ms per frame (-6%, -3%); pairPlace + pairOffer
+  10.95 -> 9.60 and 11.00 -> 9.46 ms (-12%, -14%). Load 13-31.
+- fps A/B (pairPlace off/on): one usable pair at load 7: armies 16.3 -> 16.6, strikes 12.1 -> 12.0,
+  aftermath 19.4 -> 22.5; the other pairs ran at load 16-50 and stopped at the time limit.
+
+## 2026-11-25 — Fix: cellReuse fast path kept the per-player search lists out of step
+
+- cellReuse (unchanged cells: move each COI to the front of its cell list) put the COI at the head
+  without a new sequence number, so the cell list was no longer in sequence order and searchSlotSkip's
+  merge of per-player lists could visit candidates in a different order than the plain walk (ties
+  and iterator order). Verify mode never saw it: it turned the fast path off.
+- Now CellAndObjectIntersection::gxMoveToFront takes a new sequence and re-links the slot list; in
+  verify mode the fast path runs on odd frames (the fill check on even ones), so the search check
+  covers lists it reordered.
+- Verify: 90k searches, 0 mismatches; cellReuse checks 0 mismatches; referee replay matches.
+## 2026-11-25 — Visual staggering (combat agent; switches animStagger / soundStagger / particleStagger)
+
+- Drawing and sound only; the game logic never reads any of it. Plain Settings switches, no match
+  rule. Referee replay matches with all three on (combat-4, 9,000 frames).
+- animStagger (second word bit 23, **off**): a single-animation unit that is small on screen
+  (radius/distance < 1/50) and has not moved advances its bones every 2nd drawn frame
+  (Animatable3DObjClass::Render). Bone share stayed 1-2.7% either way; no measured gain, so off.
+- soundStagger (second word bit 25, on): 3D sounds still playing update position/volume every 3rd
+  frame (MilesAudioManager::processPlayingList); full update when the volume changes.
+- particleStagger (second word bit 30, on): each particle system steps its particles twice every
+  2nd logic frame, alternating systems by ID (ParticleSystem::update).
+- A/B on combat-4, off → on (two pairs, shares incl.):
+
+  | pair / phase | load | bones | particles | sound |
+  |---|---|---|---|---|
+  | 1 strikes | 38→53 | 1.7→2.7% | 1.0→1.3% | 0.1→0.0% |
+  | 1 armies | 23→15 | 1.0→0.8% | 1.6→1.2% | 0.2→0.1% |
+  | 2 strikes | 25→15 | 2.5→2.3% | 1.3→1.2% | 0.0→0.0% |
+  | 2 armies | 26→17 | 0.8→0.2% | 1.1→0.6% | 0.1→0.1% |
+
+  Inside the noise of this shared machine except particles (−0.1 to −0.5%). Screenshots show
+  different battle moments, nothing broken.
+
+## 2026-11-25 — Weapon status in one pass (combat agent; match rule weaponPass 16384, third word bit 16, off)
+
+- ObjectWeaponStatusHelper ran every frame for every armed unit through the update queue. With the
+  rule on, the helper does its first update, then leaves the queue (sleeps forever) and joins a list
+  sorted by object ID; gxWeaponStatusPass() in GameLogic::update, right after the sleepy-update
+  loop (movement pass first, then weapons), runs adjustModelConditionForWeaponStatus for every
+  listed object that is not disabled. Results drift (queue entries leave the heap, ties reorder),
+  so it is a match rule.
+- The hook is not guarded: if the rule goes off mid-game (single player, live switch) the pass wakes
+  every listed helper back into the queue and empties the list. A loaded save puts a sleeping helper
+  back in the queue.
+- Checks (combat-5): referee replay with the rule off matches; a recording made with the rule on
+  replays to a match; toggle test (verify mode, rule flipped every 200 frames, diagnostics removed since): each switch-off woke every listed helper (934, 1593, 1019, 710, 597) and each switch-on refilled the list (1596, 1024, 711, 598).
+- A/B off → on: status share 1.1→0.4% / 1.1→0.5% (strikes), 1.2→0.5% / 1.4→0.5% (armies),
+  i.e. −0.6 to −0.9% of the frame. fps armies/strikes: pair 2 strikes 11.5/10.2 → 14.1/10.8,
+  pair 2 armies 13.6/10.1 → 14.1/11.2; pair 1 noise in both directions (load 10↔29).
+
+## 2026-11-25 — Unit bones on a worker thread (combat agent; switch boneWorker, third word bit 17, mt build, off)
+
+- Share first (single-thread build, combat-5): HLodClass::Update_Sub_Object_Transforms 3.6% incl in
+  strikes, 2.1% in armies; particles 1.3% + doParticles 0.6-0.7%. The profiler cannot sample the mt
+  build's game thread (every function reads 0.0%), so the mt A/B is by fps only. Note: bench_build
+  with variants ["opt"] leaves the previous mt build staged.
+- The handoff is inside the draw, not across the simulation: logic changes animations while it runs
+  (model-condition changes call Set_Animation / swap render objects), and animations shared between
+  units keep shared decode caches (motchan.h CachedIdx / CacheData), so a worker running during
+  logic would read freed or half-written state. RTS3DScene::Customized_Render queues the visible
+  HLods (holding a reference), wakes one worker pthread, draws the terrain, then takes the jobs the
+  worker has not reached itself and waits for the worker's last one. Render skips an object the
+  worker already brought to this WW3D frame. Objects whose animation plays sounds stay on the main
+  thread (sounds are main-thread only). Particles were not moved (they allocate from the game's
+  memory pools, which are not thread-safe).
+- Replay (mt, switch on) matches. Screenshots normal.
+- A/B mt, quiet machine (load 3-6), fps armies / strikes / aftermath, off → on:
+  - first version (main waited for the worker; the terrain is < 70 draws, little to overlap):
+    18.1/13.7/23.2 → 18.7/13.1/24.8, 18.9/14.4/24.4 → 18.9/13.6/24.8 (strikes −4 to −6%)
+  - main thread takes the remaining jobs: 18.7/13.7/25.0 → 17.7/14.3/27.7,
+    20.9/15.0/28.4 → 21.5/15.5/28.7 (strikes +3-4%, armies −5% / +3%)
+- Off by default until more pairs show armies is not slower.
+- More pairs (combat-9, load 2-12): armies 20.0 → 15.6 (one 130 ms frame, likely the worker
+  pthread starting on first use) and 19.6 → 20.7; strikes 14.9 → 14.3 and 9.7 → 15.6. Stays off.
+  The worker threads now start on the first scene draw (the menu) when any worker switch is on.
+- Worker threads decode animations without the shared caches (motchan.cpp, thread_local
+  gxAnimNoCache): the game logic decodes bones too (Get_Bone_Transform), and a cache index raced
+  by a worker could otherwise be left wrong for the logic's next lookup.
+
+## 2026-11-25 — Unit poses ahead during the logic; particles on a worker (combat agent; boneAhead bit 23, particleWorker bit 24, third word, mt, off)
+
+- boneAhead: at the end of frame N's object draw every visible unit playing one compressed animation
+  is snapshotted (a reference on the animation, its next frame predicted from the last step). The
+  worker decodes each bone's translation / rotation / visibility while the logic runs frame N+1; the
+  draw of N+1 builds the bone hierarchy from them (HTreeClass::gxAnimUpdateFromPose) if the unit
+  still plays that animation, else decodes as before. The worker never touches the unit. At most one
+  frame of animation lag.
+- particleWorker: ParticleSystem::update keeps emission, the particle cap and system logic on the
+  main thread and queues the motion of the existing particles. The worker moves them between the end
+  of ParticleSystemManager::update (inside W3DDisplay::draw) and doParticles, a window in which
+  nothing creates, frees or reads particles; at the join the main thread deletes the dead ones
+  (memory pools are main-thread only). Also joined on manager update, reset and save.
+- Replay (mt, boneWorker + boneAhead + particleWorker on) matches. Screenshots normal.
+- A/B mt, quiet machine (load 1-4), fps armies / strikes / aftermath, off → on:
+  - boneAhead: 20.1/15.7/29.4 → 21.2/15.2/28.8, 21.2/15.4/29.1 → 21.0/15.3/28.5 (no gain; the
+    decode it moves is a small part of the bone work)
+  - particleWorker: 21.5/15.4/28.4 → 21.5/16.2/27.5, 20.1/15.5/27.8 → 21.5/15.9/27.4 (strikes +3-5%,
+    armies 0/+7%, aftermath −1 to −3%)
+- Both off: boneAhead gains nothing; particleWorker is slower in the aftermath in both pairs.
+- particleWorker threshold: live particles sit at the particle cap (~500, MaxParticleCount from the
+  LOD) in every bench phase, so a particle-count threshold cannot tell heavy frames from light ones.
+  Instead the worker is used only while frames are long: frame time averaged over ~8 frames, on above
+  40 ms, off below 32 ms (the hand-off costs the same every frame; weak machines are the target).
+  combat-13 mt, load 2-5, fps armies / strikes / aftermath off → on: 21.0/15.9/28.7 → 21.2/15.9/30.4,
+  20.4/15.9/28.9 → 20.7/15.7/28.9. Replay matches. Nothing slower: **particleWorker on by default**
+  (no effect on the single-thread build). boneAhead and boneWorker stay off.
+
+## 2026-11-25: round-3 logic branches merged (paths, collide, ai, query, combat → 2754c81)
+
+Build merge3r (opt 0e5f777f…, mt 9670fc49…). Conflicts were switch words, match-rule lists and
+PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: movement pass, then weapon pass.
+
+- Same game: referee replay matches over 9000 frames, opt and mt; verify mismatches 0. A recording made
+  with every match rule on (header rules F0EEEA) replays to a match.
+- A/B on a quiet machine (load 2–7), fps armies / strikes / aftermath:
+  - merge2 → merge3r defaults, p1: 18.1→17.5 / 13.4→14.0 / 24.4→25.3; p2: 18.0→18.0 / 13.5→14.1 / 23.8→25.3.
+  - mt: 16.6→16.5 / 13.0→13.9 / 24.2→25.1.
+  - merge3r match rules off → on (sharedRoutes, routeBudget, collideStagger3, lazyScans, groupRoute,
+    routeQueue, routeCache, routeRefine, flowCover, moveAfterTick, physBulk, pairOffer, weaponPass):
+    - p1: 17.0→18.9 / 14.3→16.7 / 27.8→27.3, aftermath 1% low 11.2→17.8.
+    - p2: 18.3→20.2 / 14.2→16.0 / 27.0→25.8, aftermath 1% low 9.4→15.3.
+- Read: defaults give strikes +4–7% and aftermath +4–6%, armies flat. The match rules add armies +10%,
+  strikes +13–17%, and aftermath 1% lows +60%; aftermath average fps is 2–4% lower with the rules on.
+
+## 2026-11-25 — Round 4: update loop as manager passes (logic-ai), merged origin/perf/low-end 9a9c823
+
+(GxUnitStore.h from collide had not landed yet; this part does not need it: the passes run the
+modules themselves, grouped by behaviour, and can read the store once it exists.)
+
+What runs every frame (counter, first 300 frames of the battle benchmark): ~4,240 update calls a
+frame, nearly all returning "call me next frame": ObjectWeaponStatusHelper ~880, AIUpdateInterface
+~530, PhysicsBehavior ~530, ProductionUpdate ~520 (buildings), StealthUpdate ~265,
+GenerateMinefieldBehavior ~140, RebuildHoleBehavior ~110, slaved/spawn/horde/contain updates...
+Each of them was popped from the update heap (25,000 entries) and sifted back every frame.
+
+updatePasses (match rule 131072, third switch word bit 9, default OFF): a module whose update asks
+to run next frame leaves the heap and joins a flat pass list for its update phase. Per phase the
+heap's due entries run first, then that phase's pass list in one loop (phases keep today's order:
+initial, physics, normal, final). A list is sorted by behaviour (AI kinds first, then a hash of the
+module's name, the same on every machine) and object ID; equal keys keep the order they joined.
+A module that asks to sleep, is put to sleep by another object (setWakeFrame later than next frame)
+or is destroyed goes back to the heap or leaves the list. Switching the rule off puts every pass
+module back into the heap. The one gate is gxMatchRule(GXRULE_UPDATE_PASSES).
+- Determinism: old referee replay matches (rule off); a skirmish recorded with the rule on replays
+  to a match (rules from the replay header 0x20022).
+- Profile, strikes (load 18-20): heap sifting 1.5% -> 0.1% of the frame, pass bookkeeping 0.1%,
+  GameLogic::update's own time 1.4% -> 1.3%.
+- A/B (load 11-20, work ms off / passes): armies 72.7/59.3, 77.0/54.4; strikes 110.0/99.4,
+  104.1/84.2; aftermath 39.7/58.2, 47.4/60.8 — but the rule-off aftermaths ended with far fewer
+  units drawn (1147, 1352 vs 1762, 1799; the phases are time-limited, and the off runs had played
+  further), so aftermath is not comparable. An earlier batch at load 22-47: armies 94.8/114.1 off vs
+  61.7-77.7 with passes; strikes 166/223 vs 98-139. Never slower; the size of the gain is mostly
+  battle drift plus load, the measured saving in the loop itself is ~1.5 points.
+- Screenshots (~/generals-bench/ai-up-{off1,pass1}_battle*.png): armies engage normally, no stuck
+  or stacked units.
+- AI by state (a pass per AI state: AI entries re-sorted each frame by current state, then ID):
+  measured, no consistent gain (armies 72.2/54.1, strikes 94.1/88.3 vs passes 59.3/54.4, 99.4/84.2);
+  removed.
+Default off (it changes the order of same-frame updates); for the main chat's combined measurement.
+## 2026-11-25 — Round 4: GxUnitStore, first version (shared by all logic agents)
+
+- Core/GameEngine/Include/Common/GxUnitStore.h + GameLogic/Object/GxUnitStore.cpp: one slot per
+  live Object in dense arrays (id, Object*, x/y/z, vel, radius, player, playerBit, cell, 64-bit
+  behaviour mask), in ascending object-ID order. pass(bit) returns the dense slot list of a mask bit,
+  rebuilt only when a mask changes or units come and go. Holes from removed objects are closed at
+  most once per logic frame, at the first pass(), so slots never move inside a frame once a pass ran;
+  epoch() changes whenever a slot may have moved or been freed (cache slots against it).
+- Hooked into Object: setID adds (creation and load; a load can bring IDs out of order, the next
+  compaction sorts), ~Object removes, reactToTransformChange writes x/y/z, setGeometryInfo the
+  radius, setOrRestoreTeam the player; default mask bits PHYS / AI / COLLIDE set when the modules
+  exist. cell is -1 until the partition writes it.
+- Source of truth: the store holds PhysicsBehavior's velocity (the member is gone; getVelocity()
+  returns the store's Coord3D, arrays reserved for 16k units so the pointer stays put within a frame).
+  Position stays in the Object's matrix with write-through (x/y/z), likewise radius and player.
+- Same game: referee replay matches (9,000 frames, build store-1).
+
+## 2026-11-25 — Round 4, lines 3 and 4 (logic-ai): dispatch table over GxUnitStore + AI passes by state
+
+Merged GxUnitStore (logic-collide e1001f1). Still under match rule 131072 (third word bit 9, OFF).
+- Line 3 (every-frame modules from a mask-driven dispatch table over dense store lists, object-ID
+  order; heap only for sleeping modules): each module kind that runs every frame gets a store
+  behaviour bit (32-59, 28 kinds, numbered in the order they first appear in a game; the table runs
+  them AI kinds first, then by a hash of the module name). A unit's bit is set when its module starts
+  running every frame (at the end of that frame) and cleared when it sleeps, is put to sleep by
+  another unit or is destroyed; never re-tested per tick (line 2). Each kind's pass walks
+  TheGxUnitStore.pass(bit) and calls that kind's module of each unit. Kinds past the 28th and a
+  second module of one kind on a unit use bit 60+phase ("misc"): its pass walks the store list and
+  runs the unit's misc modules. Verify-mode count (rule on): per 300 frames ~1.25-2.9 million calls
+  through the table, 0 through any other list; the heap made 55-125 calls a frame (modules waking
+  from a real sleep, which then join a pass if they ask to run every frame).
+- Line 4 (AI state machine, one pass per state): the AI kinds' units are taken from their store
+  lists and run grouped by current AI state, then kind, then object ID.
+- Determinism: referee replay matches (rule off); a skirmish recorded with the rule on replays to a
+  match (build ai-15).
+- Profile, strikes: heap sifting 1.5% -> 0.1%; GxUnitStore 0.1% -> 0.4% (pass lists rebuilt as units
+  join and leave passes); GameLogic::update self 1.5% -> 1.4%. About 1 point net.
+- A/B, work ms off/on: pair 1 (load 31-34) armies 137.7/54.4, strikes 113.4/114.3; pair 2 (load
+  15-20) armies 67.5/66.6, strikes 87.8/113.4, aftermath 51.3/58.1. Inside the noise of this loaded
+  machine, pair 2's strikes slower; the earlier passes-only build was not slower. Stays default off.
+## 2026-11-25 — Round 4, combat: weapons and damage as managers over GxUnitStore
+
+- damageQueue (match rule 524288, third word bit 18): WeaponTemplate::dealDamageInternal queues
+  (victim ID, DamageInfoInput) instead of calling attemptDamage; gxApplyDamageQueue applies the
+  tick's damage in victim-ID order (each victim's hits in the order dealt) after the update queue and
+  the movement and weapon-status passes, and again after TheWeaponStore's delayed weapons, so nothing
+  is queued between ticks (saves). Damage dealt while applying (death explosions) is applied in
+  further rounds. Referee (rule off) matches; a recording with it on replays to a match; verify mode
+  1631 checks, 0 mismatches. Damage share off → on (dealDamageInternal vs queue + apply, load 20-50):
+  1.0 → 1.7%, 1.6 → 1.1%, 0.9 → 1.0%, 1.8 → 0.7%: the same attemptDamage calls, later and sorted.
+- Store columns (combat block in GxUnitStore.h/.cpp, compacted with the rest): target (write-through
+  from AIUpdateInterface::setCurrentVictim), weaponReady (soonest reload / pre-attack end, written
+  by the weapon-status pass), weaponSig (ammo/status the drawable shows).
+- weaponPass now walks pass(GXB_WEAPON) (bit set when a helper joins, cleared when the rule goes
+  off and it is woken). The old weaponPass recording still replays to a match.
+- weaponSkip (third word bit 19, same game): units with no target, not attacking, no shot this frame,
+  no weapon pose and an unchanged ammo/status signature skip the drawable updates; the getStatus()
+  calls (which refresh the weapon's saved status) still run, so it is exact: the weaponPass recording
+  replays to a match with it on. Weapon-status share 0.4-0.6% → 0.0-0.1%.
+- animStoreList (third word bit 27, mt, drawing only): the bone workers take their units from
+  pass(GXB_ANIM) (set when W3DModelDraw creates an HLod model) plus the visibility check, instead of
+  scanning the scene's render list. mt referee with boneWorker + boneAhead + animStoreList matches.
+- weaponReady is exact: every Weapon and WeaponSet knows its unit (gxSetOwner when a set is built
+  or loaded), and every reload, ammo, status, pre-attack, last-shot or current-weapon change calls
+  TheGxUnitStore.weaponTouch(unit), which zeroes weaponReady. weaponSkip now first skips a unit with
+  no target, weaponReady still in the future and a quiet pose (gxWeaponStillQuiet) without calling
+  getStatus at all. Referee matches; the weaponPass recording replays to a match with it on; verify
+  with weaponPass + weaponSkip: 2142 checks, 0 mismatches.
+- Not moved to the store: particle motion (particles are not units; the store has no particle data).
+- Quiet pairs (flock timing.lock, load 6-11; 2 pairs per phase, profiled, fps armies / strikes / aftermath):
+  weaponSkip (with weaponPass): status share 0.4-0.5% → 0.1% in all 8 runs; fps off/on 19.1/17.2,
+  14.5/13.9, 18.9/8.9 (load jumped to 13.5), 14.5/14.3, 20.2/17.9, 14.1/17.2: within the noise →
+  on by default (it acts only when the weaponPass rule is on).
+  damageQueue: strikes 13.7/10.7, 13.3/13.8; armies 9.9/16.4, 16.3/14.5: neutral; stays off (match rule).
+  animStoreList (mt): armies 15.6/17.8, 15.9/17.7; strikes 10.9/14.4, 12.8/9.4: not slower → on by
+  default (it acts only with boneWorker or boneAhead).
+- Physics on the store (build store-2): physBulk's pass now walks the store's PHYS list (object-ID
+  order) and reads/writes the store's velocities; its own behaviour list is gone. The store's cell is
+  now write-through with x/y (partition cell under the centre, cy * cellCountX + cx).
+  Referee replay matches; a skirmish recorded with physBulk on (header rules 0x822) replays to a match.
+- Collision broad phase over store cells: not built. The pair test already reads kept places
+  (pairPlace, query agent), and the pair-list build measured ~0.6 ms per frame at the peak (round 2
+  timers) against ~2/3 of collision time in the reactions (onCollide + AI processCollision), so a
+  drifting store-cell broad phase can win at most that 0.6 ms.
+
+## 2026-11-25 — Round 4, 100% adoption: positions in the store, physics pass, store broad phase
+
+- positionInStore (third word bit 7, on; same game): an Object's position lives in the unit store
+  (pos[slot], one Coord3D per slot). Thing::getPosition() returns it, Thing's setters write it, and
+  getTransformMatrix() refreshes the matrix translation from it on every read. Fixed per object when
+  it enters the store (so switching it mid-game only affects new objects); when an object leaves the
+  store the position is copied back. Without the switch the store keeps a write-through copy. Every
+  Object knows its slot (gxStoreSlot(), kept by the store at add and compaction); physics velocity
+  reads by that slot (no epoch check any more). Store API change: x/y/z are now pos[s].x/y/z.
+- physBulk (match rule 2048) is now the whole physics step: at the first physics update of a frame,
+  every unit whose physics is due steps in one pass over the store's PHYS list (object-ID order);
+  each unit's own heap call returns the sleep time its step gave. Units woken later in the phase step
+  on their own call as before.
+- storePairs (match rule 65536, third word bit 6, off): collision broad phase over the store. All
+  units the partition holds go in a grid by the store's cell index (units larger than half a cell in
+  every cell under their bounding square); each unit due a collision check (object-ID order) is
+  offered every unit in reach, with pairPlace's distance cut; pairs go to the flat contact arrays.
+- collideStagger's tie-break between two waiting units now compares object IDs (it compared
+  partition-data addresses, which can differ between machines now that the stagger is a match rule).
+- Checks: referee replay matches on store-3 (positionInStore) and store-4 (all of it, verify mode:
+  contact array checked 90,600, mismatches 0); the verify battle on store-3 printed 1,870 GXVERIFY
+  lines, none with a mismatch. A skirmish recorded with physBulk + storePairs on (header rules
+  0x10822) replays to a match. Screenshot with both rules on (store4-rules_battle3-5): normal
+  crowded fight, nothing stuck or piled up.
+- Still write-through (store holds a copy): radius (truth is the GeometryInfo, a value type shared
+  with templates), player (truth is the Team pointer; the store holds the derived index). The cell is
+  written by the partition (query); mask and velocity have no other copy.
+- Radius and player in the store (build store-5, same game): Object::getBoundingCircleRadius() and
+  Object::gxPlayerIndex() read the store; the store's radius is set by setGeometryInfo (the
+  GeometryInfo keeps its own copy for shape tests, it is a value type shared with templates), the
+  player index by setOrRestoreTeam and by TeamPrototype::setControllingPlayer for every member of
+  every instance of a team that changes owner. PhysicsBehavior::onCollide reads the radius from the
+  store. Referee replay matches with verify (contact array 90,600 checks, 0 mismatches).
+- Engine-wide switch to the store getters (build store-6, one mechanical commit, same game): every
+  `obj->getGeometryInfo().getBoundingCircleRadius()` (37 sites + 2 inside Object) now calls
+  `getBoundingCircleRadius()`, every Object `->getControllingPlayer()->getPlayerIndex()` (36 sites +
+  3 inside Object) calls `gxPlayerIndex()`. Left as they were: shape tests and local GeometryInfo
+  variables, template geometry (getTemplateGeometryInfo), Team receivers (2 in setOrRestoreTeam), and
+  the partition's kept place (max of circle and sphere radius, query's code). The store's player index
+  is now written right after m_team changes, before anything in setOrRestoreTeam can read it.
+  Referee replay matches with verify (contact array 90,600 checks, 0 mismatches); the verify battle
+  printed 3,076 GXVERIFY lines, none with a mismatch.
+
+### Round 4: store timing (lane 4, store-6t at 1f29afe, locked pairs)
+
+Six pairs under `flock ~/generals-bench/timing.lock`, load < 8 checked inside the lock (start/end
+load logged; posC's run saw a spike to 20). Logic / collide ms per logic frame, summed over the 12
+battle windows (the first 6 windows are the pre-battle shell and are left out):
+
+| pair | A | B | change |
+|---|---|---|---|
+| positionInStore off / on | 402 / 416 | | +3.5% |
+| positionInStore on / off | 472 / 403 | | +17% |
+| on / physBulk | 384 / 371 | | -3.4% |
+| physBulk / on | 462 / 437 | | +5.6% |
+| storePairs / on | 447 / 480 (load spike) | collide build 57 / 37 | |
+| on / storePairs | 472 / 499 | collide build 35 / 62 | +6%, build ~1.8x |
+
+- positionInStore: slower in both orders (3-17%), so its default is now **off** (third word bit 7;
+  page switch `positionInStore: true` turns it on). The code path stays (line 1 is reachable).
+- physBulk: no measurable change either way (-3% / +6%); stays off.
+- storePairs: collide build ~1.8x slower in both orders (re-bucketing every unit each frame
+  instead of reusing the partition's cells); stays off.
+## 2026-11-25 — updatePasses (dispatch table + AI by state), quiet pair under timing.lock (logic-ai)
+
+Build ai-16 (perf/logic-ai 50ae273), rule 131072 off/on, inside `flock ~/generals-bench/timing.lock`,
+started at load < 8. Work ms (fps):
+- pair 1 (load 7.9-9.6): armies 74.9 (10.5) / 48.5 (18.3); strikes 79.2 (12.4) / 82.5 (11.9);
+  aftermath 38.2 (25.7) / 34.5 (28.5)
+- pair 2 (load 7.6-8.6): armies 53.9 (16.5) / 47.9 (18.3); strikes 72.3 (13.4) / 79.6 (12.4);
+  aftermath 37.6 (26.2) / 38.2 (25.7)
+Armies phase faster (11-35% less work), strike phase 4-10% slower, aftermath even. The strike phase
+has the most churn (units starting and stopping every-frame updates, AI states changing), where the
+per-frame AI state sort and the store's pass-list rebuilds cost more than the heap they replace.
+Stays default off.
+## 2026-11-25 — Round 4 (range searches as a manager): measured before building
+
+- Repeats within a tick (counters per frame on searcher, range, distance type and filter classes;
+  load 64-75, counts only): per 150 frames 17,662 searches, 967 (5.5%) repeated in the same frame.
+  Enemy-target scans (findClosestEnemy chains, ~5,000) repeat 0 times: every unit scans from its own
+  place with its own line-of-sight / attack filters. The repeats are point-defense lasers rescanning
+  after a target dies (~15% of laser scans) and one player-affiliation scan (~25%).
+- After rounds 1-3 range searches are ~1.5-2% of the frame (paired timing: 0.17 of the plain walk),
+  so a per-tick result cache can save well under 0.1% of the frame. A one-pass batch of every unit's
+  scans would need the AI callers to submit requests instead of calling (ai agent's code).
+
+## 2026-11-25 — Round 4: per-tick search snapshot measured, slower, not kept; store hooks kept
+
+- Kept (exact): the partition writes each unit's centre cell into GxUnitStore (setCell, when the
+  centre cell changes; -1 off the map), and units with an AI get the GXB_SCAN behaviour bit (they run
+  the idle enemy scans). Replay matches; verify 0 mismatches (96k searches).
+- Tried (match rule scanSnapshot 262144, third word bit 12): at the first search of a tick every
+  cell's entries (place, radius, player slot, module) copied into one flat array in cell-list order,
+  rebuilt when a PartitionData is destroyed; that tick's scans read it instead of the cell lists.
+  Paired timing in verify runs (copy time counted on the fast side; load 21-34): fast / plain walk
+  0.43 and 0.37 with it vs 0.18 and 0.17 without; 0.5-1% of searches gave a different result.
+  Copying ~all COIs every tick costs more than the ~100 searches a tick it serves (the live lists
+  already skip other players and far entries without reading units). Removed; the rule value is
+  free again. Patch kept outside the repo (side-session notes, logic-query-scansnapshot.patch).
+- With the earlier count (5.5% of searches repeat within a tick, 0 enemy-target scans), a per-tick
+  result cache can save under 0.1% of the frame: not built.
+
+## 2026-11-25 — Round 4 line 7: range searches as a manager (match rule scanManager 262144, third word bit 12, default off)
+
+- Built on the user's 100%-adoption bar although it measured slower. Three parts, one switch (so all
+  players agree on one rule value):
+  - per-tick lists: at the first search of a tick every store slot in the partition goes into the
+    cells its circle covers, in slot (object-ID) order; scans read the store's obj / player / x / y /
+    radius columns and open a unit only when it is near (twice the bounding circle stands in for the
+    sphere);
+  - scan pass: then one pass over pass(GXB_SCAN) in object-ID order reruns each unit's plain enemy
+    scan from last tick (AI::findClosestEnemy reports them via gxScanNoteRequest; the pass's own scans
+    don't count, else every unit rescans every tick: first version, 403k pass scans per run);
+  - result cache: within a tick a search with the same searcher / point, range, distance type, mode
+    and filter classes reuses the first answer (units destroyed since are left out).
+- Verify runs (paired; the pass counted on the manager side; load 15-28): manager / plain walk 0.81
+  and 0.80, vs 0.18 for the default (exact) path. Cache hits ~24% of searches; ~22% of answers differ
+  from a plain walk at the moment of the call (answers as of the tick's first search, slot order).
+- Deterministic: recorded 9003 frames with it on, played back: matches. Referee replay (rule off)
+  matches. Screenshot of the fight with it on: normal. fps pairs: load 20-48, all hit the time limit
+  (unusable).
+- Store hooks (line 2): GXB_SCAN set once for AI units at creation; never re-tested per tick.
+
+- scanManager fps pairs (query-19, under ~/generals-bench/timing.lock, load < 8 at start):
+  pair 1 (load 5.7 before, 8.8 after): armies 15.9 -> 18.0, strikes 13.6 -> 13.4, aftermath 25.5 -> 25.4.
+  pair 2 (load 5.7 before, 13.2 after): armies 18.5 -> 13.2, strikes 12.5 -> 12.2, aftermath 21.3 -> 24.2.
+  Strikes flat (-1..-2%); armies and aftermath swing both ways with load, so no fps gain shown. Stays default off.
+## 2026-11-25 — Round 4, 100% adoption: movement manager on the store; route look-ahead (paths agent)
+- Line 5, movement + route following (match rule moveAfterTick 32768, third word bit 1, off): one pass
+  per frame over `TheGxUnitStore.pass(GXB_MOVE)`, in object-ID order, after the update queue and
+  before physics. It runs doLocomotor (locomotion, computePointOnPath, final-position nudge) for every
+  unit in the list. Positions are read and written through Thing, which with positionInStore keeps
+  them in the store's `pos[s]`; writing `pos[s]` directly would skip the matrix and partition updates.
+- Line 2, the MOVE mask is set on state change only: AIUpdate::gxSetMoving(TRUE) when the AI wakes and
+  the unit is not already in the list, gxSetMoving(FALSE) when doLocomotor says it can sleep forever.
+  A member flag (m_gxMoveOn, not saved; a load starts with no masks) means the store is not re-tested.
+  The per-tick flag array of the first version (8a2733f) is gone. A unit that keeps moving wakes its
+  AI next frame, as the old in-update call did.
+- Route look-ahead (routeQueue + routeCache, no new rule): within the next 256 eligible queued plain
+  requests, cache hits are served first. Serving queue entries by store slot (slotOfId) instead of
+  findObjectByID gains nothing: findObjectByID is already an array index.
+- Checks: paths-27 referee replay matches; a recording with moveAfterTick on (GX=8022) plays back to a
+  match with it off. paths-28 (after merging collide's store-owned position, radius and player)
+  matches the referee and that recording. paths-24 (look-ahead): referee matches; a recording with
+  groupRoute + routeCache + flowCover + routeRefine + routeQueue on matches with them off.
+- Timing (pairs under timing.lock, load 5–10; strikes phase fps / 1% low / frames over 100 ms):
+  - Look-ahead, paths-23 vs paths-24 with all five route rules on: 14.4 → 16.0 / 6.9 → 7.0 / 20 → 10
+    and 15.0 → 15.9 / 7.7 → 6.9 / 13 → 16. Kept (it rides on routeQueue + routeCache).
+  - moveAfterTick off vs on (paths-28): 14.9 → 14.5 / 7.0 → 6.5 / 34 → 35 and 14.7 → 12.3 /
+    6.0 → 5.9 / 21 → 115 (that half ran at load 8.6–9.8). Not faster: kept behind its rule,
+    default off, as the round-4 bar asks.

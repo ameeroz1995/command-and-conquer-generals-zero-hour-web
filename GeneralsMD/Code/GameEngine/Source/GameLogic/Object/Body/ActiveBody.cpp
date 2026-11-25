@@ -658,7 +658,7 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 			{
 				AudioEventRTS fearSound = *obj->getTemplate()->getVoiceFear();
 				fearSound.setPosition( obj->getPosition() );
-				fearSound.setPlayerIndex( obj->getControllingPlayer()->getPlayerIndex() );
+				fearSound.setPlayerIndex( obj->gxPlayerIndex() );
 				TheAudio->addAudioEvent(&fearSound);
 			}
 		}
@@ -700,7 +700,7 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 			PartitionFilter *filters[] = { &f1, &filterMapStatus, nullptr };
 
 
-			Real distance = TheAI->getAiData()->m_retaliateFriendsRadius + obj->getGeometryInfo().getBoundingCircleRadius();
+			Real distance = TheAI->getAiData()->m_retaliateFriendsRadius + obj->getBoundingCircleRadius();
 			SimpleObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( obj->getPosition(), distance, FROM_CENTER_2D, filters, ITER_FASTEST );
 			MemoryPoolObjectHolder hold( iter );
 			for( Object *them = iter->first(); them; them = iter->next() )

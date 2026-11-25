@@ -53,6 +53,7 @@
 //-----------------------------------------------------------------------------
 //           Includes
 //-----------------------------------------------------------------------------
+#include "Common/GxUnitStore.h"
 #include "Common/GameMemory.h"
 #include "Common/KindOf.h"
 #include "Common/Override.h"
@@ -116,7 +117,7 @@ public:
 	// don't want this behavior? then call setTransformMatrix instead.
 	void setOrientation( Real angle );
 
-	const Coord3D *getPosition() const { return &m_cachedPos; }
+	const Coord3D *getPosition() const { return &gxPos(); }
 	Real getOrientation() const { return m_cachedAngle; }
 
 	Bool isPositioned() const;
@@ -126,6 +127,8 @@ public:
 	void getUnitDirectionVector3D(Coord3D& dir) const;
 
 	Real getHeightAboveTerrain() const;
+	/// web port (physReuse): a caller that just computed calculateHeightAboveTerrain() for the current transform stores it
+	void gxSetHeightAboveTerrain(Real h) const { m_cachedAltitudeAboveTerrain = h; m_cacheFlags |= VALID_ALTITUDE_TERRAIN; }
 	Real getHeightAboveTerrainOrWater() const;
 
 	Bool isAboveTerrain() const { return getHeightAboveTerrain() > 0.0f; }
@@ -139,7 +142,23 @@ public:
 	void convertBonePosToWorldPos(const Coord3D* bonePos, const Matrix3D* boneTransform, Coord3D* worldPos, Matrix3D* worldTransform) const;
 
 	void setTransformMatrix( const Matrix3D *mx );												///< set the world transformation matrix
-	const Matrix3D* getTransformMatrix() const { return &m_transform; }		///< return the world transformation matrix
+	const Matrix3D* getTransformMatrix() const		///< return the world transformation matrix
+	{
+		if (m_gxPosInStore)
+		{
+			// web port (positionInStore): the translation's truth is the unit store
+			const Coord3D &p = gxPos();
+			m_transform.Set_Translation(Vector3(p.x, p.y, p.z));
+		}
+		return &m_transform;
+	}
+
+	// web port (round 4): this object's slot in the unit store (-1 if none; set by GxUnitStore only)
+	Int gxStoreSlot() const { return m_gxSlot; }
+	void gxSetStoreSlot(Int s) { m_gxSlot = s; }
+	/// position kept in the store (switch positionInStore, fixed when the object enters the store)
+	Bool gxPosInStore() const { return m_gxPosInStore; }
+	void gxSetPosInStore(Bool on);	///< GxUnitStore only: moves the position into / out of the store
 
 	void transformPoint( const Coord3D *in, Coord3D *out );								///< transform this point using the m_transform matrix of this thing
 
@@ -172,7 +191,10 @@ private:
 		(pos, angle, etc) are all simply cached values used for efficiency and convenience.
 		you should NEVER modify them directly, because that won't change anything!
 	*/
-	Matrix3D m_transform;									///< the 3D orientation and position of this Thing
+	mutable Matrix3D m_transform;					///< the 3D orientation and position of this Thing (translation refreshed from the store, see getTransformMatrix)
+	Int m_gxSlot;													///< web port: unit store slot, -1 if none
+	Bool m_gxPosInStore;									///< web port: the position lives in TheGxUnitStore.pos[m_gxSlot]
+	Coord3D &gxPos() const { return m_gxPosInStore ? TheGxUnitStore.pos[m_gxSlot] : m_cachedPos; }
 
 	enum
 	{

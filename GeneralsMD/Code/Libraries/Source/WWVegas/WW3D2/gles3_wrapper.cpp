@@ -54,11 +54,11 @@ double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gle
 static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 // Second switch word (the first is full): bit 0 contactTable, bit 1 sleepyKeys, bit 2 openHeap, bit 3 contactArray (game logic, same game).
-static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 512 | 65536 | 131072 | 262144 | 524288;
+static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 512 | 65536 | 131072 | 262144 | 524288 | 128 | 67108864 | 268435456 | 33554432 | 1073741824;
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
-static int g_PageSwitches3 = 0;
+static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 134217728;	// collide 4-5, ai 8, particleWorker 24 on
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -457,21 +457,28 @@ void GLES3_Begin_Scene() {
                  | (o.contactArray === false ? 0 : 8)   // bit 3: touching pairs kept in flat arrays, nothing allocated per pair (PartitionManager.cpp; same game)
                  | (o.cellBits === false ? 0 : 32)      // bit 5: route searches read a bitmap of occupied cells (AIPathfind.cpp; same game)
                  | (o.lazyFields === false ? 0 : 64)    // bit 6: flow fields computed only as far as the units asking (AIPathfind.cpp; same routes)
-                 | (o.coarseStart === true ? 128 : 0)   // bit 7: match rule coarseStart, units follow the zone-level route while their full route is queued (AIUpdate.cpp)
+                 | (o.coarseStart === false ? 0 : 128)   // bit 7: match rule coarseStart, units follow the zone-level route while their full route is queued (AIUpdate.cpp)
                  | (o.lazyScans === true ? 4096 : 0)    // bit 12: routine enemy scans that find nothing wait twice as long (AIUpdate.cpp; match rule)
                  | (o.sharedRoutes === true ? 8192 : 0)   // bit 13: units sent to one point plan to free spots near it, sharing its route (AIUpdate.cpp; match rule)
                  | (o.routeBudget === true ? 16384 : 0)  // bit 14: half the route-search work per frame (AIPathfind.cpp; match rule)
                  | (o.boneCache === false ? 0 : 1048576)  // bit 20: loaded-missile bones found by index, not by name every frame (W3DModelDraw.cpp; drawing only)
                  | (o.lightCache === false ? 0 : 2097152)  // bit 21: headlight sub-objects listed once per model (W3DModelDraw.cpp; drawing only)
                  | (o.clipSkip === false ? 0 : 4194304)   // bit 22: loaded-missile display asked only of models that show it (Drawable.cpp; drawing only)
+                 | (o.animStagger === true ? 8388608 : 0)  // bit 23 (off: no measured gain): still, small-on-screen units animate every 2nd drawn frame (animobj.cpp; drawing only)
+                 | (o.soundStagger === false ? 0 : 33554432)  // bit 25: playing 3D sounds follow their unit every 3rd frame (MilesAudioManager.cpp; sound only)
+                 | (o.particleStagger === false ? 0 : 1073741824)  // bit 30: particle systems step every 2nd frame with double steps (ParticleSys.cpp; drawing only)
                  | (o.cellReuse === false ? 0 : 256)  // bit 8: a moved unit still on the same map squares is moved to the front of their lists, not refilled (PartitionManager.cpp; same game)
                  | (o.leanPairs === false ? 0 : 512)   // bit 9: touching-pair offers read no unit data and use a 4x smaller table (PartitionManager.cpp; same game)
                  | (o.collideStagger === true ? 1024 : 0)   // bit 10: ground units check collisions every 2nd frame (PartitionManager.cpp; match rule)
                  | (o.collideStagger3 === true ? 2048 : 0)  // bit 11: ... every 3rd frame (wins over bit 10)
+                 | (o.physReuse === false ? 0 : 67108864)  // bit 26: physics reuses its ground height for the airborne check (PhysicsUpdate.cpp; same game)
+                 | (o.physBulk === true ? 134217728 : 0)  // bit 27: the whole physics step of all units in one pass over the unit store (PhysicsUpdate.cpp; match rule)
                  | (o.searchSlotSkip === false ? 0 : 65536)  // bit 16: range searches skip entries of players the relationship filter rejects (PartitionManager.cpp; same game)
                  | (o.laserFilters === false ? 0 : 131072)   // bit 17: point-defense lasers filter inside the range search (PointDefenseLaserUpdate.cpp; same game)
                  | (o.denseCellMask === false ? 0 : 262144)  // bit 18: range searches read each cell's player mask from one dense array (PartitionManager.cpp; same game)
-                 | (o.searchCache === false ? 0 : 524288);   // bit 19: range searches turn far entries away by a cached position (PartitionManager.cpp; same game)
+                 | (o.searchCache === false ? 0 : 524288)    // bit 19: range searches turn far entries away by a cached position (PartitionManager.cpp; same game)
+                 | (o.pairPlace === false ? 0 : 268435456)   // bit 28: touching pairs clearly apart by their kept places are done without reading the units (PartitionManager.cpp; same game)
+                 | (o.pairOffer === true ? 536870912 : 0);   // bit 29: match rule spatialPairs: clearly-apart neighbours are not offered as pairs (PartitionManager.cpp; changes the game)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
@@ -479,7 +486,28 @@ void GLES3_Begin_Scene() {
                  | (o.multiDraw === false ? 0 : 1073741824)   // bit 30: different rigid parts of one material in one multi-draw call (dx8renderer.cpp)
                  | (o.multiLights === false ? 0 : 536870912)   // bit 29: ... each with its own lights, so parts in different light join too
                  | (o.uiMerge === false ? 0 : 268435456)       // bit 28: consecutive interface pictures with one texture drawn together (render2d.cpp)
-                 | (o.sortMaterials === false ? 0 : 134217728); // bit 27: see-through draws with equal materials merge (sortingrenderer.cpp)
+                 | (o.sortMaterials === false ? 0 : 67108864)   // bit 26: see-through draws with equal materials merge (sortingrenderer.cpp)
+                 | (o.cpopSegments === true ? 1 : 0)   // bit 0: route-following reads each route's segments from one flat array (AIPathfind.cpp; same game)
+                 | (o.moveAfterTick === true ? 2 : 0)   // bit 1: match rule moveAfterTick, every unit's locomotion in one pass at the end of the tick (AIUpdate.cpp)
+                 | (o.groupRoute === true ? 4 : 0)      // bit 2: match rule groupRoute, one route search per group order (AIGroup.cpp)
+                 | (o.routeQueue === true ? 8 : 0)      // bit 3: match rule routeQueue, no dropped route requests (AIPathfind.cpp)
+                 | (o.routeCache === true ? 1048576 : 0)   // bit 20: match rule routeCache, recent routes reused (AIPathfind.cpp)
+                 | (o.routeRefine === true ? 2097152 : 0)  // bit 21: match rule routeRefine, detailed search only for the next stretch (AIPathfind.cpp)
+                 | (o.flowCover === true ? 4194304 : 0)   // bit 22: match rule flowCover, flow fields for moves over 8 cells (AIPathfind.cpp)
+                 | (o.crushFirst === false ? 0 : 16)   // bit 4: crush tests compare crush levels before the ally lookup (Object.cpp; same game)
+                 | (o.collideList === false ? 0 : 32)  // bit 5: each unit lists its collide modules once instead of asking every module per collision (Object.cpp; same game)
+                 | (o.storePairs === true ? 64 : 0)   // bit 6: match rule storePairs, collision broad phase over the unit store's cells (PartitionManager.cpp)
+                 | (o.positionInStore ? 128 : 0)  // bit 7: positions live in the unit store (Thing.h / GxUnitStore; same game; fixed per object when it enters the store)
+                 | (o.disabledList === false ? 0 : 256)  // bit 8: end-of-tick disabled check visits a list of disabled objects, not every object (GameLogic.cpp; same game)
+                 | (o.updatePasses === true ? 512 : 0)   // bit 9: match rule updatePasses, every-frame update modules run as flat passes per phase (GameLogic.cpp)
+                 | (o.scanManager === true ? 4096 : 0)    // bit 12: match rule scanManager, range searches as a manager: per-tick store lists, scan pass, result cache (PartitionManager.cpp)
+                 | (o.weaponPass === true ? 65536 : 0)    // bit 16: match rule weaponPass, armed units' weapon status in one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
+                 | (o.damageQueue === true ? 262144 : 0)   // bit 18: match rule damageQueue, weapon damage queued in the tick and applied in victim-ID order (Weapon.cpp)
+                 | (o.weaponSkip === false ? 0 : 524288)    // bit 19: weaponSkip, with weaponPass: the store pass skips armed units whose weapon pose would not change (Object.cpp; same game)
+                 | (o.animStoreList === false ? 0 : 134217728)  // bit 27: animStoreList, the bone workers take their units from the store's ANIM list (W3DScene.cpp)
+                 | (o.boneWorker === true ? 131072 : 0)   // bit 17: boneWorker, mt build: visible units' bones computed on a worker thread while the terrain draws (animobj.cpp, W3DScene.cpp)
+                 | (o.particleWorker === false ? 0 : 16777216)  // bit 24: particleWorker (on), mt build: existing particles move on a worker during the draw when frames are long (ParticleSys.cpp)
+                 | (o.boneAhead === true ? 8388608 : 0);  // bit 23: boneAhead, mt build: drawn units' next poses decoded on a worker while the game logic runs (animobj.cpp, W3DScene.cpp)
         });
         g_PageSwitches = EM_ASM_INT({
             var st = window.GeneralsX && window.GeneralsX.settings;

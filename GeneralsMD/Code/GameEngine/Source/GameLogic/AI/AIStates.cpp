@@ -603,8 +603,8 @@ StateReturnType AIRappelState::update()
 					// Garrison doesn't have reserveDoor or exitDelay, so if we do nothing, everyone will appear on top
 					// of each other and get stuck inside each others' extent (except for the first guy).  So we'll
 					// scatter the start point around a little to make it better.
-					Real offset = min(obj->getGeometryInfo().getBoundingCircleRadius(),
-														bldg->getGeometryInfo().getBoundingCircleRadius());
+					Real offset = min(obj->getBoundingCircleRadius(),
+														bldg->getBoundingCircleRadius());
 					Real angle = GameLogicRandomValueReal( PI, 2*PI );//Downish.
 					Coord3D startPosition = *bldg->getPosition();
 					startPosition.x += offset * Cos( angle );
@@ -1875,6 +1875,15 @@ StateReturnType AIInternalMoveToState::update()
 	// web port (match rule coarseStart): on the coarse route only steer along it; the full route is coming
 	if (ai->isWaitingForPath())
 		return STATE_CONTINUE;
+
+	// web port (match rule routeRefine): near the end of the detailed stretch, plan the next one
+	if (!forceRecompute && thePath && thePath->m_gxRefine) {
+		const Real dx = obj->getPosition()->x - thePath->m_gxRefineEnd.x, dy = obj->getPosition()->y - thePath->m_gxRefineEnd.y;
+		if (dx * dx + dy * dy < sqr(12 * PATHFIND_CELL_SIZE_F)) {
+			thePath->m_gxRefine = FALSE;	// ask once per stretch
+			forceRecompute = true;
+		}
+	}
 
 	// if our goal has moved, recompute our path
 	if (forceRecompute || TheGameLogic->getFrame() - m_pathTimestamp > MIN_REPATH_TIME)

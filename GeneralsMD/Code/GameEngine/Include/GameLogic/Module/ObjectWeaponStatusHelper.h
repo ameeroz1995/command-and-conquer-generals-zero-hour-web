@@ -74,7 +74,20 @@ public:
 	virtual UpdateSleepTime update()
 	{
 		getObject()->adjustModelConditionForWeaponStatus();
+		// match rule weaponPass: from now on gxWeaponStatusPass() does this, in object-ID order.
+		if (gxJoinWeaponStatusPass())
+			return UPDATE_SLEEP_FOREVER;
 		// unlike other helpers, this one must run every frame.
 		return UPDATE_SLEEP_NONE;
 	}
+
+	void gxWake() { setWakeFrame(getObject(), UPDATE_SLEEP_NONE); }
+	Object* gxObject() { return getObject(); }
+
+private:
+	Bool gxJoinWeaponStatusPass();
 };
+
+/// match rule weaponPass (Common/GxMatchRules.h): one pass over every armed object's weapon
+/// status at the end of the tick, in object-ID order, instead of one update-queue entry each.
+void gxWeaponStatusPass();

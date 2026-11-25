@@ -30,6 +30,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxUnitStore.h"
 
 #define DEFINE_WEAPONSLOTTYPE_NAMES
 #define DEFINE_COMMANDSOURCEMASK_NAMES
@@ -175,7 +176,7 @@ Bool WeaponTemplateSet::testWeaponSetFlag( WeaponSetType wst ) const
 //-------------------------------------------------------------------------------------------------
 WeaponSet::WeaponSet()
 {
-	m_curWeapon = PRIMARY_WEAPON;
+	m_curWeapon = PRIMARY_WEAPON; gxTouch();
 	m_curWeaponLockedStatus = NOT_LOCKED;
 	m_curWeaponTemplateSet = nullptr;
 	m_filledWeaponSlotMask = 0;
@@ -323,7 +324,7 @@ void WeaponSet::updateWeaponSet(const Object* obj)
 		{
 			DEBUG_ASSERTLOG(!isCurWeaponLocked(), ("changing WeaponSet while Weapon is Locked... implicit unlock occurring!"));
 			releaseWeaponLock(LOCKED_PERMANENTLY);	// release all locks. sorry!
-			m_curWeapon = PRIMARY_WEAPON;
+			m_curWeapon = PRIMARY_WEAPON; gxTouch();
 		}
 		m_filledWeaponSlotMask = 0;
 		m_totalAntiMask = 0;
@@ -350,12 +351,29 @@ void WeaponSet::updateWeaponSet(const Object* obj)
 				// no, do NOT do this; always start with the cur weapon being primary, even if there is no primary
 				// weapon. this is by design, to allow us to have units that have only "spell" weapons and no
 				// "normal" weapons. (srj)
-				// m_curWeapon = (WeaponSlotType)i;
+				// m_curWeapon = (WeaponSlotType)i; gxTouch();
 			}
 		}
 		m_curWeaponTemplateSet = set;
 		//DEBUG_LOG(("WeaponSet::updateWeaponSet -- changed curweapon to %s",getCurWeapon()->getName().str()));
+		gxSetOwner(obj->getID());	// weaponSkip: the new weapons know their unit
 	}
+}
+
+// weaponSkip (combat): this set's unit; its weapons report their changes to the store under it
+void WeaponSet::gxSetOwner(ObjectID id)
+{
+	m_gxOwner = id;
+	for (Int i = 0; i < WEAPONSLOT_COUNT; ++i)
+		if (m_weapons[i])
+			m_weapons[i]->gxSetOwner(id);
+	gxTouch();
+}
+
+void WeaponSet::gxTouch() const
+{
+	if (m_gxOwner != INVALID_ID)
+		TheGxUnitStore.weaponTouch((int)m_gxOwner);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -824,7 +842,7 @@ Bool WeaponSet::chooseBestWeaponForTarget(const Object* obj, const Object* victi
 	{
 		// Weapon lock is checked first for specific attack- ground powers.  Otherwise, we will reproduce the old behavior
 		// and make only Primary attack the ground.
-		m_curWeapon = PRIMARY_WEAPON;
+		m_curWeapon = PRIMARY_WEAPON; gxTouch();
 		return TRUE;
 	}
 
@@ -966,18 +984,18 @@ Bool WeaponSet::chooseBestWeaponForTarget(const Object* obj, const Object* victi
 	if ( found )
 	{
 		// If we found a good best one, then just use it
-		m_curWeapon = currentDecision;
+		m_curWeapon = currentDecision; gxTouch();
 	}
 	else if ( foundBackup )
 	{
 		// No ready weapon was found, so return the most suitable unready one.
-		m_curWeapon = currentDecisionBackup;
+		m_curWeapon = currentDecisionBackup; gxTouch();
 		found = TRUE;
 	}
 	else
 	{
 		// No weapon at all was found, so we go back to primary.
-		m_curWeapon = PRIMARY_WEAPON;
+		m_curWeapon = PRIMARY_WEAPON; gxTouch();
 	}
 
 	//DEBUG_LOG(("WeaponSet::chooseBestWeaponForTarget -- changed curweapon to %s",getCurWeapon()->getName().str()));
@@ -1084,13 +1102,13 @@ Bool WeaponSet::setWeaponLock( WeaponSlotType weaponSlot, WeaponLockType lockTyp
 	{
 		if( lockType == LOCKED_PERMANENTLY )
 		{
-			m_curWeapon = weaponSlot;
+			m_curWeapon = weaponSlot; gxTouch();
 			m_curWeaponLockedStatus = lockType;
 			//DEBUG_LOG(("WeaponSet::setWeaponLock permanently -- changed curweapon to %s",getCurWeapon()->getName().str()));
 		}
 		else if( lockType == LOCKED_TEMPORARILY && m_curWeaponLockedStatus != LOCKED_PERMANENTLY )
 		{
-			m_curWeapon = weaponSlot;
+			m_curWeapon = weaponSlot; gxTouch();
 			m_curWeaponLockedStatus = lockType;
 			//DEBUG_LOG(("WeaponSet::setWeaponLock temporarily -- changed curweapon to %s",getCurWeapon()->getName().str()));
 		}

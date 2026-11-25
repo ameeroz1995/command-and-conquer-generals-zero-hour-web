@@ -55,6 +55,10 @@
 #include "W3DDevice/GameClient/W3DCustomScene.h"
 #include "W3DDevice/GameClient/W3DShroud.h"
 #include "WW3D2/camera.h"
+#include "WW3D2/animobj.h"
+#include <vector>
+#include "Common/GxUnitStore.h"
+#include "W3DDevice/GameClient/Module/W3DModelDraw.h"
 #include "WW3D2/dx8renderer.h"
 #include "WW3D2/sortingrenderer.h"
 #include "WW3D2/dx8wrapper.h"
@@ -1100,6 +1104,42 @@ void RTS3DScene::Render(RenderInfoClass & rinfo)
 /** Custom render method for the RTS3DScene, custom render properties for our
   * particular game go here */
 //=============================================================================
+// The visible animated units' HLods for the bone workers. animStoreList (third switch word bit
+// 27): taken from the store's ANIM list (units whose model is an HLod, object-ID order); otherwise
+// by scanning the scene's render list.
+static void gxCollectAnimated(RefRenderObjListClass &renderList, std::vector<RenderObjClass *> &out)
+{
+	out.clear();
+	extern int GLES3_Page_Switches3();
+	if (GLES3_Page_Switches3() & 134217728)
+	{
+		GxUnitStore &st = TheGxUnitStore;
+		const std::vector<int> &list = st.pass(GXB_ANIM);
+		for (size_t i = 0; i < list.size(); ++i)
+		{
+			Object *obj = st.obj[list[i]];
+			Drawable *draw = obj ? obj->getDrawable() : nullptr;
+			if (!draw)
+				continue;
+			for (DrawModule **dm = draw->getDrawModules(); *dm; ++dm)
+			{
+				W3DModelDraw *md = dynamic_cast<W3DModelDraw *>(*dm);
+				RenderObjClass *r = md ? md->getRenderObject() : nullptr;
+				if (r && r->Class_ID() == RenderObjClass::CLASSID_HLOD && r->Is_Really_Visible())
+					out.push_back(r);
+			}
+		}
+		return;
+	}
+	RefRenderObjListIterator it(&renderList);
+	for (it.First(); !it.Is_Done(); it.Next())
+	{
+		RenderObjClass *r = it.Peek_Obj();
+		if (r->Class_ID() == RenderObjClass::CLASSID_HLOD && r->Is_Really_Visible())
+			out.push_back(r);
+	}
+}
+
 void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 {
 #ifdef DIRTY_CONDITION_FLAGS
@@ -1107,6 +1147,7 @@ void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 #endif
 
 	RenderObjClass *terrainObject=nullptr,*robj;
+	gxBoneAheadJoin();	// boneAhead: the poses the worker decoded while the logic ran are ready
 	m_translucentObjectsCount = 0;	//start of new frame so no translucent objects
 	m_occludedObjectsCount = 0;
 
@@ -1138,6 +1179,18 @@ void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 		}
 	}
 
+	// boneWorker (third switch word bit 17, mt build, drawing only): the visible objects' bones are
+	// computed on the worker thread while the terrain draws below; joined before the objects draw.
+	const bool gxBones = terrainObject && m_customPassMode == SCENE_PASS_DEFAULT &&
+		!ShaderClass::Is_Backface_Culling_Inverted() && gxBoneWorkerOn();
+	if (gxBones) {
+		static std::vector<RenderObjClass *> animated;
+		gxCollectAnimated(RenderList, animated);
+		for (size_t i = 0; i < animated.size(); ++i)
+			gxBoneWorkerAdd(animated[i]);
+		gxBoneWorkerStart(rinfo.Camera.Get_Position());
+	}
+
 	//terrain needs to be rendered first
 	if (terrainObject)	// Don't check visibility - terrain is always visible. jba.
 	{
@@ -1158,6 +1211,9 @@ void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 		}
 		else
 		robj->Render(rinfo);
+	}
+	if (gxBones) {
+		gxBoneWorkerJoin();
 	}
 
 	if (m_drawTerrainOnly) {
@@ -1191,6 +1247,14 @@ void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 #endif
 				renderOneObject(rinfo, robj, localPlayerIndex);
 		}
+	}
+
+	// boneAhead (third switch word bit 23, mt build, drawing only): the drawn units' next poses are
+	// decoded on the worker thread while the game logic runs the next frame.
+	if (terrainObject && m_customPassMode == SCENE_PASS_DEFAULT && !ShaderClass::Is_Backface_Culling_Inverted() && gxBoneAheadWanted()) {
+		static std::vector<RenderObjClass *> drawn;
+		gxCollectAnimated(RenderList, drawn);
+		gxBoneAheadSnapshot(drawn.data(), (int)drawn.size());
 	}
 
 	//Tell shadow manager to render shadows at the end of this frame
@@ -1380,7 +1444,7 @@ void RTS3DScene::flushOccludedObjectsIntoStencil(RenderInfoClass & rinfo)
 			draw = ((DrawableInfo *)robj->Get_User_Data())->m_drawable;
 			Object *object=draw->getObject();
 
-			Int index=object->getControllingPlayer()->getPlayerIndex();
+			Int index=object->gxPlayerIndex();
 
 			if ((lastPlayerObject[index]-&playerObjects[index][0]) >= MAX_VISIBLE_OCCLUDED_PLAYER_OBJECTS)
 			{
@@ -1600,7 +1664,7 @@ void RTS3DScene::flushOccludedObjects(RenderInfoClass & rinfo)
 			draw = ((DrawableInfo *)robj->Get_User_Data())->m_drawable;
 			Object *object=draw->getObject();
 
-			Int index=object->getControllingPlayer()->getPlayerIndex();
+			Int index=object->gxPlayerIndex();
 
 			rinfo.Push_Material_Pass(m_occludedMaterialPass[index]);
 			robj->Render(rinfo);

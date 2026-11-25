@@ -52,6 +52,8 @@
 #include <emscripten.h>
 #endif
 
+#include "Common/GxUnitStore.h"
+#include "Common/GxMatchRules.h"
 #include "Common/ActionManager.h"
 #include "Common/DiscreteCircle.h"
 #include "Common/GameEngine.h"
@@ -77,6 +79,11 @@
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/StealthUpdate.h"
 #include "GameLogic/PartitionManager.h"
+#include "Common/GxUnitStore.h"
+#include "GameLogic/AI.h"
+#include "GameLogic/ScriptEngine.h"
+#include <unordered_map>
+#include <typeinfo>
 #include "Common/Recorder.h"
 #include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/Squad.h"
@@ -104,6 +111,7 @@ static int GLES3_Page_Switches() { return 0; }
 static int GLES3_Page_Switches2() { return 0; }
 static int gx_verify_mismatch, gx_verify_checked;
 #endif
+static Bool g_gxPairOff = false;	// timing mode (gxPairTiming): this frame runs without pairPlace / pairOffer
 
 #ifdef DUMP_PERF_STATS
 	long s_countInClosestObjects = 0;
@@ -839,8 +847,8 @@ static Bool distCalcProc_BoundaryAndBoundary_2D(
 
 	Real shrinkFactor = 1.0f;
 	Real shrunkenDistSqr = actualDistSqr;
-	Real totalRad = (objA ? objA->getGeometryInfo().getBoundingCircleRadius() : 0.0f) +
-							(objB ? objB->getGeometryInfo().getBoundingCircleRadius() : 0.0f);
+	Real totalRad = (objA ? objA->getBoundingCircleRadius() : 0.0f) +
+							(objB ? objB->getBoundingCircleRadius() : 0.0f);
 
 	if (totalRad > 0.0f)
 	{
@@ -1277,6 +1285,17 @@ void CellAndObjectIntersection::gxSlotLink(Int slot)
 		m_cell->gxSlotHead(slot) = this;
 	if (next)
 		next->m_gxSlotPrev = this;
+}
+
+void CellAndObjectIntersection::gxMoveToFront()
+{
+	// the cell list runs from high to low sequence (switch searchSlotSkip merges per-slot lists by
+	// it), so the COI put at the head takes a new, highest sequence and moves in its slot list too
+	m_cell->friend_removeFromCellList(this);
+	m_cell->friend_addToCellList(this);
+	gxSlotUnlink();
+	m_gxSeq = m_cell->gxTakeSeq();
+	gxSlotLink(m_gxPlayer);
 }
 
 void CellAndObjectIntersection::gxSlotUnlink()
@@ -1732,6 +1751,8 @@ PartitionData::PartitionData()
 	m_coiArray = nullptr;
 	m_coiInUseCount = 0;
 	m_doneFlag = 0;
+	m_gxX = m_gxY = 0.0f;
+	m_gxR = HUGE_DIST;	// no place yet: never turned away
 	m_dirtyStatus = NOT_DIRTY;
 	m_lastCell = nullptr;
 	memset(m_gxFillKey, 0, sizeof(m_gxFillKey));
@@ -2158,6 +2179,13 @@ void PartitionData::doSmallFill(
 
 //-----------------------------------------------------------------------------
 static UnsignedInt g_gxDeferStamp = 0;	// collideStagger: this frame's stamp (frame + 1), 0 when off
+// a deterministic order for two partition datas: object ID (ghosts, with no object, first)
+static inline Bool gxBefore(const PartitionData *a, const PartitionData *b)
+{
+	const Object *oa = a->getObject(), *ob = b->getObject();
+	const UnsignedInt ia = oa ? (UnsignedInt)oa->getID() : 0, ib = ob ? (UnsignedInt)ob->getID() : 0;
+	return ia < ib;
+}
 
 void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 {
@@ -2177,6 +2205,11 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 
 	//DEBUG_LOG(("adding possible collision for %s",getObject()->getTemplate()->getName().str()));
 
+	// Web port (match rule spatialPairs 8192, switch pairOffer, second word bit 29): a neighbour whose
+	// kept place is clearly apart from ours is not offered at all. Changes the game only when a
+	// collision reaction earlier in the same frame moves a unit into a pair dropped here.
+	extern bool gxMatchRule(unsigned int rule);
+	const Bool gxOffer = gxMatchRule(8192 /* GXRULE_SPATIAL_PAIRS */) && !g_gxPairOff;
 	CellAndObjectIntersection *myCoi = m_coiArray;
 	for (Int i = m_coiInUseCount; i > 0; --i, ++myCoi)
 	{
@@ -2186,12 +2219,19 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 
 		for (CellAndObjectIntersection *coi = cell->getFirstCoiInCell(); coi; coi = coi->getNextCoi())
 		{
+			if (gxOffer)
+			{
+				const Real dx = coi->gxX() - m_gxX, dy = coi->gxY() - m_gxY, lim = (coi->gxR() + m_gxR) * 1.4143f + 1.0f;
+				if (dx * dx + dy * dy > lim * lim)
+					continue;
+			}
 			PartitionData *that = coi->getModule();
 			if (this != that)
 			{
 				// collideStagger: a neighbour waiting its turn this frame checks this pair itself on
-				// its turn, unless it sorts after us (then we do it now): each pair once per cycle
-				if (g_gxDeferStamp && that->gxDeferStamp() == g_gxDeferStamp && that < this)
+				// its turn, unless it sorts after us (then we do it now): each pair once per cycle.
+				// Sorted by object ID (was by address, which can differ between machines)
+				if (g_gxDeferStamp && that->gxDeferStamp() == g_gxDeferStamp && gxBefore(that, this))
 					continue;
 				ctList->addToContactList(this, that);
 			}
@@ -2272,6 +2312,7 @@ Bool PartitionManager::geomCollidesWithGeom(const Coord3D* pos1,
 //-----------------------------------------------------------------------------
 void PartitionData::updateCellsTouched()
 {
+	gxRefreshPlace();	// web port: the kept place starts right when the object registers
 	GeometryType geom;
 	Bool isSmall;
 	Coord3D pos;
@@ -2345,18 +2386,17 @@ void PartitionData::updateCellsTouched()
 				key[0] = 0;
 	}
 	const Bool gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
-	if (key[0] && (GLES3_Page_Switches2() & 256) && !gxVerify)
+	// verify mode: the fast path runs on odd frames (so the range-search check sees lists it reordered)
+	// and the fill check on even ones
+	const Bool gxVerifyFast = gxVerify && TheGameLogic && (TheGameLogic->getFrame() & 1);
+	if (key[0] && (GLES3_Page_Switches2() & 256) && (!gxVerify || gxVerifyFast))
 	{
 		const Int slot = gxSlotOf(this);
 		CellAndObjectIntersection *coi = m_coiArray;
 		for (Int i = m_coiInUseCount; i > 0; --i, ++coi)
 		{
 			if (coi->getPrevCoi())
-			{
-				PartitionCell *cell = coi->getCell();
-				cell->friend_removeFromCellList(coi);
-				cell->friend_addToCellList(coi);
-			}
+				coi->gxMoveToFront();
 			coi->gxSetPlayerSlot(slot);
 		}
 	}
@@ -2420,6 +2460,8 @@ void PartitionData::updateCellsTouched()
 	const PartitionCell *currentCell = ThePartitionManager->getCellAt( currentCellIndexX, currentCellIndexY );
 	if(obj && currentCell != m_lastCell )
 	{
+		// web port (round 4): the unit store's centre cell (-1 off the map)
+		TheGxUnitStore.setCell(obj, currentCell ? currentCellIndexY * ThePartitionManager->getCellCountX() + currentCellIndexX : -1);
 		// To not expose PartitionCells, he will think in terms of points.  He will
 		// unlook at a point and look at the new point.  We do the rounding and the
 		// changing into PartitionCells
@@ -2962,6 +3004,38 @@ void PartitionContactList::gxProcessPair(PartitionData*& a, PartitionData*& b)
 	if (a == nullptr || b == nullptr)
 		return;
 
+	// Web port (switch pairPlace, second word bit 28): two units whose kept places are farther apart
+	// than both bounding radii times sqrt 2 plus one unit can't touch (every shape test is a
+	// footprint test; the box test treats a circle as its bounding square, whose corner is r * sqrt 2
+	// out), so the pair is done without reading either object. Exact: the places follow every move
+	// (Object::reactToTransformChange).
+	if ((GLES3_Page_Switches2() & 268435456) && !g_gxPairOff)
+	{
+		const Real dx = a->gxX() - b->gxX(), dy = a->gxY() - b->gxY(), lim = (a->gxR() + b->gxR()) * 1.4143f + 1.0f;
+		if (dx * dx + dy * dy > lim * lim)
+		{
+			if (GLES3_Page_Switches() & 2097152)
+			{
+				// verify mode: the full test must agree
+				Object *o1 = a->getObject(), *o2 = b->getObject();
+				CollideLocAndNormal ci;
+				++gx_verify_checked;
+				if (o1 && o2 && a->friend_collidesWith(b, &ci))
+				{
+					++gx_verify_mismatch;
+					printf("GXVERIFY pair place mismatch: %u and %u touch; kept %.1f,%.1f r%.1f / %.1f,%.1f r%.1f; real %.1f,%.1f r%.1f type %d / %.1f,%.1f r%.1f type %d; %s / %s\n", o1->getID(), o2->getID(),
+						a->gxX(), a->gxY(), a->gxR(), b->gxX(), b->gxY(), b->gxR(),
+						o1->getPosition()->x, o1->getPosition()->y, o1->getBoundingCircleRadius(), (int)o1->getGeometryInfo().getGeomType(),
+						o2->getPosition()->x, o2->getPosition()->y, o2->getBoundingCircleRadius(), (int)o2->getGeometryInfo().getGeomType(),
+						o1->getTemplate()->getName().str(), o2->getTemplate()->getName().str());
+				}
+				if (gx_verify_checked % 50000 == 0)
+					printf("GXVERIFY pair place checked %d, mismatches %d (all checks)\n", gx_verify_checked, gx_verify_mismatch);
+			}
+			return;
+		}
+	}
+
 	Object* obj = a->getObject();
 	Object* other = b->getObject();
 	if (obj == nullptr || other == nullptr)
@@ -3272,9 +3346,119 @@ void PartitionManager::shutdown()
 
 //-----------------------------------------------------------------------------
 //DECLARE_PERF_TIMER(PartitionManager_update)
+//-----------------------------------------------------------------------------
+// Web port (round 4, match rule storePairs 65536): the collision broad phase over the unit store.
+// Every unit the partition holds is put in a grid by the store's cell index (its centre cell);
+// units larger than half a cell are put in every cell under their bounding square instead. Each
+// unit that needs a collision check this frame (in object-ID order) is offered every unit within
+// reach in that grid: a footprint-sized square for the large ones, footprint plus the largest small
+// radius for the small ones, then the same distance cut as pairPlace. The contact list drops
+// repeats. Drift: the pairs come in a different order than from the partition's cell lists, and a
+// unit is paired by where it is now rather than by the cells it touched when last updated.
+static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionContactList *ct)
+{
+	GxUnitStore &st = TheGxUnitStore;
+	PartitionManager *pm = ThePartitionManager;
+	const Int nx = pm->getCellCountX(), ny = pm->getCellCountY();
+	const Real bigR = pm->getCellSize() * 0.5f;
+	static std::vector<int> head, next, item;
+	head.assign((size_t)nx * ny, -1);
+	next.clear(); item.clear();
+	Real smallMax = 0.0f;
+	for (int s = 0; s < st.size(); ++s)
+	{
+		Object *o = st.obj[s];
+		PartitionData *pd = o ? o->friend_getPartitionData() : nullptr;
+		if (!pd || pd->friend_getCoiInUseCount() == 0)
+			continue;	// not in the partition's cells (e.g. inside a transport)
+		const Real r = st.radius[s];
+		const Coord3D &p = st.pos[s];
+		Int x0, y0, x1, y1;
+		if (r <= bigR)
+		{
+			if (r > smallMax) smallMax = r;
+			const int c = st.cell[s];	// the store's cell index (written by the partition)
+			if (c >= 0) { x0 = c % nx; y0 = c / nx; }
+			else pm->worldToCell(p.x, p.y, &x0, &y0);
+			x1 = x0; y1 = y0;
+		}
+		else
+		{
+			const Real e = r * 1.4143f + 1.0f;
+			pm->worldToCell(p.x - e, p.y - e, &x0, &y0);
+			pm->worldToCell(p.x + e, p.y + e, &x1, &y1);
+		}
+		x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, nx - 1); y1 = min(y1, ny - 1);
+		for (Int cy = y0; cy <= y1; ++cy)
+			for (Int cx = x0; cx <= x1; ++cx)
+			{
+				const int c = cy * nx + cx;
+				item.push_back(s); next.push_back(head[c]); head[c] = (int)item.size() - 1;
+			}
+	}
+
+	std::sort(seekers.begin(), seekers.end(), [](const PartitionData *a, const PartitionData *b) { return gxBefore(a, b); });
+	for (PartitionData *d : seekers)
+	{
+		const Object *o = d->getObject();
+		const int s = o ? o->gxStoreSlot() : -1;
+		if (s < 0)
+			continue;
+		const Real r = st.radius[s];
+		const Coord3D &p = st.pos[s];
+		const Real e = (r + smallMax) * 1.4143f + 1.0f;
+		Int x0, y0, x1, y1;
+		pm->worldToCell(p.x - e, p.y - e, &x0, &y0);
+		pm->worldToCell(p.x + e, p.y + e, &x1, &y1);
+		x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, nx - 1); y1 = min(y1, ny - 1);
+		for (Int cy = y0; cy <= y1; ++cy)
+			for (Int cx = x0; cx <= x1; ++cx)
+				for (int k = head[cy * nx + cx]; k >= 0; k = next[k])
+				{
+					const int t = item[k];
+					if (t == s)
+						continue;
+					const Real dx = st.pos[t].x - p.x, dy = st.pos[t].y - p.y, lim = (st.radius[t] + r) * 1.4143f + 1.0f;
+					if (dx * dx + dy * dy > lim * lim)
+						continue;
+					PartitionData *that = st.obj[t]->friend_getPartitionData();
+					if (g_gxDeferStamp && that->gxDeferStamp() == g_gxDeferStamp && gxBefore(that, d))
+						continue;	// collideStagger, as in addPossibleCollisions
+					ct->addToContactList(d, that);
+				}
+	}
+}
+
 void PartitionManager::update()
 {
 	//USE_PERF_TIMER(PartitionManager_update)
+#ifdef __EMSCRIPTEN__
+	// Timing mode (hidden setting gxPairTiming, normal build): frames picked by a fixed hash of the
+	// frame number run without pairPlace / pairOffer; both kinds of frame are timed, so machine load
+	// hits both alike. Only for measuring: with pairOffer on it changes the game.
+	static Int s_gxTiming = 0;
+	static double s_gxPairMs[2];
+	static Int s_gxPairFrames[2];
+	const UnsignedInt gxF = TheGameLogic ? TheGameLogic->getFrame() : 0;
+	if (gxF % 60 == 0)
+		s_gxTiming = EM_ASM_INT({ var s = typeof window !== 'undefined' && window.GeneralsX && window.GeneralsX.settings; return s && s.gxPairTiming ? 1 : 0; });
+	g_gxPairOff = s_gxTiming && ((gxF * 2654435761u) >> 16 & 1);
+	const double gxT0 = s_gxTiming ? emscripten_get_now() : 0.0;
+	struct GxPairTimer
+	{
+		double t0;
+		~GxPairTimer()
+		{
+			if (!s_gxTiming)
+				return;
+			const Int k = g_gxPairOff ? 1 : 0;
+			s_gxPairMs[k] += emscripten_get_now() - t0;
+			if (++s_gxPairFrames[k] % 300 == 0 && k == 0)
+				printf("GXPAIRTIME partition update: features on %.1f ms over %d frames (%.3f ms each), off %.1f ms over %d frames (%.3f ms each)\n",
+					s_gxPairMs[0], s_gxPairFrames[0], s_gxPairMs[0] / s_gxPairFrames[0], s_gxPairMs[1], s_gxPairFrames[1], s_gxPairFrames[1] ? s_gxPairMs[1] / s_gxPairFrames[1] : 0.0);
+		}
+	} gxTimer = { gxT0 };
+#endif
 	{
 #ifdef INTENSE_DEBUG
 		Int cc = 0;
@@ -3290,6 +3474,9 @@ void PartitionManager::update()
 		const UnsignedInt gxFrame = TheGameLogic ? TheGameLogic->getFrame() : 0;
 		static std::vector<ObjectID> s_gxLater;
 		s_gxLater.clear();
+		static std::vector<PartitionData*> s_gxSeekers;
+		s_gxSeekers.clear();
+		const Bool gxStorePairs = gxMatchRule(GXRULE_STORE_PAIRS);
 		g_gxDeferStamp = 0;
 		if (gxEvery > 1)
 		{
@@ -3333,11 +3520,15 @@ void PartitionManager::update()
 				// (its cells are still updated now, so range searches see where it is)
 				if (g_gxDeferStamp && dirty->gxDeferStamp() == g_gxDeferStamp)
 					s_gxLater.push_back(dirty->getObject()->getID());
+				else if (gxStorePairs)
+					s_gxSeekers.push_back(dirty);	// storePairs: offered below, from the unit store
 				else
 					dirty->addPossibleCollisions(&ctList);
 			}
 		}
 
+		if (gxStorePairs)
+			gxStoreBroadPhase(s_gxSeekers, &ctList);
 		ctList.processContactList();
 		// put the deferred units back on the dirty list (found by ID: a reaction may have removed them)
 		for (ObjectID id : s_gxLater)
@@ -3827,6 +4018,104 @@ static UnsignedInt gxEnemySlots(PartitionFilter **filters)
 	return mask;
 }
 
+// ---------------------------------------------------------------------------------------------------
+// Web port (round 4, match rule scanManager 262144, third word bit 12): range searches as a manager.
+// - Per-tick lists: at the first search of a tick, every unit in the unit store (GxUnitStore) that is
+//   in the partition goes into the cells its circle covers, in store-slot (object-ID) order. Scans
+//   then read the store's columns (obj, player, x, y, radius) and open a unit only when it is near.
+// - Scan pass: right after, one pass over pass(GXB_SCAN) in object-ID order runs each unit's nearest
+//   enemy scan as its AI asked for it last tick (AI::findClosestEnemy without extra filter / priority
+//   info), so the AI's own call this tick finds the answer in the cache.
+// - Result cache: within a tick, a search with the same searcher (or point), range, distance type,
+//   mode and filter classes reuses the first answer (units that died since are left out).
+// Changes the game (answers as of the tick's first search): a match rule, default off.
+static std::vector<Int> s_gxSnapStart, s_gxSnapSlots;	// per cell: first index into slots; one more at the end
+static std::vector<UnsignedInt> s_gxSnapStamp;			// per slot: last search that looked at it
+static UnsignedInt s_gxSnapSearch = 0, s_gxSnapFrame = ~0u, s_gxSnapEpoch = 0;
+struct GxScanRequest { UnsignedInt frame; Real range; UnsignedInt qualifiers; };
+static std::unordered_map<Int, GxScanRequest> s_gxScanRequests;	// by object ID: the last plain enemy scan asked for
+struct GxCachedSearch { ObjectID closest; Real dist; Coord3D vec; std::vector<std::pair<ObjectID, Real> > list; };
+static std::unordered_map<unsigned long long, GxCachedSearch> s_gxSearchCache;
+static UnsignedInt s_gxManagerFrame = ~0u;
+static Bool s_gxScanPassDone = false;
+static Bool s_gxInScanPass = false;	// the pass's own scans are not requests (else every unit rescans forever)
+static UnsignedInt gx_mgr_hits, gx_mgr_misses, gx_mgr_pass, gx_mgr_differ;
+
+/// AI::findClosestEnemy reports each scan here (match rule scanManager), so next tick's pass can run it
+void gxScanNoteRequest(const Object *me, Real range, UnsignedInt qualifiers, const AttackPriorityInfo *info, PartitionFilter *optionalFilter)
+{
+	extern bool gxMatchRule(unsigned int rule);
+	if (s_gxInScanPass || !me || !TheGameLogic || !gxMatchRule(262144 /* GXRULE_SCAN_MANAGER */))
+		return;
+	if (optionalFilter || (info && info != TheScriptEngine->getDefaultAttackInfo()))
+		return;	// only the plain scan can be rerun by the pass
+	GxScanRequest r = { TheGameLogic->getFrame(), range, qualifiers };
+	s_gxScanRequests[me->getID()] = r;
+}
+
+static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
+{
+	GxUnitStore &S = TheGxUnitStore;
+	S.pass(GXB_SCAN);	// compacts the store now if it is going to this frame, so slots stay put after
+	const Int n = S.size(), cells = cellCountX * cellCountY;
+	s_gxSnapStart.assign(cells + 1, 0);
+	if ((Int)s_gxSnapStamp.size() < n)
+		s_gxSnapStamp.resize(n, 0);
+	static std::vector<Int> box;	// per slot: x0, y0, x1, y1 (x0 = -1: not in the partition)
+	box.resize(4 * n);
+	for (Int s = 0; s < n; ++s)
+	{
+		Object *o = S.obj[s];
+		box[4 * s] = -1;
+		if (!o || !o->friend_getPartitionData())
+			continue;
+		const Real r = S.radius[s];
+		Int x0, y0, x1, y1;
+		ThePartitionManager->worldToCell(S.pos[s].x - r, S.pos[s].y - r, &x0, &y0);
+		ThePartitionManager->worldToCell(S.pos[s].x + r, S.pos[s].y + r, &x1, &y1);
+		x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, cellCountX - 1); y1 = min(y1, cellCountY - 1);
+		if (x0 > x1 || y0 > y1)
+			continue;
+		box[4 * s] = x0; box[4 * s + 1] = y0; box[4 * s + 2] = x1; box[4 * s + 3] = y1;
+		for (Int y = y0; y <= y1; ++y)
+			for (Int x = x0; x <= x1; ++x)
+				++s_gxSnapStart[y * cellCountX + x + 1];
+	}
+	for (Int c = 0; c < cells; ++c)
+		s_gxSnapStart[c + 1] += s_gxSnapStart[c];
+	s_gxSnapSlots.resize(s_gxSnapStart[cells]);
+	static std::vector<Int> fill;
+	fill.assign(s_gxSnapStart.begin(), s_gxSnapStart.end() - 1);
+	for (Int s = 0; s < n; ++s)
+	{
+		if (box[4 * s] < 0)
+			continue;
+		for (Int y = box[4 * s + 1]; y <= box[4 * s + 3]; ++y)
+			for (Int x = box[4 * s]; x <= box[4 * s + 2]; ++x)
+				s_gxSnapSlots[fill[y * cellCountX + x]++] = s;
+	}
+	s_gxSnapEpoch = S.epoch();
+}
+
+static unsigned long long gxSearchKey(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,
+	PartitionFilter **filters, Bool iter)
+{
+	unsigned long long h = 1469598103934665603ull;
+	#define GXH(v) h = (h ^ (unsigned long long)(v)) * 1099511628211ull
+	if (obj)
+		GXH(obj->getID());
+	else
+	{
+		UnsignedInt a, b; memcpy(&a, &pos->x, 4); memcpy(&b, &pos->y, 4); GXH(a); GXH(b); GXH(0x9e37u);
+	}
+	{ UnsignedInt d; memcpy(&d, &maxDist, 4); GXH(d); }
+	GXH(dc); GXH(iter ? 1 : 2);
+	for (PartitionFilter **f = filters; f && *f; ++f)
+		GXH((uintptr_t)typeid(**f).name());
+	#undef GXH
+	return h;
+}
+
 #ifdef FASTER_GCO
 
 // Web port: what a range search may skip (gxClosestImpl's gxFlags). Each is exact: it only
@@ -3836,7 +4125,8 @@ enum
 	GX_GCO_CELLS = 1,		// cells holding no player in the mask (switch enemySearchSkip)
 	GX_GCO_ENTRIES = 2,		// entries of players not in the mask (switch searchSlotSkip)
 	GX_GCO_DENSE = 4,		// read cell masks from the dense array (switch denseCellMask)
-	GX_GCO_CACHE = 8		// entries farther than the range by their cached place (switch searchCache)
+	GX_GCO_CACHE = 8,		// entries farther than the range by their cached place (switch searchCache)
+	GX_GCO_SNAP = 32		// read this tick's per-cell lists of store slots (match rule scanManager)
 };
 
 void PartitionData::gxRefreshPlace()
@@ -3847,6 +4137,9 @@ void PartitionData::gxRefreshPlace()
 	const Coord3D *p = o->getPosition();
 	const GeometryInfo &g = o->getGeometryInfo();
 	const Real r = max(g.getBoundingCircleRadius(), g.getBoundingSphereRadius());
+	m_gxX = p->x;
+	m_gxY = p->y;
+	m_gxR = r;
 	for (Int i = 0; i < m_coiInUseCount; ++i)
 		m_coiArray[i].gxSetPlace(p->x, p->y, r);
 }
@@ -3880,6 +4173,11 @@ Object *PartitionManager::getClosestObjects(
 			flags |= GX_GCO_ENTRIES;
 		if (sw & 262144)
 			flags |= GX_GCO_DENSE;
+	}
+	{
+		extern bool gxMatchRule(unsigned int rule);
+		if (gxMatchRule(262144 /* GXRULE_SCAN_MANAGER */) && TheGameLogic && m_cells)
+			return gxManagedSearch(obj, pos, maxDist, dc, filters, iterArg, closestDistArg, closestVecArg, flags, mask);
 	}
 	if (!(GLES3_Page_Switches() & 2097152) || g_gxNoSearchVerify)
 		return gxClosestImpl(obj, pos, maxDist, dc, filters, iterArg, closestDistArg, closestVecArg, flags, mask, nullptr);
@@ -3944,6 +4242,134 @@ Object *PartitionManager::getClosestObjects(
 #endif
 }
 
+Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,
+	PartitionFilter **filters, SimpleObjectIterator *iterArg, Real *closestDistArg, Coord3D *closestVecArg,
+	UnsignedInt flags, UnsignedInt mask)
+{
+#ifdef __EMSCRIPTEN__
+	const Bool verify = (GLES3_Page_Switches() & 2097152) != 0 && !g_gxNoSearchVerify;
+	const double t0 = verify ? emscripten_get_now() : 0.0;
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	// a new tick: forget last tick's answers
+	if (frame != s_gxManagerFrame)
+	{
+		s_gxManagerFrame = frame;
+		s_gxSearchCache.clear();
+		s_gxScanPassDone = false;
+	}
+	// this tick's per-cell lists (again if the store moved slots, e.g. a unit was removed)
+	if (frame != s_gxSnapFrame || TheGxUnitStore.epoch() != s_gxSnapEpoch)
+	{
+		gxBuildStoreSnapshot(m_cellCountX, m_cellCountY);
+		s_gxSnapFrame = frame;
+	}
+	// the scan pass: every SCAN unit's plain enemy scan from last tick, in object-ID order
+	if (!s_gxScanPassDone)
+	{
+		s_gxScanPassDone = true;
+		const std::vector<int> scanners = TheGxUnitStore.pass(GXB_SCAN);	// a copy: the pass may add to the store
+		for (size_t i = 0; i < scanners.size(); ++i)
+		{
+			Object *o = TheGxUnitStore.obj[scanners[i]];
+			if (!o || o->isEffectivelyDead())
+				continue;
+			std::unordered_map<Int, GxScanRequest>::iterator r = s_gxScanRequests.find(o->getID());
+			if (r == s_gxScanRequests.end() || r->second.frame + 1 != frame)
+				continue;
+			++gx_mgr_pass;
+			s_gxInScanPass = true;
+			TheAI->findClosestEnemy(o, r->second.range, r->second.qualifiers, nullptr, nullptr);
+			s_gxInScanPass = false;
+		}
+	}
+
+	// the result cache
+	Object *result = nullptr;
+	Real dist = 0.0f;
+	Coord3D vec;
+	vec.zero();
+	const unsigned long long key = gxSearchKey(obj, pos, maxDist, dc, filters, iterArg != nullptr);
+	std::unordered_map<unsigned long long, GxCachedSearch>::iterator c = s_gxSearchCache.find(key);
+	Bool hit = false;
+	if (c != s_gxSearchCache.end())
+	{
+		const GxCachedSearch &cs = c->second;
+		if (iterArg)
+		{
+			// the list as the search left it (iterator order); inserting in reverse rebuilds that order
+			for (size_t i = cs.list.size(); i-- > 0; )
+			{
+				Object *o = TheGameLogic->findObjectByID(cs.list[i].first);
+				if (o && !o->isDestroyed())
+					iterArg->insert(o, cs.list[i].second);
+			}
+			hit = true;
+		}
+		else
+		{
+			result = cs.closest ? TheGameLogic->findObjectByID(cs.closest) : nullptr;
+			hit = !cs.closest || (result && !result->isDestroyed());	// a dead answer: search again
+			dist = cs.dist;
+			vec = cs.vec;
+		}
+	}
+	if (hit)
+		++gx_mgr_hits;
+	else
+	{
+		++gx_mgr_misses;
+		result = gxClosestImpl(obj, pos, maxDist, dc, filters, iterArg, &dist, &vec, flags | GX_GCO_SNAP, mask, nullptr);
+		GxCachedSearch &cs = s_gxSearchCache[key];
+		cs.closest = result ? result->getID() : INVALID_ID;
+		cs.dist = dist;
+		cs.vec = vec;
+		cs.list.clear();
+		if (iterArg)
+		{
+			Real num;
+			for (Object *o = iterArg->firstWithNumeric(&num); o; o = iterArg->nextWithNumeric(&num))
+				cs.list.push_back(std::make_pair(o->getID(), num));
+			iterArg->first();
+		}
+	}
+	if (closestDistArg)
+		*closestDistArg = dist;
+	if (closestVecArg)
+		*closestVecArg = vec;
+
+	if (verify)
+	{
+		// verify mode: time against the plain walk and count answers that differ (the drift)
+		const double t1 = emscripten_get_now();
+		SimpleObjectIterator *refIter = iterArg ? newInstance(SimpleObjectIterator) : nullptr;
+		Real refDist;
+		Coord3D refVec;
+		Object *ref = gxClosestImpl(obj, pos, maxDist, dc, filters, refIter, &refDist, &refVec, 0, 0xffffffffu, nullptr);
+		gx_gco_fastMs += t1 - t0;
+		gx_gco_refMs += emscripten_get_now() - t1;
+		Bool same = ref == result;
+		if (refIter)
+		{
+			Object *a = iterArg->first(), *b = refIter->first();
+			for (; a && b && same; a = iterArg->next(), b = refIter->next())
+				same = a == b;
+			same = same && !a && !b;
+			iterArg->first();
+			deleteInstance(refIter);
+		}
+		++gx_gco_calls;
+		if (!same)
+			++gx_mgr_differ;
+		if (gx_gco_calls % 3000 == 0)
+			printf("GXVERIFY scan manager: searches %u, cache hits %u, misses %u, pass scans %u, answers differing from the plain walk %u; manager %.1f ms, plain %.1f ms\n",
+				gx_gco_calls, gx_mgr_hits, gx_mgr_misses, gx_mgr_pass, gx_mgr_differ, gx_gco_fastMs, gx_gco_refMs);
+	}
+	return result;
+#else
+	return gxClosestImpl(obj, pos, maxDist, dc, filters, iterArg, closestDistArg, closestVecArg, flags, mask, nullptr);
+#endif
+}
+
 Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,
 	PartitionFilter **filters, SimpleObjectIterator *iterArg, Real *closestDistArg, Coord3D *closestVecArg,
 	UnsignedInt gxFlags, UnsignedInt gxEnemyMask, std::vector<Object*> *trace)
@@ -3988,6 +4414,8 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 
 	static Int theIterFlag = 1;	// nonzero, thanks
 	++theIterFlag;
+	if (gxFlags & GX_GCO_SNAP)
+		++s_gxSnapSearch;
 
 	// Web port (switch searchCache): an entry whose cached centre is farther than the range plus
 	// both radii plus one unit can't pass the distance test, whatever the distance type (every
@@ -3997,7 +4425,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 	const Bool gxBoundary = dc == FROM_BOUNDINGSPHERE_2D || dc == FROM_BOUNDINGSPHERE_3D;
 	Real gxMyR = 0.0f;
 	if (gxBoundary && objToUse)
-		gxMyR = max(objToUse->getGeometryInfo().getBoundingCircleRadius(), objToUse->getGeometryInfo().getBoundingSphereRadius());
+		gxMyR = max(objToUse->getBoundingCircleRadius(), objToUse->getGeometryInfo().getBoundingSphereRadius());
 	Real gxLimit = gxCache ? sqrtf(closestDistSqr) + gxMyR + 1.0f : 0.0f;
 	const Real px = objPos->x, py = objPos->y;
 
@@ -4028,6 +4456,58 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 			// switch searchSlotSkip: walk only the lists of the players in the mask, merged back into the
 			// cell list's order by sequence (high to low), so entries of other players are never read
 			// (same reasoning as the cell skip). Otherwise the whole cell list.
+			if (gxFlags & GX_GCO_SNAP)
+			{
+				// match rule scanManager: this tick's list of store slots for the cell, store columns first
+				const GxUnitStore &S = TheGxUnitStore;
+				const Int ci = gxY * m_cellCountX + gxX;
+				for (Int k = s_gxSnapStart[ci]; k < s_gxSnapStart[ci + 1]; ++k)
+				{
+					const Int s = s_gxSnapSlots[k];
+					Object *thisObj = S.obj[s];
+					if (!thisObj || thisObj == obj)
+						continue;
+					const Int p = S.player[s];
+					if (!((1u << ((p >= 0 && p < MAX_PLAYER_COUNT) ? p : MAX_PLAYER_COUNT)) & gxEnemyMask))
+						continue;
+					if (gxCache)
+					{
+						// the store keeps the bounding circle; twice it stands in for the sphere
+						const Real dx = S.pos[s].x - px, dy = S.pos[s].y - py, lim = gxLimit + 2.0f * S.radius[s];
+						if (dx * dx + dy * dy > lim * lim)
+							continue;
+					}
+					if (s_gxSnapStamp[s] == s_gxSnapSearch)
+						continue;
+					s_gxSnapStamp[s] = s_gxSnapSearch;
+					if (!thisObj->friend_getPartitionData())
+						continue;	// left the partition during the tick (e.g. entered a building)
+
+					Real thisDistSqr;
+					Coord3D distVec;
+					if (!(*distProc)(objPos, objToUse, thisObj->getPosition(), thisObj, thisDistSqr, distVec, closestDistSqr))
+						continue;
+					if (!filtersAllow(filters, thisObj))
+						continue;
+					if (trace)
+						trace->push_back(thisObj);
+					if (iterArg)
+						iterArg->insert(thisObj, thisDistSqr);
+					else
+					{
+						closestObj = thisObj;
+						closestDistSqr = thisDistSqr;
+						closestVec = distVec;
+						if (gxCache)
+							gxLimit = sqrtf(closestDistSqr) + gxMyR + 1.0f;
+						if (!foundAny)
+							maxRadiusLimit = curRadius;
+						foundAny = true;
+					}
+				}
+				continue;
+			}
+
 			CellAndObjectIntersection *gxHeads[MAX_PLAYER_COUNT + 1];
 			Int gxHeadCount = 0;
 			const Bool gxSlots = (gxFlags & GX_GCO_ENTRIES) != 0;

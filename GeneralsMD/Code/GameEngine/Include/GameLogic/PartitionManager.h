@@ -207,6 +207,7 @@ private:
 
 public:
 	UnsignedInt gxSeq() const { return m_gxSeq; }
+	void gxMoveToFront();	///< web port: to the head of its cell list, keeping the per-slot lists in step (switch cellReuse)
 	CellAndObjectIntersection *gxSlotNext() const { return m_gxSlotNext; }
 	Int gxPlayerSlot() const { return m_gxPlayer; }
 	Real gxX() const { return m_gxX; }
@@ -444,7 +445,12 @@ private:
 public:
 	/// web port (switch searchCache): copy the object's position and radius into every COI in use
 	void gxRefreshPlace();
+	/// web port (switches pairPlace / pairOffer): the same copy kept here, for the touching-pair tests
+	Real gxX() const { return m_gxX; }
+	Real gxY() const { return m_gxY; }
+	Real gxR() const { return m_gxR; }
 private:
+	Real												m_gxX, m_gxY, m_gxR;
 
 	/**
 		Given a shape's geometry and size parameters, calculate the maximum number of COIs
@@ -1334,6 +1340,10 @@ protected:
 		Real *closestDistArg,
 		Coord3D *closestVecArg
 	);
+	/// web port (round 4, match rule scanManager): the search manager (per-tick store lists, scan pass, result cache)
+	Object *gxManagedSearch(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,
+		PartitionFilter **filters, SimpleObjectIterator *iterArg, Real *closestDistArg, Coord3D *closestVecArg,
+		UnsignedInt gxFlags, UnsignedInt gxMask);
 	/// web port: the FASTER_GCO walk of getClosestObjects, with the skips named in gxFlags
 	/// (GX_GCO_* in PartitionManager.cpp); trace (verify mode) gets every object that passed.
 	Object *gxClosestImpl(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,

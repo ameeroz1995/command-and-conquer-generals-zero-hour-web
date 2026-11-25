@@ -466,6 +466,13 @@ public:
 	void requestSafePath( ObjectID repulsor1 );	///< computes path to attack the current target, returns false if no path
 
 	Bool isWaitingForPath() const {return m_waitingForPath;}
+	void gxMovementPassStep();
+	void gxSetMoving(Bool on);	///< web port: in / out of the store's MOVE list (state change only)
+	Bool gxWantsClosestSpot() const { return m_isApproachPath; }
+	const Coord3D *gxRequestedDest() const { return &m_requestedDestination; }	///< web port: the destination of the waiting request
+	Bool gxPlainRequest() const { return m_waitingForPath && !m_isApproachPath && !m_isAttackPath && !m_isSafePath; }	///< web port: a plain move request is waiting	///< web port (match rule routeQueue): the queued search is a closest-spot one
+	void gxStartCoarseDeferred() { if (m_waitingForPath) gxStartCoarse(&m_requestedDestination); }	///< web port (match rule routeQueue): coarse start spread over frames
+	void gxSetRouteHint( const std::vector<Coord3D> &pts, UnsignedInt frame ) { m_gxHintPts = pts; m_gxHintFrame = frame; }	///< web port (match rule groupRoute)	///< web port (match rule moveAfterTick): this unit's locomotion, from the movement pass
 	Bool gxOnCoarsePath() const { return m_gxCoarse && m_path != nullptr; }	///< web port (match rule coarseStart): following the zone-level route while the full one is queued
 	Bool isAttackPath() const {return m_isAttackPath;} ///< True if we have a path to an attack location.
 	void cancelPath(); ///< Called if we no longer need the path.
@@ -785,6 +792,8 @@ private:
 	Bool				m_waitingForPath;						///< True if we have a pathfind request outstanding.
 	Bool				m_gxCoarse = FALSE;					///< web port: m_path is the coarse route (not saved: a load waits for the full route)
 	Coord3D			m_gxCoarseTo;								///< web port: where the coarse route goes
+	std::vector<Coord3D> m_gxHintPts;	///< web port (match rule groupRoute): the group route shifted to this unit (not saved)
+	UnsignedInt	m_gxHintFrame = 0;
 	void				gxStartCoarse( const Coord3D *destination );
 	Bool				m_isAttackPath;							///< True if we have an attack path.
 	Bool				m_isFinalGoal;							///< True if this path ends at our destination (as opposed to an intermediate point on a waypoint path).
@@ -802,7 +811,8 @@ private:
 	Bool				m_executingWaypointQueue;						///< if true, we are moving thru the waypoints
 	Bool				m_retryPath;								///< If true, we need to try the path a second time.  jba.
 	Bool				m_allowedToChase;						///< Allowed to pursue targets.
-	Bool				m_isInUpdate;								///< If true, we are inside our update method.
+	Bool				m_isInUpdate;
+	Bool				m_gxMoveOn = FALSE;	///< web port: in the store's MOVE list (not saved: a load starts with no masks)								///< If true, we are inside our update method.
 	Bool				m_fixLocoInPostProcess;
 };
 

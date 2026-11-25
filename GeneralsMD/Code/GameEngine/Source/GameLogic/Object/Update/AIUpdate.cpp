@@ -28,6 +28,7 @@
 // Subsequently : John Ahlquist 2002 and a cast of thousands.
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxUnitStore.h"
 
 #define DEFINE_LOCOMOTORSET_NAMES					// for TheLocomotorSetNames[]
 #define DEFINE_AUTOACQUIRE_NAMES
@@ -496,6 +497,25 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 		computeQuickPath(destination);
 		return;
 	}
+	// web port (match rule groupRoute): the group's route, shifted to us, instead of a queued search
+	if (!m_gxHintPts.empty()) {
+		std::vector<Coord3D> pts; pts.swap(m_gxHintPts);
+		extern bool gxMatchRule(unsigned int rule);
+		if (gxMatchRule(1024 /* GXRULE_GROUP_ROUTE */) && TheGameLogic->getFrame() - m_gxHintFrame <= 2 && isDoingGroundMovement()) {
+			Path *path = newInstance(Path);
+			path->appendNode(getObject()->getPosition(), LAYER_GROUND);
+			for (const Coord3D &p : pts) path->appendNode(&p, LAYER_GROUND);
+			path->appendNode(destination, LAYER_GROUND);
+			for (PathNode *node = path->getFirstNode(); node && node->getNext(); node = node->getNext())
+				node->setNextOptimized(node->getNext());
+			path->markOptimized();
+			destroyPath();	// also: no request outstanding
+			m_path = path;
+			if (m_isFinalGoal)
+				TheAI->pathfinder()->updateGoal(getObject(), m_path->getLastNode()->getPosition(), LAYER_GROUND);
+			return;
+		}
+	}
 	m_waitingForPath = TRUE;
 	if (m_pathTimestamp > TheGameLogic->getFrame()-3) {
 		/* Requesting path very quickly.  Can cause a spin. */
@@ -514,7 +534,14 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 		return;
 	}
 	TheAI->pathfinder()->queueForPath(getObject()->getID());
-	gxStartCoarse(destination);
+	{
+		extern bool gxMatchRule(unsigned int rule);
+		extern void gxDeferCoarseStart(ObjectID id);
+		if (gxMatchRule(1048576 /* GXRULE_ROUTE_QUEUE */))
+			gxDeferCoarseStart(getObject()->getID());	// started by the pathfinder, at most 32 a frame
+		else
+			gxStartCoarse(destination);
+	}
 
 }
 
@@ -527,9 +554,6 @@ void AIUpdateInterface::gxStartCoarse( const Coord3D *destination )
 	if (m_gxCoarse && m_path && m_gxCoarseTo.x == destination->x && m_gxCoarseTo.y == destination->y)
 		return;	// already on a coarse route there (blocked units ask again every frame)
 	Object *obj = getObject();
-	const Real dx = destination->x - obj->getPosition()->x, dy = destination->y - obj->getPosition()->y;
-	if (dx * dx + dy * dy < 200.0f * 200.0f)
-		return;	// short moves: the full route comes soon enough
 	Path *coarse = TheAI->pathfinder()->gxCoarsePath(obj, m_locomotorSet, destination);
 	if (!coarse)
 		return;
@@ -1022,6 +1046,50 @@ void AIUpdateInterface::friend_notifyStateMachineChanged()
  * The "main loop" of the AI subsystem
  */
 DECLARE_PERF_TIMER(AIUpdateInterface_update)
+// web port (match rule moveAfterTick, round 4): the movement manager. A unit is in the store's MOVE
+// list while its locomotor needs calling: AIUpdate puts it there when it wakes (gxSetMoving), and the
+// pass takes it out when doLocomotor says it can sleep. Each frame, after the update queue, one pass
+// over pass(GXB_MOVE), in object-ID order, runs locomotion + route following for every unit in it.
+void AIUpdateInterface::gxSetMoving(Bool on)
+{
+	if (m_gxMoveOn == on)
+		return;
+	m_gxMoveOn = on;
+	TheGxUnitStore.setMask(getObject(), on ? GXB_BIT(GXB_MOVE) : 0, on ? 0 : GXB_BIT(GXB_MOVE));
+}
+
+void AIUpdateInterface::gxMovementPassStep()
+{
+	UpdateSleepTime sleep = doLocomotor();
+	if (sleep == UPDATE_SLEEP_FOREVER)
+	{
+		gxSetMoving(FALSE);	// idle: out of the list until the AI wakes again
+		return;
+	}
+#ifdef SLEEPY_AI
+	if (sleep < getWakeFrame())
+		setWakeFrame(getObject(), sleep);	// still moving: the AI runs next frame, as before
+#endif
+}
+
+void gxRunMovementPass()
+{
+	static std::vector<int> s_list;	// copy: a step may change masks (the store rebuilds its list)
+	s_list = TheGxUnitStore.pass(GXB_MOVE);
+	for (size_t i = 0; i < s_list.size(); ++i)
+	{
+		Object *obj = TheGxUnitStore.obj[s_list[i]];
+		if (!obj || obj->isDestroyed())
+			continue;
+		AIUpdateInterface *ai = obj->getAI();
+		if (ai)
+			ai->gxMovementPassStep();
+		else
+			TheGxUnitStore.setMask(obj, 0, GXB_BIT(GXB_MOVE));
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
 UpdateSleepTime AIUpdateInterface::update()
 {
 	//DEBUG_LOG(("AIUpdateInterface frame %d: %08lx",TheGameLogic->getFrame(),getObject()));
@@ -1134,9 +1202,16 @@ UpdateSleepTime AIUpdateInterface::update()
 	}
 
 	// do this objects movement
+	// web port (match rule moveAfterTick): locomotion runs for every unit in one pass after the
+	// update queue (gxRunMovementPass), in this same order; the pass wakes us earlier if needed
+	extern bool gxMatchRule(unsigned int rule);
+	if (gxMatchRule(32768 /* GXRULE_MOVE_AFTER_TICK */)) {
+		gxSetMoving(TRUE);
+	} else {
 	UpdateSleepTime tmp = doLocomotor();
 	if (tmp < subMachineSleep)
 		subMachineSleep = tmp;
+	}
 
 #ifdef ALLOW_DEMORALIZE
 	RELEASE_CRASH(("If ALLOW_DEMORALIZE is ever defined, this code must be redone to do proper SLEEPY updates. (srj)"));
@@ -4307,6 +4382,7 @@ void AIUpdateInterface::setCurrentVictim( const Object *victim )
 		// the victim.
 		m_currentVictimID = victim->getID();
 	}
+	TheGxUnitStore.setTarget(getObject(), (int)m_currentVictimID);	// store column (combat): the weapon-status pass looks at units with a target
 }
 
 /**
@@ -4678,7 +4754,7 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	const Object *container = obj->getContainedBy();
 	if( container )
 	{
-		rangeToFindWithin += container->getGeometryInfo().getBoundingCircleRadius();
+		rangeToFindWithin += container->getBoundingCircleRadius();
 	}
 
 	UnsignedInt moodMatrixVal = getMoodMatrixValue();

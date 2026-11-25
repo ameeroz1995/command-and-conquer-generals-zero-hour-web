@@ -119,6 +119,15 @@ constexpr const UnsignedInt MAX_CELL_COUNT = 500;
 constexpr const UnsignedInt MAX_ADJUSTMENT_CELL_COUNT = 400;
 constexpr const UnsignedInt MAX_SAFE_PATH_CELL_COUNT = 2000;
 
+struct GxQueued { ObjectID id; UnsignedInt frame; };
+static std::vector<GxQueued> s_gxOverflow;
+static Path *gxRouteCacheLookup( Pathfinder *pf, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center, Bool *probeHit = nullptr );
+// web port (match rule routeQueue): spreading an army order's burst over frames, in request order
+static UnsignedInt s_gxEligibleAt[PATHFIND_QUEUE_LEN];	// first frame a queued request may run
+static UnsignedInt s_gxBurstFrame = 0; static Int s_gxBurstCount = 0;	// requests queued this frame
+static std::vector<ObjectID> s_gxCoarseWaiting;	// units whose coarse start waits for its turn
+void gxDeferCoarseStart(ObjectID id) { s_gxCoarseWaiting.push_back(id); }
+static const Int GX_RELEASE_PER_FRAME = 64, GX_COARSE_PER_FRAME = 32;	// web port (match rule routeQueue): requests waiting for a queue slot
 constexpr const UnsignedInt PATHFIND_CELLS_PER_FRAME = 5000; // Number of cells we will search pathfinding per frame.
 constexpr const UnsignedInt CELL_INFOS_TO_ALLOCATE = 30000;
 
@@ -145,6 +154,7 @@ PathNode::~PathNode()
 //-----------------------------------------------------------------------------------
 void PathNode::setNextOptimized(PathNode *node)
 {
+	gxTouch();
 	m_nextOpti = node;
 	if (node)
 	{
@@ -169,6 +179,7 @@ void PathNode::setNextOptimized(PathNode *node)
 /// given a list, prepend this node, return new list
 PathNode *PathNode::prependToList( PathNode *list )
 {
+	if (list && list->m_gxOwner) { m_gxOwner = list->m_gxOwner; gxTouch(); }
 	m_next = list;
 	if (list)
 		list->m_prev = this;
@@ -181,6 +192,7 @@ PathNode *PathNode::prependToList( PathNode *list )
 /// @todo optimize this
 PathNode *PathNode::appendToList( PathNode *list )
 {
+	if (list && list->m_gxOwner) { m_gxOwner = list->m_gxOwner; gxTouch(); }
 	if (list == nullptr)
 	{
 		m_next = nullptr;
@@ -203,6 +215,7 @@ PathNode *PathNode::appendToList( PathNode *list )
 /// given a node, append new node to this.
 void PathNode::append( PathNode *newNode )
 {
+	newNode->m_gxOwner = m_gxOwner; gxTouch();
 	newNode->m_next = this->m_next;
 	newNode->m_prev = this;
 	if (newNode->m_next) {
@@ -334,6 +347,7 @@ void Path::xfer( Xfer *xfer )
 			Int optID = -1;
 			xfer->xferInt(&optID);
 			PathNode *node = newInstance(PathNode);
+			node->m_gxOwner = this; m_gxSegsValid = FALSE;
 			node->m_id = nodeId;
 			node->setPosition(&pos);
 			node->setLayer(layer);
@@ -406,6 +420,7 @@ void Path::loadPostProcess()
 void Path::prependNode( const Coord3D *pos, PathfindLayerEnum layer )
 {
 	PathNode *node = newInstance(PathNode);
+	node->m_gxOwner = this; m_gxSegsValid = FALSE;
 
 	node->setPosition( pos );
 	node->setLayer(layer);
@@ -436,6 +451,7 @@ void Path::appendNode( const Coord3D *pos, PathfindLayerEnum layer )
 		}
 	}
 	PathNode *node = newInstance(PathNode);
+	node->m_gxOwner = this; m_gxSegsValid = FALSE;
 
 	node->setPosition( pos );
 	node->setLayer(layer);
@@ -801,6 +817,78 @@ void Path::computePointOnPath(
 	//
 	// Find the closest segment of the path
 	//
+	Coord2D segmentDirNorm;
+	Real segmentLength;
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches(), GLES3_Page_Switches3();
+	const Bool gxSegs = (GLES3_Page_Switches3() & 1) != 0;	// switch cpopSegments (third word bit 0)
+	const Bool gxVerifySegs = gxSegs && (GLES3_Page_Switches() & 2097152) != 0;
+#else
+	const Bool gxSegs = FALSE, gxVerifySegs = FALSE;
+#endif
+	if (gxSegs) {
+		if (!m_gxSegsValid) {	// the optimized segments, as the loop below walks them
+			m_gxSegs.clear();
+			Coord2D d; Real l;
+			const PathNode *p = m_path;
+			for (const PathNode *n = p->getNextOptimized(&d, &l); n != nullptr; n = n->getNextOptimized(&d, &l)) {
+				GxSeg g; g.prev = p; g.node = n; g.prevPos = *p->getPosition(); g.nodePos = *n->getPosition();
+				g.dir = d; g.len = l; g.last = n->getNextOptimized() == nullptr;
+				m_gxSegs.push_back(g);
+				p = n;
+			}
+			m_gxSegsValid = TRUE;
+		}
+		for (const GxSeg &g : m_gxSegs)
+		{
+			toPos.x = pos.x - g.prevPos.x;
+			toPos.y = pos.y - g.prevPos.y;
+			Real alongPathDist = g.dir.x * toPos.x + g.dir.y * toPos.y;
+			Coord3D pointOnPath;
+			if (alongPathDist < 0.0f)
+			{
+				alongPathDist = 0.0f;
+				pointOnPath = g.prevPos;
+			}
+			else if (alongPathDist > g.len)
+			{
+				if (g.last)
+				{
+					alongPathDist = g.len;
+					pointOnPath = g.nodePos;
+				}
+				else
+				{
+					totalPathLength += g.len;
+					continue;
+				}
+			}
+			else
+			{
+				pointOnPath.x = g.prevPos.x + alongPathDist * g.dir.x;
+				pointOnPath.y = g.prevPos.y + alongPathDist * g.dir.y;
+				pointOnPath.z = 0;
+			}
+			Coord2D offset;
+			offset.x = pos.x - pointOnPath.x;
+			offset.y = pos.y - pointOnPath.y;
+			Real offsetDistSqr = offset.x*offset.x + offset.y*offset.y;
+			if (offsetDistSqr < closeDistSqr)
+			{
+				closeDistSqr = offsetDistSqr;
+				closeNode = g.prev;
+				out.posOnPath = pointOnPath;
+				lengthAlongPathToPos = totalPathLength + alongPathDist;
+			}
+			totalPathLength += g.len;
+		}
+		// the node walk leaves these at the last node's stored values; so do we
+		(m_gxSegs.empty() ? m_path : m_gxSegs.back().node)->getNextOptimized(&segmentDirNorm, &segmentLength);
+	}
+	if (!gxSegs || gxVerifySegs) {
+	const PathNode* const gxCloseNode = closeNode; const Coord3D gxPos = out.posOnPath;
+	const Real gxClose = closeDistSqr, gxTotal = totalPathLength, gxAlong = lengthAlongPathToPos;
+	if (gxVerifySegs) { closeNode = nullptr; closeDistSqr = 99999999.9f; totalPathLength = 0.0f; lengthAlongPathToPos = 0.0f; out.posOnPath = *getLastNode()->getPosition(); }
 #ifdef CPOP_STARTS_FROM_PREV_SEG
 	const PathNode* prevNode = m_cpopRecentStart;
 	if (prevNode == nullptr)
@@ -808,8 +896,6 @@ void Path::computePointOnPath(
 #else
 	const PathNode* prevNode = m_path;
 #endif
-	Coord2D segmentDirNorm;
-	Real segmentLength;
 
 	// note that the seg dir and len returned by this is the dist & vec from 'prevNode' to 'node'
 	for ( const PathNode* node = prevNode->getNextOptimized(&segmentDirNorm, &segmentLength);
@@ -879,6 +965,18 @@ void Path::computePointOnPath(
 		totalPathLength += segmentLength;
 		prevNode = node;
 		DUMPCOORD3D(&pointOnPath);
+	}
+
+	if (gxVerifySegs) {	// verification: the flat walk must give exactly what the node walk gave
+		extern int gx_verify_mismatch, gx_verify_checked;
+		++gx_verify_checked;
+		if (gxCloseNode != closeNode || gxClose != closeDistSqr || gxTotal != totalPathLength || gxAlong != lengthAlongPathToPos
+			|| gxPos.x != out.posOnPath.x || gxPos.y != out.posOnPath.y || gxPos.z != out.posOnPath.z) {
+			++gx_verify_mismatch;
+			printf("GXVERIFY cpopSegments mismatch: segs %d, total %f/%f along %f/%f\n", (int)m_gxSegs.size(), gxTotal, totalPathLength, gxAlong, lengthAlongPathToPos);
+		}
+		if (gx_verify_checked % 100000 == 0) printf("GXVERIFY cpopSegments checked %d, mismatches %d\n", gx_verify_checked, gx_verify_mismatch);
+	}
 	}
 
 #ifdef CPOP_STARTS_FROM_PREV_SEG
@@ -4092,6 +4190,10 @@ Pathfinder::~Pathfinder()
 void Pathfinder::reset()
 {
 	frameToShowObstacles = 0;
+	s_gxOverflow.clear();
+	s_gxCoarseWaiting.clear();
+	for (Int i = 0; i < PATHFIND_QUEUE_LEN; ++i) s_gxEligibleAt[i] = 0;
+	{ extern void gxRouteCacheClear(); gxRouteCacheClear(); }
 	DEBUG_LOG(("Pathfind cell is %d bytes, PathfindCellInfo is %d bytes", sizeof(PathfindCell), sizeof(PathfindCellInfo)));
 
 	gxOccRelease();
@@ -5986,16 +6088,34 @@ Bool Pathfinder::queueForPath(ObjectID id)
 		}
 	}
 
+	// web port (match rule routeQueue): while requests wait for a slot, new ones queue behind them
+	if (!s_gxOverflow.empty() && gxMatchRule(GXRULE_ROUTE_QUEUE)) {
+		for (size_t k = 0; k < s_gxOverflow.size(); ++k) if (s_gxOverflow[k].id == id) return true;
+		s_gxOverflow.push_back(GxQueued{ id, TheGameLogic->getFrame() });
+		return true;
+	}
+
 	// Tail is the first available slot.
 	Int nextSlot = m_queuePRTail+1;
 	if (nextSlot >= PATHFIND_QUEUE_LEN) {
 		nextSlot = 0;
 	}
 	if (nextSlot==m_queuePRHead) {
+		// web port (match rule routeQueue): keep the request for when a slot frees up
+		if (gxMatchRule(GXRULE_ROUTE_QUEUE)) {
+			for (size_t k = 0; k < s_gxOverflow.size(); ++k) if (s_gxOverflow[k].id == id) return true;
+			s_gxOverflow.push_back(GxQueued{ id, TheGameLogic->getFrame() });
+			return true;
+		}
 		DEBUG_CRASH(("Ran out of pathfind queue slots."));
 		return false;
 	}
 	m_queuedPathfindRequests[m_queuePRTail] = id;
+	{	// web port (match rule routeQueue): at most 64 requests from one frame become eligible per frame
+		const UnsignedInt now = TheGameLogic->getFrame();
+		if (s_gxBurstFrame != now) { s_gxBurstFrame = now; s_gxBurstCount = 0; }
+		s_gxEligibleAt[m_queuePRTail] = gxMatchRule(GXRULE_ROUTE_QUEUE) ? now + (UnsignedInt)(s_gxBurstCount++ / GX_RELEASE_PER_FRAME) : 0;
+	}
 	m_queuePRTail = nextSlot;
 	return true;
 }
@@ -6228,8 +6348,55 @@ void Pathfinder::processPathfindQueue()
 	// Web port (switch routeBudget, logic-ai; single player through AIUpdateInterface::gxAiRule):
 	// half the route-search work per frame, so queued units get their routes a little later.
 	const Int gxCellsPerFrame = AIUpdateInterface::gxAiRule(16384) ? PATHFIND_CELLS_PER_FRAME / 2 : PATHFIND_CELLS_PER_FRAME;
+	const Bool gxStagger = gxMatchRule(GXRULE_ROUTE_QUEUE);
+	if (gxStagger) {	// coarse starts waiting for their turn, in request order
+		size_t k = 0;
+		for (; k < s_gxCoarseWaiting.size() && k < (size_t)GX_COARSE_PER_FRAME; ++k) {
+			Object *o = TheGameLogic->findObjectByID(s_gxCoarseWaiting[k]);
+			AIUpdateInterface *ai = o ? o->getAIUpdateInterface() : nullptr;
+			if (ai) ai->gxStartCoarseDeferred();
+		}
+		s_gxCoarseWaiting.erase(s_gxCoarseWaiting.begin(), s_gxCoarseWaiting.begin() + k);
+	}
+	if (gxStagger && gxMatchRule(GXRULE_ROUTE_CACHE)) {
+		// web port (match rules routeQueue + routeCache): the route manager first serves, in queue
+		// order, the eligible plain move requests among the next 256 whose route is in the cache
+		// (no search cells), then spends the budget on the searches
+		const UnsignedInt now = TheGameLogic->getFrame();
+		Int slot = m_queuePRHead;
+		for (Int n = 0; slot != m_queuePRTail && n < 256; ++n) {
+			const ObjectID id = m_queuedPathfindRequests[slot];
+			if (id != INVALID_ID && s_gxEligibleAt[slot] <= now) {
+				Object *o = TheGameLogic->findObjectByID(id);
+				AIUpdateInterface *ai = o ? o->getAIUpdateInterface() : nullptr;
+				if (ai && ai->gxPlainRequest() && ai->isDoingGroundMovement()) {
+					Int radius = 0; Bool center = true;
+					getRadiusAndCenter(o, radius, center);
+					Bool hit = FALSE;
+					gxRouteCacheLookup(this, o, ai->getLocomotorSet(), o->getPosition(), ai->gxRequestedDest(), radius, center, &hit);
+					if (hit) {
+						m_queuedPathfindRequests[slot] = INVALID_ID;
+						ai->doPathfind(this);
+					}
+				}
+			}
+			if (++slot >= PATHFIND_QUEUE_LEN) slot = 0;
+		}
+	}
 	while (m_cumulativeCellsAllocated < gxCellsPerFrame &&
 		m_queuePRTail!=m_queuePRHead) {
+		if (gxStagger) {
+			// web port (match rule routeQueue): a burst's later requests wait their frame, and a
+			// closest-spot search (thousands of cells) does not start in the second half of the budget
+			if (s_gxEligibleAt[m_queuePRHead] > TheGameLogic->getFrame())
+				break;
+			if (m_cumulativeCellsAllocated > gxCellsPerFrame / 2) {
+				Object *next = TheGameLogic->findObjectByID(m_queuedPathfindRequests[m_queuePRHead]);
+				AIUpdateInterface *nai = next ? next->getAIUpdateInterface() : nullptr;
+				if (nai && nai->gxWantsClosestSpot())
+					break;
+			}
+		}
 		Object *obj = TheGameLogic->findObjectByID(m_queuedPathfindRequests[m_queuePRHead]);
 		m_queuedPathfindRequests[m_queuePRHead] = INVALID_ID;
 		if (obj) {
@@ -6259,6 +6426,19 @@ void Pathfinder::processPathfindQueue()
 #endif
 	}	
 #endif
+	// web port (match rule routeQueue): requests that found the queue full join it, oldest first
+	if (!s_gxOverflow.empty()) {
+		size_t k = 0;
+		for (; k < s_gxOverflow.size(); ++k) {
+			Int nextSlot = m_queuePRTail + 1;
+			if (nextSlot >= PATHFIND_QUEUE_LEN) nextSlot = 0;
+			if (nextSlot == m_queuePRHead) break;
+			m_queuedPathfindRequests[m_queuePRTail] = s_gxOverflow[k].id;
+			s_gxEligibleAt[m_queuePRTail] = 0;
+			m_queuePRTail = nextSlot;
+		}
+		s_gxOverflow.erase(s_gxOverflow.begin(), s_gxOverflow.begin() + k);
+	}
 #if defined(RTS_DEBUG)
 	doDebugIcons();
 #endif
@@ -6649,11 +6829,21 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
  * Find a short, valid path between given locations.
  * Uses A* algorithm.
  */
+static void gxRouteCacheStore( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center, Path *path );
+
 Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
 													 const Coord3D *rawTo)
 {
 	if (!clientSafeQuickDoesPathExist(locomotorSet, from, rawTo)) {
 		return nullptr;
+	}
+	// web port (match rule routeCache): a recent route from about here to about there, shifted
+	const Bool gxCache = obj && gxMatchRule(GXRULE_ROUTE_CACHE);
+	Int gxRadius = 0; Bool gxCenter = true;
+	if (gxCache) {
+		getRadiusAndCenter(obj, gxRadius, gxCenter);
+		if (Path *hit = gxRouteCacheLookup(this, obj, locomotorSet, from, rawTo, gxRadius, gxCenter))
+			return hit;
 	}
 	Bool isHuman = true;
 	if (obj && obj->getControllingPlayer() && (obj->getControllingPlayer()->getPlayerType()==PLAYER_COMPUTER)) {
@@ -6662,10 +6852,53 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 
 	m_zoneManager.clearPassableFlags();
 	Path *hPat = findHierarchicalPath(isHuman, locomotorSet, from, rawTo, false);
+	if (!hPat) {
+		m_zoneManager.setAllPassable();
+	}
+	// web port (match rule routeRefine): a long move searches in detail only to a point about 30
+	// cells along the zone-level route, then follows the zone-level route; the move state asks for
+	// the next stretch when the unit nears the end of the detailed one (AIInternalMoveToState)
+	if (hPat && obj && gxMatchRule(GXRULE_ROUTE_REFINE)) {
+		const Real dx = rawTo->x - from->x, dy = rawTo->y - from->y;
+		const Real stretch = 30 * PATHFIND_CELL_SIZE_F;
+		if (dx * dx + dy * dy > sqr(40 * PATHFIND_CELL_SIZE_F)) {
+			// the zone-level route's points, and the first one at least 'stretch' along it
+			std::vector<Coord3D> pts;
+			Bool ground = TRUE;
+			for (PathNode *n = hPat->getFirstNode(); n; n = n->getNext()) {
+				if (n->getLayer() != LAYER_GROUND) ground = FALSE;
+				pts.push_back(*n->getPosition());
+			}
+			size_t cut = 0; Real along = 0;
+			for (size_t k = 1; k < pts.size(); ++k) {
+				along += sqrtf(sqr(pts[k].x - pts[k - 1].x) + sqr(pts[k].y - pts[k - 1].y));
+				if (along >= stretch) { cut = k; break; }
+			}
+			if (ground && cut > 0 && cut + 1 < pts.size()) {
+				deleteInstance(hPat); hPat = nullptr;
+				const Coord3D mid = pts[cut];
+				const Bool wasIgnoring = s_gxPlanIgnoringUnits;
+				if (gxIgnoreUnitsFor(obj)) s_gxPlanIgnoringUnits = true;
+				Path *near = internalFindPath(obj, locomotorSet, from, &mid);
+				s_gxPlanIgnoringUnits = wasIgnoring;
+				if (near && near->getLastNode()) {
+					const Coord3D end = *near->getLastNode()->getPosition();
+					for (size_t k = cut + 1; k + 1 < pts.size(); ++k) near->appendNode(&pts[k], LAYER_GROUND);
+					near->appendNode(rawTo, LAYER_GROUND);
+					near->m_gxRefine = TRUE;
+					near->m_gxRefineEnd = end;
+					return near;
+				}
+				if (near) deleteInstance(near);
+				// no detailed stretch: plan the whole move as before
+				m_zoneManager.clearPassableFlags();
+				hPat = findHierarchicalPath(isHuman, locomotorSet, from, rawTo, false);
+				if (!hPat) m_zoneManager.setAllPassable();
+			}
+		}
+	}
 	if (hPat) {
 		deleteInstance(hPat);
-	}	else {
-		m_zoneManager.setAllPassable();
 	}
 
 #ifdef __EMSCRIPTEN__
@@ -6680,6 +6913,7 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 	Path *pat = internalFindPath(obj, locomotorSet, from, rawTo);
 #endif
 	if (pat!=nullptr) {
+		if (gxCache && !pat->m_gxRefine) gxRouteCacheStore(obj, locomotorSet, from, rawTo, gxRadius, gxCenter, pat);
 		return pat;
 	}
 
@@ -9144,6 +9378,12 @@ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet
 					closestDistanceSqr = distSqr;
 				}
 			}
+		}
+
+		// web port (match rule routeRefine): a closest-spot search stops after 2,000 cells once it
+		// has a spot (these searches were ~80% of all route-search work in big battles)
+		if (closesetCell && count > 2000 && gxMatchRule(GXRULE_ROUTE_REFINE)) {
+			break;
 		}
 
 		dx = IABS(goalCell->getXIndex()-parentCell->getXIndex());
@@ -11611,7 +11851,8 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 #ifdef __EMSCRIPTEN__
 	if (!gxMatchRule(GXRULE_FLOW_FIELDS) || s_inFieldPath || !TheGameLogic) return nullptr;
 	const int sx = startCell->getXIndex(), sy = startCell->getYIndex(), gx = goalCell->getXIndex(), gy = goalCell->getYIndex();
-	if (abs(sx - gx) <= GX_FF_MIN_CELLS && abs(sy - gy) <= GX_FF_MIN_CELLS) return nullptr;
+	const int minCells = gxMatchRule(GXRULE_FLOW_COVER) ? 8 : GX_FF_MIN_CELLS;	// match rule flowCover: shorter moves too
+	if (abs(sx - gx) <= minCells && abs(sy - gy) <= minCells) return nullptr;
 	const int x0 = m_extent.lo.x, y0 = m_extent.lo.y, w = m_extent.hi.x - x0 + 1, h = m_extent.hi.y - y0 + 1;
 	if (w <= 0 || h <= 0) return nullptr;
 	const LocomotorSurfaceTypeMask surfaces = locomotorSet.getValidSurfaces();
@@ -11857,3 +12098,72 @@ Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet
 	return nullptr;
 #endif
 }
+
+// ================================================================================================
+// Web port (match rule routeCache): recent routes, reused for a unit of the same kind and size
+// starting within 4 cells of a cached route's start and going within 4 cells of its goal. The
+// copy is shifted by the start offset, starts at the unit and ends at its own goal; a copy whose
+// shifted points would stand on a blocked cell is not used. Routes expire after 300 frames or
+// when buildings change (s_obstacleSerial).
+// ================================================================================================
+namespace {
+struct GxCachedRoute {
+	LocomotorSurfaceTypeMask surfaces; Bool crusher; Int radius; Bool center;
+	Coord3D from, to; unsigned serial; UnsignedInt born, used;
+	std::vector<Coord3D> pts;	// inner points (without start and end)
+};
+std::vector<GxCachedRoute> s_routeCache;
+}
+
+static Path *gxRouteCacheLookup( Pathfinder *pf, Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center, Bool *probeHit )
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	const LocomotorSurfaceTypeMask surfaces = locomotorSet.getValidSurfaces();
+	const Bool crusher = obj->getCrusherLevel() > 0;
+	const Real near2 = sqr(4 * PATHFIND_CELL_SIZE_F);
+	for (GxCachedRoute &r : s_routeCache) {
+		if (r.surfaces != surfaces || r.crusher != crusher || r.radius != radius || r.center != center) continue;
+		if (r.serial != s_obstacleSerial || now - r.born > 300) continue;
+		const Real ox = from->x - r.from.x, oy = from->y - r.from.y;
+		if (ox * ox + oy * oy > near2) continue;
+		const Real gx = to->x - r.to.x, gy = to->y - r.to.y;
+		if (gx * gx + gy * gy > near2) continue;
+		Bool ok = TRUE;
+		for (const Coord3D &p0 : r.pts) {
+			Coord3D p = p0; p.x += ox; p.y += oy;
+			if (!pf->validMovementPosition(crusher, LAYER_GROUND, locomotorSet, &p)) { ok = FALSE; break; }
+		}
+		if (!ok) continue;
+		if (probeHit) { *probeHit = TRUE; return nullptr; }	// only asking: nothing built, nothing touched
+		Path *path = newInstance(Path);
+		path->appendNode(from, LAYER_GROUND);
+		for (const Coord3D &p0 : r.pts) { Coord3D p = p0; p.x += ox; p.y += oy; path->appendNode(&p, LAYER_GROUND); }
+		path->appendNode(to, LAYER_GROUND);
+		for (PathNode *node = path->getFirstNode(); node && node->getNext(); node = node->getNext())
+			node->setNextOptimized(node->getNext());
+		path->markOptimized();
+		r.used = now;
+		return path;
+	}
+	return nullptr;
+}
+
+static void gxRouteCacheStore( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center, Path *path )
+{
+	std::vector<Coord3D> pts;
+	const PathNode *first = path->getFirstNode();
+	for (const PathNode *node = first; node; node = node->getNextOptimized()) {
+		if (node->getLayer() != LAYER_GROUND) return;	// bridges: not cached
+		pts.push_back(*node->getPosition());
+	}
+	if (pts.size() < 3) return;
+	const UnsignedInt now = TheGameLogic->getFrame();
+	GxCachedRoute *slot = nullptr;
+	if (s_routeCache.size() < 64) { s_routeCache.push_back(GxCachedRoute()); slot = &s_routeCache.back(); }
+	else { slot = &s_routeCache[0]; for (GxCachedRoute &r : s_routeCache) if (r.used < slot->used) slot = &r; }
+	slot->surfaces = locomotorSet.getValidSurfaces(); slot->crusher = obj->getCrusherLevel() > 0;
+	slot->radius = radius; slot->center = center;
+	slot->from = *from; slot->to = *to; slot->serial = s_obstacleSerial; slot->born = slot->used = now;
+	slot->pts.assign(pts.begin() + 1, pts.end() - 1);
+}
+void gxRouteCacheClear() { s_routeCache.clear(); }

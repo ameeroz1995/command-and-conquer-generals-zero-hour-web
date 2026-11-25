@@ -123,6 +123,7 @@ public:
 																			 void *userData );	///< Logic command list processing
 
 	void registerObject( Object *obj );							///< Given an object, register it with the GameLogic and give it a unique ID
+	void gxNoteDisabled( Object *obj );	///< web port: obj may now be disabled (switch disabledList)
 
 	void addObjectToLookupTable( Object *obj );			///< add object ID to hash lookup table
 	void removeObjectFromLookupTable( Object *obj );///< remove object ID from hash lookup table
@@ -341,6 +342,35 @@ private:
 	// (for an excellent discussion of priority queues, please see:
 	// http://dogma.net/markn/articles/pq_stl/priority.htm)
 	std::vector<UpdateModulePtr> m_sleepyUpdates;
+	// Web port (match rule 131072, updatePasses; third word bit 9): modules that ask to run every
+	// frame leave the heap and run in one flat pass per update phase, grouped by behaviour (AI kinds
+	// first) and then by object ID. An entry's module has index-in-logic -2 while it is in a pass.
+	struct GxPassEntry { unsigned long long key; UpdateModulePtr u; };
+	std::vector<GxPassEntry> m_gxPass[4];
+	std::vector<GxPassEntry> m_gxPassJoin;
+	void gxPassRemove(UpdateModulePtr u);
+	void gxPassFlushToHeap();
+	void gxPassMerge();
+	void gxPassMergeJoin();
+	// The dispatch table (round 4, same rule): one behaviour bit (GxUnitStore, bits 32-63) per
+	// module kind that runs every frame. Its pass walks TheGxUnitStore.pass(bit) in object-ID order
+	// and calls that kind's module of each unit (modById). Kind members have index-in-logic -4; a
+	// second module of the same kind on one unit, or kinds past the 32nd, use the lists above (-2).
+	struct GxKind { NameKeyType nk; unsigned long long order; Int bit; Int phase; Bool isAI; std::vector<UpdateModulePtr> modById; };
+	std::vector<GxKind> m_gxKinds;
+	std::vector<Int> m_gxKindOrder;	///< m_gxKinds indexes in dispatch order (AI kinds first, then name hash)
+	Int gxKindOf(UpdateModulePtr u, Bool create);
+	/// per phase, per object ID: the unit's every-frame modules without a kind bit of their own
+	/// (kinds past the 28th, or a second module of one kind); behaviour bit 60 + phase. Index -5.
+	std::vector<std::vector<UpdateModulePtr>> m_gxMiscById[4];
+	void gxKindsClear(Bool toHeap);
+	// Web port (switch disabledList, third word bit 8): the objects that may be disabled, so the
+	// end-of-tick check visits them instead of walking every object. Order = object-list order
+	// (descending m_gxListSeq). Rebuilt from the list after a reset or a load.
+	std::vector<Object *> m_gxDisabledObjs;
+	UnsignedInt m_gxListSeqNext = 0;
+	Bool m_gxDisabledListValid = false;
+	void gxCheckDisabledObjects();
 	std::vector<UnsignedInt> m_gxSleepyKey;	///< web port (switch sleepyKeys): each entry's priority, kept beside m_sleepyUpdates so the heap compares without touching the modules
 
 #ifdef ALLOW_NONSLEEPY_UPDATES

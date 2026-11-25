@@ -386,6 +386,7 @@ public:
 
 	/// returns true iff the object can run over the other object.
 	Bool canCrushOrSquish(Object *otherObj, CrushSquishTestType testType = TEST_CRUSH_OR_SQUISH) const;
+	Bool gxCanCrushOrSquishFull(Object *otherObj, CrushSquishTestType testType ) const;	///< web port: the original test (crushFirst skips to its answer)
 	UnsignedByte getCrusherLevel() const;
 	UnsignedByte getCrushableLevel() const;
 
@@ -418,6 +419,10 @@ public:
 	/// cache the partition module (should be called only by PartitionData)
 	void friend_setPartitionData(PartitionData *pd) { m_partitionData = pd; }
 	PartitionData *friend_getPartitionData() const { return m_partitionData; }
+
+	// web port (round 4): hot fields whose truth is the unit store
+	Real getBoundingCircleRadius() const;	///< the store's radius (set from the geometry by setGeometryInfo)
+	Int gxPlayerIndex() const;				///< the store's controlling-player index (-1 none; set on every team or owner change)
 	const PartitionData *friend_getConstPartitionData() const { return m_partitionData; }
 	Bool hasGhostObject() const; ///< This object has a ghost object. This does not imply that a ghost snapshot is taken or active.
 
@@ -494,6 +499,11 @@ public:
 	const Weapon* getCurrentWeapon(WeaponSlotType* wslot = nullptr) const;
 	void setFiringConditionForCurrentWeapon() const;
 	void adjustModelConditionForWeaponStatus();	///< Check to see if I should change my model condition.
+	/// weaponSkip (combat, store pass): true when adjustModelConditionForWeaponStatus would change nothing
+	/// this frame (no target, not attacking, no shot, pose already none, ammo/status as last shown)
+	Bool gxWeaponStatusQuiet(Int target, UnsignedInt &ready, UnsignedInt &sig);
+	Bool gxWeaponStillQuiet() const;	///< weaponSkip: quiet at the last look and weaponReady not reached
+	ObjectWeaponStatusHelper* gxWeaponStatusHelper() const { return m_wsHelper; }
 	void fireCurrentWeapon(Object *target);
 	void fireCurrentWeapon(const Coord3D* pos);
 	void preFireCurrentWeapon( const Object *victim );
@@ -586,6 +596,10 @@ public:
 
 	DisabledMaskType getDisabledFlags() const { return m_disabledMask; }
 	Bool isDisabled() const { return m_disabledMask.any(); }
+	// Web port (switch disabledList, third word bit 8; GameLogic.cpp): place in the object list
+	// (higher = nearer the head) and whether the object is in GameLogic's list of disabled objects.
+	UnsignedInt m_gxListSeq = 0;
+	Bool m_gxDisabledListed = false;
 	Bool clearDisabled( DisabledType type );
 
 	void setDisabled( DisabledType type );
@@ -746,6 +760,7 @@ private:
 
 	// modules
 	BehaviorModule**							m_behaviors;	// BehaviorModule, not BehaviorModuleInterface
+	CollideModuleInterface**			m_gxCollides;	///< web port (collideList): the behaviours' collide interfaces in order, null-terminated; built on first collision
 
 	// cache these, for convenience
 	ContainModuleInterface*				m_contain;
