@@ -342,6 +342,16 @@ private:
 	// (for an excellent discussion of priority queues, please see:
 	// http://dogma.net/markn/articles/pq_stl/priority.htm)
 	std::vector<UpdateModulePtr> m_sleepyUpdates;
+	// Web port (match rule 131072, updatePasses; third word bit 9): modules that ask to run every
+	// frame leave the heap and run in one flat pass per update phase, grouped by behaviour (AI kinds
+	// first) and then by object ID. An entry's module has index-in-logic -2 while it is in a pass.
+	struct GxPassEntry { unsigned long long key; UpdateModulePtr u; };
+	std::vector<GxPassEntry> m_gxPass[4];
+	std::vector<GxPassEntry> m_gxPassJoin;
+	void gxPassRemove(UpdateModulePtr u);
+	void gxPassFlushToHeap();
+	void gxPassMerge();
+	void gxPassMergeJoin();
 	// Web port (switch disabledList, third word bit 8): the objects that may be disabled, so the
 	// end-of-tick check visits them instead of walking every object. Order = object-list order
 	// (descending m_gxListSeq). Rebuilt from the list after a reset or a load.

@@ -3570,3 +3570,39 @@ PORTING_LOG; resolved by keeping both sides. Pass order at the end of the tick: 
     - p2: 18.3→20.2 / 14.2→16.0 / 27.0→25.8, aftermath 1% low 9.4→15.3.
 - Read: defaults give strikes +4–7% and aftermath +4–6%, armies flat. The match rules add armies +10%,
   strikes +13–17%, and aftermath 1% lows +60%; aftermath average fps is 2–4% lower with the rules on.
+
+## 2026-11-25 — Round 4: update loop as manager passes (logic-ai), merged origin/perf/low-end 9a9c823
+
+(GxUnitStore.h from collide had not landed yet; this part does not need it: the passes run the
+modules themselves, grouped by behaviour, and can read the store once it exists.)
+
+What runs every frame (counter, first 300 frames of the battle benchmark): ~4,240 update calls a
+frame, nearly all returning "call me next frame": ObjectWeaponStatusHelper ~880, AIUpdateInterface
+~530, PhysicsBehavior ~530, ProductionUpdate ~520 (buildings), StealthUpdate ~265,
+GenerateMinefieldBehavior ~140, RebuildHoleBehavior ~110, slaved/spawn/horde/contain updates...
+Each of them was popped from the update heap (25,000 entries) and sifted back every frame.
+
+updatePasses (match rule 131072, third switch word bit 9, default OFF): a module whose update asks
+to run next frame leaves the heap and joins a flat pass list for its update phase. Per phase the
+heap's due entries run first, then that phase's pass list in one loop (phases keep today's order:
+initial, physics, normal, final). A list is sorted by behaviour (AI kinds first, then a hash of the
+module's name, the same on every machine) and object ID; equal keys keep the order they joined.
+A module that asks to sleep, is put to sleep by another object (setWakeFrame later than next frame)
+or is destroyed goes back to the heap or leaves the list. Switching the rule off puts every pass
+module back into the heap. The one gate is gxMatchRule(GXRULE_UPDATE_PASSES).
+- Determinism: old referee replay matches (rule off); a skirmish recorded with the rule on replays
+  to a match (rules from the replay header 0x20022).
+- Profile, strikes (load 18-20): heap sifting 1.5% -> 0.1% of the frame, pass bookkeeping 0.1%,
+  GameLogic::update's own time 1.4% -> 1.3%.
+- A/B (load 11-20, work ms off / passes): armies 72.7/59.3, 77.0/54.4; strikes 110.0/99.4,
+  104.1/84.2; aftermath 39.7/58.2, 47.4/60.8 — but the rule-off aftermaths ended with far fewer
+  units drawn (1147, 1352 vs 1762, 1799; the phases are time-limited, and the off runs had played
+  further), so aftermath is not comparable. An earlier batch at load 22-47: armies 94.8/114.1 off vs
+  61.7-77.7 with passes; strikes 166/223 vs 98-139. Never slower; the size of the gain is mostly
+  battle drift plus load, the measured saving in the loop itself is ~1.5 points.
+- Screenshots (~/generals-bench/ai-up-{off1,pass1}_battle*.png): armies engage normally, no stuck
+  or stacked units.
+- AI by state (a pass per AI state: AI entries re-sorted each frame by current state, then ID):
+  measured, no consistent gain (armies 72.2/54.1, strikes 94.1/88.3 vs passes 59.3/54.4, 99.4/84.2);
+  removed.
+Default off (it changes the order of same-frame updates); for the main chat's combined measurement.
