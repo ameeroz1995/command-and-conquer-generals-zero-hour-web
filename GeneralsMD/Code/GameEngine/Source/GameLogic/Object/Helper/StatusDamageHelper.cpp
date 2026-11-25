@@ -36,12 +36,14 @@
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
 
+
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 StatusDamageHelper::StatusDamageHelper( Thing *thing, const ModuleData *modData ) : ObjectHelper( thing, modData )
 {
-	m_statusToHeal = OBJECT_STATUS_NONE;
-	m_frameToHeal = 0;
+
+	R().m_statusToHeal = OBJECT_STATUS_NONE;
+	R().m_frameToHeal = 0;
 
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
@@ -57,7 +59,7 @@ StatusDamageHelper::~StatusDamageHelper()
 // ------------------------------------------------------------------------------------------------
 UpdateSleepTime StatusDamageHelper::update()
 {
-	DEBUG_ASSERTCRASH(m_frameToHeal <= TheGameLogic->getFrame(), ("StatusDamageHelper woke up too soon.") );
+	DEBUG_ASSERTCRASH(R().m_frameToHeal <= TheGameLogic->getFrame(), ("StatusDamageHelper woke up too soon.") );
 
 	clearStatusCondition(); // We are sleep driven, so seeing an update means our timer is ready implicitly
 	return UPDATE_SLEEP_FOREVER;
@@ -67,11 +69,11 @@ UpdateSleepTime StatusDamageHelper::update()
 // ------------------------------------------------------------------------------------------------
 void StatusDamageHelper::clearStatusCondition()
 {
-	if( m_statusToHeal != OBJECT_STATUS_NONE )
+	if( R().m_statusToHeal != OBJECT_STATUS_NONE )
 	{
-		getObject()->clearStatus( MAKE_OBJECT_STATUS_MASK(m_statusToHeal) );
-		m_statusToHeal = OBJECT_STATUS_NONE;
-		m_frameToHeal = 0;
+		getObject()->clearStatus( MAKE_OBJECT_STATUS_MASK(R().m_statusToHeal) );
+		R().m_statusToHeal = OBJECT_STATUS_NONE;
+		R().m_frameToHeal = 0;
 	}
 }
 
@@ -82,12 +84,12 @@ void StatusDamageHelper::doStatusDamage( ObjectStatusTypes status, Real duration
 	Int durationAsInt = REAL_TO_INT_FLOOR(duration);
 
 	// Clear any different status we may have.  Re-getting the same status will just reset the timer
-	if( m_statusToHeal != status )
+	if( R().m_statusToHeal != status )
 		clearStatusCondition();
 
 	getObject()->setStatus( MAKE_OBJECT_STATUS_MASK(status) );
-	m_statusToHeal = status;
-	m_frameToHeal = TheGameLogic->getFrame() + durationAsInt;
+	R().m_statusToHeal = status;
+	R().m_frameToHeal = TheGameLogic->getFrame() + durationAsInt;
 
 	setWakeFrame( getObject(), UPDATE_SLEEP(durationAsInt) );
 }
@@ -119,8 +121,8 @@ void StatusDamageHelper::xfer( Xfer *xfer )
 	// object helper base class
 	ObjectHelper::xfer( xfer );
 
-	xfer->xferUser( &m_statusToHeal, sizeof(ObjectStatusTypes) );// an enum
-	xfer->xferUnsignedInt( &m_frameToHeal );
+	xfer->xferUser( &R().m_statusToHeal, sizeof(ObjectStatusTypes) );// an enum
+	xfer->xferUnsignedInt( &R().m_frameToHeal );
 
 }
 

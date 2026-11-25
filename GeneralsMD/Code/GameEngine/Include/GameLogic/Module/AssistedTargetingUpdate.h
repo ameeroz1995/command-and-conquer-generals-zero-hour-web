@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
+#include "GameLogic/GxComponentTable.h"
 
 //-------------------------------------------------------------------------------------------------
 class AssistedTargetingUpdateModuleData : public UpdateModuleData
@@ -55,6 +56,13 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+// Web port (round 5): AssistedTargetingUpdate's per-unit state, one row per module in its component table
+struct AssistedTargetingUpdateRow
+{
+	const ThingTemplate *m_laserFromAssisted;
+	const ThingTemplate *m_laserToTarget;
+};
+
 class AssistedTargetingUpdate : public UpdateModule
 {
 
@@ -74,8 +82,5 @@ public:
 private:
 	void makeFeedbackLaser( const ThingTemplate *laserTemplate, const Object *from, const Object *to );
 
-	const ThingTemplate *m_laserFromAssisted;
-	const ThingTemplate *m_laserToTarget;
-
-
+	GX_COMPONENT_ROWS(AssistedTargetingUpdate, AssistedTargetingUpdateRow)
 };

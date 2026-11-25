@@ -50,6 +50,7 @@
 #include "GameLogic/Module/AIUpdate.h"
 
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 AutoFindHealingUpdateModuleData::AutoFindHealingUpdateModuleData()
@@ -79,7 +80,9 @@ AutoFindHealingUpdateModuleData::AutoFindHealingUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 AutoFindHealingUpdate::AutoFindHealingUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_nextScanFrames						= 0;
+
+	R().m_nextScanFrames						= 0;
+	R().m_gxReload = getAutoFindHealingUpdateModuleData()->m_scanFrames;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -109,12 +112,9 @@ UpdateSleepTime AutoFindHealingUpdate::update()
 	const AutoFindHealingUpdateModuleData *data = getAutoFindHealingUpdateModuleData();
 
 	//Optimized firing at acquired target
-	if( m_nextScanFrames > 0 )
-	{
-		m_nextScanFrames--;
+	// round 5: the countdown is a kernel (GxComponentTable.h); this apply step commits it
+	if( !gxCountdownCommit(R(), TheGameLogic->getFrame(), &GxRowT::m_nextScanFrames, &GxRowT::m_gxReload) )
 		return UPDATE_SLEEP_NONE;
-	}
-	m_nextScanFrames = data->m_scanFrames;
 
 	AIUpdateInterface *ai = obj->getAI();
 	if (ai==nullptr) return UPDATE_SLEEP_NONE;
@@ -212,7 +212,7 @@ void AutoFindHealingUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// next scan frames
-	xfer->xferInt( &m_nextScanFrames );
+	xfer->xferInt( &R().m_nextScanFrames );
 
 }
 

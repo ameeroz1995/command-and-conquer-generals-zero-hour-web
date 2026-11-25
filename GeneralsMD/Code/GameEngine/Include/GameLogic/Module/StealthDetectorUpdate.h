@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
+#include "GameLogic/GxComponentTable.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class Thing;
@@ -74,6 +75,12 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+// Web port (round 5): StealthDetectorUpdate's per-unit state, one row per module in its component table
+struct StealthDetectorUpdateRow
+{
+	Bool m_enabled;
+};
+
 class StealthDetectorUpdate : public UpdateModule
 {
 
@@ -85,12 +92,12 @@ public:
 	StealthDetectorUpdate( Thing *thing, const ModuleData* moduleData );
 	// virtual destructor prototype provided by memory pool declaration
 
-	Bool isSDEnabled() const { return m_enabled; }
+	Bool isSDEnabled() const { return R().m_enabled; }
 	void setSDEnabled( Bool enabled );
 	virtual UpdateSleepTime update();
 	virtual DisabledMaskType getDisabledTypesToProcess() const { return MAKE_DISABLED_MASK( DISABLED_HELD ); }
 
 private:
-	Bool m_enabled;
 
+	GX_COMPONENT_ROWS(StealthDetectorUpdate, StealthDetectorUpdateRow)
 };

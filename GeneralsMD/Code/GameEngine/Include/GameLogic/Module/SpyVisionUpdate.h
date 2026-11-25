@@ -34,6 +34,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
 #include "GameLogic/Module/UpgradeModule.h"
+#include "GameLogic/GxComponentTable.h"
 
 class Player;
 
@@ -79,6 +80,15 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+// Web port (round 5): SpyVisionUpdate's per-unit state, one row per module in its component table
+struct SpyVisionUpdateRow
+{
+	UnsignedInt m_deactivateFrame;
+	UnsignedInt m_disabledUntilFrame; //sabotaged, emp'd, etc.
+	Bool m_currentlyActive;
+	Bool m_resetTimersNextUpdate;
+};
+
 class SpyVisionUpdate : public UpdateModule, public UpgradeMux
 {
 
@@ -107,7 +117,7 @@ public:
 	void activateSpyVision( UnsignedInt duration );
 
 	void setDisabledUntilFrame( UnsignedInt frame );
-	UnsignedInt getDisabledUntilFrame() const { return m_disabledUntilFrame; }
+	UnsignedInt getDisabledUntilFrame() const { return R().m_disabledUntilFrame; }
 
 protected:
 
@@ -138,8 +148,5 @@ private:
 
 	void doActivationWork( Player *playerToSetFor, Bool setting );
 
-	UnsignedInt m_deactivateFrame;
-	UnsignedInt m_disabledUntilFrame; //sabotaged, emp'd, etc.
-	Bool m_currentlyActive;
-	Bool m_resetTimersNextUpdate;
+	GX_COMPONENT_ROWS(SpyVisionUpdate, SpyVisionUpdateRow)
 };

@@ -3899,3 +3899,58 @@ ai's per-kind hook lands, the range kernel is a loop of these calls over the kin
   is now in the train's row too.
 - Checks: paths-r5e (first batch) and paths-r5f (all) match the referee replay with verify (90,629 and
   90,613 checks, 0 mismatches) and play the kernel recording (GX=FEE6E7) to a match.
+## Round 5 (query): scan-type modules and helpers hold their per-unit state in component tables
+- New GameLogic/GxComponentTable.h: rows in a deque (never move, never copied; RadiusDecal can't be),
+  freed rows reset in place and reused. A module keeps only its row index (R()); xfer/CRC read the row.
+- Converted: StealthDetector, Stealth, EnemyNear, AutoFindHealing, AssistedTargeting, Radar, SpyVision,
+  DynamicShroudClearingRange, PointDefenseLaser, CommandButtonHunt, ObjectDefectionHelper,
+  StatusDamageHelper, SubdualDamageHelper, TempWeaponBonusHelper. ObjectHelper, ObjectRepulsorHelper,
+  ObjectSMCHelper and ObjectWeaponStatusHelper hold no per-unit fields.
+- Same game: referee replay on query-20 matches (9000 frames). Layout change only, so no switch.
+- Kernel step (rowKernels, fourth word bit 12, default on): EnemyNear, AutoFindHealing and PointDefenseLaser
+  scan countdowns are one kernel over the component pool (reads delay/reload, writes only the row's tick;
+  no allocation, RNG, events or globals); each module's update is the apply step (commit, scan, side effects).
+  A changed delay is recomputed inline, so same game. Sleep-scheduled modules (StealthDetector, SpyVision,
+  CommandButtonHunt, helpers) have no per-frame row math: their update is all apply.
+- On collide's GxComponentPool (9e1aa3d): modules hold GxRow<Row>; GxComponentTable.h is now only R() and the kernel.
+- simdSearch (fourth word bit 13, default on): the store-list search (scanManager) culls 4 slots at a time by
+  distance from the live x/y/radius columns (wasm simd128, same f32 ops, keep unless d2 > lim^2, scalar
+  recheck after): same game. Referee replay and query-mgr3.rep (scanManager on) match on query-22.
+  Pair tests not SIMD: per-cell linked lists of 2-4 neighbours; collide's store broad phase is the place.
+
+## Fog-of-war sight circles: measured, not built (query, 2026-11-25)
+- Profile (query-24, 25 s, inclusive): doShroudReveal 0.2%, undoShroudReveal 0.1%, pending-undo queue and
+  shroud cover 0.0%, in both armies and strikes. Total ~0.3% < the 1% bar: SIMD circle stamps not built.
+  (getShroudedStatus, the per-object read, is 0.5% armies / 0.7% strikes; different code.)
+
+## Laser scan verify mismatches (objects 829/832/1624/1643): scanManager, not laserFilters (query, 2026-11-25)
+- Verify (query-24): scanManager off: laser scans 15000, mismatches 0 (laserFilters exact). On: 30, every one
+  the filtered scan missing in-range missiles fired after the tick's first search. Their cell entries were
+  intact: scanManager answers from per-cell lists built at the tick's first search, by design. Same on every
+  machine (match rule), so no network drift; laserFilters stays on.
+- Fixes: scanManager no longer caches searches from a point (the key named no searcher and ignored whose
+  enemies the filters look for, so two players' searches from one spot could share an answer); the laser
+  verify skips its comparison under scanManager. Changes the scanManager game: new recording query-mgr4.rep.
+  Referee replay on query-25 matches.
+- Built anyway (user rule: build what is asked): fogStamps (fourth word bit 14, default on). The shroud
+  counters are dense per-player Short arrays (truth; the cell struct is filled for CRC/save, refilled after
+  load); sight circles come from per-radius stamps (DiscreteCircle's spans recorded at (0,0)), applied 8 cells
+  at a time with wasm i16x8 (same arithmetic as addLooker/removeLooker), then the edge side effects for cells
+  whose status changed (they touch no counter). Verify: 5.2M cells checked, 0 mismatches; referee and
+  query-mgr4.rep replay. doShroudReveal 0.2 -> 0.1-0.2%, undo 0.1%.
+- fogKeep (bit 15, default on), the bigger nearby cost: getShroudedStatus was recomputed every frame for every
+  moving unit, because each move invalidated all players. A move that keeps the same cells (cellReuse's key)
+  now keeps statuses decided by the cells' shroud alone (off map / all shrouded / all clear / partly clear);
+  ones decided by the fogged branch (which also reads relationship and kinds) are invalidated as before.
+  Verify (recompute and compare): 1.74M checks, 0 mismatches; referee replay matches.
+  getShroudedStatus 0.5/0.7% -> 0.4/0.4% (armies/strikes, profile share).
+- scanManager store-list cull now uses max(circle, sphere) per slot (combat found "2 x circle" too small for
+  tall units): changes the scanManager game; new recording query-mgr5.rep replays to a match (query-27).
+
+## Measuring (rule "fps is not the measure", 2026-11-25): Common/GxTime.h, switch tickTiming (fourth word bit 16, off)
+- Header-only: GXT_LOGIC around TheGameLogic->UPDATE() and frame intervals in GameEngine::update; systems add
+  their own scope timers (GxTimeScope) and work counters (gxCount). Every 300 ticks one console line
+  "GXTIME ticks N: logic X ms/tick; ...; frames F, p99 P ms, over 100 ms K" (averages since start).
+- Query hooks: search ms, searches / cells / entries / units opened / SIMD-culled; fog reveal ms, circles,
+  cells touched (stamp and span paths alike), fog status calls / recomputes / kept.
+- Other lanes: add ids to the enums in GxTime.h; one logic timer for everyone (GameEngine.cpp).

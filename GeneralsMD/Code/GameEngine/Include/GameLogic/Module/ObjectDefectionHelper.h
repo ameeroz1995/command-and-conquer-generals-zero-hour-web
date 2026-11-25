@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/ObjectHelper.h"
+#include "GameLogic/GxComponentTable.h"
 
 //-------------------------------------------------------------------------------------------------
 #define DEFECTION_DETECTION_TIME_MAX (LOGICFRAMES_PER_SECOND * 10)
@@ -44,6 +45,15 @@ class ObjectDefectionHelperModuleData : public ModuleData
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+// Web port (round 5): ObjectDefectionHelper's per-unit state, one row per module in its component table
+struct ObjectDefectionHelperRow
+{
+	UnsignedInt   m_defectionDetectionStart;				///< this is the timer, mentioned above (absolute frame, NOT counter)
+	UnsignedInt   m_defectionDetectionEnd;					///< this is the timer, mentioned above (absolute frame, NOT counter)
+	Real          m_defectionDetectionFlashPhase;   ///< keeps track of the flashing rate logarithmic curve
+	Bool					m_doDefectorFX;	///<AmericaInfPilot uses defect to become temporarily "invulnerable"
+};
+
 class ObjectDefectionHelper : public ObjectHelper
 {
 
@@ -52,19 +62,15 @@ class ObjectDefectionHelper : public ObjectHelper
 
 private:
 
-	UnsignedInt   m_defectionDetectionStart;				///< this is the timer, mentioned above (absolute frame, NOT counter)
-	UnsignedInt   m_defectionDetectionEnd;					///< this is the timer, mentioned above (absolute frame, NOT counter)
-	Real          m_defectionDetectionFlashPhase;   ///< keeps track of the flashing rate logarithmic curve
-	Bool					m_doDefectorFX;	///<AmericaInfPilot uses defect to become temporarily "invulnerable"
 
 public:
 
 	ObjectDefectionHelper( Thing *thing, const ModuleData *modData ) : ObjectHelper( thing, modData )
 	{
-		m_defectionDetectionEnd = 0;
-		m_defectionDetectionFlashPhase = FALSE;
-		m_defectionDetectionStart = 0;
-		m_doDefectorFX = FALSE;
+		R().m_defectionDetectionEnd = 0;
+		R().m_defectionDetectionFlashPhase = FALSE;
+		R().m_defectionDetectionStart = 0;
+		R().m_doDefectorFX = FALSE;
 	}
 	// virtual destructor prototype provided by memory pool object
 
@@ -76,4 +82,5 @@ public:
 	// specific to this class.
 	void startDefectionTimer(UnsignedInt numFrames, Bool withDefectorFX = TRUE);
 
+	GX_COMPONENT_ROWS(ObjectDefectionHelper, ObjectDefectionHelperRow)
 };

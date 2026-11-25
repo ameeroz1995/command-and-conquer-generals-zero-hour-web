@@ -31,6 +31,7 @@
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
+#include "GameLogic/GxComponentTable.h"
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -62,6 +63,14 @@ public:
 //-------------------------------------------------------------------------------------------------
 /** The Radar Update module */
 //-------------------------------------------------------------------------------------------------
+// Web port (round 5): RadarUpdate's per-unit state, one row per module in its component table
+struct RadarUpdateRow
+{
+	UnsignedInt m_extendDoneFrame;						 ///< radar will be done extending on this frame
+	Bool m_extendComplete;										 ///< TRUE when extend is all done
+	Bool m_radarActive;												 ///< TRUE when radar is actually online and generating radar information.
+};
+
 class RadarUpdate : public UpdateModule
 {
 
@@ -74,14 +83,11 @@ public:
 	// virtual destructor prototype defined by MemoryPoolObject
 
 	void extendRadar();									 ///< extend the radar from this object
-	Bool isRadarActive() { return m_radarActive; }
+	Bool isRadarActive() { return R().m_radarActive; }
 
 	virtual UpdateSleepTime update(); ///< Here's the actual work of Upgrading
 
 protected:
 
-	UnsignedInt m_extendDoneFrame;						 ///< radar will be done extending on this frame
-	Bool m_extendComplete;										 ///< TRUE when extend is all done
-	Bool m_radarActive;												 ///< TRUE when radar is actually online and generating radar information.
-
+	GX_COMPONENT_ROWS(RadarUpdate, RadarUpdateRow)
 };
