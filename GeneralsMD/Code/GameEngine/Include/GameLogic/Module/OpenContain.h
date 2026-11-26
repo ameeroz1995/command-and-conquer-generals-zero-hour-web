@@ -254,6 +254,13 @@ protected:
 
 	void pruneDeadWanters();
 
+	// round 5 addendum (drifting, rides on match rule updatePasses, switch containKernels): the kind
+	// kernel steps every container's own row (entered mask, door countdown) ahead of the turns;
+	// update() does the rest in the unit's own turn
+	UnsignedInt gxStep();
+	void gxApplyStep( UnsignedInt due );
+	static void gxKernel( UpdateModulePtr *mods, Int begin, Int end );
+
 	GxRow<struct GxOpenContainRow> m_gxOpenContainRow;	///< web port (round 5): this unit's row in TheGxOpenContains
 	friend struct GxOpenContainRow;
 	inline struct GxOpenContainRow &gxRow() const;
@@ -293,6 +300,8 @@ struct GxOpenContainRow
 	Bool rallyPointExists;
 	Bool loadSoundsEnabled;
 	Bool passengerAllowedToFire;
+	UnsignedInt gxKernelFrame = 0;	///< frame the container kernel last stepped this row
+	UnsignedInt gxDue = 0;	///< its result (1: the door closes this frame)
 };
 
 

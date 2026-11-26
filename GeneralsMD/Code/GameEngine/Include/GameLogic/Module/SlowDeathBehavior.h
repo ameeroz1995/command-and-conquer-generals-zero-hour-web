@@ -173,6 +173,8 @@ private:
 
 	// round 5 addendum: update() = gxStep (kernel: own row and module data only) + gxApplyStep (side effects)
 	UnsignedInt gxStep( UnsignedInt now, Real timeScale );
+	static UnsignedInt gxStepRow( struct GxSlowDeathBehaviorRow &r, const SlowDeathBehaviorModuleData *d, UnsignedInt now, Real timeScale );
+	static void gxKernelSimd( UpdateModulePtr *mods, Int begin, Int end, UnsignedInt now );
 	UpdateSleepTime gxApplyStep( UnsignedInt due );
 	static void gxKernel( UpdateModulePtr *mods, Int begin, Int end );
 	static void gxApply( UpdateModulePtr *mods, Int count );

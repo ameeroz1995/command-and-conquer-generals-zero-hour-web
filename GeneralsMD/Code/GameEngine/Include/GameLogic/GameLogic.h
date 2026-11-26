@@ -134,9 +134,8 @@ public:
 	typedef void (*GxKernelFn)( const Int *slots, Int begin, Int end );
 	typedef void (*GxApplyFn)( const Int *slots, Int count );
 	static void gxRegisterKernel( Int storeBit, Int phase, GxKernelFn kernel, GxApplyFn apply );
-	// Both kernel hooks run only while the match rule updatePasses is on (decided by the host / the
-	// replay header); the kindKernels setting (fourth word bit 7) can only turn them off in local single
-	// player. Per-kind batch hook: for an update-module kind (its
+	// Both kernel hooks run only while the match rule updatePasses is on and kindKernelsOff is not
+	// (decided by the host / the replay header; the kindKernels setting, fourth word bit 7, sets it). Per-kind batch hook: for an update-module kind (its
 	// module name key), the updatePasses dispatch hands the kind's every-frame modules, in object-ID
 	// order, to kernel(mods, 0, n) and then apply(mods, n), right before that kind's per-module
 	// update loop. Only under updatePasses (the modules are in pass lists only then), so a module's
@@ -144,6 +143,9 @@ public:
 	typedef void (*GxKindKernelFn)( UpdateModulePtr *mods, Int begin, Int end );
 	typedef void (*GxKindApplyFn)( UpdateModulePtr *mods, Int count );
 	static void gxRegisterKindKernel( NameKeyType kind, GxKindKernelFn kernel, GxKindApplyFn apply );
+	// TRUE while match rule updatePasses is on and the "off" rule offRule (GXRULE_KIND_KERNELS_OFF,
+	// GXRULE_CONTAIN_KERNELS_OFF) is not: kernels follow the match rules, so recordings replay either way
+	static Bool gxKernelSwitch( Int offRule );
 	void gxNoteDisabled( Object *obj );	///< web port: obj may now be disabled (switch disabledList)
 
 	void addObjectToLookupTable( Object *obj );			///< add object ID to hash lookup table

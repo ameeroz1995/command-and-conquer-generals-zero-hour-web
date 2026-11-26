@@ -62,7 +62,7 @@ static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 13421
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // Fourth switch word (round 5: units as pure data). Bits by owner: collide 0-5, ai 6-11, query 12-17,
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
-static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 4096 | 8192 | 16384 | 32768;	// default-on bits of every lane (collideSimd, dataBehaviors, rowKernels, simdSearch, fogStamps, fogKeep)
+static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 512 | 4096 | 8192 | 16384 | 32768;	// default-on bits of every lane (collideSimd, dataBehaviors, rowKernels, simdSearch, fogStamps, fogKeep)
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -492,7 +492,9 @@ void GLES3_Begin_Scene() {
                  | (o.damageTable === true ? 67108864 : 0)  // bit 26: damageTable, per-frame table of weapon bonuses for target evaluation (Weapon.cpp; same game)
                  | (o.splashIlp === true ? 134217728 : 0)  // bit 27: splashIlp, with splashSimd: the splash pass does 8 slots per step as two independent chains (PartitionManager.cpp; same game)
                  | (o.dataBehaviors === false ? 0 : 64)   // bit 6: behaviours as data: lookups made per frame by name done once (Behavior/*.cpp; same game)
-                 | (o.kindKernels === false ? 0 : 128)   // bit 7: kernels follow match rule updatePasses; off here turns them off in local single player only (GameLogic.cpp)
+                 | (o.kernelSimd === false ? 0 : 512)   // bit 9: the slow-death kernel steps 4 dying units per wasm SIMD instruction (SlowDeathBehavior.cpp; same game)
+                 | (o.containKernels === false ? 0 : 256)   // bit 8: containers / rebuild holes step their own countdowns in a kernel ahead of the turns (OpenContain.cpp, RebuildHoleBehavior.cpp; under updatePasses; off = match rule containKernelsOff, the host / replay decide)
+                 | (o.kindKernels === false ? 0 : 128)   // bit 7: per-kind kernels under updatePasses; off = match rule kindKernelsOff, the host / replay decide (GameLogic.cpp)
                  | (o.rowKernels === false ? 0 : 4096)   // bit 12: scan countdowns of EnemyNear/AutoFindHealing/PointDefenseLaser run as one kernel per table (GxComponentTable.h; same game)
                  | (o.simdSearch === false ? 0 : 8192)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.fogStamps === false ? 0 : 16384)   // bit 14: sight circles from precomputed stamps, 8 cells at a time with wasm SIMD over dense shroud counters (PartitionManager.cpp; same game)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)

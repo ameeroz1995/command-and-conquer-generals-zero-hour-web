@@ -4162,3 +4162,46 @@ kernel can later run over workers / SIMD).
   - fps (footnote): strikes 13.7-19.4 across runs.
 - Defaults: splashSimd on (faster, same game). splashIlp, damageTable, weaponReload stay off (not
   faster).
+### ai: containers and rebuild holes as kernels (drifting part, rides on match rule updatePasses)
+- OpenContain (and every container kind: Transport, Garrison, Tunnel, Cave, Heal, InternetHack,
+  MobNexus, Overlord, Helix, Parachute, RailedTransport, RiderChange; each update() calls
+  OpenContain::update() unconditionally): the kind kernel clears the entered mask and steps the door
+  countdown of all containers ahead of the turns; update() does the rest (art monitor, door close,
+  dead wanters) in the container's own turn.
+- RebuildHoleBehavior: the kernel steps the worker wait counter of holes with no worker; a worker
+  lost this frame starts its countdown next frame.
+- Results differ from the in-turn order (riders entering / workers dying in other units' turns), so
+  it follows match rule updatePasses; switch containKernels (fourth word bit 8, default on) can turn
+  it off in local single player only (GameLogic::gxKernelSwitch).
+Checks (ai-34): referee.rep (rule off) matches; new recording ai-ck.rep made on ai-34 replays to a
+match; ai-up5.rep still matches; verify mode on the battle benchmark: 0 mismatches.
+Timing, battle benchmark, ai-34, tickTiming, timing.lock, load 4-8 (just after a reboot), containKernels off / on:
+- run 1: logic 20.37 / 21.66 ms/tick; aiLoop 10.40 / 10.90; aiKernels 0.39 / 0.41; p99 122 / 110 ms; over 100 ms 76 / 48
+- run 2: logic 21.36 / 18.46 ms/tick; aiLoop 10.79 / 9.27; aiKernels 0.41 / 0.34; p99 128 / 107 ms; over 100 ms 117 / 41
+- kernel slots 712-791/tick (counted also when off: the hook runs, the kernel returns at once)
+Level within noise (the run's work differs: 2700 vs 3000 ticks, 3215-3572 module calls/tick).
+
+### ai: SIMD step, slow-death kernel 4 rows per instruction (switch kernelSimd, fourth word bit 9, on; same game)
+- Profile of the battle benchmark (ai-34): no math loops in the ai lane; its own cost is branchy
+  scalar work (isIdle 0.5%, doLocomotor 0.5%, state updates ~0.4% each). The SIMD step applies to
+  the biggest ai kernel, SlowDeath (~250 rows/tick): with LOD scale 1 the step is integer compares
+  and adds, done 4 rows per wasm SIMD instruction, branchless (masks + and/or), gathered from and
+  scattered back to the pool; no FMA, no float math. Spawn / container kernels are one decrement
+  over a few dozen rows: left scalar.
+- Checks (ai-35): referee.rep and ai-ck.rep match; verify mode runs the scalar step on a copy of every
+  row: 37.25M checks, 0 mismatches (all GXVERIFY checks 0).
+Timing, battle benchmark, ai-35, tickTiming, timing.lock, load 2-3, kernelSimd off / on:
+- run 1: logic 15.28 / 15.22 ms/tick; aiLoop 7.48 / 7.44; aiKernels 0.271 / 0.270; p99 84.7 / 86.0 ms; over 100 ms 19 / 21
+- run 2: logic 15.04 / 14.92 ms/tick; aiLoop 7.35 / 7.25; aiKernels 0.266 / 0.256; p99 88.6 / 83.6 ms; over 100 ms 24 / 19
+- same work both sides: 3214.6 module calls/tick, 711.9 kernel slots/tick. Level to slightly faster
+  (aiKernels includes the apply step, which is most of it).
+
+### ai: kernel switches carried in the replay header (match rules kindKernelsOff 16777216, containKernelsOff 33554432)
+- Before: kindKernels / containKernels off only worked in local single player and playback forced
+  kernels on, so a single-player game recorded with a switch off would not replay.
+- Now both are "off" match rules (bits 24, 25: an old recording without them plays as before, kernels
+  on). The local switches set them; the host's Settings decide network games; the replay header keeps
+  them. GameLogic::gxKernelSwitch(offRule) = updatePasses on and offRule not set.
+Checks (ai-36): single-player game recorded with both switches off (rules 3FEE6E7 in the header)
+replays to a match (rules read back 3FEE6E7); one recorded with defaults (FEE6E7) replays to a match;
+referee.rep, ai-ck.rep, ai-up5.rep match.
