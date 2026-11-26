@@ -283,7 +283,6 @@ public:
 		UnsignedInt gxOpFrame; ///< web port: frame + 1 of the kernel result (0: none)
 		Int gxOp; ///< web port: the kernel result
 		Bool gxJoined; ///< web port: in the kernel list
-		Int gxId; ///< web port: object ID when it joined
 		PullInfo conductorPullInfo; ///< the lead carriage's pull along the track
 		StationTask nextStationTask;
 		ObjectID trailerID; ///< the ID of the object I am directly pulling

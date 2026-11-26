@@ -22,13 +22,14 @@ static inline int GLES3_Page_Switches4() { return 0; }
 static inline double emscripten_get_now() { return 0.0; }
 #endif
 
-enum GxTimeId { GXT_LOGIC, GXT_FRAME, GXT_SEARCH, GXT_FOG_REVEAL, GXT_MOVE, GXT_MOVE_KERNEL, GXT_AI_LOOP, GXT_AI_KERNELS, GXT_TIME_COUNT };
+enum GxTimeId { GXT_LOGIC, GXT_FRAME, GXT_SEARCH, GXT_FOG_REVEAL, GXT_MOVE, GXT_MOVE_KERNEL, GXT_AI_LOOP, GXT_AI_KERNELS, GXT_PATHFIND, GXT_LOCO, GXT_TIME_COUNT };
 enum GxCountId
 {
 	GXC_SEARCHES, GXC_SEARCH_CELLS, GXC_SEARCH_ENTRIES, GXC_SEARCH_UNITS, GXC_SIMD_CULLED,
 	GXC_FOG_CIRCLES, GXC_FOG_CELLS, GXC_FOG_STATUS_CALLS, GXC_FOG_RECOMPUTES, GXC_FOG_KEPT,
 	GXC_MOVE_UNITS, GXC_MOVE_KERNEL_POINTS, GXC_MOVE_KERNEL_TAKEN, GXC_MOVE_APPLY_POINTS, GXC_HORDE_SEARCHES,
 	GXC_AI_MODULE_CALLS, GXC_AI_KERNEL_SLOTS,
+	GXC_PATH_FINDS, GXC_PATH_CELLS, GXC_LOCO_CALLS, GXC_CPOP_CALLS, GXC_CPOP_SIMD_SEGS,
 	GXC_COUNT
 };
 
@@ -75,11 +76,12 @@ inline void gxTimeTickEnd()
 	if (!gxTimingOn()) return;
 	GxTimeState &s = gxTime();
 	if (++s.ticks % 300) return;
-	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "move", "moveKernel", "aiLoop", "aiKernels" };
+	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "move", "moveKernel", "aiLoop", "aiKernels", "pathfind", "loco" };
 	static const char *cn[GXC_COUNT] = { "searches", "searchCells", "searchEntries", "searchUnits", "simdCulled",
 		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept",
 		"moveUnits", "moveKernelPoints", "moveKernelTaken", "moveApplyPoints", "hordeSearches",
-		"aiModuleCalls", "aiKernelSlots" };
+		"aiModuleCalls", "aiKernelSlots",
+		"pathFinds", "pathCells", "locoCalls", "cpopCalls", "cpopSimdSegs" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())

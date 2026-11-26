@@ -88,7 +88,6 @@ FloatUpdate::FloatUpdate( Thing *thing, const ModuleData *moduleData )
 // ------------------------------------------------------------------------------------------------
 FloatUpdate::~FloatUpdate()
 {
-	GxModuleList<FloatUpdate>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
@@ -108,7 +107,6 @@ static Bool gxFloatKernel(const FloatUpdate::GxState &r, const Coord3D &pos, Coo
 }
 
 // web port (round 5): the range kernel through ai's hook, at the start of this module's phase
-GX_PATHS_KERNEL(FloatUpdate, GXB_PK_FLOAT, PHASE_NORMAL)
 void FloatUpdate::gxKernelStep(UnsignedInt now)
 {
 	// reads: its row, its position, the terrain's water heights; writes: its row (op, position)
@@ -121,7 +119,7 @@ void FloatUpdate::gxKernelStep(UnsignedInt now)
 
 UpdateSleepTime FloatUpdate::update()
 {
-	GX_PK_JOIN(FloatUpdate, GXB_PK_FLOAT)
+	GX_PK_JOIN(FloatUpdate)
 /// @todo srj use SLEEPY_UPDATE here
 
 	// web port (round 5 addendum): kernel = the water-surface position (reads its row, its position

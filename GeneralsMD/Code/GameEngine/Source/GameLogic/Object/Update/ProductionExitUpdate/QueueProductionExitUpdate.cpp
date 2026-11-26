@@ -63,7 +63,6 @@ QueueProductionExitUpdate::QueueProductionExitUpdate( Thing *thing, const Module
 //-------------------------------------------------------------------------------------------------
 QueueProductionExitUpdate::~QueueProductionExitUpdate()
 {
-	GxModuleList<QueueProductionExitUpdate>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
@@ -228,7 +227,6 @@ static void gxQueueExitKernel(QueueProductionExitUpdate::GxState &r, Bool freeTo
 }
 
 // web port (round 5): the range kernel through ai's hook, at the start of this module's phase
-GX_PATHS_KERNEL(QueueProductionExitUpdate, GXB_PK_QUEUE_EXIT, PHASE_NORMAL)
 void QueueProductionExitUpdate::gxKernelStep(UnsignedInt now)
 {
 	// reads: whether it is free to exit; writes: its row (exit delay)
@@ -240,7 +238,7 @@ void QueueProductionExitUpdate::gxKernelStep(UnsignedInt now)
 
 UpdateSleepTime QueueProductionExitUpdate::update()
 {
-	GX_PK_JOIN(QueueProductionExitUpdate, GXB_PK_QUEUE_EXIT)
+	GX_PK_JOIN(QueueProductionExitUpdate)
 	// This update needs to decide when we are again free to exit something
 	// (web port, round 5 addendum: gather isFreeToExit, then the kernel; nothing to apply)
 	gxQueueExitKernel(R(), isFreeToExit());

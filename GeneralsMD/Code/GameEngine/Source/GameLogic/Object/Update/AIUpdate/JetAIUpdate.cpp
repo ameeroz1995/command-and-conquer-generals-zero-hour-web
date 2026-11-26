@@ -1976,7 +1976,6 @@ JetAIUpdate::JetAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdat
 //-------------------------------------------------------------------------------------------------
 JetAIUpdate::~JetAIUpdate()
 {
-	GxModuleList<JetAIUpdate>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 	if (R().lockonDrawable)
 	{
@@ -2107,7 +2106,6 @@ static Bool gxJetTimerKernel(JetAIUpdate::GxState &r, Bool attacking, UnsignedIn
 }
 
 // web port (round 5): the range kernel through ai's hook, at the start of this module's phase
-GX_PATHS_KERNEL(JetAIUpdate, GXB_PK_JET, PHASE_INITIAL)
 void JetAIUpdate::gxKernelStep(UnsignedInt now)
 {
 	// reads: its attacking status, the frame, the module data; writes: its row (timers, op)
@@ -2119,7 +2117,7 @@ void JetAIUpdate::gxKernelStep(UnsignedInt now)
 
 UpdateSleepTime JetAIUpdate::update()
 {
-	GX_PK_JOIN(JetAIUpdate, GXB_PK_JET)
+	GX_PK_JOIN(JetAIUpdate)
 	const JetAIUpdateModuleData* d = getJetAIUpdateModuleData();
 
 	getProducerLocation();
