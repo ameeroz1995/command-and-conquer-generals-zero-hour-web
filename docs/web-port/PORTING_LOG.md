@@ -3931,3 +3931,14 @@ Stays default off.
   masks, same f32 ops (no FMA / relaxed SIMD); tails under 4 are kept as before.
 - query-36: referee, query-mgr5, query-mgr6 match; battle verify: simdPairs 9.6M / simdSearch 9.8M dropped
   lanes checked, fogKeep 2.54M, all 0 mismatches.
+
+## Battle timing pairs (rule "fps is not the measure"; tickTiming on, pairOffer + scanManager, under timing.lock, load < 8)
+| switch off -> on | logic ms/tick | own ms/tick | counters/tick | p99 ms | frames > 100 ms |
+|---|---|---|---|---|---|
+| fogKeep (q33) | 17.4 -> 15.8 | search 2.28 -> 2.10 | fog recomputes 992 -> 141 (855 kept) | 108.5 -> 90.6 | 46 -> 22 |
+| fogStamps (q33) | 16.3 -> 15.5 | fogReveal 0.10 -> 0.06 | 19.8 circles, 5.4k cells | 91.2 -> 94.4 | 22 -> 21 |
+| simdPairs (q36) | 15.9 -> 15.6 | - | pairs scalar-tested 6549 -> 3335 (3214 SIMD-culled) | 89.9 -> 87.9 | 20 -> 20 |
+| simdSearch (q36) | 17.3 -> 17.3 | search 2.33 -> 2.32 | 21.9k entries, 4.6k SIMD-culled | 103.4 -> 100.4 | 34 -> 31 |
+| rowKernels (q33) | 22.1 -> 22.2 | - | same work (main thread) | 126.9 -> 127.5 | 73 -> 81 |
+- fogKeep is the one clear gain; the SIMD culls halve the scalar tests but the search cost is the per-unit
+  body after the cull (distProc, filters), so ms/tick barely moves; rowKernels on one thread is neutral.
