@@ -170,7 +170,6 @@ RailroadBehavior::RailroadBehavior( Thing *thing, const ModuleData *moduleData )
 //-------------------------------------------------------------------------------------------------
 RailroadBehavior::~RailroadBehavior()
 {
-	GxModuleList<RailroadBehavior>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 
 	TheAudio->removeAudioEvent( R().runningSound.getPlayingHandle() );// no more chugchug when I'm dead
@@ -713,7 +712,6 @@ RailroadBehavior::GxConductorOp RailroadBehavior::gxConductorKernel(GxState &r, 
 }
 
 // web port (round 5): the range kernel through ai's hook, at the start of this module's phase
-GX_PATHS_KERNEL(RailroadBehavior, GXB_PK_TRAIN, PHASE_PHYSICS)
 void RailroadBehavior::gxKernelStep(UnsignedInt now)
 {
 	// reads: its row, the module data; writes: its row (conductor state, speed, wait timer, op)
@@ -727,7 +725,7 @@ void RailroadBehavior::gxKernelStep(UnsignedInt now)
 
 UpdateSleepTime RailroadBehavior::update()
 {
-	GX_PK_JOIN(RailroadBehavior, GXB_PK_TRAIN)
+	GX_PK_JOIN(RailroadBehavior)
 
 
 	// load the waypoint data if not loaded

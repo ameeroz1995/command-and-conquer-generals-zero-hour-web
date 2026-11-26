@@ -63,7 +63,6 @@ DeployStyleAIUpdate::DeployStyleAIUpdate( Thing *thing, const ModuleData* module
 //-------------------------------------------------------------------------------------------------
 DeployStyleAIUpdate::~DeployStyleAIUpdate()
 {
-	GxModuleList<DeployStyleAIUpdate>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
@@ -147,7 +146,6 @@ static GxDeployOps gxDeployKernel(DeployStateTypes st, UnsignedInt frameToWait, 
 #undef GX_DEPLOY_OP
 
 // web port (round 5): the range kernel through ai's hook, at the start of this module's phase
-GX_PATHS_KERNEL(DeployStyleAIUpdate, GXB_PK_DEPLOY, PHASE_INITIAL)
 void DeployStyleAIUpdate::gxKernelStep(UnsignedInt now)
 {
 	// reads: its row (state, deploy timer), the frame; writes: its row (op: 0 none, else 1 + new state)
@@ -159,7 +157,7 @@ void DeployStyleAIUpdate::gxKernelStep(UnsignedInt now)
 
 UpdateSleepTime DeployStyleAIUpdate::update()
 {
-	GX_PK_JOIN(DeployStyleAIUpdate, GXB_PK_DEPLOY)
+	GX_PK_JOIN(DeployStyleAIUpdate)
 	// have to call our parent's isIdle, because we override it to never return true
 	// when we have a pending command...
 	Object *self = getObject();
