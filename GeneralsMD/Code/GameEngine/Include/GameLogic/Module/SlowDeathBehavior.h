@@ -171,6 +171,12 @@ private:
 		BOUNCED
 	};
 
+	// round 5 addendum: update() = gxStep (kernel: own row and module data only) + gxApplyStep (side effects)
+	UnsignedInt gxStep( UnsignedInt now, Real timeScale );
+	UpdateSleepTime gxApplyStep( UnsignedInt due );
+	static void gxKernel( UpdateModulePtr *mods, Int begin, Int end );
+	static void gxApply( UpdateModulePtr *mods, Int count );
+
 	GxRow<struct GxSlowDeathBehaviorRow> m_gxSlowDeathBehaviorRow;	///< web port (round 5): this unit's row in TheGxSlowDeathBehaviors
 	friend struct GxSlowDeathBehaviorRow;
 	inline struct GxSlowDeathBehaviorRow &gxRow() const;
@@ -185,6 +191,9 @@ struct GxSlowDeathBehaviorRow
 	UnsignedInt destructionFrame;
 	Real acceleratedTimeScale;
 	UnsignedInt flags;
+	UnsignedInt gxKernelFrame = 0;	///< frame the kind kernel last ran this row (update() then has nothing left to do)
+	UnsignedInt gxDue = 0;	///< the kernel's result for gxApplyStep
+	UnsignedInt gxSnap[5] = {};	///< verify mode: the row as the kernel left it
 };
 
 

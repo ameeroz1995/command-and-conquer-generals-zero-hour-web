@@ -61,6 +61,12 @@
 //-------------------------------------------------------------------------------------------------
 SpawnBehavior::SpawnBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	static Bool gxRegistered = FALSE;
+	if (!gxRegistered)
+	{
+		gxRegistered = TRUE;
+		GameLogic::gxRegisterKindKernel(NAMEKEY("SpawnBehavior"), gxKernel, gxApply);
+	}
 
 	const SpawnBehaviorModuleData* md = getSpawnBehaviorModuleData();
 
@@ -194,7 +200,65 @@ void SpawnBehavior::onDie( const DamageInfo *damageInfo )
 }
 
 //-------------------------------------------------------------------------------------------------
+// Round 5 addendum: update() = gxStep (the kernel part: the spawn timer, own row only) + gxApplyStep
+// (aggregate health, burst setup, spawning). Under the per-kind hook (match rule updatePasses) the kind's
+// kernel runs gxStep for every spawner first and apply runs gxApplyStep in object-ID order; nothing else
+// reads or writes the timer, so the result is the same as the units' own turns.
+
+// verify mode (page switch bit 21): at each unit's apply, its row must be as the kernel left it (nobody
+// touched it in between), so computing it in the unit's own turn would have given the same result.
+static void gxSpawnVerify(const char *what, Bool same)
+{
+#ifdef __EMSCRIPTEN__
+	extern int gx_verify_mismatch, gx_verify_checked;
+	++gx_verify_checked;
+	if (!same) ++gx_verify_mismatch;
+	static int n = 0;
+	if (!same || (++n % 20000) == 0)
+		printf("GXVERIFY kindKernels %s: %s, checked %d, mismatches %d\n", what, same ? "ok" : "MISMATCH", gx_verify_checked, gx_verify_mismatch);
+#endif
+}
+extern int GLES3_Page_Switches();
+Bool SpawnBehavior::gxStep()
+{
+	if (--GXROW_SPAWNBEHAVIOR.framesToWait > 0)
+		return FALSE;
+	GXROW_SPAWNBEHAVIOR.framesToWait = SPAWN_UPDATE_RATE;
+	return TRUE;
+}
+void SpawnBehavior::gxKernel( UpdateModulePtr *mods, Int begin, Int end )
+{
+	const UnsignedInt now = TheGameLogic->getFrame();	// read only: fixed for the frame
+	for (Int k = begin; k < end; ++k)
+	{
+		SpawnBehavior *m = static_cast<SpawnBehavior *>(mods[k]);
+		m->gxRow().gxDue = m->gxStep();
+		m->gxRow().gxKernelFrame = now;
+		m->gxRow().gxSnap = m->gxRow().framesToWait;
+	}
+}
+void SpawnBehavior::gxApply( UpdateModulePtr *mods, Int count )
+{
+	const Bool gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
+	for (Int k = 0; k < count; ++k)
+	{
+		SpawnBehavior *m = static_cast<SpawnBehavior *>(mods[k]);
+		if (gxVerify)
+			gxSpawnVerify("spawn", m->gxRow().gxSnap == m->gxRow().framesToWait && m->gxRow().gxKernelFrame == TheGameLogic->getFrame());
+		m->gxApplyStep(m->gxRow().gxDue);
+	}
+}
+
 UpdateSleepTime SpawnBehavior::update()
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if (GXROW_SPAWNBEHAVIOR.gxKernelFrame == now && now != 0)
+		return UPDATE_SLEEP_NONE;	// this frame's turn was taken by the kind kernel + apply
+	// the timer is not read by the steps before it, so stepping it first changes nothing
+	return gxApplyStep(gxStep());
+}
+
+UpdateSleepTime SpawnBehavior::gxApplyStep( Bool due )
 {
 /// @todo srj use SLEEPY_UPDATE here
 
@@ -232,12 +296,10 @@ UpdateSleepTime SpawnBehavior::update()
 
 
 	//SPARSELY SOLVED
-	if (--GXROW_SPAWNBEHAVIOR.framesToWait > 0)
+	if (!due)
 	{
 		return UPDATE_SLEEP_NONE;
 	}
-
-	GXROW_SPAWNBEHAVIOR.framesToWait = SPAWN_UPDATE_RATE;
 
 	//Go through the list and make a spawn for each number that is less than now's frame
 	if( shouldTryToSpawn() )

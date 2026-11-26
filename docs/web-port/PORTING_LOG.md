@@ -4079,3 +4079,23 @@ migration / ai-30 after):
 - run 2: logic 0.525 / 0.516 ms/tick; aiLoop 0.079 / 0.078; aiKernels 0.011 / 0.010
 - work counters identical: 33.7 module calls/tick; frames 9598, p99 17.5 / 17.4 ms, 5 frames over 100 ms
 Level (this recording is a light game: 0.5 ms of logic per tick).
+
+### ai: kernel + apply for SlowDeath and Spawn (round 5 addendum), kernels follow match rule (5db1c81)
+- Kernels follow the match rule updatePasses (131072); the kindKernels setting can only turn them off in
+  local single player (paths: a local setting would desync).
+- SlowDeathBehavior::update() = gxStep (kernel: row + module data only: LOD time scale, flung frame
+  bump, which of sink / midpoint / final are due) + gxApplyStep (destroy, bounce, tree snag, sink,
+  phase effects). SpawnBehavior::update() = gxStep (spawn timer) + gxApplyStep (aggregate health,
+  burst setup, spawning). Registered on the per-kind hook (subclasses keep their own update()).
+  update() returns at once when the kernel already took that frame's turn.
+- Not split: OpenContain family and RebuildHole. Their per-frame fields (door countdown, entered
+  mask, wanters, worker counter) are written by other units' turns (riders entering, workers dying),
+  so a kernel ahead of the turns would change results.
+- Verify mode (bit 21): at each apply the row must still be as the kernel left it. Battle benchmark:
+  36.9M checks, 0 mismatches. Replays referee.rep and ai-up5.rep match (ai-33).
+Timing, battle benchmark, ai-33, tickTiming, timing.lock, load 4-5, kindKernels off / on:
+- run 1: logic 18.31 / 16.53 ms/tick; aiLoop 8.78 / 7.95; aiKernels 0 / 0.30; p99 89.1 / 93.3 ms; over 100 ms 21 / 23
+- run 2: logic 16.39 / 17.11 ms/tick; aiLoop 7.74 / 8.32; aiKernels 0 / 0.31; p99 90.9 / 96.6 ms; over 100 ms 19 / 29
+- kernel slots 474/tick on; module calls 3154-3497 off / 3215 on (the benchmark's work varies run to run).
+Level within noise: the kernel part is a few compares per unit; the gain is the split itself (the
+kernel can later run over workers / SIMD).
