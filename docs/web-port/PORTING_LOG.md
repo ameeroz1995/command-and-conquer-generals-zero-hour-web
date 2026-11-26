@@ -4151,3 +4151,8 @@ referee.rep, ai-ck.rep, ai-up5.rep match.
   (StateMachine.cpp); isIdle() reads those two fields. All call sites benefit without being touched.
 - Verify mode compares with the old computation: 40.0M checks, 0 mismatches (battle benchmark, ai-37).
   Replays referee.rep, ai-ck.rep, ai-kon.rep, ai-koff.rep match.
+Timing, battle benchmark, ai-36 / ai-37 (before / after), tickTiming, timing.lock, load 3-5, 3 pairs. The
+benchmark ran two ways (2700 ticks at ~3570 module calls/tick, or 3000 ticks at 3215), so compare like with like:
+- 2700-tick runs: ai-36 19.31, 19.07 ms/tick logic (aiLoop 9.68, 9.43) / ai-37 19.62, 19.49 (aiLoop 9.86, 9.73)
+- 3000-tick runs: ai-36 17.92 (aiLoop 8.86, p99 100.0 ms) / ai-37 16.48 (aiLoop 8.21, p99 94.1 ms)
+- frames over 100 ms 30-40 / 25-48. Level within noise (the expected ceiling was isIdle's 0.6% share).
