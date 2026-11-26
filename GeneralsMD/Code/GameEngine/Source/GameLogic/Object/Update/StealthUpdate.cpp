@@ -134,6 +134,8 @@ StealthUpdate::StealthUpdate( Thing *thing, const ModuleData* moduleData ) : Upd
 
 	R().m_detectionExpiresFrame = 0;
 	R().m_pulsePhaseRate		= 0.2f;
+	R().m_gxDataTransFrames = data->m_disguiseTransitionFrames;
+	R().m_gxDataRevealFrames = data->m_disguiseRevealTransitionFrames;
 	R().m_pulsePhase				= GameClientRandomValueReal(0, PI);
 
 	R().m_disguiseAsPlayerIndex			= -1;
@@ -583,6 +585,33 @@ UpdateSleepTime StealthUpdate::calcSleepTime() const
 //-------------------------------------------------------------------------------------------------
 /** The update callback. */
 //-------------------------------------------------------------------------------------------------
+// Round 5 (rowKernels, fourth word bit 12): the pure per-frame math of the update as a kernel.
+// Kernel. Reads: the row's pulse phase and rate, disguise transition frames and direction, granted
+// frames, the copied module data. Writes: next only. No allocation, events, RNG or globals (Sin is a
+// pure function). The apply step (update) uses a piece only when its inputs are unchanged.
+static void gxStealthStep(const StealthUpdateRow &r, unsigned int frame, GxStealthNext &n)
+{
+	n.inPhase = r.m_pulsePhase; n.inRate = r.m_pulsePhaseRate;
+	n.pulseOpacity = 0.5f + ( Sin( r.m_pulsePhase ) * 0.5f );
+	n.phase = r.m_pulsePhase + r.m_pulsePhaseRate;
+	n.inTrans = r.m_disguiseTransitionFrames; n.inTo = r.m_transitioningToDisguise;
+	n.trans = r.m_disguiseTransitionFrames - 1;
+	if( r.m_transitioningToDisguise )
+		n.factor = 1.0f - ( (Real)n.trans / (Real)r.m_gxDataTransFrames );
+	else
+		n.factor = 1.0f - ( (Real)n.trans / (Real)r.m_gxDataRevealFrames );
+	n.inGranted = r.m_framesGranted;
+	n.granted = r.m_framesGranted - 1;
+	n.stamp = frame + 1;
+}
+
+static void gxStealthKernel(GxComponentPool<StealthUpdateRow> &t, int begin, int end, unsigned int frame)
+{
+	for (int i = begin; i < end; ++i)
+		if (t.live(i) && t[i].m_enabled)
+			gxStealthStep(t[i], frame, t[i].m_gxNext);
+}
+
 UpdateSleepTime StealthUpdate::update()
 {
 
@@ -637,6 +666,16 @@ UpdateSleepTime StealthUpdate::update()
 		return calcSleepTime();
 	}
 
+	// apply step: the kernel's output for this row (run over the pool at the first apply of the frame)
+	if ((GLES3_Page_Switches4() & 4096) && R().m_gxNext.stamp != now + 1)
+	{
+		GxComponentPool<StealthUpdateRow> &t = GxComponentPool<StealthUpdateRow>::the();
+		gxStealthKernel(t, 0, t.size(), now);
+	}
+	const GxStealthNext gxN = R().m_gxNext;
+	const Bool gxValid = gxN.stamp == now + 1;
+	R().m_gxNext.stamp = 0;	// used
+
 	Drawable* draw = self->getDrawable();
 
 	if( draw )
@@ -652,8 +691,16 @@ UpdateSleepTime StealthUpdate::update()
 		}
 		else if( R().m_disguiseTransitionFrames )
 		{
-			R().m_disguiseTransitionFrames--;
 			Real factor;
+			if( gxValid && gxN.inTrans == R().m_disguiseTransitionFrames && gxN.inTo == R().m_transitioningToDisguise
+				&& R().m_gxDataTransFrames == data->m_disguiseTransitionFrames && R().m_gxDataRevealFrames == data->m_disguiseRevealTransitionFrames )
+			{
+				R().m_disguiseTransitionFrames = gxN.trans;
+				factor = gxN.factor;
+			}
+			else
+			{
+			R().m_disguiseTransitionFrames--;
 			if( R().m_transitioningToDisguise )
 			{
 				factor = 1.0f - ( (Real)R().m_disguiseTransitionFrames / (Real)data->m_disguiseTransitionFrames );
@@ -661,6 +708,7 @@ UpdateSleepTime StealthUpdate::update()
 			else
 			{
 				factor = 1.0f - ( (Real)R().m_disguiseTransitionFrames / (Real)data->m_disguiseRevealTransitionFrames );
+			}
 			}
 			if( factor >= 0.5f && !R().m_disguiseHalfpointReached )
 			{
@@ -687,9 +735,17 @@ UpdateSleepTime StealthUpdate::update()
 		}
 		else
 		{
+			if( gxValid && gxN.inPhase == R().m_pulsePhase && gxN.inRate == R().m_pulsePhaseRate )
+			{
+				draw->setEffectiveOpacity( gxN.pulseOpacity );
+				R().m_pulsePhase = gxN.phase;
+			}
+			else
+			{
 			draw->setEffectiveOpacity( 0.5f + ( Sin( R().m_pulsePhase ) * 0.5f ) );
 			// between one half and full opacity
 			R().m_pulsePhase += R().m_pulsePhaseRate;
+			}
 		}
 	}
 
@@ -717,7 +773,10 @@ UpdateSleepTime StealthUpdate::update()
 	//Deal with temporary stealth.
 	if( R().m_framesGranted > 0 )
 	{
-		R().m_framesGranted--;
+		if( gxValid && gxN.inGranted == R().m_framesGranted )
+			R().m_framesGranted = gxN.granted;
+		else
+			R().m_framesGranted--;
 
 		//If the last AI command given was by the player... then LOSE the stealth now!
 		AIUpdateInterface *ai = self->getAI();

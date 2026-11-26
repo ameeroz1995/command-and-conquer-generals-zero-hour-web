@@ -487,7 +487,10 @@ void GLES3_Begin_Scene() {
                  | (o.cpopSimd === false ? 0 : 262144) // bit 18: with cpopSegments, the closest route segment found 8 segments per loop with wasm SIMD (AIPathfind.cpp; same game)
                  | (o.tickTiming === true ? 65536 : 0)   // bit 16 (measuring only, off): per-tick logic / system ms, work counters, frame p99 as GXTIME lines (Common/GxTime.h)
                  | (o.physSimd === true ? 1 : 0)   // bit 0: with physBulk, physics integration for all due units in one SIMD pass over the store columns (PhysicsUpdate.cpp; rides on match rule physBulk)
-                 | (o.collideSimd === false ? 0 : 2);   // bit 1: with storePairs, the broad phase's distance cut 4 units per instruction over per-cell blocks (PartitionManager.cpp; same pairs as storePairs)
+                 | (o.collideSimd === false ? 0 : 2)   // bit 1: with storePairs, the broad phase's distance cut 4 units per instruction over per-cell blocks (PartitionManager.cpp; same pairs as storePairs)
+                 | (o.simdPairs === false ? 0 : 131072)    // bit 17: with pairOffer, the clearly-apart neighbour test 4 at a time with wasm SIMD (PartitionManager.cpp; same game)
+                 | (o.simdBody === false ? 0 : 1073741824)  // bit 30 (query): with simdSearch, the search body's enemy test and 2D distance 8 at a time with wasm SIMD (same game)
+                 | (o.snapPatch === false ? 0 : -2147483648); // bit 31 (query): scanManager's per-cell lists patched where units crossed a cell edge, not rebuilt, later in a tick (same game)
         });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

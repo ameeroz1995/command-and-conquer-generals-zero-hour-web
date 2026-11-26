@@ -572,7 +572,8 @@ public:
 	// This function will return a combination of MoodMatrixParameter flags.
 	UnsignedInt getMoodMatrixValue() const;
 	Bool gxMoodScanArgs( Real &range, UnsignedInt &flags );	///< batchScan: the routine (calledByAI) mood scan's arguments, if one is due now
-	static void gxMoodScanKernel( UpdateModulePtr *mods, Int begin, Int end );	///< batchScan: collect due scans of one AI kind, search them in one pass
+	static void gxMoodScanKernel( UpdateModulePtr *mods, Int begin, Int end );	///< batchScan: collect due scans of one AI kind
+	static void gxMoodScanFlush();	///< batchScan: search every unit collected this tick in one call
 	UnsignedInt getMoodMatrixActionAdjustment( MoodMatrixAction action ) const;
 	void setAttitude( AttitudeType tude );	///< set the behavior modifier for this agent
 
@@ -839,7 +840,9 @@ struct GxAIUpdateInterfaceRow
 	Locomotor *gxLocoResult = nullptr;
 	// web port (batchScan, fifth word bit 1; rides on match rule updatePasses): this tick's batched mood
 	// scan answer, taken in the unit's turn only if the scan it is about to make has the same arguments
-	UnsignedInt gxScanFrame = 0;
+	UnsignedInt gxScanFrame = 0;	///< batchScan: frame the answer below was searched
+	UnsignedInt gxScanQueued = 0;	///< batchScan: frame this unit was collected (arguments below)
+	Bool gxScanMiss = FALSE;	///< batchScan: left last tick's answer unused; not collected again until its own scan runs
 	Real gxScanRange = 0.0f;
 	UnsignedInt gxScanFlags = 0;
 	const AttackPriorityInfo *gxScanInfo = nullptr;

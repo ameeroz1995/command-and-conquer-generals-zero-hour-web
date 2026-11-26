@@ -382,6 +382,7 @@ private:
 	void gxNoteCurrentState();	///< web port: refresh the cached current-state ID / idleness (after every change)
 public:
 	inline StateID gxCachedStateID() const;	///< web port: getCurrentStateID(), kept in the row
+	inline UnsignedInt gxSleepTill() const;	///< web port: frame the machine sleeps until (0 = awake)
 	inline Bool gxCachedIdle() const;	///< web port: isInIdleState(), kept in the row
 protected:
 	GxRow<struct GxStateMachineRow> m_gxStateMachineRow;	///< web port (round 5): this unit's row in TheGxStateMachines
@@ -421,6 +422,7 @@ struct GxStateMachineRow
 
 inline GxStateMachineRow &StateMachine::gxRow() const { return const_cast<GxStateMachineRow &>(*m_gxStateMachineRow); }
 inline StateID StateMachine::gxCachedStateID() const { return gxRow().gxCurID; }
+inline UnsignedInt StateMachine::gxSleepTill() const { return gxRow().sleepTill; }
 inline Bool StateMachine::gxCachedIdle() const { return gxRow().gxCurIdle; }
 inline void StateMachine::Add_Ref() const
 { gxRow().refCount.Add_Ref(); }

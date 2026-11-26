@@ -4805,17 +4805,10 @@ Bool AIUpdateInterface::canAutoAcquireWhileStealthed() const
 //-------------------------------------------------------------------------------------------------
 // batchScan (fifth word bit 1, off; rides on match rule updatePasses): the per-kind kernel of every AI
 // kind collects the units whose routine mood scan is due this tick, with the arguments getNextMoodTarget
-// would use (same code, below), and searches them in one pass (query's gxBatchFindClosestEnemy). The
-// turn takes the answer only if its own arguments match exactly; anything else searches as before.
+// would use (same code, below). The first such turn of the tick searches every collected unit of every AI
+// kind in one call (query's gxBatchFindClosestEnemy, which wants 16+ seekers per call). A turn takes the
+// answer only if its own arguments match exactly; anything else searches as before.
 extern bool gxMatchRule(unsigned int rule);
-// the batched search itself is query's (PartitionManager.cpp); this weak fallback (one search per unit,
-// same answers) is what links when that definition is absent
-__attribute__((weak)) void gxBatchFindClosestEnemy(Int n, Object *const *me, const Real *range, const UnsignedInt *qualifiers,
-	const AttackPriorityInfo *const *info, Object **out)
-{
-	for (Int i = 0; i < n; ++i)
-		out[i] = TheAI->findClosestEnemy(me[i], range[i], qualifiers[i], info[i]);
-}
 Bool AIUpdateInterface::gxMoodScanArgs( Real &range, UnsignedInt &flags )
 {
 	Object *obj = getObject();
@@ -4825,6 +4818,22 @@ Bool AIUpdateInterface::gxMoodScanArgs( Real &range, UnsignedInt &flags )
 	if (isAttacking() && BitIsSet(d->m_autoAcquireEnemiesWhenIdle, AAS_Idle_Not_While_Attacking))
 		return FALSE;
 	if (TheGameLogic->getFrame() < GXROW_AIUPDATEINTERFACE.nextMoodCheckTime)
+		return FALSE;
+	// only the states whose update makes the routine scan (AIIdleState, AIAttackMoveToState,
+	// AIAttackFollowWaypointPathState); a unit in any other state would never use the answer
+	if (getStateMachine()->gxSleepTill() > TheGameLogic->getFrame())	// the machine sleeps: no state update this tick
+		return FALSE;
+	if (obj->getTeam() && obj->getTeam()->getPrototype()->getTemplateInfo()->m_attackCommonTarget)	// may take the team's target first
+		return FALSE;
+	const StateID st = getCurrentStateID();
+	if (st == AI_IDLE)
+	{
+		if ((d->m_autoAcquireEnemiesWhenIdle & AAS_Idle) == 0)
+			return FALSE;
+	}
+	else if (st != AI_ATTACK_MOVE_TO && st != AI_ATTACKFOLLOW_WAYPOINT_PATH_AS_TEAM && st != AI_ATTACKFOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS)
+		return FALSE;
+	else if (isAttacking())	// the inner attack machine is busy: no scan until it idles
 		return FALSE;
 	range = TheAI->getAdjustedVisionRangeForObject(obj, AI_VISIONFACTOR_OWNERTYPE | AI_VISIONFACTOR_MOOD);
 	if (range <= 0.0f)
@@ -4847,9 +4856,37 @@ Bool AIUpdateInterface::gxMoodScanArgs( Real &range, UnsignedInt &flags )
 	return TRUE;
 }
 
+static std::vector<AIUpdateInterface *> s_gxScanWho;	// collected this tick, all AI kinds
+static UnsignedInt s_gxScanWhoFrame = ~0u, s_gxScanDoneFrame = ~0u;
+
 void AIUpdateInterface::gxMoodScanKernel( UpdateModulePtr *mods, Int begin, Int end )
 {
 	if (!GameLogic::gxKernelSwitch(GXRULE_KIND_KERNELS_OFF) || !gxMatchRule(GXRULE_BATCH_SCAN))	// match rules
+		return;
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if (s_gxScanWhoFrame != now) { s_gxScanWho.clear(); s_gxScanWhoFrame = now; s_gxScanDoneFrame = ~0u; }
+	for (Int k = begin; k < end; ++k)
+	{
+		AIUpdateInterface *ai = static_cast<AIUpdateInterface *>(mods[k]);
+		GxAIUpdateInterfaceRow &r = ai->gxRow();
+		if (mods[k]->friend_getNextCallFrame() != now)	// already ran this tick (woken early) or not due
+			continue;
+		if (r.gxScanQueued != 0 && r.gxScanQueued + 1 == now)	// collected last tick, answer never taken
+			r.gxScanMiss = TRUE;
+		if (r.gxScanMiss)
+			continue;
+		if (r.gxScanQueued == now || !ai->gxMoodScanArgs(r.gxScanRange, r.gxScanFlags))
+			continue;
+		r.gxScanQueued = now; r.gxScanInfo = ai->getAttackInfo();
+		s_gxScanWho.push_back(ai);
+	}
+}
+
+void AIUpdateInterface::gxMoodScanFlush()
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	s_gxScanDoneFrame = now;
+	if (s_gxScanWhoFrame != now)
 		return;
 	static std::vector<AIUpdateInterface *> who;
 	static std::vector<Object *> me;
@@ -4858,24 +4895,23 @@ void AIUpdateInterface::gxMoodScanKernel( UpdateModulePtr *mods, Int begin, Int 
 	static std::vector<const AttackPriorityInfo *> info;
 	static std::vector<Object *> out;
 	who.clear(); me.clear(); range.clear(); quals.clear(); info.clear();
-	for (Int k = begin; k < end; ++k)
+	for (AIUpdateInterface *ai : s_gxScanWho)
 	{
-		AIUpdateInterface *ai = static_cast<AIUpdateInterface *>(mods[k]);
-		Real r; UnsignedInt f;
-		if (!ai->gxMoodScanArgs(r, f))
+		if (ai->getObject()->isEffectivelyDead())
 			continue;
-		who.push_back(ai); me.push_back(ai->getObject()); range.push_back(r); quals.push_back(f); info.push_back(ai->getAttackInfo());
+		GxAIUpdateInterfaceRow &r = ai->gxRow();
+		who.push_back(ai); me.push_back(ai->getObject()); range.push_back(r.gxScanRange); quals.push_back(r.gxScanFlags); info.push_back(r.gxScanInfo);
 	}
+	s_gxScanWho.clear();
 	if (who.empty())
 		return;
 	out.assign(who.size(), nullptr);
 	gxCount(GXC_BATCH_SCANNED, who.size());
 	gxBatchFindClosestEnemy((Int)who.size(), me.data(), range.data(), quals.data(), info.data(), out.data());
-	const UnsignedInt now = TheGameLogic->getFrame();
 	for (size_t i = 0; i < who.size(); ++i)
 	{
 		GxAIUpdateInterfaceRow &r = who[i]->gxRow();
-		r.gxScanFrame = now; r.gxScanRange = range[i]; r.gxScanFlags = quals[i]; r.gxScanInfo = info[i];
+		r.gxScanFrame = now;
 		r.gxScanResult = out[i] ? out[i]->getID() : INVALID_ID;
 	}
 }
@@ -5031,9 +5067,13 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	Object *newVictim = nullptr;
 	gxCount(GXC_MOOD_SCANS);
 	GxAIUpdateInterfaceRow &gxR = GXROW_AIUPDATEINTERFACE;
-	if (calledByAI && gxR.gxScanFrame == now && gxR.gxScanRange == rangeToFindWithin && gxR.gxScanFlags == flags
-			&& gxR.gxScanInfo == getAttackInfo() && gxMatchRule(GXRULE_BATCH_SCAN))
+	if (calledByAI)
+		gxR.gxScanMiss = FALSE;	// batchScan: this unit's routine scan runs, so collecting it pays again
+	if (calledByAI && gxR.gxScanQueued == now && gxR.gxScanRange == rangeToFindWithin && gxR.gxScanFlags == flags
+			&& gxR.gxScanInfo == getAttackInfo() && gxMatchRule(GXRULE_BATCH_SCAN)
+			&& (s_gxScanDoneFrame == now || (gxMoodScanFlush(), true)) && gxR.gxScanFrame == now)
 	{
+		gxR.gxScanQueued = 0;
 		// batchScan: this tick's batched answer (searched before the turns, so it can differ from a search now;
 		// rides on updatePasses). An answer that died since then is searched again.
 		gxR.gxScanFrame = 0;
@@ -5053,7 +5093,7 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 			static int checked = 0, differ = 0;
 			++checked;
 			if (now2 != newVictim) ++differ;
-			if ((checked % 20000) == 0)
+			if ((checked % 1000) == 0)
 				printf("GXVERIFY batchScan used %d, differs from a search in the turn %d (%.2f%%; by design, rides on updatePasses)\n", checked, differ, 100.0 * differ / checked);
 		}
 	}

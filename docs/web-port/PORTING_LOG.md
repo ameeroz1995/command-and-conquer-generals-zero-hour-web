@@ -4208,3 +4208,96 @@ Timing, battle benchmark, ai-38 / ai-40 (batchScan off), tickTiming, timing.lock
 - 2700-tick pair: ai-38 25.13 ms/tick logic (aiLoop 12.70) / ai-40 25.32 (aiLoop 12.88)
 - ai-40 2700-tick runs 24.99, 25.39; ai-38 3000-tick runs 21.87, 22.23 (not comparable)
 Level within noise. batchScan on is timed once query's pass lands.
+
+## Round 5 (query) continued: PartitionData row, DynamicShroudClearingRange and Stealth kernels
+- PartitionData's own per-object web-port state (cached place x/y/r for pairPlace/pairOffer, fogKeep's pure /
+  kept bits) moved into PartitionDataGxRow on GxComponentPool (keyed by the PartitionData: ghost objects have
+  no store slot). The per-COI copies stay in the COIs (one per cell entry). Referee + query-mgr5.rep match (query-31).
+- DynamicShroudClearingRange: gxDscruStep is the kernel (reads state, countdowns, range, deadlines and copied
+  module data; writes only the row's next record; same arithmetic and types: the countdown is signed, deadlines
+  unsigned); update() is the apply step: decals first (animateGridDecals reads the pre-step range and
+  countdown), then commit, then setShroudClearingRange. A row whose inputs changed since gets the step inline.
+- Stealth: gxStealthStep precomputes the pure per-frame math (pulse opacity/phase, disguise transition
+  countdown and factor, granted-frames countdown); update() uses each piece only when its inputs are unchanged.
+  The rest (AI victim, status bits, containers, sounds) stays in the apply step.
+- Both under rowKernels (fourth word bit 12). Referee + query-mgr5.rep match (query-32).
+
+## simdPairs (fourth word bit 17, default on) and verify checks for the SIMD culls
+- addPossibleCollisions (pairOffer path): neighbour COIs are gathered 4 at a time into f32x4 and culled by the
+  same f32 distance test (drop only when > limit², NaN kept); kept lanes get the scalar test unchanged.
+- Verify: every lane the SIMD cull drops (simdPairs and simdSearch) is rechecked with the scalar test.
+  Battle verify on query-34 (300 s, pairOffer + scanManager): simdPairs 9.6M and simdSearch 9.8M dropped lanes
+  checked, 0 mismatches; fogKeep 2.54M checks, 0. Replays referee, query-mgr5, query-mgr6 match (query-33).
+- Battle counters (query-33, tickTiming): pairs tested 3942/tick, SIMD-culled 4395/tick; search entries 27446,
+  SIMD-culled 5880/tick.
+
+## PartitionData state into store columns; ILP in the SIMD culls (LOGIC_AGENTS "SIMD step")
+- PartitionDataGxRow is gone: the cached place (placeX/Y/R) and fogKeep bits (fogPure, fogKeptMask, fogKept:
+  4 bits a player) are a query block in TheGxUnitStore (added, reserved, permuted with the rest). A
+  PartitionData reaches them through its object's store slot; attachToObject resets them (a new PartitionData
+  knows no place: placeR = HUGE_DIST, never turned away). Ghost-only PartitionData has no slot: no place,
+  nothing kept (the switch-off behaviour). The per-COI place copies stay in the COIs (one per cell entry).
+- simdPairs and simdSearch: blocks of 8 with two independent f32x4 chains (was one block of 4), branchless
+  masks, same f32 ops (no FMA / relaxed SIMD); tails under 4 are kept as before.
+- query-36: referee, query-mgr5, query-mgr6 match; battle verify: simdPairs 9.6M / simdSearch 9.8M dropped
+  lanes checked, fogKeep 2.54M, all 0 mismatches.
+
+## Battle timing pairs (rule "fps is not the measure"; tickTiming on, pairOffer + scanManager, under timing.lock, load < 8)
+| switch off -> on | logic ms/tick | own ms/tick | counters/tick | p99 ms | frames > 100 ms |
+|---|---|---|---|---|---|
+| fogKeep (q33) | 17.4 -> 15.8 | search 2.28 -> 2.10 | fog recomputes 992 -> 141 (855 kept) | 108.5 -> 90.6 | 46 -> 22 |
+| fogStamps (q33) | 16.3 -> 15.5 | fogReveal 0.10 -> 0.06 | 19.8 circles, 5.4k cells | 91.2 -> 94.4 | 22 -> 21 |
+| simdPairs (q36) | 15.9 -> 15.6 | - | pairs scalar-tested 6549 -> 3335 (3214 SIMD-culled) | 89.9 -> 87.9 | 20 -> 20 |
+| simdSearch (q36) | 17.3 -> 17.3 | search 2.33 -> 2.32 | 21.9k entries, 4.6k SIMD-culled | 103.4 -> 100.4 | 34 -> 31 |
+| rowKernels (q33) | 22.1 -> 22.2 | - | same work (main thread) | 126.9 -> 127.5 | 73 -> 81 |
+- fogKeep is the one clear gain; the SIMD culls halve the scalar tests but the search cost is the per-unit
+  body after the cull (distProc, filters), so ms/tick barely moves; rowKernels on one thread is neutral.
+
+## SIMD step (query): simdBody (fourth word bit 30) and snapPatch (bit 31), both on, same game
+- Profile (battle, query-36): getClosestObjects 8.5% inclusive, filters only 1.2%; gxManagedSearch's own
+  3.1% was mostly gxBuildStoreSnapshot: every new object bumps the store epoch, so scanManager rebuilt its
+  per-cell lists 2.8-3.1 times a tick, 1.0-1.6 of the 2.1-3.0 ms/tick search time (GXTIME snapBuild).
+- simdBody: in the scanManager walk, the body's enemy test (player bits) and the 2D distance
+  (distCalcProc_CenterAndCenter_2D / BoundaryAndBoundary_2D: same f32 ops, sqrt, div, no FMA) for the
+  same blocks of 8 as simdSearch, in two f32x4 chains; the scalar body uses the lane's values.
+  Verify: every lane's distance and vector bit-compared with distProc: 3.6M, 0 mismatches.
+  Timing: no measurable change (search 2.18 -> 2.26, logic 16.4 -> 16.4): the body is not the cost.
+- snapPatch: after a frame's full build, a later rebuild request recomputes only slots whose id/x/y/radius
+  differ bit-wise from the base build (compared 8 per step, two i32x4 chains) or that were touched
+  (registerObject, unRegisterObject, setGeometryInfoZ), and replaces only the lists of cells such a slot
+  covered or covers (merged ascending, as the full build orders them). Partition presence and sphere radius
+  are cached per object ID (cleared by the same touches and PartitionManager::reset).
+  Verify: each snapshot compared with a fresh uncached full build, lists and radii: 6000, 0 mismatches.
+- Replays referee, query-mgr5, query-mgr6 match (query-42). Battle pair (query-42, tickTiming):
+| snapPatch off -> on | logic 18.7 -> 18.7 | search 2.99 -> 2.10 | snapshot 1.60 -> 0.58 (builds 3.1 -> 0.7 + patches 2.4) | p99 107 -> 96 ms | > 100 ms 40 -> 24 |
+
+## batchScan (query side; ai's switch: fifth word value 1, match rule GXRULE_BATCH_SCAN 67108864)
+- gxBatchFindClosestEnemy(n, me, range, qualifiers, info, out): out[i] = TheAI->findClosestEnemy(...) as of the
+  call. Each scan keeps findClosestEnemy (filters, early outs); its getClosestObject goes to gxBatchClosest:
+  an f32x4 cull over the store's live place columns (placeX/Y/R, playerBit; two chains, 8 a step), then the
+  walk's answer rebuilt from the survivors: the passing objects in the lowest ring any is in (COI cells, or with
+  scanManager the tick lists' boxes and the walk's cell-mask skips), the nearest; ties to the earlier visit
+  (same cell: slot order with the tick lists; COI lists: falls back to the walk).
+- Batches of 16+ scans (a driver call, or scanManager's prefetch pass under GXRULE_BATCH_SCAN) cull from
+  per-batch, per-enemy-mask lists sorted by place x (binary-searched window); smaller ones read the store directly.
+- Verify (bit 21, every answer vs the old walk at the same moment; local test routing getNextMoodTarget's scan
+  and the prefetch through it): scanManager on 84,000-88,000 checked, 0 mismatches; off 46,000, 0 (53 tie
+  fallbacks). Replays referee, query-mgr5, query-mgr6 match.
+- Profile (strikes, n = 1 per call, local test): search self 3.7% -> 3.4% (scanManager on), 2.7% -> 3.0% (off).
+  Battle pair under load 7-9 (rough): search 2.09 -> 2.01 ms/tick, logic 19.8 -> 18.3. The gain is in batching
+  many seekers per call (ai's wiring); re-time once wired.
+
+### ai: batchScan wired to query's gxBatchFindClosestEnemy (merged 88a3744)
+- The weak fallback is gone. Each AI kind's kernel only collects; the first mood-scan turn of the
+  tick searches every collected unit of every AI kind in one call (query's pass wants 16+ seekers).
+- Collect filter, from a verify-mode diagnosis (temporary, removed): the first wiring collected 230
+  units/tick for 10 answers used. Units are now collected only if due (nextMoodCheckTime), in a
+  state that scans (AI_IDLE with AAS_Idle, attack-move, attack-follow-waypoints), not attacking, the
+  machine awake, not on an attack-common-target team, the module due this tick. Attack-move units
+  whose inner machine stays busy stay "due" for good and were collected every tick (54k of 76k
+  unused answers): a unit that left last tick's answer unused (gxScanMiss) is not collected again
+  until its own routine scan runs. Battle, verify: 4.4 collected / 4.2 used per tick, of 16.7 mood
+  scans (the rest come from turrets, attack states, forced retargets, or are not due at kernel time).
+- Verify (battle, batchScan on): used answers differ from a search in the turn 0 of 13,000; query's
+  per-answer check 1 mismatch in 124,000 (tick-list path, radius grown after the snapshot; query's
+  fix 88568b9).
