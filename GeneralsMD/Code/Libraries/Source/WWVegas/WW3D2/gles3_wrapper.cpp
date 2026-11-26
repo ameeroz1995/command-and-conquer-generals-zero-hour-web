@@ -495,7 +495,8 @@ void GLES3_Begin_Scene() {
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
-                 | (o.batchScan === true ? 1 : 0);   // bit 0 (value 1): batchScan, due mood scans of AI units collected per phase and searched in one pass over the unit store (AIUpdate.cpp, PartitionManager.cpp; off until timed)
+                 | (o.batchScan === true ? 1 : 0)   // bit 0 (value 1): batchScan, due mood scans of AI units collected per phase and searched in one pass over the unit store (AIUpdate.cpp, PartitionManager.cpp; off until timed)
+                 | (o.scanAlign === true ? 8 : 0);   // value 8: scanAlign, routine mood checks on every 4th frame so batchScan batches more (match rule; AIUpdate.cpp; off until timed)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

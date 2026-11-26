@@ -33,7 +33,7 @@ enum GxCountId
 	GXC_MOVE_UNITS, GXC_MOVE_KERNEL_POINTS, GXC_MOVE_KERNEL_TAKEN, GXC_MOVE_APPLY_POINTS, GXC_HORDE_SEARCHES,
 	GXC_AI_MODULE_CALLS, GXC_AI_KERNEL_SLOTS,
 	GXC_PATH_FINDS, GXC_PATH_CELLS, GXC_LOCO_CALLS, GXC_CPOP_CALLS, GXC_CPOP_SIMD_SEGS,
-	GXC_MOOD_SCANS, GXC_BATCH_SCANNED, GXC_BATCH_USED,
+	GXC_MOOD_SCANS, GXC_BATCH_SCANNED, GXC_BATCH_USED, GXC_BATCH_CALLS,
 	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES,
 	GXC_COUNT
 };
@@ -88,7 +88,7 @@ inline void gxTimeTickEnd()
 		"moveUnits", "moveKernelPoints", "moveKernelTaken", "moveApplyPoints", "hordeSearches",
 		"aiModuleCalls", "aiKernelSlots",
 		"pathFinds", "pathCells", "locoCalls", "cpopCalls", "cpopSimdSegs",
-		"moodScans", "batchScanned", "batchUsed",
+		"moodScans", "batchScanned", "batchUsed", "batches",
 		"pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;

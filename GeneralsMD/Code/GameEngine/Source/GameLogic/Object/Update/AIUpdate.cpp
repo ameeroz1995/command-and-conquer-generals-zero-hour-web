@@ -4899,6 +4899,7 @@ void AIUpdateInterface::gxMoodScanFlush()
 		return;
 	out.assign(who.size(), nullptr);
 	gxCount(GXC_BATCH_SCANNED, who.size());
+	gxCount(GXC_BATCH_CALLS);
 	gxBatchFindClosestEnemy((Int)who.size(), me.data(), range.data(), quals.data(), info.data(), out.data());
 	for (size_t i = 0; i < who.size(); ++i)
 	{
@@ -4991,6 +4992,10 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 			GXROW_AIUPDATEINTERFACE.nextMoodCheckTime = (UnsignedInt)((Int)GXROW_AIUPDATEINTERFACE.nextMoodCheckTime + GameLogicRandomValue(-halfRate, halfRate));
 			GXROW_AIUPDATEINTERFACE.randomlyOffsetMoodCheck = FALSE;
 		}
+		// scanAlign (match rule; fifth word value 8): the next check waits for the next 4th frame, so
+		// the routine scans of many units fall on one frame and batchScan searches them together
+		if (gxMatchRule(GXRULE_SCAN_ALIGN))
+			GXROW_AIUPDATEINTERFACE.nextMoodCheckTime = (GXROW_AIUPDATEINTERFACE.nextMoodCheckTime + 3u) & ~3u;
 	}
 
 	// Use Guard Outer, which typically corresponds to the total range
