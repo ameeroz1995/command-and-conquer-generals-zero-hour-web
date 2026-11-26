@@ -3930,6 +3930,29 @@ Stays default off.
   (collide-sp.rep); collide-hot.rep (recorded with hotInStore + storePairs on soa-9, also replayed
   with hotInStore off on soa-9: match). Store checks 2,591,712 (hot) / 1,295,856 (position only), 0
   mismatches.
+- getPosition() with the position in the store copies x/y/z into the row (it must return a stable
+  pointer); reactToTransformChange called it ~6 times, now once (soa-13). soa-13 replays all match
+  (same five as soa-12, 0 store mismatches); battle benchmark with verify + hotInStore: every GXVERIFY
+  0 mismatches (store hot fields 7,098,552 checked).
+- Battle benchmark (soa-13, tickTiming, under timing.lock, load < 4 at start), 2700 ticks each, order
+  off/on/on/off/off/on/off/on:
+
+  | run | hotInStore | logic | physics | collideBuild | collideProcess | p99 ms | >100 ms |
+  |---|---|---|---|---|---|---|---|
+  | c0 | off | 23.45 | 2.76 | 1.57 | 1.71 | 124 | 112 |
+  | c1 | on | 22.77 | 2.77 | 1.56 | 1.68 | 122 | 72 |
+  | c1b | on | 21.37 | 2.62 | 1.45 | 1.59 | 105 | 33 |
+  | c0b | off | 26.62* | 3.08 | 1.84 | 1.98 | 156 | 288 |
+  | c0c | off | 23.54 | 2.77 | 1.57 | 1.78 | 125 | 102 |
+  | c1c | on | 23.16 | 2.81 | 1.62 | 1.76 | 126 | 101 |
+  | c0d | off | 19.32 | 2.23 | 1.24 | 1.42 | 97 | 25 |
+  | c1d | on | 17.97** | 2.20 | 1.20 | 1.34 | 109 | 37 |
+
+  \* load rose to 7.75 during the run (dropped). \** 3000 ticks, not comparable on logic.
+  Same work both ways: physUnits 1205, collideSeekers 886, pairTests 14,654, pairs 4741, allocs 3336
+  per tick. Adjacent pairs: on is 0.4-0.7 ms/tick faster or equal; physics/collide within 0.05 ms.
+  Not slower, so **hotInStore is on by default** (web_shell def true; gles3 bit 2 set unless false).
+  soa-14 (default on) referee replay matches, store checks 2,591,712, 0 mismatches.
 - Timing: SIMD pairs (collideSimd, physSimd) wait until the data work is timed.
 
 ## Round 5 (query): scan-type modules and helpers hold their per-unit state in component tables

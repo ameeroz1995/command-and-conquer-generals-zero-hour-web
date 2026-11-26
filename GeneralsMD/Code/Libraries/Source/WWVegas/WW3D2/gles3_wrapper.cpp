@@ -475,7 +475,7 @@ void GLES3_Begin_Scene() {
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
                  | (o.physSimd === true ? 1 : 0)   // bit 0: with physBulk, physics integration for all due units in one SIMD pass over the store columns (PhysicsUpdate.cpp; rides on match rule physBulk)
-                 | (o.hotInStore === true ? 4 : 0)   // bit 2: objects' position, status, disabled mask, layer, geometry, angle and transform live in the unit store's columns (GxUnitStore.h, Object.h, Thing.h; same game)
+                 | (o.hotInStore === false ? 0 : 4)   // bit 2: objects' position, status, disabled mask, layer, geometry, angle and transform live in the unit store's columns (GxUnitStore.h, Object.h, Thing.h; same game)
                  | (o.collideSimd === false ? 0 : 2)   // bit 1: with storePairs, the broad phase's distance cut 4 units per instruction over per-cell blocks (PartitionManager.cpp; same pairs as storePairs)
                  | (o.rowKernels === false ? 0 : 4096)   // bit 12: scan countdowns of EnemyNear/AutoFindHealing/PointDefenseLaser run as one kernel per table (GxComponentTable.h; same game)
                  | (o.simdSearch === false ? 0 : 8192)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
