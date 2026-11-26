@@ -60,7 +60,7 @@ static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 13421
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // Fourth switch word (round 5: units as pure data). Bits by owner: collide 0-5, ai 6-11, query 12-17,
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
-static int g_PageSwitches4 = 0;
+static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 4096 | 8192 | 16384 | 32768;	// default-on bits of every lane (collideSimd, dataBehaviors, rowKernels, simdSearch, fogStamps, fogKeep)
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -477,11 +477,15 @@ void GLES3_Begin_Scene() {
                  | (o.weaponReload === true ? 16777216 : 0)   // bit 24: weaponReload, with match rule updatePasses: weapon reloads as a system at the start of the tick (Weapon.cpp)
                  | (o.splashSimd === true ? 33554432 : 0)    // bit 25: splashSimd, splash victims found by a SIMD pass over the unit store, in the cell walk's order (PartitionManager.cpp; same game)
                  | (o.damageTable === true ? 67108864 : 0)  // bit 26: damageTable, per-frame table of weapon bonuses for target evaluation (Weapon.cpp; same game)
+                 | (o.dataBehaviors === false ? 0 : 64)   // bit 6: behaviours as data: lookups made per frame by name done once (Behavior/*.cpp; same game)
+                 | (o.kindKernels === false ? 0 : 128)   // bit 7: kernels follow match rule updatePasses; off here turns them off in local single player only (GameLogic.cpp)
                  | (o.rowKernels === false ? 0 : 4096)   // bit 12: scan countdowns of EnemyNear/AutoFindHealing/PointDefenseLaser run as one kernel per table (GxComponentTable.h; same game)
                  | (o.simdSearch === false ? 0 : 8192)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.fogStamps === false ? 0 : 16384)   // bit 14: sight circles from precomputed stamps, 8 cells at a time with wasm SIMD over dense shroud counters (PartitionManager.cpp; same game)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.fogKeep === false ? 0 : 32768)   // bit 15: a unit that moves within the same cells keeps fog statuses decided by the cells alone (PartitionManager.cpp; same game)
-                 | (o.tickTiming === true ? 65536 : 0);   // bit 16 (measuring only, off): per-tick logic / system ms, work counters, frame p99 as GXTIME lines (Common/GxTime.h)
+                 | (o.tickTiming === true ? 65536 : 0)   // bit 16 (measuring only, off): per-tick logic / system ms, work counters, frame p99 as GXTIME lines (Common/GxTime.h)
+                 | (o.physSimd === true ? 1 : 0)   // bit 0: with physBulk, physics integration for all due units in one SIMD pass over the store columns (PhysicsUpdate.cpp; rides on match rule physBulk)
+                 | (o.collideSimd === false ? 0 : 2);   // bit 1: with storePairs, the broad phase's distance cut 4 units per instruction over per-cell blocks (PartitionManager.cpp; same pairs as storePairs)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

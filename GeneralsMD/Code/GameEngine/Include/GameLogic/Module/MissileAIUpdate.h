@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
 #include "Common/GameType.h"
 #include "Common/GlobalData.h"
 #include "GameLogic/Module/AIUpdate.h"
@@ -92,7 +93,7 @@ public:
 	virtual void projectileFireAtObjectOrPosition( const Object *victim, const Coord3D *victimPos, const WeaponTemplate *detWeap, const ParticleSystemTemplate* exhaustSysOverride );
 	virtual void projectileLaunchAtObjectOrPosition(const Object *victim, const Coord3D* victimPos, const Object *launcher, WeaponSlotType wslot, Int specificBarrelToUse, const WeaponTemplate* detWeap, const ParticleSystemTemplate* exhaustSysOverride);
 	virtual Bool projectileHandleCollision( Object *other );
-	virtual Bool projectileIsArmed() const { return m_isArmed; }
+	virtual Bool projectileIsArmed() const { return R().isArmed; }
 	virtual ObjectID projectileGetLauncherID() const { return m_launcherID; }
 	virtual void setFramesTillCountermeasureDiversionOccurs( UnsignedInt frames ); ///< Number of frames till missile diverts to countermeasures.
 	virtual void projectileNowJammed();///< We lose our Object target and scatter to the ground
@@ -109,25 +110,11 @@ protected:
 
 private:
 
-	MissileStateType			m_state;									///< the behavior state of the missile
-	UnsignedInt						m_stateTimestamp;					///< time of state change
-	UnsignedInt						m_nextTargetTrackTime;		///< if nonzero, how often we update our target pos
 	ObjectID							m_launcherID;							///< ID of object that launched us (INVALID_ID if not yet launched)
 	ObjectID							m_victimID;								///< ID of object that I am rocketing towards (INVALID_ID if not yet launched)
-	UnsignedInt						m_fuelExpirationDate;			///< how long 'til we run out of fuel
-	Real									m_noTurnDistLeft;					///< when zero, ok to start turning
-	Real									m_maxAccel;
-	Coord3D								m_originalTargetPos;			///< When firing uphill, we aim high to clear the brow of the hill.  jba.
-	Coord3D								m_prevPos;
-	WeaponBonusConditionFlags		m_extraBonusFlags;
 	const WeaponTemplate*	m_detonationWeaponTmpl;		///< weapon to fire at end (or null)
-	const ParticleSystemTemplate* m_exhaustSysTmpl;
 	ParticleSystemID			m_exhaustID;								///< our exhaust particle system (if any)
-	UnsignedInt						m_framesTillDecoyed;			///< Number of frames before missile will get distracted by decoy countermeasures.
-	Bool									m_isTrackingTarget;				///< Was I originally shot at a moving object?
-	Bool									m_isArmed;								///< if true, missile will explode on contact
 	Bool									m_noDamage;								///< if true, missile will not cause damage when it detonates. (Used for flares).
-	Bool									m_isJammed;								///< No target, just shooting at a scattered position
 
 	void doPrelaunchState();
 	void doLaunchState();
@@ -143,4 +130,33 @@ private:
 	void switchToState(MissileStateType s);
 
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		UnsignedInt gxOpFrame; ///< web port: frame + 1 of the kernel result (0: none)
+		Int gxOp; ///< web port: the kernel result
+		Bool gxJoined; ///< web port: in the kernel list
+		Int gxId; ///< web port: object ID when it joined
+		MissileStateType state; ///< the behavior state of the missile
+		UnsignedInt stateTimestamp; ///< time of state change
+		UnsignedInt nextTargetTrackTime; ///< if nonzero, how often we update our target pos
+		UnsignedInt fuelExpirationDate; ///< how long 'til we run out of fuel
+		Real noTurnDistLeft; ///< when zero, ok to start turning
+		Real maxAccel;
+		Coord3D originalTargetPos; ///< When firing uphill, we aim high to clear the brow of the hill.  jba.
+		Coord3D prevPos;
+		WeaponBonusConditionFlags extraBonusFlags;
+		const ParticleSystemTemplate* exhaustSysTmpl;
+		UnsignedInt framesTillDecoyed; ///< Number of frames before missile will get distracted by decoy countermeasures.
+		Bool isTrackingTarget; ///< Was I originally shot at a moving object?
+		Bool isArmed; ///< if true, missile will explode on contact
+		Bool isJammed; ///< No target, just shooting at a scattered position
+	};
+	void gxKernelStep(UnsignedInt now);	///< web port: this unit's kernel step (GxPathsKernels.h)
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline MissileAIUpdate::GxState &MissileAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

@@ -59,6 +59,8 @@ public:
 };
 
 //-----------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxGrantScienceUpgradeRow;
 class GrantScienceUpgrade : public UpgradeModule
 {
 
@@ -76,6 +78,19 @@ protected:
 
 private:
 
-	ScienceType m_scienceType;
+	GxRow<struct GxGrantScienceUpgradeRow> m_gxGrantScienceUpgradeRow;	///< web port (round 5): this unit's row in TheGxGrantScienceUpgrades
+	friend struct GxGrantScienceUpgradeRow;
+	inline struct GxGrantScienceUpgradeRow &gxRow() const;
 
 };
+
+// Web port (round 5, units are pure data): GrantScienceUpgrade's per-unit state, one row per unit in TheGxGrantScienceUpgrades;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxGrantScienceUpgradeRow
+{
+	ScienceType scienceType;
+};
+
+
+inline GxGrantScienceUpgradeRow &GrantScienceUpgrade::gxRow() const { return const_cast<GxGrantScienceUpgradeRow &>(*m_gxGrantScienceUpgradeRow); }
+

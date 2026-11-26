@@ -30,6 +30,7 @@
 #pragma once
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/UpdateModule.h"
 
 enum PhysicsTurningType CPP_11(: Int);
@@ -77,6 +78,21 @@ public:
 
 protected:
 
-  ModelConditionFlagType m_currentTurnAnim;
-	UnsignedInt m_nextTransitionFrame;
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		UnsignedInt gxOpFrame; ///< web port: frame + 1 of the kernel result (0: none)
+		Int gxOp; ///< web port: the kernel result
+		Bool gxJoined; ///< web port: in the kernel list
+		Int gxId; ///< web port: object ID when it joined
+		ModelConditionFlagType currentTurnAnim;
+		UnsignedInt nextTransitionFrame;
+	};
+	void gxKernelStep(UnsignedInt now);	///< web port: this unit's kernel step (GxPathsKernels.h)
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline AnimationSteeringUpdate::GxState &AnimationSteeringUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

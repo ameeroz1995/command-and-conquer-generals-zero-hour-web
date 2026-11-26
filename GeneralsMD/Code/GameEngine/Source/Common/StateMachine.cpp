@@ -39,6 +39,16 @@
 
 #include "ref_ptr.h"
 
+// Web port (round 5, units are pure data): State's per-unit state is a row of TheGxStates;
+// GXROW_STATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_STATE (const_cast<GxStateRow &>(*m_gxStateRow))
+
+
+// Web port (round 5, units are pure data): StateMachine's per-unit state is a row of TheGxStateMachines;
+// GXROW_STATEMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_STATEMACHINE (const_cast<GxStateMachineRow &>(*m_gxStateMachineRow))
+
+
 
 //------------------------------------------------------------------------------ Performance Timers
 //#include "Common/PerfMetrics.h"
@@ -51,14 +61,15 @@
  * Constructor
  */
 State::State( StateMachine *machine, AsciiString name )
-#ifdef STATE_MACHINE_DEBUG
-: m_name(name)
-#endif
 {
-	m_ID = INVALID_STATE_ID;
-	m_successStateID = INVALID_STATE_ID;
-	m_failureStateID = INVALID_STATE_ID;
-	m_machine = machine;
+
+#ifdef STATE_MACHINE_DEBUG
+	GXROW_STATE.name = name;
+#endif
+	GXROW_STATE.ID = INVALID_STATE_ID;
+	GXROW_STATE.successStateID = INVALID_STATE_ID;
+	GXROW_STATE.failureStateID = INVALID_STATE_ID;
+	GXROW_STATE.machine = machine;
 }
 
 //-----------------------------------------------------------------------------
@@ -67,7 +78,7 @@ State::State( StateMachine *machine, AsciiString name )
  */
 void State::friend_onCondition( StateTransFuncPtr test, StateID toStateID, void* userData, const char* description )
 {
-	m_transitions.push_back(TransitionInfo(test, toStateID, userData, description));
+	GXROW_STATE.transitions.push_back(TransitionInfo(test, toStateID, userData, description));
 }
 
 
@@ -91,12 +102,12 @@ public:
 std::vector<StateID> * State::getTransitions()
 {
 	std::vector<StateID> *ids = new std::vector<StateID>;
-	ids->push_back(m_successStateID);
-	ids->push_back(m_failureStateID);
+	ids->push_back(GXROW_STATE.successStateID);
+	ids->push_back(GXROW_STATE.failureStateID);
 	// check transition condition list
-	if (!m_transitions.empty())
+	if (!GXROW_STATE.transitions.empty())
 	{
-		for(std::vector<TransitionInfo>::const_iterator it = m_transitions.begin(); it != m_transitions.end(); ++it)
+		for(std::vector<TransitionInfo>::const_iterator it = GXROW_STATE.transitions.begin(); it != GXROW_STATE.transitions.end(); ++it)
 		{
 			ids->push_back(it->toStateID);
 		}
@@ -127,42 +138,42 @@ StateReturnType State::friend_checkForTransitions( StateReturnType status )
 	{
 		case STATE_SUCCESS:
 			// check if machine should exit
-			if (m_successStateID == EXIT_MACHINE_WITH_SUCCESS)
+			if (GXROW_STATE.successStateID == EXIT_MACHINE_WITH_SUCCESS)
 			{
 				getMachine()->internalSetState( MACHINE_DONE_STATE_ID );
 				return STATE_SUCCESS;
 			}
-			else if (m_successStateID == EXIT_MACHINE_WITH_FAILURE)
+			else if (GXROW_STATE.successStateID == EXIT_MACHINE_WITH_FAILURE)
 			{
 				getMachine()->internalSetState( MACHINE_DONE_STATE_ID );
 				return STATE_FAILURE;
 			}
 
 			// move to new state
-			return getMachine()->internalSetState( m_successStateID );
+			return getMachine()->internalSetState( GXROW_STATE.successStateID );
 
 		case STATE_FAILURE:
 			// check if machine should exit
-			if (m_failureStateID == EXIT_MACHINE_WITH_SUCCESS)
+			if (GXROW_STATE.failureStateID == EXIT_MACHINE_WITH_SUCCESS)
 			{
 				getMachine()->internalSetState( MACHINE_DONE_STATE_ID );
 				return STATE_SUCCESS;
 			}
-			else if (m_failureStateID == EXIT_MACHINE_WITH_FAILURE)
+			else if (GXROW_STATE.failureStateID == EXIT_MACHINE_WITH_FAILURE)
 			{
 				getMachine()->internalSetState( MACHINE_DONE_STATE_ID );
 				return STATE_FAILURE;
 			}
 
 			// move to new state
-			return getMachine()->internalSetState( m_failureStateID );
+			return getMachine()->internalSetState( GXROW_STATE.failureStateID );
 
 		case STATE_CONTINUE:
 
 			// check transition condition list
-			if (!m_transitions.empty())
+			if (!GXROW_STATE.transitions.empty())
 			{
-				for(std::vector<TransitionInfo>::const_iterator it = m_transitions.begin(); it != m_transitions.end(); ++it)
+				for(std::vector<TransitionInfo>::const_iterator it = GXROW_STATE.transitions.begin(); it != GXROW_STATE.transitions.end(); ++it)
 				{
 					if (it->test( this, it->userData ))
 					{
@@ -216,10 +227,10 @@ StateReturnType State::friend_checkForSleepTransitions( StateReturnType status )
 	DEBUG_ASSERTCRASH(IS_STATE_SLEEP(status), ("Please only pass sleep states here"));
 
 	// check transition condition list
-	if (m_transitions.empty())
+	if (GXROW_STATE.transitions.empty())
 		return status;
 
-	for(std::vector<TransitionInfo>::const_iterator it = m_transitions.begin(); it != m_transitions.end(); ++it)
+	for(std::vector<TransitionInfo>::const_iterator it = GXROW_STATE.transitions.begin(); it != GXROW_STATE.transitions.end(); ++it)
 	{
 		if (!it->test( this, it->userData ))
 			continue;
@@ -262,16 +273,17 @@ StateReturnType State::friend_checkForSleepTransitions( StateReturnType status )
  */
 StateMachine::StateMachine( Object *owner, AsciiString name )
 {
-	m_owner = owner;
-	m_sleepTill = 0;
-	m_defaultStateID = INVALID_STATE_ID;
-	m_defaultStateInited = false;
-	m_currentState = nullptr;
-	m_locked = false;
+
+	GXROW_STATEMACHINE.owner = owner;
+	GXROW_STATEMACHINE.sleepTill = 0;
+	GXROW_STATEMACHINE.defaultStateID = INVALID_STATE_ID;
+	GXROW_STATEMACHINE.defaultStateInited = false;
+	GXROW_STATEMACHINE.currentState = nullptr;
+	GXROW_STATEMACHINE.locked = false;
 #ifdef STATE_MACHINE_DEBUG
-	m_name = name;
-	m_debugOutput = false;
-	m_lockedby = nullptr;
+	GXROW_STATEMACHINE.name = name;
+	GXROW_STATEMACHINE.debugOutput = false;
+	GXROW_STATEMACHINE.lockedby = nullptr;
 #endif
 	internalClear();
 }
@@ -284,13 +296,13 @@ StateMachine::~StateMachine()
 {
 
 	// do not allow current state to exit
-	if (m_currentState)
-		m_currentState->onExit( EXIT_RESET );
+	if (GXROW_STATEMACHINE.currentState)
+		GXROW_STATEMACHINE.currentState->onExit( EXIT_RESET );
 
 	std::map<StateID, State *>::iterator i;
 
 	// delete all states in the mapping
-	for( i = m_stateMap.begin(); i != m_stateMap.end(); ++i )
+	for( i = GXROW_STATEMACHINE.stateMap.begin(); i != GXROW_STATEMACHINE.stateMap.end(); ++i )
 	{
 		deleteInstance((*i).second);
 	}
@@ -300,7 +312,7 @@ StateMachine::~StateMachine()
 #ifdef STATE_MACHINE_DEBUG
 Bool StateMachine::getWantsDebugOutput() const
 {
-	if (m_debugOutput)
+	if (GXROW_STATEMACHINE.debugOutput)
 	{
 		return true;
 	}
@@ -327,14 +339,14 @@ Bool StateMachine::getWantsDebugOutput() const
  */
 void StateMachine::internalClear()
 {
-	m_goalObjectID = INVALID_ID;
-	m_goalPosition.x = 0.0f;
-	m_goalPosition.y = 0.0f;
-	m_goalPosition.z = 0.0f;
+	GXROW_STATEMACHINE.goalObjectID = INVALID_ID;
+	GXROW_STATEMACHINE.goalPosition.x = 0.0f;
+	GXROW_STATEMACHINE.goalPosition.y = 0.0f;
+	GXROW_STATEMACHINE.goalPosition.z = 0.0f;
 #ifdef STATE_MACHINE_DEBUG
 	if (getWantsDebugOutput())
 	{
-		DEBUG_LOG(("%d '%s'%x -- '%s' %x internalClear()", TheGameLogic->getFrame(), m_owner->getTemplate()->getName().str(), m_owner, m_name.str(), this));
+		DEBUG_LOG(("%d '%s'%x -- '%s' %x internalClear()", TheGameLogic->getFrame(), GXROW_STATEMACHINE.owner->getTemplate()->getName().str(), GXROW_STATEMACHINE.owner, GXROW_STATEMACHINE.name.str(), this));
 	}
 #endif
 }
@@ -346,20 +358,20 @@ void StateMachine::internalClear()
 void StateMachine::clear()
 {
 	// if the machine is locked, it cannot be cleared
-	if (m_locked)
+	if (GXROW_STATEMACHINE.locked)
 	{
 #ifdef STATE_MACHINE_DEBUG
-		if (m_currentState) DEBUG_LOG((" cur state '%s'", m_currentState->getName().str()));
-		DEBUG_LOG(("machine is locked (by %s), cannot be cleared (Please don't ignore; this generally indicates a potential logic flaw)",m_lockedby));
+		if (GXROW_STATEMACHINE.currentState) DEBUG_LOG((" cur state '%s'", GXROW_STATEMACHINE.currentState->getName().str()));
+		DEBUG_LOG(("machine is locked (by %s), cannot be cleared (Please don't ignore; this generally indicates a potential logic flaw)",GXROW_STATEMACHINE.lockedby));
 #endif
 		return;
 	}
 
 	// invoke the old state's onExit()
-	if (m_currentState)
-		m_currentState->onExit( EXIT_RESET );
+	if (GXROW_STATEMACHINE.currentState)
+		GXROW_STATEMACHINE.currentState->onExit( EXIT_RESET );
 
-	m_currentState = nullptr;
+	GXROW_STATEMACHINE.currentState = nullptr;
 
 	internalClear();
 }
@@ -371,25 +383,25 @@ void StateMachine::clear()
 StateReturnType StateMachine::resetToDefaultState()
 {
 	// if the machine is locked, it cannot be reset
-	if (m_locked)
+	if (GXROW_STATEMACHINE.locked)
 	{
 #ifdef STATE_MACHINE_DEBUG
-		if (m_currentState) DEBUG_LOG((" cur state '%s'", m_currentState->getName().str()));
-		DEBUG_LOG(("machine is locked (by %s), cannot be cleared (Please don't ignore; this generally indicates a potential logic flaw)",m_lockedby));
+		if (GXROW_STATEMACHINE.currentState) DEBUG_LOG((" cur state '%s'", GXROW_STATEMACHINE.currentState->getName().str()));
+		DEBUG_LOG(("machine is locked (by %s), cannot be cleared (Please don't ignore; this generally indicates a potential logic flaw)",GXROW_STATEMACHINE.lockedby));
 #endif
 		return STATE_FAILURE;
 	}
 
-	if (!m_defaultStateInited)
+	if (!GXROW_STATEMACHINE.defaultStateInited)
 	{
 		DEBUG_CRASH(("you may not call resetToDefaultState before initDefaultState"));
 		return STATE_FAILURE;
 	}
 
 	// allow current state to exit with EXIT_RESET if present
-	if (m_currentState)
-		m_currentState->onExit( EXIT_RESET );
-	m_currentState = nullptr;
+	if (GXROW_STATEMACHINE.currentState)
+		GXROW_STATEMACHINE.currentState->onExit( EXIT_RESET );
+	GXROW_STATEMACHINE.currentState = nullptr;
 
 	//
 	// the current state has done an onExit, clear the internal guts before we set
@@ -399,7 +411,7 @@ StateReturnType StateMachine::resetToDefaultState()
 	internalClear();
 
 	// change to the default state
-	StateReturnType status = internalSetState( m_defaultStateID );
+	StateReturnType status = internalSetState( GXROW_STATEMACHINE.defaultStateID );
 
 	DEBUG_ASSERTCRASH( status != STATE_FAILURE, ( "StateMachine::resetToDefaultState() Error setting default state" ) );
 
@@ -414,34 +426,34 @@ StateReturnType StateMachine::resetToDefaultState()
 StateReturnType StateMachine::updateStateMachine()
 {
 	UnsignedInt now = TheGameLogic->getFrame();
-	if (m_sleepTill != 0 && now < m_sleepTill)
+	if (GXROW_STATEMACHINE.sleepTill != 0 && now < GXROW_STATEMACHINE.sleepTill)
 	{
-		if( m_currentState == nullptr )
+		if( GXROW_STATEMACHINE.currentState == nullptr )
 		{
 			return STATE_FAILURE;
 		}
-		return m_currentState->friend_checkForSleepTransitions( STATE_SLEEP(m_sleepTill - now) );
+		return GXROW_STATEMACHINE.currentState->friend_checkForSleepTransitions( STATE_SLEEP(GXROW_STATEMACHINE.sleepTill - now) );
 	}
 
 	// not sleeping anymore
-	m_sleepTill = 0;
+	GXROW_STATEMACHINE.sleepTill = 0;
 
-	if (m_currentState)
+	if (GXROW_STATEMACHINE.currentState)
 	{
 		// TheSuperHackers @bugfix xezon 20/05/2025 Defer the deletion of this state machine.
-		// Calling m_currentState->update() can release this state machine in certain circumstances,
+		// Calling GXROW_STATEMACHINE.currentState->update() can release this state machine in certain circumstances,
 		// for example if something kills the entity of this state machine as a result of this state update.
 		// See https://github.com/TheSuperHackers/GeneralsGameCode/issues/212
 		RefCountPtr<StateMachine> refThis = RefCountPtr<StateMachine>::Create_AddRef(this);
 
-		// update() can change m_currentState, so save it for a moment...
-		State* stateBeforeUpdate = m_currentState;
+		// update() can change GXROW_STATEMACHINE.currentState, so save it for a moment...
+		State* stateBeforeUpdate = GXROW_STATEMACHINE.currentState;
 
 		// execute this state
-		StateReturnType status = m_currentState->update();
+		StateReturnType status = GXROW_STATEMACHINE.currentState->update();
 
 		// it is possible that the state's update() method clears the state machine.
-		if (m_currentState == nullptr)
+		if (GXROW_STATEMACHINE.currentState == nullptr)
 		{
 			return STATE_FAILURE;
 		}
@@ -451,7 +463,7 @@ StateReturnType StateMachine::updateStateMachine()
 		// -- however, foo() called setState() to State B. thus our current state is not the same.
 		// -- thus, if the state changed, we must ignore any sleep result and pretend we got STATE_CONTINUE,
 		// so that the new state will be called immediately.
-		if (stateBeforeUpdate != m_currentState)
+		if (stateBeforeUpdate != GXROW_STATEMACHINE.currentState)
 		{
 			status = STATE_CONTINUE;
 		}
@@ -459,13 +471,13 @@ StateReturnType StateMachine::updateStateMachine()
 		if (IS_STATE_SLEEP(status))
 		{
 			// hey, we're sleepy!
-			m_sleepTill = now + GET_STATE_SLEEP_FRAMES(status);
-			return m_currentState->friend_checkForSleepTransitions( STATE_SLEEP(m_sleepTill - now) );
+			GXROW_STATEMACHINE.sleepTill = now + GET_STATE_SLEEP_FRAMES(status);
+			return GXROW_STATEMACHINE.currentState->friend_checkForSleepTransitions( STATE_SLEEP(GXROW_STATEMACHINE.sleepTill - now) );
 		}
 		else
 		{
 			// check for state transitions, possibly exiting this machine
-			return m_currentState->friend_checkForTransitions( status );
+			return GXROW_STATEMACHINE.currentState->friend_checkForTransitions( status );
 		}
 	}
 	else
@@ -485,11 +497,11 @@ StateReturnType StateMachine::updateStateMachine()
 void StateMachine::defineState( StateID id, State *state, StateID successID, StateID failureID, const StateConditionInfo* conditions )
 {
 #ifdef STATE_MACHINE_DEBUG
-	DEBUG_ASSERTCRASH(m_stateMap.find( id ) == m_stateMap.end(), ("duplicate state ID in statemachine %s",m_name.str()));
+	DEBUG_ASSERTCRASH(GXROW_STATEMACHINE.stateMap.find( id ) == GXROW_STATEMACHINE.stateMap.end(), ("duplicate state ID in statemachine %s",GXROW_STATEMACHINE.name.str()));
 #endif
 
 	// map the ID to the state
-	m_stateMap.insert( std::map<StateID, State *>::value_type( id, state ) );
+	GXROW_STATEMACHINE.stateMap.insert( std::map<StateID, State *>::value_type( id, state ) );
 
 	// store the ID in the state itself, as well
 	state->friend_setID( id );
@@ -503,8 +515,8 @@ void StateMachine::defineState( StateID id, State *state, StateID successID, Sta
 		++conditions;
 	}
 
-	if (m_defaultStateID == INVALID_STATE_ID)
-		m_defaultStateID = id;
+	if (GXROW_STATEMACHINE.defaultStateID == INVALID_STATE_ID)
+		GXROW_STATEMACHINE.defaultStateID = id;
 }
 
 //-----------------------------------------------------------------------------
@@ -515,15 +527,15 @@ State *StateMachine::internalGetState( StateID id )
 {
 	// locate the actual state associated with the given ID
 	std::map<StateID, State *>::iterator i;
-	i = m_stateMap.find( id );
+	i = GXROW_STATEMACHINE.stateMap.find( id );
 
-	if (i == m_stateMap.end())
+	if (i == GXROW_STATEMACHINE.stateMap.end())
 	{
-		DEBUG_CRASH( ("StateMachine::internalGetState(): Invalid state for object %s using state %d", m_owner->getTemplate()->getName().str(), id) );
+		DEBUG_CRASH( ("StateMachine::internalGetState(): Invalid state for object %s using state %d", GXROW_STATEMACHINE.owner->getTemplate()->getName().str(), id) );
 		DEBUG_LOG(("Transitioning to state %d", (Int)id));
 		DEBUG_LOG(("Attempting to recover - locating default state..."));
-		i = m_stateMap.find(m_defaultStateID);
-		if (i == m_stateMap.end()) {
+		i = GXROW_STATEMACHINE.stateMap.find(GXROW_STATEMACHINE.defaultStateID);
+		if (i == GXROW_STATEMACHINE.stateMap.end()) {
 			DEBUG_LOG(("Failed to located default state.  Aborting..."));
 			throw ERROR_BAD_ARG;
 		} else {
@@ -543,11 +555,11 @@ State *StateMachine::internalGetState( StateID id )
 StateReturnType StateMachine::setState( StateID newStateID )
 {
 	// if the machine is locked, it cannot change state via external events
-	if (m_locked)
+	if (GXROW_STATEMACHINE.locked)
 	{
 #ifdef STATE_MACHINE_DEBUG
-		if (m_currentState) DEBUG_LOG((" cur state '%s'", m_currentState->getName().str()));
-		DEBUG_LOG(("machine is locked (by %s), cannot be cleared (Please don't ignore; this generally indicates a potential logic flaw)",m_lockedby));
+		if (GXROW_STATEMACHINE.currentState) DEBUG_LOG((" cur state '%s'", GXROW_STATEMACHINE.currentState->getName().str()));
+		DEBUG_LOG(("machine is locked (by %s), cannot be cleared (Please don't ignore; this generally indicates a potential logic flaw)",GXROW_STATEMACHINE.lockedby));
 #endif
 		return STATE_CONTINUE;
 	}
@@ -566,7 +578,7 @@ StateReturnType StateMachine::internalSetState( StateID newStateID )
 	State *newState = nullptr;
 
 	// anytime the state changes, stop sleeping
-	m_sleepTill = 0;
+	GXROW_STATEMACHINE.sleepTill = 0;
 
 	// if we're not setting the "done" state ID we will continue with the actual transition
 	if( newStateID != MACHINE_DONE_STATE_ID )
@@ -575,7 +587,7 @@ StateReturnType StateMachine::internalSetState( StateID newStateID )
 		// if incoming state is invalid, go to the machine's default state
 		if (newStateID == INVALID_STATE_ID)
 		{
-			newStateID = m_defaultStateID;
+			newStateID = GXROW_STATEMACHINE.defaultStateID;
 			if (newStateID == INVALID_STATE_ID)
 			{
 				DEBUG_CRASH(("you may NEVER set the current state to an invalid state id."));
@@ -589,12 +601,12 @@ StateReturnType StateMachine::internalSetState( StateID newStateID )
 		if (getWantsDebugOutput())
 		{
 			StateID curState = INVALID_STATE_ID;
-			if (m_currentState) {
-				curState = m_currentState->getID();
+			if (GXROW_STATEMACHINE.currentState) {
+				curState = GXROW_STATEMACHINE.currentState->getID();
 			}
-			DEBUG_LOG_RAW(("%d '%s'%x -- '%s' %x exit ", TheGameLogic->getFrame(), m_owner->getTemplate()->getName().str(), m_owner, m_name.str(), this));
-			if (m_currentState) {
-				DEBUG_LOG_RAW((" '%s' ", m_currentState->getName().str()));
+			DEBUG_LOG_RAW(("%d '%s'%x -- '%s' %x exit ", TheGameLogic->getFrame(), GXROW_STATEMACHINE.owner->getTemplate()->getName().str(), GXROW_STATEMACHINE.owner, GXROW_STATEMACHINE.name.str(), this));
+			if (GXROW_STATEMACHINE.currentState) {
+				DEBUG_LOG_RAW((" '%s' ", GXROW_STATEMACHINE.currentState->getName().str()));
 			} else {
 				DEBUG_LOG_RAW((" INVALID_STATE_ID "));
 			}
@@ -608,23 +620,23 @@ StateReturnType StateMachine::internalSetState( StateID newStateID )
 	}
 
 	// invoke the old state's onExit()
-	if (m_currentState)
-		m_currentState->onExit( EXIT_NORMAL );
+	if (GXROW_STATEMACHINE.currentState)
+		GXROW_STATEMACHINE.currentState->onExit( EXIT_NORMAL );
 
 	// set the new state
-	m_currentState = newState;
+	GXROW_STATEMACHINE.currentState = newState;
 
 	// invoke the new state's onEnter()
 	/// @todo It might be useful to pass the old state in... (MSB)
-	if( m_currentState )
+	if( GXROW_STATEMACHINE.currentState )
 	{
-		// onEnter() could conceivably change m_currentState, so save it for a moment...
-		State* stateBeforeEnter = m_currentState;
+		// onEnter() could conceivably change GXROW_STATEMACHINE.currentState, so save it for a moment...
+		State* stateBeforeEnter = GXROW_STATEMACHINE.currentState;
 
-		StateReturnType status = m_currentState->onEnter();
+		StateReturnType status = GXROW_STATEMACHINE.currentState->onEnter();
 
 		// it is possible that the state's onEnter() method may cause the state to be destroyed
-		if (m_currentState == nullptr)
+		if (GXROW_STATEMACHINE.currentState == nullptr)
 		{
 			return STATE_FAILURE;
 		}
@@ -634,7 +646,7 @@ StateReturnType StateMachine::internalSetState( StateID newStateID )
 		// -- however, foo() called setState() to State B. thus our current state is not the same.
 		// -- thus, if the state changed, we must ignore any sleep result and pretend we got STATE_CONTINUE,
 		// so that the new state will be called immediately.
-		if (stateBeforeEnter != m_currentState)
+		if (stateBeforeEnter != GXROW_STATEMACHINE.currentState)
 		{
 			status = STATE_CONTINUE;
 		}
@@ -643,13 +655,13 @@ StateReturnType StateMachine::internalSetState( StateID newStateID )
 		{
 			// hey, we're sleepy!
 			UnsignedInt now = TheGameLogic->getFrame();
-			m_sleepTill = now + GET_STATE_SLEEP_FRAMES(status);
-			return m_currentState->friend_checkForSleepTransitions( STATE_SLEEP(m_sleepTill - now) );
+			GXROW_STATEMACHINE.sleepTill = now + GET_STATE_SLEEP_FRAMES(status);
+			return GXROW_STATEMACHINE.currentState->friend_checkForSleepTransitions( STATE_SLEEP(GXROW_STATEMACHINE.sleepTill - now) );
 		}
 		else
 		{
 			// check for state transitions, possibly exiting this machine
-			return m_currentState->friend_checkForTransitions( status );
+			return GXROW_STATEMACHINE.currentState->friend_checkForTransitions( status );
 		}
 	}
 	else
@@ -671,7 +683,7 @@ StateReturnType StateMachine::initDefaultState()
 	// Run through all the transitions and make sure there aren't any transitions to undefined states. jba. [8/18/2003]
 	std::map<StateID, State *>::iterator i;
 	REALLY_VERBOSE_LOG(("SM_BEGIN\n"));
-	for( i = m_stateMap.begin(); i != m_stateMap.end(); ++i ) {
+	for( i = GXROW_STATEMACHINE.stateMap.begin(); i != GXROW_STATEMACHINE.stateMap.end(); ++i ) {
 		State *state = (*i).second;
 		StateID id = state->getID();
 		// Check transitions. [8/18/2003]
@@ -698,9 +710,9 @@ StateReturnType StateMachine::initDefaultState()
 				}
 				// locate the actual state associated with the given ID
 				std::map<StateID, State *>::iterator i;
-				i = m_stateMap.find( curID );
+				i = GXROW_STATEMACHINE.stateMap.find( curID );
 
-				if (i == m_stateMap.end()) {
+				if (i == GXROW_STATEMACHINE.stateMap.end()) {
 					DEBUG_LOG(("\nState %s(%d) : Transition %d not found", state->getName().str(), id, curID));
 					DEBUG_LOG(("This MUST BE FIXED!!!jba"));
 					DEBUG_CRASH(("Invalid transition."));
@@ -719,23 +731,23 @@ StateReturnType StateMachine::initDefaultState()
 	REALLY_VERBOSE_LOG(("SM_END\n\n"));
 #endif
 #endif
-	DEBUG_ASSERTCRASH(!m_locked, ("Machine is locked here, but probably should not be"));
-	if (m_defaultStateInited)
+	DEBUG_ASSERTCRASH(!GXROW_STATEMACHINE.locked, ("Machine is locked here, but probably should not be"));
+	if (GXROW_STATEMACHINE.defaultStateInited)
 	{
 		DEBUG_CRASH(("you may not call initDefaultState twice for the same StateMachine"));
 		return STATE_FAILURE;
 	}
 	else
 	{
-		m_defaultStateInited = true;
-		return internalSetState( m_defaultStateID );
+		GXROW_STATEMACHINE.defaultStateInited = true;
+		return internalSetState( GXROW_STATEMACHINE.defaultStateID );
 	}
 }
 
 //-----------------------------------------------------------------------------
 void StateMachine::setGoalObject( const Object *obj )
 {
-	if (m_locked)
+	if (GXROW_STATEMACHINE.locked)
 		return;
 
 	internalSetGoalObject( obj );
@@ -744,7 +756,7 @@ void StateMachine::setGoalObject( const Object *obj )
 //-----------------------------------------------------------------------------
 Bool StateMachine::isGoalObjectDestroyed() const
 {
-	if (m_goalObjectID == 0)
+	if (GXROW_STATEMACHINE.goalObjectID == 0)
 	{
 		return false; // never had a goal object
 	}
@@ -754,12 +766,12 @@ Bool StateMachine::isGoalObjectDestroyed() const
 //-----------------------------------------------------------------------------
 void StateMachine::halt()
 {
-	m_locked = true;
-	m_currentState = nullptr; // don't exit current state, just clear it.
+	GXROW_STATEMACHINE.locked = true;
+	GXROW_STATEMACHINE.currentState = nullptr; // don't exit current state, just clear it.
 #ifdef STATE_MACHINE_DEBUG
 	if (getWantsDebugOutput())
 	{
-		DEBUG_LOG(("%d '%s' -- '%s' %x halt()", TheGameLogic->getFrame(), m_owner->getTemplate()->getName().str(), m_name.str(), this));
+		DEBUG_LOG(("%d '%s' -- '%s' %x halt()", TheGameLogic->getFrame(), GXROW_STATEMACHINE.owner->getTemplate()->getName().str(), GXROW_STATEMACHINE.name.str(), this));
 	}
 #endif
 }
@@ -768,30 +780,30 @@ void StateMachine::halt()
 void StateMachine::internalSetGoalObject( const Object *obj )
 {
 	if (obj) {
-		m_goalObjectID = obj->getID();
+		GXROW_STATEMACHINE.goalObjectID = obj->getID();
 		internalSetGoalPosition(obj->getPosition());
 	}
 	else {
-		m_goalObjectID = INVALID_ID;
+		GXROW_STATEMACHINE.goalObjectID = INVALID_ID;
 	}
 }
 
 //-----------------------------------------------------------------------------
 Object *StateMachine::getGoalObject()
 {
-	return TheGameLogic->findObjectByID( m_goalObjectID );
+	return TheGameLogic->findObjectByID( GXROW_STATEMACHINE.goalObjectID );
 }
 
 //-----------------------------------------------------------------------------
 const Object *StateMachine::getGoalObject() const
 {
-	return TheGameLogic->findObjectByID( m_goalObjectID );
+	return TheGameLogic->findObjectByID( GXROW_STATEMACHINE.goalObjectID );
 }
 
 //-----------------------------------------------------------------------------
 void StateMachine::setGoalPosition( const Coord3D *pos )
 {
-	if (m_locked)
+	if (GXROW_STATEMACHINE.locked)
 		return;
 
 	internalSetGoalPosition( pos );
@@ -801,7 +813,7 @@ void StateMachine::setGoalPosition( const Coord3D *pos )
 void StateMachine::internalSetGoalPosition( const Coord3D *pos )
 {
 	if (pos) {
-		m_goalPosition = *pos;
+		GXROW_STATEMACHINE.goalPosition = *pos;
 		// Don't clear the goal object, or everything breaks.  Like construction of buildings.
 	}
 }
@@ -828,14 +840,14 @@ void StateMachine::xfer( Xfer *xfer )
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_sleepTill);
-	xfer->xferUnsignedInt(&m_defaultStateID);
+	xfer->xferUnsignedInt(&GXROW_STATEMACHINE.sleepTill);
+	xfer->xferUnsignedInt(&GXROW_STATEMACHINE.defaultStateID);
 	StateID curStateID = getCurrentStateID();
 	xfer->xferUnsignedInt(&curStateID);
 	if (xfer->getXferMode() == XFER_LOAD)	{
 		// We are going to jump into the current state.	We don't call onEnter or onExit, because the
 		// state was already active when we saved.
-		m_currentState = internalGetState( curStateID );
+		GXROW_STATEMACHINE.currentState = internalGetState( curStateID );
 	}
 
 	Bool snapshotAllStates = false;
@@ -847,7 +859,7 @@ void StateMachine::xfer( Xfer *xfer )
 		std::map<StateID, State *>::iterator i;
 		// count all states in the mapping
 		Int count = 0;
-		for( i = m_stateMap.begin(); i != m_stateMap.end(); ++i )
+		for( i = GXROW_STATEMACHINE.stateMap.begin(); i != GXROW_STATEMACHINE.stateMap.end(); ++i )
 			count++;
 		Int saveCount = count;
 		xfer->xferInt(&saveCount);
@@ -855,7 +867,7 @@ void StateMachine::xfer( Xfer *xfer )
 			DEBUG_CRASH(("State count mismatch - %d expected, %d read", count, saveCount));
 			throw SC_INVALID_DATA;
 		}
-		for( i = m_stateMap.begin(); i != m_stateMap.end(); ++i ) {
+		for( i = GXROW_STATEMACHINE.stateMap.begin(); i != GXROW_STATEMACHINE.stateMap.end(); ++i ) {
 			State *state = (*i).second;
 			if( state != nullptr )
 			{
@@ -870,7 +882,7 @@ void StateMachine::xfer( Xfer *xfer )
 			{
 				DEBUG_CRASH(("state was null on xfer, trying to heal..."));
 				// Hmm... too late to find out why we are getting nullptr in our state, but if we let it go, we will Throw in xferSnapshot.
-				state = internalGetState(m_defaultStateID);
+				state = internalGetState(GXROW_STATEMACHINE.defaultStateID);
 				StateID id = state->getID();
 				xfer->xferUnsignedInt(&id);
 			}
@@ -879,20 +891,20 @@ void StateMachine::xfer( Xfer *xfer )
 		}
 
 	}	else {
-		if( m_currentState == nullptr )
+		if( GXROW_STATEMACHINE.currentState == nullptr )
 		{
-			DEBUG_ASSERTCRASH(m_currentState != nullptr, ("currentState was null on xfer, trying to heal..."));
+			DEBUG_ASSERTCRASH(GXROW_STATEMACHINE.currentState != nullptr, ("currentState was null on xfer, trying to heal..."));
 			// Hmm... too late to find out why we are getting nullptr in our state, but if we let it go, we will Throw in xferSnapshot.
-			m_currentState = internalGetState(m_defaultStateID);
+			GXROW_STATEMACHINE.currentState = internalGetState(GXROW_STATEMACHINE.defaultStateID);
 		}
-		xfer->xferSnapshot(m_currentState);
+		xfer->xferSnapshot(GXROW_STATEMACHINE.currentState);
 	}
 
 
-	xfer->xferObjectID(&m_goalObjectID);
-	xfer->xferCoord3D(&m_goalPosition);
-	xfer->xferBool(&m_locked);
-	xfer->xferBool(&m_defaultStateInited);
+	xfer->xferObjectID(&GXROW_STATEMACHINE.goalObjectID);
+	xfer->xferCoord3D(&GXROW_STATEMACHINE.goalPosition);
+	xfer->xferBool(&GXROW_STATEMACHINE.locked);
+	xfer->xferBool(&GXROW_STATEMACHINE.defaultStateInited);
 }
 
 
@@ -904,3 +916,6 @@ void StateMachine::loadPostProcess()
 
 }
 
+State::~State()
+{
+}

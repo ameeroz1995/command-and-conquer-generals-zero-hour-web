@@ -41,6 +41,11 @@
 
 #include "GameClient/TerrainVisual.h"//Seismic simulations!
 
+// Web port (round 5, units are pure data): BunkerBusterBehavior's per-unit state is a row of TheGxBunkerBusterBehaviors;
+// GXROW_BUNKERBUSTERBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_BUNKERBUSTERBEHAVIOR (const_cast<GxBunkerBusterBehaviorRow &>(*m_gxBunkerBusterBehaviorRow))
+
+
 
 
 
@@ -95,13 +100,13 @@ BunkerBusterBehaviorModuleData::BunkerBusterBehaviorModuleData()
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-BunkerBusterBehavior::BunkerBusterBehavior( Thing *thing, const ModuleData *modData )
-											 : UpdateModule( thing, modData )
+BunkerBusterBehavior::BunkerBusterBehavior( Thing *thing, const ModuleData *modData ) : UpdateModule( thing, modData )
 {
+
 	// THIS HAS AN UPDATE... BECAUSE I FORESEE THE NEED FOR ONE, BUT RIGHT NOW IT DOES NOTHING
 	setWakeFrame( getObject(), UPDATE_SLEEP_NONE );
-  m_victimID = INVALID_ID;
-  m_upgradeRequired = nullptr;
+  GXROW_BUNKERBUSTERBEHAVIOR.victimID = INVALID_ID;
+  GXROW_BUNKERBUSTERBEHAVIOR.upgradeRequired = nullptr;
 
 }
 
@@ -119,7 +124,7 @@ void BunkerBusterBehavior::onObjectCreated()
 	const BunkerBusterBehaviorModuleData *modData = getBunkerBusterBehaviorModuleData();
 
 	// convert module upgrade name to a pointer
-	m_upgradeRequired = TheUpgradeCenter->findUpgrade( modData->m_upgradeRequired );
+	GXROW_BUNKERBUSTERBEHAVIOR.upgradeRequired = TheUpgradeCenter->findUpgrade( modData->m_upgradeRequired );
 
 }
 
@@ -133,11 +138,11 @@ UpdateSleepTime BunkerBusterBehavior::update()
   AIUpdateInterface *ai = getObject()->getAI();
   if ( ai )// is this a SMART bomb?
   {
-    if ( m_victimID == INVALID_ID )
+    if ( GXROW_BUNKERBUSTERBEHAVIOR.victimID == INVALID_ID )
     {
       Object *victim = ai->getCurrentVictim();
       if ( victim )
-        m_victimID = victim->getID();
+        GXROW_BUNKERBUSTERBEHAVIOR.victimID = victim->getID();
       DEBUG_ASSERTCRASH( victim, ("BunkerBusterBehavior::update... AIUpdateInterface reports no victim." ) );
     }
     DEBUG_ASSERTCRASH( ai, ("BunkerBusterBehavior::update could not find an AIUpdateInterface." ) );
@@ -187,9 +192,9 @@ void BunkerBusterBehavior::bustTheBunker()
 {
 	const BunkerBusterBehaviorModuleData *modData = getBunkerBusterBehaviorModuleData();
 
-  if ( m_upgradeRequired != nullptr )
+  if ( GXROW_BUNKERBUSTERBEHAVIOR.upgradeRequired != nullptr )
   {
-	  Bool weaponUpgraded = getObject()->getControllingPlayer()->hasUpgradeComplete( m_upgradeRequired );
+	  Bool weaponUpgraded = getObject()->getControllingPlayer()->hasUpgradeComplete( GXROW_BUNKERBUSTERBEHAVIOR.upgradeRequired );
     if ( ! weaponUpgraded )
       return;
   }
@@ -197,7 +202,7 @@ void BunkerBusterBehavior::bustTheBunker()
 
 //  here is where we kill everyone inside any targeted garrisoned buildings
 //  AIUpdateInterface *ai = getObject()->getAI();
-  Object *target = TheGameLogic->findObjectByID( m_victimID );
+  Object *target = TheGameLogic->findObjectByID( GXROW_BUNKERBUSTERBEHAVIOR.victimID );
 
   Object *objectForFX = getObject();
 

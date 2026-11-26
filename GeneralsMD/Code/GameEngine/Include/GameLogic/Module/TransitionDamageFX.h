@@ -29,6 +29,8 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
+
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 #include "GameClient/ParticleSys.h"
 #include "GameLogic/Module/DamageModule.h"
@@ -237,6 +239,13 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5, units are pure data): TransitionDamageFX's per-unit state, one row per module in
+// GxComponentPool<TransitionDamageFXRow> (the module keeps only the row index, m_gxTransitionDamageFX)
+struct TransitionDamageFXRow
+{
+	ParticleSystemID m_particleSystemID[ BODYDAMAGETYPE_COUNT ][ DAMAGE_MODULE_MAX_FX ];
+};
+
 class TransitionDamageFX : public DamageModule
 {
 
@@ -257,6 +266,6 @@ public:
 protected:
 
 	/// we keep a record of attached particle system so we can detach and kill them when we want to
-	ParticleSystemID m_particleSystemID[ BODYDAMAGETYPE_COUNT ][ DAMAGE_MODULE_MAX_FX ];
+	GxRow<TransitionDamageFXRow> m_gxTransitionDamageFX;	///< web port (round 5): this module's state, a row of its component pool
 
 };

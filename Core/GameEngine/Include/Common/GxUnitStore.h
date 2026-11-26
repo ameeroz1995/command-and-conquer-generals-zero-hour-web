@@ -25,6 +25,7 @@
 //   (Object::reactToTransformChange). posOf(s) gives it as a Coord3D.
 // - vx, vy, vz: the velocity, the truth for every unit with physics (PhysicsBehavior reads and
 //   writes it through velRef(s); getVelocity() copies it out). velOf(s) gives it as a Coord3D.
+// - ax, ay, az: the acceleration summed by the forces of this frame (PhysicsBehavior, accelRef(s)).
 // - radius: the truth for the object's bounding circle radius (Object::getBoundingCircleRadius()
 //   reads it); set by Object::setGeometryInfo. The GeometryInfo keeps its own value for shape tests.
 // - player, playerBit: the truth for the controlling-player index (Object::gxPlayerIndex() reads it);
@@ -80,6 +81,7 @@ public:
 	std::vector<Object*>					obj;			///< nullptr in a hole
 	std::vector<float>						x, y, z;		///< position (truth with positionInStore, else write-through)
 	std::vector<float>						vx, vy, vz;		///< velocity (truth for physics units)
+	std::vector<float>						ax, ay, az;		///< acceleration being summed this frame (truth for physics units)
 	std::vector<float>						radius;			///< bounding circle radius
 	std::vector<signed char>			player;			///< controlling player index, -1 for none
 	std::vector<unsigned int>			playerBit;		///< 1 << player (0 for none)
@@ -100,6 +102,7 @@ public:
 	Coord3D posOf(int s) const { Coord3D c; c.x = x[s]; c.y = y[s]; c.z = z[s]; return c; }
 	Coord3D velOf(int s) const { Coord3D c; c.x = vx[s]; c.y = vy[s]; c.z = vz[s]; return c; }
 	GxVec3Ref velRef(int s) { return GxVec3Ref(vx[s], vy[s], vz[s]); }
+	GxVec3Ref accelRef(int s) { return GxVec3Ref(ax[s], ay[s], az[s]); }
 
 	int size() const { return (int)obj.size(); }
 	/// changes whenever any slot may have moved or been freed (compact, remove): cache slots against it

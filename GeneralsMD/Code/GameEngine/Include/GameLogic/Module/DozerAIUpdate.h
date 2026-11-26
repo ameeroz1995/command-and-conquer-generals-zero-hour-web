@@ -30,6 +30,7 @@
 #pragma once
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/AIUpdate.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
@@ -236,7 +237,7 @@ public:
 	virtual DozerTask getCurrentTask() const { return m_currentTask; }	///< return the current task we're doing
 	virtual void setCurrentTask( DozerTask task ) { m_currentTask = task; }	///< set the current task of the dozer
 
-	virtual Bool getIsRebuild() { return m_isRebuild; }	///< get whether or not this building is a rebuild.
+	virtual Bool getIsRebuild() { return R().isRebuild; }	///< get whether or not this building is a rebuild.
 
 	// task actions
 	virtual void newTask( DozerTask task, Object *target );	///< set a desire to do the requested task
@@ -253,8 +254,8 @@ public:
 	if no point has been set for the combination of task and point */
 	virtual const Coord3D* getDockPoint( DozerTask task, DozerDockPoint point );
 
-	virtual void setBuildSubTask( DozerBuildSubTask subTask ) { m_buildSubTask = subTask; };
-	virtual DozerBuildSubTask getBuildSubTask() { return m_buildSubTask; }
+	virtual void setBuildSubTask( DozerBuildSubTask subTask ) { R().buildSubTask = subTask; };
+	virtual DozerBuildSubTask getBuildSubTask() { return R().buildSubTask; }
 
 	virtual UpdateSleepTime update();											///< the update entry point
 
@@ -290,12 +291,9 @@ protected:
 		UnsignedInt m_taskOrderFrame;			///< logic frame we decided we wanted to do this task
 	} m_task[ DOZER_NUM_TASKS ];				///< tasks we want to do indexed by DozerTask
 
-	DozerPrimaryStateMachine *m_dozerMachine;  ///< the custom state machine for Dozer behavior
 	DozerTask m_currentTask;						///< current task the dozer is attending to (if any)
 	DozerTask m_previousTask;						///< previous task the dozer was attending to (if any)
 	DozerTaskInfo m_previousTaskInfo;		///< info on the previous task the dozer was attending to (if any)
-	AudioEventRTS	m_buildingSound;			///< sound is pulled from the object we are building!
-	Bool m_isRebuild;										///< is this a rebuild of a previous building?
 
 	//
 	// the following info array can be used if we want to have more complicated approaches
@@ -307,10 +305,23 @@ protected:
 		Coord3D location;			///< WORLD location
 	} m_dockPoint[ DOZER_NUM_TASKS ][ DOZER_NUM_DOCK_POINTS ];
 
-	DozerBuildSubTask m_buildSubTask;		///< for building and actually docking for the build
 
 private:
 
 	void createMachines();		///< create our behavior machines we need
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		DozerPrimaryStateMachine * dozerMachine; ///< the custom state machine for Dozer behavior
+		AudioEventRTS buildingSound; ///< sound is pulled from the object we are building!
+		Bool isRebuild; ///< is this a rebuild of a previous building?
+		DozerBuildSubTask buildSubTask; ///< for building and actually docking for the build
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline DozerAIUpdate::GxState &DozerAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

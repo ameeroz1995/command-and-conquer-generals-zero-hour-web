@@ -58,18 +58,20 @@ const Real CLOSE_ENOUGH_SQR = (CLOSE_ENOUGH * CLOSE_ENOUGH);
 //-------------------------------------------------------------------------------------------------
 SlavedUpdate::SlavedUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 //	const SlavedUpdateModuleData* data = getSlavedUpdateModuleData();
 
-	m_slaver = INVALID_ID;
-	m_guardPointOffset.zero();
-	m_framesToWait = 0;
-	m_repairState = REPAIRSTATE_NONE;
-	m_repairing = false;
+	R().slaver = INVALID_ID;
+	R().guardPointOffset.zero();
+	R().framesToWait = 0;
+	R().repairState = REPAIRSTATE_NONE;
+	R().repairing = false;
 }
 
 //-------------------------------------------------------------------------------------------------
 SlavedUpdate::~SlavedUpdate()
 {
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -107,23 +109,41 @@ void SlavedUpdate::onSlaverDamage( const DamageInfo *info )
 
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the drone kernels. Pure, writing only this unit's row.
+// Throttle: reads/writes its row (framesToWait); reads repairState, slaver. True when it runs now.
+static Bool gxSlavedThrottle(SlavedUpdate::GxState &r)
+{
+	if( r.framesToWait > 0 )
+		r.framesToWait--;
+	if( r.repairState == REPAIRSTATE_NONE )
+	{
+		if( r.framesToWait > 0 )
+			return FALSE;
+		r.framesToWait = SLAVED_UPDATE_RATE;
+	}
+	return r.slaver != INVALID_ID;
+}
+
+// Priority: from the gathered master health, victim and scouting need, what the drone does.
+// reads: its arguments only; writes nothing. Apply (in update): the repair/attack/scout/guard logic.
+enum GxSlavePriority { GXSLAVE_REPAIR, GXSLAVE_ATTACK, GXSLAVE_SCOUT, GXSLAVE_GUARD };
+static GxSlavePriority gxSlavedPriority(Int healthPercentage, Int repairBelow, Bool attackTarget, Bool scout)
+{
+	if( healthPercentage <= repairBelow )
+		return GXSLAVE_REPAIR;
+	if( attackTarget )
+		return GXSLAVE_ATTACK;
+	if( scout )
+		return GXSLAVE_SCOUT;
+	if( healthPercentage < 100 )	// always 100 when the drone cannot repair
+		return GXSLAVE_REPAIR;
+	return GXSLAVE_GUARD;
+}
+
 UpdateSleepTime SlavedUpdate::update()
 {
 /// @todo srj use SLEEPY_UPDATE here
-	if( m_framesToWait > 0 )
-	{
-		m_framesToWait--;
-	}
-	if( m_repairState == REPAIRSTATE_NONE )
-	{
-		if( m_framesToWait > 0 )
-		{
-			return UPDATE_SLEEP_NONE;
-		}
-		m_framesToWait = SLAVED_UPDATE_RATE;
-	}
-
-	if( m_slaver == INVALID_ID )
+	if( !gxSlavedThrottle(R()) )
 		return UPDATE_SLEEP_NONE;
 
 	const SlavedUpdateModuleData* data = getSlavedUpdateModuleData();
@@ -143,7 +163,7 @@ UpdateSleepTime SlavedUpdate::update()
 		return UPDATE_SLEEP_NONE;
 	}
 
-	Object *master = TheGameLogic->findObjectByID( m_slaver );
+	Object *master = TheGameLogic->findObjectByID( R().slaver );
 	if( !master || master->isEffectivelyDead() || master->isDisabledByType( DISABLED_UNMANNED ) )
 	{
 		stopSlavedEffects();
@@ -204,61 +224,37 @@ UpdateSleepTime SlavedUpdate::update()
 		}
 	}
 
-	//Determine whether or not we need to go back to the master to repair him
-	if( healthPercentage <= data->m_repairWhenHealthBelowPercentage )
+	// gather: does the master's move need scouting (his route's end, far enough from him)?
+	const Coord3D *masterDest = nullptr;
+	Bool scout = FALSE;
+	if( data->m_scoutRange && healthPercentage > data->m_repairWhenHealthBelowPercentage && !(data->m_attackRange && target) && masterAI->getPath() )
 	{
-		//1ST PRIORITY: Go to the master's position to repair him because he needs it.
-		doRepairLogic();
-		return UPDATE_SLEEP_NONE;
+		masterDest = masterAI->getPath()->getLastNode()->getPosition();
+		Real distSqr = ThePartitionManager->getDistanceSquared( master, masterDest, FROM_BOUNDINGSPHERE_2D );
+		scout = distSqr > (data->m_guardMaxRange * 0.5f) * (data->m_guardMaxRange * 0.5f);
 	}
-
-	if( data->m_attackRange )
+	switch (gxSlavedPriority(healthPercentage, data->m_repairWhenHealthBelowPercentage, data->m_attackRange && target, scout))
 	{
-		//2ND PRIORITY: Go to the master's current victim (as close as wander distance allows)
-		if( target )
-		{
-			//At this point, we officially are in an attack mode! Now, simply
+		case GXSLAVE_REPAIR:	// 1st (master needs it) or 4th (we're idle) priority: repair the master
+			doRepairLogic();
+			return UPDATE_SLEEP_NONE;
+		case GXSLAVE_ATTACK:	// 2nd: the master's current victim
 			endRepair();
 			doAttackLogic( target );
 			return UPDATE_SLEEP_NONE;
-		}
-	}
-
-	if( data->m_scoutRange )
-	{
-		//3RD PRIORITY: Hover above master's current move destination (as close as wander distance
-		//allows).
-		if( masterAI->getPath() )
-		{
-			const Coord3D *masterDest = masterAI->getPath()->getLastNode()->getPosition();
-
-			//Check to see if master is close to the goal position.
-			Real distSqr = ThePartitionManager->getDistanceSquared( master, masterDest, FROM_BOUNDINGSPHERE_2D );
-			if( distSqr > (data->m_guardMaxRange * 0.5f) * (data->m_guardMaxRange * 0.5f) )
-			{
-				//If the master's distance to destination is more than half of the guarding range of the slave,
-				//then order the slave to scout it.
-				endRepair();
-				doScoutLogic( masterDest );
-				return UPDATE_SLEEP_NONE;
-			}
-		}
-	}
-
-	//NOTE: Health percentage will always be 100 should the drone be incapable of
-	//repairing.
-	if( healthPercentage < 100 )
-	{
-		//3RD PRIORITY: Go to the master's position to repair him (because we're idle)
-		doRepairLogic();
-		return UPDATE_SLEEP_NONE;
+		case GXSLAVE_SCOUT:	// 3rd: hover above the master's move destination
+			endRepair();
+			doScoutLogic( masterDest );
+			return UPDATE_SLEEP_NONE;
+		default:
+			break;
 	}
 
 	// update our "pinned" location based on where our master is
 	Coord3D pinnedPosition = *master->getPosition();
-	pinnedPosition.x += m_guardPointOffset.x;
-	pinnedPosition.y += m_guardPointOffset.y;
-	m_guardPointOffset.z = TheTerrainLogic->getGroundHeight( pinnedPosition.x, pinnedPosition.y );
+	pinnedPosition.x += R().guardPointOffset.x;
+	pinnedPosition.y += R().guardPointOffset.y;
+	R().guardPointOffset.z = TheTerrainLogic->getGroundHeight( pinnedPosition.x, pinnedPosition.y );
 
 	if( data->m_guardMaxRange )
 	{
@@ -286,7 +282,7 @@ void SlavedUpdate::doAttackLogic( const Object *target )
 {
 	const SlavedUpdateModuleData* data = getSlavedUpdateModuleData();
 	Object *me = getObject();
-	Object *master = TheGameLogic->findObjectByID( m_slaver );
+	Object *master = TheGameLogic->findObjectByID( R().slaver );
 	Coord3D attackPosition;
 
 	//First, determine the attack position. If the target is too far away, then we'll
@@ -318,14 +314,14 @@ void SlavedUpdate::doAttackLogic( const Object *target )
 	{
 		//Allow me to wander away from the pinnedPosition.
 		Real randomDirection = GameLogicRandomValue( 0, 2*PI );
-		m_guardPointOffset.zero();
-		m_guardPointOffset.x += data->m_attackWanderRange * Cos( randomDirection );
-		m_guardPointOffset.y += data->m_attackWanderRange * Sin( randomDirection );
+		R().guardPointOffset.zero();
+		R().guardPointOffset.x += data->m_attackWanderRange * Cos( randomDirection );
+		R().guardPointOffset.y += data->m_attackWanderRange * Sin( randomDirection );
 
 		//Offset our pinned position by our random offset.
-		attackPosition.x += m_guardPointOffset.x;
-		attackPosition.y += m_guardPointOffset.y;
-		m_guardPointOffset.z = TheTerrainLogic->getGroundHeight( attackPosition.x, attackPosition.y );
+		attackPosition.x += R().guardPointOffset.x;
+		attackPosition.y += R().guardPointOffset.y;
+		R().guardPointOffset.z = TheTerrainLogic->getGroundHeight( attackPosition.x, attackPosition.y );
 	}
 
 	//Move to the updated position!
@@ -350,7 +346,7 @@ void SlavedUpdate::doScoutLogic( const Coord3D *mastersDestination )
 {
 	const SlavedUpdateModuleData* data = getSlavedUpdateModuleData();
 	Object *me = getObject();
-	Object *master = TheGameLogic->findObjectByID( m_slaver );
+	Object *master = TheGameLogic->findObjectByID( R().slaver );
 	Coord3D scoutPosition;
 
 	//First, determine the scout position. If our master's destination is too far away, then we'll
@@ -381,14 +377,14 @@ void SlavedUpdate::doScoutLogic( const Coord3D *mastersDestination )
 	{
 		//Allow me to wander away from the pinnedPosition.
 		Real randomDirection = GameLogicRandomValue( 0, 2*PI );
-		m_guardPointOffset.zero();
-		m_guardPointOffset.x += data->m_scoutWanderRange * Cos( randomDirection );
-		m_guardPointOffset.y += data->m_scoutWanderRange * Sin( randomDirection );
+		R().guardPointOffset.zero();
+		R().guardPointOffset.x += data->m_scoutWanderRange * Cos( randomDirection );
+		R().guardPointOffset.y += data->m_scoutWanderRange * Sin( randomDirection );
 
 		//Offset our pinned position by our random offset.
-		scoutPosition.x += m_guardPointOffset.x;
-		scoutPosition.y += m_guardPointOffset.y;
-		m_guardPointOffset.z = TheTerrainLogic->getGroundHeight( scoutPosition.x, scoutPosition.y );
+		scoutPosition.x += R().guardPointOffset.x;
+		scoutPosition.y += R().guardPointOffset.y;
+		R().guardPointOffset.z = TheTerrainLogic->getGroundHeight( scoutPosition.x, scoutPosition.y );
 	}
 
 	//Move to the updated position!
@@ -411,13 +407,13 @@ void SlavedUpdate::doGuardLogic( Coord3D *pinnedPosition )
 	{
 		// recalc where we want to be if we wander around
 		Real randomDirection = GameLogicRandomValue( 0, 2*PI );
-		m_guardPointOffset.zero();
-		m_guardPointOffset.x += data->m_guardMaxRange * Cos( randomDirection );
-		m_guardPointOffset.y += data->m_guardMaxRange * Sin( randomDirection );
+		R().guardPointOffset.zero();
+		R().guardPointOffset.x += data->m_guardMaxRange * Cos( randomDirection );
+		R().guardPointOffset.y += data->m_guardMaxRange * Sin( randomDirection );
 
-		pinnedPosition->x += m_guardPointOffset.x;
-		pinnedPosition->y += m_guardPointOffset.y;
-		m_guardPointOffset.z = TheTerrainLogic->getGroundHeight( pinnedPosition->x, pinnedPosition->y );
+		pinnedPosition->x += R().guardPointOffset.x;
+		pinnedPosition->y += R().guardPointOffset.y;
+		R().guardPointOffset.z = TheTerrainLogic->getGroundHeight( pinnedPosition->x, pinnedPosition->y );
 	}
 	AIUpdateInterface *ai = me->getAIUpdateInterface();
 	if( ai )
@@ -432,7 +428,7 @@ void SlavedUpdate::doGuardLogic( Coord3D *pinnedPosition )
 void SlavedUpdate::doRepairLogic()
 {
 	Object *me = getObject();
-	Object *master = TheGameLogic->findObjectByID( m_slaver );
+	Object *master = TheGameLogic->findObjectByID( R().slaver );
 	const SlavedUpdateModuleData* data = getSlavedUpdateModuleData();
 	AIUpdateInterface *ai = me->getAIUpdateInterface();
 	if( !ai )
@@ -448,14 +444,14 @@ void SlavedUpdate::doRepairLogic()
 	if( closeEnough )
 	{
 		//Now drive the repairing states.
-		switch( m_repairState )
+		switch( R().repairState )
 		{
 			case REPAIRSTATE_NONE:
 				setRepairState( REPAIRSTATE_READY );
 				break;
 			case REPAIRSTATE_READY:
 			case REPAIRSTATE_EXTENDING:
-				if( m_framesToWait == 0 )
+				if( R().framesToWait == 0 )
 				{
 					setRepairState( REPAIRSTATE_WELDING );
 				}
@@ -463,7 +459,7 @@ void SlavedUpdate::doRepairLogic()
 			case REPAIRSTATE_UNPACKING:
 			case REPAIRSTATE_WELDING:
 			case REPAIRSTATE_RETRACTING:
-				if( m_framesToWait == 0 )
+				if( R().framesToWait == 0 )
 				{
 					setRepairState( REPAIRSTATE_READY );
 				}
@@ -472,7 +468,7 @@ void SlavedUpdate::doRepairLogic()
 	}
 	else
 	{
-		m_repairing = false;
+		R().repairing = false;
 
 		Bool closeEnoughForZPrecision = distSqr < sqr(master->getGeometryInfo().getBoundingSphereRadius() * 2);
 
@@ -490,13 +486,13 @@ void SlavedUpdate::doRepairLogic()
 
 		//Also speed things up by retracting the repair arm (so viewers
 		//will see it's intentions)
-		if( m_framesToWait == 0 )
+		if( R().framesToWait == 0 )
 		{
 			setRepairState( REPAIRSTATE_READY );
 		}
 	}
 
-	if( closeEnough && m_repairing )
+	if( closeEnough && R().repairing )
 	{
 		//We're close enough to repair.
 		BodyModuleInterface *body = master->getBodyModule();
@@ -517,12 +513,12 @@ void SlavedUpdate::doRepairLogic()
 //-------------------------------------------------------------------------------------------------
 void SlavedUpdate::endRepair()
 {
-	if( m_repairState != REPAIRSTATE_NONE )
+	if( R().repairState != REPAIRSTATE_NONE )
 	{
 		//Remove the state so we can start using the update timer again.
-		m_repairState = REPAIRSTATE_NONE;
-		m_framesToWait = SLAVED_UPDATE_RATE;
-		m_repairing = false;
+		R().repairState = REPAIRSTATE_NONE;
+		R().framesToWait = SLAVED_UPDATE_RATE;
+		R().repairing = false;
 
 		//Set the packing state and clear any other states (to force the arm to fully retract)
 		setRepairModelConditionStates( MODELCONDITION_PACKING );
@@ -561,10 +557,10 @@ void SlavedUpdate::setRepairState( RepairStates repairState )
 {
 	Object *obj = getObject();
 	Drawable *draw = obj->getDrawable();
-	//Object *master = TheGameLogic->findObjectByID( m_slaver );
+	//Object *master = TheGameLogic->findObjectByID( R().slaver );
 	const SlavedUpdateModuleData* data = getSlavedUpdateModuleData();
 
-	if( repairState == m_repairState )
+	if( repairState == R().repairState )
 	{
 		return;
 	}
@@ -573,49 +569,49 @@ void SlavedUpdate::setRepairState( RepairStates repairState )
 	{
 		case REPAIRSTATE_UNPACKING:
 			setRepairModelConditionStates( MODELCONDITION_UNPACKING );
-			m_framesToWait = 15;
+			R().framesToWait = 15;
 			break;
 		case REPAIRSTATE_PACKING:
 			setRepairModelConditionStates( MODELCONDITION_PACKING );
-			m_framesToWait = 15;
+			R().framesToWait = 15;
 			break;
 		case REPAIRSTATE_READY:
 		{
-			switch( m_repairState )
+			switch( R().repairState )
 			{
 				case REPAIRSTATE_NONE:
 					//We're not in a repair state -- so assume we need to unpack
 					setRepairModelConditionStates( MODELCONDITION_UNPACKING );
-					m_repairState = REPAIRSTATE_UNPACKING;
-					m_framesToWait = 15;
+					R().repairState = REPAIRSTATE_UNPACKING;
+					R().framesToWait = 15;
 					break;
 				case REPAIRSTATE_WELDING:
 					//We are welding so retract before going into ready state.
-					m_repairState = REPAIRSTATE_RETRACTING;
-					m_framesToWait = 5;
+					R().repairState = REPAIRSTATE_RETRACTING;
+					R().framesToWait = 5;
 					setRepairModelConditionStates( MODELCONDITION_FIRING_C );
 					moveToNewRepairSpot();
 					break;
 				default:
-					m_repairState = REPAIRSTATE_READY;
-					m_framesToWait = GameLogicRandomValue( data->m_minReadyFrames, data->m_maxReadyFrames );
+					R().repairState = REPAIRSTATE_READY;
+					R().framesToWait = GameLogicRandomValue( data->m_minReadyFrames, data->m_maxReadyFrames );
 					break;
 			}
 			break;
 		}
 		case REPAIRSTATE_WELDING:
 		{
-			if( m_repairState == REPAIRSTATE_READY )
+			if( R().repairState == REPAIRSTATE_READY )
 			{
-				m_repairState = REPAIRSTATE_EXTENDING;
-				m_framesToWait = 5;
+				R().repairState = REPAIRSTATE_EXTENDING;
+				R().framesToWait = 5;
 				setRepairModelConditionStates( MODELCONDITION_FIRING_B );
 				break;
 			}
 			else
 			{
-				m_repairState = REPAIRSTATE_WELDING;
-				m_framesToWait = GameLogicRandomValue( data->m_minWeldFrames, data->m_maxWeldFrames );
+				R().repairState = REPAIRSTATE_WELDING;
+				R().framesToWait = GameLogicRandomValue( data->m_minWeldFrames, data->m_maxWeldFrames );
 
 				//Make sparks!
 				if( !data->m_weldingSysName.isEmpty() )
@@ -638,7 +634,7 @@ void SlavedUpdate::setRepairState( RepairStates repairState )
 							}
 
 							weldingSys->setPosition( &pos );
-							Real time = (Real)(m_framesToWait * LOGICFRAMES_PER_SECOND);
+							Real time = (Real)(R().framesToWait * LOGICFRAMES_PER_SECOND);
 							weldingSys->setLifetimeRange( time, time );
 
 							AudioEventRTS soundToPlay = TheAudio->getMiscAudio()->m_repairSparks;
@@ -648,10 +644,10 @@ void SlavedUpdate::setRepairState( RepairStates repairState )
 					}
 				}
 
-				if( !m_repairing )
+				if( !R().repairing )
 				{
 					//Don't actually start healing until we fire our first sparks
-					m_repairing = true;
+					R().repairing = true;
 					AIUpdateInterface *ai = obj->getAIUpdateInterface();
 					if( ai )
 					{
@@ -670,7 +666,7 @@ void SlavedUpdate::moveToNewRepairSpot()
 {
 	const SlavedUpdateModuleData* data = getSlavedUpdateModuleData();
 	Object *me = getObject();
-	Object *master = TheGameLogic->findObjectByID( m_slaver );
+	Object *master = TheGameLogic->findObjectByID( R().slaver );
 
 	//Finally, if we have a wander distance, then randomly select a point within
 	//the wander range radius of the pinned position, and we'll go there.
@@ -678,19 +674,19 @@ void SlavedUpdate::moveToNewRepairSpot()
 	{
 		//Allow me to wander away from the pinnedPosition.
 		Real randomDirection = GameLogicRandomValue( 0, 2*PI );
-		m_guardPointOffset.set( master->getPosition() );
-		m_guardPointOffset.x += data->m_repairRange * Cos( randomDirection );
-		m_guardPointOffset.y += data->m_repairRange * Sin( randomDirection );
-		m_guardPointOffset.z = TheTerrainLogic->getGroundHeight( m_guardPointOffset.x, m_guardPointOffset.y );
+		R().guardPointOffset.set( master->getPosition() );
+		R().guardPointOffset.x += data->m_repairRange * Cos( randomDirection );
+		R().guardPointOffset.y += data->m_repairRange * Sin( randomDirection );
+		R().guardPointOffset.z = TheTerrainLogic->getGroundHeight( R().guardPointOffset.x, R().guardPointOffset.y );
 		Real altitude = GameLogicRandomValueReal( data->m_repairMinAltitude, data->m_repairMaxAltitude );
-		m_guardPointOffset.z += altitude;
+		R().guardPointOffset.z += altitude;
 
 		AIUpdateInterface *ai = me->getAIUpdateInterface();
 		if( ai )
 		{
 			ai->chooseLocomotorSet( LOCOMOTORSET_PANIC );
 			ai->getCurLocomotor()->setUltraAccurate( true );
-			ai->aiMoveToPosition( &m_guardPointOffset, CMD_FROM_AI );
+			ai->aiMoveToPosition( &R().guardPointOffset, CMD_FROM_AI );
 
 			Locomotor *locomotor = ai->getCurLocomotor();
 			if( locomotor )
@@ -707,14 +703,14 @@ void SlavedUpdate::startSlavedEffects( const Object *slaver )
 	if( slaver == nullptr )
 		return;
 
-	m_slaver = slaver->getID();
+	R().slaver = slaver->getID();
 	const SlavedUpdateModuleData* data = getSlavedUpdateModuleData();
 
 	// Decide where our pinned stray point is
 	Real randomDirection = GameLogicRandomValue( 0, 2*PI );
-	m_guardPointOffset.zero();
-	m_guardPointOffset.x += data->m_guardMaxRange * Cos( randomDirection );
-	m_guardPointOffset.y += data->m_guardMaxRange * Sin( randomDirection );
+	R().guardPointOffset.zero();
+	R().guardPointOffset.x += data->m_guardMaxRange * Cos( randomDirection );
+	R().guardPointOffset.y += data->m_guardMaxRange * Sin( randomDirection );
 
 	// mark selves as not selectable
 	getObject()->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_UNSELECTABLE ) );
@@ -737,8 +733,8 @@ void SlavedUpdate::startSlavedEffects( const Object *slaver )
 //-------------------------------------------------------------------------------------------------
 void SlavedUpdate::stopSlavedEffects()
 {
-	m_slaver = INVALID_ID;
-	m_guardPointOffset.zero();
+	R().slaver = INVALID_ID;
+	R().guardPointOffset.zero();
 
 	/// @todo Just a thought.  Our Status bits on objects really need to be reference counts so you don't clear someone else's flag
 	getObject()->clearStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_UNSELECTABLE ) );
@@ -773,19 +769,19 @@ void SlavedUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// slaver
-	xfer->xferObjectID( &m_slaver );
+	xfer->xferObjectID( &R().slaver );
 
 	// guard point offset
-	xfer->xferCoord3D( &m_guardPointOffset);
+	xfer->xferCoord3D( &R().guardPointOffset);
 
 	// frames to wait
-	xfer->xferInt( &m_framesToWait );
+	xfer->xferInt( &R().framesToWait );
 
 	// repair state
-	xfer->xferUser( &m_repairState, sizeof( RepairStates ) );
+	xfer->xferUser( &R().repairState, sizeof( RepairStates ) );
 
 	// repairing
-	xfer->xferBool( &m_repairing );
+	xfer->xferBool( &R().repairing );
 
 }
 

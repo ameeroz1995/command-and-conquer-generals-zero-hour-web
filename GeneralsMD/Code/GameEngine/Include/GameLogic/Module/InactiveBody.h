@@ -30,12 +30,21 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
+
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/BodyModule.h"
 
 //-------------------------------------------------------------------------------------------------
 /** Inactive body module */
 //-------------------------------------------------------------------------------------------------
+// web port (round 5, units are pure data): InactiveBody's per-unit state, one row per module in
+// GxComponentPool<InactiveBodyRow> (the module keeps only the row index, m_gxInactiveBody)
+struct InactiveBodyRow
+{
+	Bool m_dieCalled = false;
+};
+
 class InactiveBody : public BodyModule
 {
 
@@ -64,5 +73,5 @@ public:
 	virtual void internalChangeHealth( Real delta );
 
 private:
-	Bool m_dieCalled;
+	GxRow<InactiveBodyRow> m_gxInactiveBody;	///< web port (round 5): this module's state, a row of its component pool
 };

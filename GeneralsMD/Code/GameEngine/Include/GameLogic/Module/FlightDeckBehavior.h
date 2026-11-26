@@ -87,6 +87,8 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxFlightDeckBehaviorRow;
 class FlightDeckBehavior : public AIUpdateInterface,
 													 public ParkingPlaceBehaviorInterface,
 													 public DieModuleInterface,
@@ -137,7 +139,7 @@ public:
 	virtual void releaseRunway(ObjectID id);
 	virtual void calcPPInfo( ObjectID id, PPInfo *info );
 	virtual Int getRunwayIndex(ObjectID id);
-	virtual Int getRunwayCount() const { return m_runways.size(); }
+	virtual Int getRunwayCount() const;
 	virtual ObjectID getRunwayReservation( Int r, RunwayReservationType type );
 	virtual void transferRunwayReservationToNextInLineForTakeoff(ObjectID id);
 	virtual Real getApproachHeight() const { return getFlightDeckBehaviorModuleData()->m_approachHeight; }
@@ -205,24 +207,38 @@ private:
 	FlightDeckInfo* findPPI(ObjectID id);
 	FlightDeckInfo* findEmptyPPI();
 
-  const ThingTemplate *m_thingTemplate;
+	GxRow<struct GxFlightDeckBehaviorRow> m_gxFlightDeckBehaviorRow;	///< web port (round 5): this unit's row in TheGxFlightDeckBehaviors
+	friend struct GxFlightDeckBehaviorRow;
+	inline struct GxFlightDeckBehaviorRow &gxRow() const;
 
 
-	std::vector<FlightDeckInfo>		m_spaces;
-	std::vector<RunwayInfo>				m_runways;
-	std::list<HealingInfo>				m_healing;	// note, this list can vary in size, and be larger than the parking space count
-	UnsignedInt										m_nextHealFrame;
-	UnsignedInt										m_nextCleanupFrame;
-	UnsignedInt										m_startedProductionFrame;
-	UnsignedInt										m_nextAllowedProductionFrame;
-	UnsignedInt										m_nextLaunchWaveFrame[ MAX_RUNWAYS ];
-	UnsignedInt										m_rampUpFrame[ MAX_RUNWAYS ];		 //The frame the ramp has completed raising.
-	UnsignedInt										m_catapultSystemFrame[ MAX_RUNWAYS ]; //The frame the catapult effect created.
-	UnsignedInt										m_lowerRampFrame[ MAX_RUNWAYS ]; //The frame the ramp begins to lower.
-	ObjectID											m_designatedTarget;
-	AICommandType									m_designatedCommand;
-	Coord3D												m_designatedPosition;
-	Bool													m_gotInfo;
-	Bool													m_rampUp[ MAX_RUNWAYS ];
 
 };
+
+// Web port (round 5, units are pure data): FlightDeckBehavior's per-unit state, one row per unit in TheGxFlightDeckBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxFlightDeckBehaviorRow
+{
+	const ThingTemplate* thingTemplate;
+	std::vector<FlightDeckBehavior::FlightDeckInfo> spaces;
+	std::vector<FlightDeckBehavior::RunwayInfo> runways;
+	std::list<FlightDeckBehavior::HealingInfo> healing;
+	UnsignedInt nextHealFrame;
+	UnsignedInt nextCleanupFrame;
+	UnsignedInt startedProductionFrame;
+	UnsignedInt nextAllowedProductionFrame;
+	UnsignedInt nextLaunchWaveFrame[ MAX_RUNWAYS ];
+	UnsignedInt rampUpFrame[ MAX_RUNWAYS ];
+	UnsignedInt catapultSystemFrame[ MAX_RUNWAYS ];
+	UnsignedInt lowerRampFrame[ MAX_RUNWAYS ];
+	ObjectID designatedTarget;
+	AICommandType designatedCommand;
+	Coord3D designatedPosition;
+	Bool gotInfo;
+	Bool rampUp[ MAX_RUNWAYS ];
+};
+
+
+inline GxFlightDeckBehaviorRow &FlightDeckBehavior::gxRow() const { return const_cast<GxFlightDeckBehaviorRow &>(*m_gxFlightDeckBehaviorRow); }
+inline Int FlightDeckBehavior::getRunwayCount() const { return gxRow().runways.size(); }
+

@@ -50,6 +50,11 @@
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/TerrainLogic.h"
 
+// Web port (round 5, units are pure data): BridgeBehavior's per-unit state is a row of TheGxBridgeBehaviors;
+// GXROW_BRIDGEBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_BRIDGEBEHAVIOR (const_cast<GxBridgeBehaviorRow &>(*m_gxBridgeBehaviorRow))
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -226,17 +231,17 @@ static void parseTimeAndLocationInfo( INI *ini, void *instance,
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-BridgeBehavior::BridgeBehavior( Thing *thing, const ModuleData *moduleData )
-							: UpdateModule( thing, moduleData )
+BridgeBehavior::BridgeBehavior( Thing *thing, const ModuleData *moduleData ) : UpdateModule( thing, moduleData )
 {
+
 	Int i;
-	m_scaffoldObjectIDList.clear();
-	m_scaffoldPresent = FALSE;
+	GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.clear();
+	GXROW_BRIDGEBEHAVIOR.scaffoldPresent = FALSE;
 
 	for( i = 0; i < BRIDGE_MAX_TOWERS; ++i )
-		m_towerID[ i ] = INVALID_ID;
+		GXROW_BRIDGEBEHAVIOR.towerID[ i ] = INVALID_ID;
 
-	m_fxResolved = FALSE;
+	GXROW_BRIDGEBEHAVIOR.fxResolved = FALSE;
 	for( Int bodyState = BODY_PRISTINE; bodyState < BODYDAMAGETYPE_COUNT; ++bodyState )
 	{
 
@@ -244,20 +249,20 @@ BridgeBehavior::BridgeBehavior( Thing *thing, const ModuleData *moduleData )
 		for( i = 0; i < MAX_BRIDGE_BODY_FX; ++i )
 		{
 
-			m_damageToOCL[ bodyState ][ i ] = nullptr;
-			m_damageToFX[ bodyState ][ i ] = nullptr;
-			m_repairToOCL[ bodyState ][ i ] = nullptr;
-			m_repairToFX[ bodyState ][ i ] = nullptr;
+			GXROW_BRIDGEBEHAVIOR.damageToOCL[ bodyState ][ i ] = nullptr;
+			GXROW_BRIDGEBEHAVIOR.damageToFX[ bodyState ][ i ] = nullptr;
+			GXROW_BRIDGEBEHAVIOR.repairToOCL[ bodyState ][ i ] = nullptr;
+			GXROW_BRIDGEBEHAVIOR.repairToFX[ bodyState ][ i ] = nullptr;
 
 		}
 
 		// these don't need initialization, they have constructors
-		// m_damageToSound[ bodyState ] = ???
-		// m_repairToSound[ bodyState ] = ???
+		// GXROW_BRIDGEBEHAVIOR.damageToSound[ bodyState ] = ???
+		// GXROW_BRIDGEBEHAVIOR.repairToSound[ bodyState ] = ???
 
 	}
 
-	m_deathFrame = 0;
+	GXROW_BRIDGEBEHAVIOR.deathFrame = 0;
 
 }
 
@@ -316,7 +321,7 @@ void BridgeBehavior::onDelete()
 {
 
 	// clear the list of scaffold objects
-	m_scaffoldObjectIDList.clear();
+	GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.clear();
 
 }
 
@@ -350,40 +355,40 @@ void BridgeBehavior::resolveFX()
 		{
 
 			name = bridgeTemplate->getDamageToOCLString( (BodyDamageType)bodyState, i );
-			m_damageToOCL[ bodyState ][ i ] = TheObjectCreationListStore->findObjectCreationList( name.str() );
-			if( name.isEmpty() == FALSE && m_damageToOCL[ bodyState ][ i ] == nullptr )
+			GXROW_BRIDGEBEHAVIOR.damageToOCL[ bodyState ][ i ] = TheObjectCreationListStore->findObjectCreationList( name.str() );
+			if( name.isEmpty() == FALSE && GXROW_BRIDGEBEHAVIOR.damageToOCL[ bodyState ][ i ] == nullptr )
 				DEBUG_CRASH(( "OCL list '%s' not found", name.str() ));
 
 			name = bridgeTemplate->getDamageToFXString( (BodyDamageType)bodyState, i );
-			m_damageToFX[ bodyState ][ i ] = TheFXListStore->findFXList( name.str() );
-			if( name.isEmpty() == FALSE && m_damageToFX[ bodyState ][ i ] == nullptr )
+			GXROW_BRIDGEBEHAVIOR.damageToFX[ bodyState ][ i ] = TheFXListStore->findFXList( name.str() );
+			if( name.isEmpty() == FALSE && GXROW_BRIDGEBEHAVIOR.damageToFX[ bodyState ][ i ] == nullptr )
 				DEBUG_CRASH(( "FX list '%s' not found", name.str() ));
 
 			name = bridgeTemplate->getRepairedToOCLString( (BodyDamageType)bodyState, i );
-			m_repairToOCL[ bodyState ][ i ] = TheObjectCreationListStore->findObjectCreationList( name.str() );
-			if( name.isEmpty() == FALSE && m_repairToOCL[ bodyState ][ i ] == nullptr )
+			GXROW_BRIDGEBEHAVIOR.repairToOCL[ bodyState ][ i ] = TheObjectCreationListStore->findObjectCreationList( name.str() );
+			if( name.isEmpty() == FALSE && GXROW_BRIDGEBEHAVIOR.repairToOCL[ bodyState ][ i ] == nullptr )
 				DEBUG_CRASH(( "OCL list '%s' not found", name.str() ));
 
 			name = bridgeTemplate->getRepairedToFXString( (BodyDamageType)bodyState, i );
-			m_repairToFX[ bodyState ][ i ] = TheFXListStore->findFXList( name.str() );
-			if( name.isEmpty() == FALSE && m_repairToFX[ bodyState ][ i ] == nullptr )
+			GXROW_BRIDGEBEHAVIOR.repairToFX[ bodyState ][ i ] = TheFXListStore->findFXList( name.str() );
+			if( name.isEmpty() == FALSE && GXROW_BRIDGEBEHAVIOR.repairToFX[ bodyState ][ i ] == nullptr )
 				DEBUG_CRASH(( "FX list '%s' not found", name.str() ));
 
 		}
 
 		// audio sounds
 		name = bridgeTemplate->getDamageToSoundString( (BodyDamageType)bodyState );
-		m_damageToSound[ bodyState ].setEventName( name );
-		m_damageToSound[ bodyState ].setObjectID( us->getID() );
+		GXROW_BRIDGEBEHAVIOR.damageToSound[ bodyState ].setEventName( name );
+		GXROW_BRIDGEBEHAVIOR.damageToSound[ bodyState ].setObjectID( us->getID() );
 
 		name = bridgeTemplate->getRepairedToSoundString( (BodyDamageType)bodyState );
-		m_repairToSound[ bodyState ].setEventName( name );
-		m_repairToSound[ bodyState ].setObjectID( us->getID() );
+		GXROW_BRIDGEBEHAVIOR.repairToSound[ bodyState ].setEventName( name );
+		GXROW_BRIDGEBEHAVIOR.repairToSound[ bodyState ].setObjectID( us->getID() );
 
 	}
 
 	// fx are now "resolved"
-	m_fxResolved = TRUE;
+	GXROW_BRIDGEBEHAVIOR.fxResolved = TRUE;
 
 }
 
@@ -403,9 +408,9 @@ void BridgeBehavior::setTower( BridgeTowerType towerType, Object *tower )
 
 	// store it
 	if( tower )
-		m_towerID[ towerType ] = tower->getID();
+		GXROW_BRIDGEBEHAVIOR.towerID[ towerType ] = tower->getID();
 	else
-		m_towerID[ towerType ] = INVALID_ID;
+		GXROW_BRIDGEBEHAVIOR.towerID[ towerType ] = INVALID_ID;
 
 }
 
@@ -424,7 +429,7 @@ ObjectID BridgeBehavior::getTowerID( BridgeTowerType towerType )
 	}
 
 	// return the stored ID
-	return m_towerID[ towerType ];
+	return GXROW_BRIDGEBEHAVIOR.towerID[ towerType ];
 
 }
 
@@ -618,14 +623,14 @@ void BridgeBehavior::onBodyDamageStateChange( const DamageInfo* damageInfo,
 	// possibly be dead
 	//
 	if( newState != BODY_RUBBLE )
-		m_deathFrame = 0;
+		GXROW_BRIDGEBEHAVIOR.deathFrame = 0;
 
 	// first resolve any fx stuff if we need to
-	if( m_fxResolved == FALSE )
+	if( GXROW_BRIDGEBEHAVIOR.fxResolved == FALSE )
 		resolveFX();
 
 	// sanity
-	if( m_fxResolved == FALSE )
+	if( GXROW_BRIDGEBEHAVIOR.fxResolved == FALSE )
 		return;
 
 	// sanity
@@ -668,20 +673,20 @@ void BridgeBehavior::onBodyDamageStateChange( const DamageInfo* damageInfo,
 	{
 
 		// play the sound
-		TheAudio->addAudioEvent( &m_repairToSound[ newState ] );
+		TheAudio->addAudioEvent( &GXROW_BRIDGEBEHAVIOR.repairToSound[ newState ] );
 
 		for( Int i = 0; i < MAX_BRIDGE_BODY_FX; i++ )
-			doAreaEffects( bridgeTemplate, bridge, m_repairToOCL[ newState ][ i ], m_repairToFX[ newState ][ i ] );
+			doAreaEffects( bridgeTemplate, bridge, GXROW_BRIDGEBEHAVIOR.repairToOCL[ newState ][ i ], GXROW_BRIDGEBEHAVIOR.repairToFX[ newState ][ i ] );
 
 	}
 	else
 	{
 
 		// play the sound
-		TheAudio->addAudioEvent( &m_damageToSound[ newState ] );
+		TheAudio->addAudioEvent( &GXROW_BRIDGEBEHAVIOR.damageToSound[ newState ] );
 
 		for( Int i = 0; i < MAX_BRIDGE_BODY_FX; i++ )
-			doAreaEffects( bridgeTemplate, bridge, m_damageToOCL[ newState ][ i ], m_damageToFX[ newState ][ i ] );
+			doAreaEffects( bridgeTemplate, bridge, GXROW_BRIDGEBEHAVIOR.damageToOCL[ newState ][ i ], GXROW_BRIDGEBEHAVIOR.damageToFX[ newState ][ i ] );
 
 	}
 
@@ -707,7 +712,7 @@ UpdateSleepTime BridgeBehavior::update()
 {
 
 	// if we're dead, we need to possibly throw off some effects
-	if( m_deathFrame != 0 )
+	if( GXROW_BRIDGEBEHAVIOR.deathFrame != 0 )
 	{
 		AsciiString boneName;
 
@@ -735,7 +740,7 @@ UpdateSleepTime BridgeBehavior::update()
 		}
 
 		// how much time has passed between now and our destruction frame
-		UnsignedInt deathTime = TheGameLogic->getFrame() - m_deathFrame;
+		UnsignedInt deathTime = TheGameLogic->getFrame() - GXROW_BRIDGEBEHAVIOR.deathFrame;
 
 		// see if there are any fx visuals we need to execute
 		BridgeFXList::const_iterator fxIt;
@@ -861,7 +866,7 @@ void BridgeBehavior::onDie( const DamageInfo *damageInfo )
 	handleObjectsOnBridgeOnDie();
 
 	// we have now died, record the death frame
-	m_deathFrame = TheGameLogic->getFrame();
+	GXROW_BRIDGEBEHAVIOR.deathFrame = TheGameLogic->getFrame();
 
 }
 
@@ -1023,7 +1028,7 @@ void BridgeBehavior::createScaffolding()
 {
 
 	// if we have scaffolding up already do nothing
-	if( m_scaffoldPresent == TRUE )
+	if( GXROW_BRIDGEBEHAVIOR.scaffoldPresent == TRUE )
 		return;
 
 	// get the bridge world object
@@ -1172,7 +1177,7 @@ void BridgeBehavior::createScaffolding()
 
 		// keeping track of objects created
 		scaffoldObjectsCreated++;
-		m_scaffoldObjectIDList.push_back( obj->getID() );
+		GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.push_back( obj->getID() );
 
 		//
 		// create support object layers under the scaffold object, this object mirrors the scaffold
@@ -1195,7 +1200,7 @@ void BridgeBehavior::createScaffolding()
 											 &supportRiseToPos,
 											 &supportDestinationPos,
 											 &supportBridgeCenter );
-			m_scaffoldObjectIDList.push_back( obj->getID() );
+			GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.push_back( obj->getID() );
 
 
 			// off to the next layer
@@ -1237,7 +1242,7 @@ void BridgeBehavior::createScaffolding()
 
 			// keeping track of objects created
 			scaffoldObjectsCreated++;
-			m_scaffoldObjectIDList.push_back( obj->getID() );
+			GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.push_back( obj->getID() );
 
 			//
 			// create support object layers under the scaffold object, this object mirrors the scaffold
@@ -1260,7 +1265,7 @@ void BridgeBehavior::createScaffolding()
 												 &supportRiseToPos,
 												 &supportDestinationPos,
 												 &supportBridgeCenter );
-				m_scaffoldObjectIDList.push_back( obj->getID() );
+				GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.push_back( obj->getID() );
 
 
 				// off to the next layer
@@ -1273,7 +1278,7 @@ void BridgeBehavior::createScaffolding()
 	}
 
 	// scaffolding is now present
-	m_scaffoldPresent = TRUE;
+	GXROW_BRIDGEBEHAVIOR.scaffoldPresent = TRUE;
 
 	// when scaffolding is present, a bridge cannot be used
 	TheAI->pathfinder()->changeBridgeState( bridge->getLayer(), FALSE );
@@ -1287,14 +1292,14 @@ void BridgeBehavior::removeScaffolding()
 {
 
 	// if we have no scaffolding, do nothing
-	if( m_scaffoldPresent == FALSE )
+	if( GXROW_BRIDGEBEHAVIOR.scaffoldPresent == FALSE )
 		return;
 
 	// go through each object and tell them to reverse course
 	Object *obj;
 	ObjectIDListIterator it;
 	BridgeScaffoldBehaviorInterface *scaffoldBehavior;
-	for( it = m_scaffoldObjectIDList.begin(); it != m_scaffoldObjectIDList.end(); ++it )
+	for( it = GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.begin(); it != GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.end(); ++it )
 	{
 
 		// get the object
@@ -1312,10 +1317,10 @@ void BridgeBehavior::removeScaffolding()
 	}
 
 	// clear our scaffold object list
-	m_scaffoldObjectIDList.clear();
+	GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.clear();
 
 	// scaffolding is no longer present
-	m_scaffoldPresent = FALSE;
+	GXROW_BRIDGEBEHAVIOR.scaffoldPresent = FALSE;
 
 	// when scaffolding is gone, a bridge can be used again if we're not in a rubble state
 	Object *us = getObject();
@@ -1341,7 +1346,7 @@ Bool BridgeBehavior::isScaffoldInMotion()
 
 	// go through the scaffold objects, if any of them are in motion the scaffold is in motion
 	ObjectIDListIterator it;
-	for( it = m_scaffoldObjectIDList.begin(); it != m_scaffoldObjectIDList.end(); ++it )
+	for( it = GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.begin(); it != GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.end(); ++it )
 	{
 
 		// get object
@@ -1408,7 +1413,7 @@ void BridgeBehavior::xfer( Xfer *xfer )
 
 	// xfer the tower object ids
 	for( Int i = 0; i < BRIDGE_MAX_TOWERS; ++i )
-		xfer->xferObjectID( &m_towerID[ i ] );
+		xfer->xferObjectID( &GXROW_BRIDGEBEHAVIOR.towerID[ i ] );
 
 	// set the tower object ids in the bridge info
 	if( xfer->getXferMode() == XFER_LOAD )
@@ -1421,16 +1426,16 @@ void BridgeBehavior::xfer( Xfer *xfer )
 
 		// set new object ID in bridge info to us
 		for( Int i = 0; i < BRIDGE_MAX_TOWERS; ++i )
-			bridge->setTowerObjectID( m_towerID[ i ], (BridgeTowerType)i );
+			bridge->setTowerObjectID( GXROW_BRIDGEBEHAVIOR.towerID[ i ], (BridgeTowerType)i );
 
 	}
 
 	// scaffold present flag
-	xfer->xferBool( &m_scaffoldPresent );
+	xfer->xferBool( &GXROW_BRIDGEBEHAVIOR.scaffoldPresent );
 
 	// scaffold object id list
 	UnsignedShort scaffoldObjectCount = 0;
-	scaffoldObjectCount = m_scaffoldObjectIDList.size();
+	scaffoldObjectCount = GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.size();
 	xfer->xferUnsignedShort( &scaffoldObjectCount );
 	ObjectID scaffoldObjectID;
 	if( xfer->getXferMode() == XFER_SAVE )
@@ -1438,7 +1443,7 @@ void BridgeBehavior::xfer( Xfer *xfer )
 
 		// write out all object IDs
 		ObjectIDListIterator it;
-		for( it = m_scaffoldObjectIDList.begin(); it != m_scaffoldObjectIDList.end(); ++it )
+		for( it = GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.begin(); it != GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.end(); ++it )
 		{
 
 			scaffoldObjectID = *it;
@@ -1451,7 +1456,7 @@ void BridgeBehavior::xfer( Xfer *xfer )
 	{
 
 		// read all object IDs
-		DEBUG_ASSERTCRASH( m_scaffoldObjectIDList.empty(),
+		DEBUG_ASSERTCRASH( GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.empty(),
 											 ("BridgeBehavior::xfer - scaffold object list should be empty") );
 		for( Int i = 0; i < scaffoldObjectCount; ++i )
 		{
@@ -1460,14 +1465,14 @@ void BridgeBehavior::xfer( Xfer *xfer )
 			xfer->xferObjectID( &scaffoldObjectID );
 
 			// put on list
-			m_scaffoldObjectIDList.push_back( scaffoldObjectID );
+			GXROW_BRIDGEBEHAVIOR.scaffoldObjectIDList.push_back( scaffoldObjectID );
 
 		}
 
 	}
 
 	// death frame
-	xfer->xferUnsignedInt( &m_deathFrame );
+	xfer->xferUnsignedInt( &GXROW_BRIDGEBEHAVIOR.deathFrame );
 
 }
 

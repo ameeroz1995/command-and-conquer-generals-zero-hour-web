@@ -30,6 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponentPool.h"
 #include "Common/INI.h"
 #include "Common/GameMemory.h"
 #include "Common/STLTypedefs.h"
@@ -117,8 +118,8 @@ public:
 
 	virtual void cancelDock( Object* docker );	///< Clear me from any reserved points, and if I was the reason you were Busy, you aren't anymore.
 
-	virtual Bool isDockOpen() { return m_dockOpen; }				///< Is the dock open to accepting dockers
-	virtual void setDockOpen( Bool open ) { m_dockOpen = open; }	///< Open/Close the dock
+	virtual Bool isDockOpen() { return R().dockOpen; }				///< Is the dock open to accepting dockers
+	virtual void setDockOpen( Bool open ) { R().dockOpen = open; }	///< Open/Close the dock
 
 	virtual Bool isAllowPassthroughType();	///< Not all docks allow you to path through them in your AIDock machine
 
@@ -131,25 +132,40 @@ public:
 protected:
 
 	// These are const data read from the drawable when first asked for them
-	Coord3D m_enterPosition;
-	Coord3D m_dockPosition;
-	Coord3D m_exitPosition;
-	Int m_numberApproachPositions;
-	Int m_numberApproachPositionBones;
 
 	// These are real variables local to my specific needs here in DockUpdate
-	Bool m_positionsLoaded;	///< FALSE until we have loaded all the docking positions
 
-	VecCoord3D m_approachPositions;
-	ObjectIDVector m_approachPositionOwners;	///< Who is in or at least reserved each spot
-	BoolVector m_approachPositionReached;			///< Which positions have actually been reached
 
-	ObjectID m_activeDocker;	///< we could expand this to multiple dock paths since we always get docker in our methods
-	Bool m_dockerInside; ///< This is true while our active docker is between Enter and Exit. This is shorter than activeDocker's lifetime as it doesn't include approach to enter
-	Bool m_dockCrippled; ///< Has game logic set me as crippled?
 
-	Bool m_dockOpen;  ///< Is the dock open for dockers
 
 	void loadDockPositions();  ///< load all the dock positions
 	Coord3D computeApproachPosition( Int positionIndex, Object *forWhom ); ///< Do a smart lookup of this bone position
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		UnsignedInt gxOpFrame; ///< web port: frame + 1 of the kernel result (0: none)
+		Int gxOp; ///< web port: the kernel result
+		Bool gxJoined; ///< web port: in the kernel list
+		Int gxId; ///< web port: object ID when it joined
+		Coord3D enterPosition;
+		Coord3D dockPosition;
+		Coord3D exitPosition;
+		Int numberApproachPositions;
+		Int numberApproachPositionBones;
+		Bool positionsLoaded; ///< FALSE until we have loaded all the docking positions
+		VecCoord3D approachPositions;
+		ObjectIDVector approachPositionOwners; ///< Who is in or at least reserved each spot
+		BoolVector approachPositionReached; ///< Which positions have actually been reached
+		ObjectID activeDocker; ///< we could expand this to multiple dock paths since we always get docker in our methods
+		Bool dockerInside; ///< This is true while our active docker is between Enter and Exit. This is shorter than activeDocker's lifetime as it doesn't include approach to enter
+		Bool dockCrippled; ///< Has game logic set me as crippled?
+		Bool dockOpen; ///< Is the dock open for dockers
+	};
+	void gxKernelStep(UnsignedInt now);	///< web port: this unit's kernel step (GxPathsKernels.h)
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline DockUpdate::GxState &DockUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

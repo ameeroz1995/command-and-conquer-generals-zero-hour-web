@@ -39,6 +39,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////
 #include "Common/GameMemory.h"
+#include "Common/GxComponentPool.h"	// web port (round 5)
 #include "GameLogic/AIStateMachine.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
@@ -58,8 +59,12 @@ enum
 };
 
 //--------------------------------------------------------------------------------------
+struct GxGuardRetaliateExitConditionsRow;
 class GuardRetaliateExitConditions : public AttackExitConditionsInterface
 {
+public:
+	virtual ~GuardRetaliateExitConditions();	///< web port (round 5): releases the row
+
 public:
 
 	enum ExitConditionsEnum
@@ -69,30 +74,43 @@ public:
 		ATTACK_ExitIfNoUnitFound			= 0x04
 	};
 
-	Int							m_conditionsToConsider;
-	Coord3D					m_center;								// can be updated at any time by owner
-	Real						m_radiusSqr;						// can be updated at any time by owner
-	UnsignedInt			m_attackGiveUpFrame;		// frame at which we give up (if using)
+	GxRow<struct GxGuardRetaliateExitConditionsRow> m_gxGuardRetaliateExitConditionsRow;	///< web port (round 5): this unit's row in TheGxGuardRetaliateExitConditionss
+	friend struct GxGuardRetaliateExitConditionsRow;
+	inline struct GxGuardRetaliateExitConditionsRow &gxRow() const;
 
-	GuardRetaliateExitConditions() : m_attackGiveUpFrame(0), m_conditionsToConsider(0), m_radiusSqr(0.0f)
-	{
-		m_center.zero();
-	}
+	GuardRetaliateExitConditions();	///< web port (round 5): defined in the .cpp
+
 
 	virtual Bool shouldExit(const StateMachine* machine) const;
 };
+
+// Web port (round 5, units are pure data): GuardRetaliateExitConditions's per-unit state, one row per unit in TheGxGuardRetaliateExitConditionss;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxGuardRetaliateExitConditionsRow
+{
+	Int conditionsToConsider;
+	Coord3D center;
+	Real radiusSqr;
+	UnsignedInt attackGiveUpFrame;
+};
+
+
+inline GxGuardRetaliateExitConditionsRow &GuardRetaliateExitConditions::gxRow() const { return const_cast<GxGuardRetaliateExitConditionsRow &>(*m_gxGuardRetaliateExitConditionsRow); }
+
 
 
 // FORWARD DECLARATIONS ///////////////////////////////////////////////////////
 
 //--------------------------------------------------------------------------------------
+struct GxAIGuardRetaliateMachineRow;
 class AIGuardRetaliateMachine : public StateMachine
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( AIGuardRetaliateMachine, "AIGuardRetaliateMachinePool" );
 
 private:
-	Coord3D									m_positionToGuard;
-	ObjectID								m_nemesisToAttack;
+	GxRow<struct GxAIGuardRetaliateMachineRow> m_gxAIGuardRetaliateMachineRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateMachines
+	friend struct GxAIGuardRetaliateMachineRow;
+	inline struct GxAIGuardRetaliateMachineRow &gxRow() const;
 
 protected:
 	// snapshot interface
@@ -109,27 +127,45 @@ public:
 
 	virtual Bool isIdle() const;
 
-	const Coord3D *getPositionToGuard() const { return &m_positionToGuard; }
-	void setTargetPositionToGuard( const Coord3D *pos) { m_positionToGuard = *pos; }
+	const Coord3D * getPositionToGuard() const;
+	void setTargetPositionToGuard( const Coord3D *pos);
 
-	void setNemesisID(ObjectID id) { m_nemesisToAttack = id; }
-	ObjectID getNemesisID() const { return m_nemesisToAttack; }
+	void setNemesisID(ObjectID id);
+	ObjectID getNemesisID() const;
 
 	Bool lookForInnerTarget();
 
 	static Real getStdGuardRange(const Object* obj);
 };
 
+// Web port (round 5, units are pure data): AIGuardRetaliateMachine's per-unit state, one row per unit in TheGxAIGuardRetaliateMachines;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIGuardRetaliateMachineRow
+{
+	Coord3D positionToGuard;
+	ObjectID nemesisToAttack;
+};
+
+
+inline GxAIGuardRetaliateMachineRow &AIGuardRetaliateMachine::gxRow() const { return const_cast<GxAIGuardRetaliateMachineRow &>(*m_gxAIGuardRetaliateMachineRow); }
+inline const Coord3D * AIGuardRetaliateMachine::getPositionToGuard() const
+{ return &gxRow().positionToGuard; }
+inline void AIGuardRetaliateMachine::setTargetPositionToGuard( const Coord3D *pos)
+{ gxRow().positionToGuard = *pos; }
+inline void AIGuardRetaliateMachine::setNemesisID(ObjectID id)
+{ gxRow().nemesisToAttack = id; }
+inline ObjectID AIGuardRetaliateMachine::getNemesisID() const
+{ return gxRow().nemesisToAttack; }
+
+
 //--------------------------------------------------------------------------------------
+struct GxAIGuardRetaliateInnerStateRow;
 class AIGuardRetaliateInnerState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIGuardRetaliateInnerState, "AIGuardRetaliateInnerState")
 public:
-	AIGuardRetaliateInnerState( StateMachine *machine ) : State( machine, "AIGuardRetaliateInner" )
-	{
-		m_attackState = 0;
-		m_enterState = 0;
-	}
+	AIGuardRetaliateInnerState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
@@ -141,17 +177,32 @@ protected:
 private:
 	AIGuardRetaliateMachine* getGuardMachine() { return (AIGuardRetaliateMachine*)getMachine(); }
 
-	GuardRetaliateExitConditions m_exitConditions;
-	AIAttackState *m_attackState;
-	AIEnterState *m_enterState;
+	GxRow<struct GxAIGuardRetaliateInnerStateRow> m_gxAIGuardRetaliateInnerStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateInnerStates
+	friend struct GxAIGuardRetaliateInnerStateRow;
+	inline struct GxAIGuardRetaliateInnerStateRow &gxRow() const;
 };
 
+// Web port (round 5, units are pure data): AIGuardRetaliateInnerState's per-unit state, one row per unit in TheGxAIGuardRetaliateInnerStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIGuardRetaliateInnerStateRow
+{
+	GuardRetaliateExitConditions exitConditions;
+	AIAttackState* attackState;
+	AIEnterState* enterState;
+};
+
+
+inline GxAIGuardRetaliateInnerStateRow &AIGuardRetaliateInnerState::gxRow() const { return const_cast<GxAIGuardRetaliateInnerStateRow &>(*m_gxAIGuardRetaliateInnerStateRow); }
+
+
 //--------------------------------------------------------------------------------------
+struct GxAIGuardRetaliateIdleStateRow;
 class AIGuardRetaliateIdleState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIGuardRetaliateIdleState, "AIGuardRetaliateIdleState")
 public:
-	AIGuardRetaliateIdleState( StateMachine *machine ) : State( machine, "AIGuardRetaliateIdleState" ) { }
+	AIGuardRetaliateIdleState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
@@ -163,20 +214,30 @@ protected:
 private:
 	AIGuardRetaliateMachine* getGuardMachine() { return (AIGuardRetaliateMachine*)getMachine(); }
 
-	UnsignedInt m_nextEnemyScanTime;
-	Coord3D			m_guardeePos;						///< Where the object we are guarding was last.
+	GxRow<struct GxAIGuardRetaliateIdleStateRow> m_gxAIGuardRetaliateIdleStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateIdleStates
+	friend struct GxAIGuardRetaliateIdleStateRow;
+	inline struct GxAIGuardRetaliateIdleStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIGuardRetaliateIdleState)
+
+// Web port (round 5, units are pure data): AIGuardRetaliateIdleState's per-unit state, one row per unit in TheGxAIGuardRetaliateIdleStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIGuardRetaliateIdleStateRow
+{
+	UnsignedInt nextEnemyScanTime;
+	Coord3D guardeePos;
+};
+
+
+inline GxAIGuardRetaliateIdleStateRow &AIGuardRetaliateIdleState::gxRow() const { return const_cast<GxAIGuardRetaliateIdleStateRow &>(*m_gxAIGuardRetaliateIdleStateRow); }
 
 //--------------------------------------------------------------------------------------
+struct GxAIGuardRetaliateOuterStateRow;
 class AIGuardRetaliateOuterState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIGuardRetaliateOuterState, "AIGuardRetaliateOuterState")
 public:
-	AIGuardRetaliateOuterState( StateMachine *machine ) : State( machine, "AIGuardRetaliateOuter" )
-	{
-		m_attackState = nullptr;
-	}
+	AIGuardRetaliateOuterState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
@@ -188,21 +249,33 @@ protected:
 private:
 	AIGuardRetaliateMachine* getGuardMachine() { return (AIGuardRetaliateMachine*)getMachine(); }
 
-	GuardRetaliateExitConditions m_exitConditions;
-	AIAttackState *m_attackState;
+	GxRow<struct GxAIGuardRetaliateOuterStateRow> m_gxAIGuardRetaliateOuterStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateOuterStates
+	friend struct GxAIGuardRetaliateOuterStateRow;
+	inline struct GxAIGuardRetaliateOuterStateRow &gxRow() const;
 };
 
+// Web port (round 5, units are pure data): AIGuardRetaliateOuterState's per-unit state, one row per unit in TheGxAIGuardRetaliateOuterStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIGuardRetaliateOuterStateRow
+{
+	GuardRetaliateExitConditions exitConditions;
+	AIAttackState* attackState;
+};
+
+
+inline GxAIGuardRetaliateOuterStateRow &AIGuardRetaliateOuterState::gxRow() const { return const_cast<GxAIGuardRetaliateOuterStateRow &>(*m_gxAIGuardRetaliateOuterStateRow); }
+
+
 //--------------------------------------------------------------------------------------
+struct GxAIGuardRetaliateReturnStateRow;
 class AIGuardRetaliateReturnState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIGuardRetaliateReturnState, "AIGuardRetaliateReturnState")
 private:
 	AIGuardRetaliateMachine* getGuardMachine() { return (AIGuardRetaliateMachine*)getMachine(); }
 public:
-	AIGuardRetaliateReturnState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIGuardRetaliateReturn" )
-	{
-		m_nextReturnScanTime = 0;
-	}
+	AIGuardRetaliateReturnState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
@@ -212,10 +285,20 @@ protected:
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 private:
-	UnsignedInt m_nextReturnScanTime;
+	GxRow<struct GxAIGuardRetaliateReturnStateRow> m_gxAIGuardRetaliateReturnStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateReturnStates
+	friend struct GxAIGuardRetaliateReturnStateRow;
+	inline struct GxAIGuardRetaliateReturnStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIGuardRetaliateReturnState)
 
+// Web port (round 5, units are pure data): AIGuardRetaliateReturnState's per-unit state, one row per unit in TheGxAIGuardRetaliateReturnStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIGuardRetaliateReturnStateRow
+{
+	UnsignedInt nextReturnScanTime;
+};
+
+
+inline GxAIGuardRetaliateReturnStateRow &AIGuardRetaliateReturnState::gxRow() const { return const_cast<GxAIGuardRetaliateReturnStateRow &>(*m_gxAIGuardRetaliateReturnStateRow); }
 
 //--------------------------------------------------------------------------------------
 class AIGuardRetaliatePickUpCrateState : public AIPickUpCrateState
@@ -230,6 +313,7 @@ public:
 EMPTY_DTOR(AIGuardRetaliatePickUpCrateState)
 
 //--------------------------------------------------------------------------------------
+struct GxAIGuardRetaliateAttackAggressorStateRow;
 class AIGuardRetaliateAttackAggressorState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIGuardRetaliateAttackAggressorState, "AIGuardRetaliateAttackAggressorState")
@@ -248,8 +332,21 @@ protected:
 	virtual void loadPostProcess();
 private:
 	AIGuardRetaliateMachine* getGuardMachine() { return (AIGuardRetaliateMachine*)getMachine(); }
-	GuardRetaliateExitConditions m_exitConditions;
-	AIAttackState *m_attackState;
+	GxRow<struct GxAIGuardRetaliateAttackAggressorStateRow> m_gxAIGuardRetaliateAttackAggressorStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateAttackAggressorStates
+	friend struct GxAIGuardRetaliateAttackAggressorStateRow;
+	inline struct GxAIGuardRetaliateAttackAggressorStateRow &gxRow() const;
 };
+
+// Web port (round 5, units are pure data): AIGuardRetaliateAttackAggressorState's per-unit state, one row per unit in TheGxAIGuardRetaliateAttackAggressorStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIGuardRetaliateAttackAggressorStateRow
+{
+	GuardRetaliateExitConditions exitConditions;
+	AIAttackState* attackState;
+};
+
+
+inline GxAIGuardRetaliateAttackAggressorStateRow &AIGuardRetaliateAttackAggressorState::gxRow() const { return const_cast<GxAIGuardRetaliateAttackAggressorStateRow &>(*m_gxAIGuardRetaliateAttackAggressorStateRow); }
+
 
 //--------------------------------------------------------------------------------------

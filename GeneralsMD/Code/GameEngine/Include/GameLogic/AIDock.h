@@ -29,6 +29,7 @@
 #pragma once
 
 #include "Common/GameMemory.h"
+#include "Common/GxComponentPool.h"	// web port (round 5)
 #include "GameLogic/AIStateMachine.h"
 
 /**
@@ -50,6 +51,7 @@ enum
 /**
  * The docking state machine.
  */
+struct GxAIDockMachineRow;
 class AIDockMachine : public StateMachine
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( AIDockMachine, "AIDockMachinePool" );
@@ -64,7 +66,9 @@ public:
 	static Bool ableToAdvance( State *thisState, void* userData ); // Condition for scooting forward in line while waiting
 	virtual void halt(); ///< Stops the state machine & disables it in preparation for deleting it.
 
-	Int m_approachPosition;	///< The Approach Position I am holding, to make scoot forward checks quicker.
+	GxRow<struct GxAIDockMachineRow> m_gxAIDockMachineRow;	///< web port (round 5): this unit's row in TheGxAIDockMachines
+	friend struct GxAIDockMachineRow;
+	inline struct GxAIDockMachineRow &gxRow() const;
 
 protected:
 	// snapshot interface
@@ -73,6 +77,17 @@ protected:
 	virtual void loadPostProcess();
 
 };
+
+// Web port (round 5, units are pure data): AIDockMachine's per-unit state, one row per unit in TheGxAIDockMachines;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIDockMachineRow
+{
+	Int approachPosition;
+};
+
+
+inline GxAIDockMachineRow &AIDockMachine::gxRow() const { return const_cast<GxAIDockMachineRow &>(*m_gxAIDockMachineRow); }
+
 
 // Please do not use these states in some other machine.  I know that wouldn't even make sense, but they
 // cast their getMachine to an AIDock machine to store stuff across states so you'd crash.
@@ -94,23 +109,36 @@ protected:
 EMPTY_DTOR(AIDockApproachState)
 
 //-----------------------------------------------------------------------------------------------------------
+struct GxAIDockWaitForClearanceStateRow;
 class AIDockWaitForClearanceState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIDockWaitForClearanceState, "AIDockWaitForClearanceState")
 public:
-	AIDockWaitForClearanceState( StateMachine *machine ) : State( machine, "AIDockWaitForClearanceState" ), m_enterFrame(0) { }
+	AIDockWaitForClearanceState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
 protected:
-	UnsignedInt m_enterFrame;
+	GxRow<struct GxAIDockWaitForClearanceStateRow> m_gxAIDockWaitForClearanceStateRow;	///< web port (round 5): this unit's row in TheGxAIDockWaitForClearanceStates
+	friend struct GxAIDockWaitForClearanceStateRow;
+	inline struct GxAIDockWaitForClearanceStateRow &gxRow() const;
 protected:
 	// snapshot interface STUBBED.
 	virtual void crc( Xfer *xfer ){};
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess(){};
 };
-EMPTY_DTOR(AIDockWaitForClearanceState)
+
+// Web port (round 5, units are pure data): AIDockWaitForClearanceState's per-unit state, one row per unit in TheGxAIDockWaitForClearanceStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIDockWaitForClearanceStateRow
+{
+	UnsignedInt enterFrame;
+};
+
+
+inline GxAIDockWaitForClearanceStateRow &AIDockWaitForClearanceState::gxRow() const { return const_cast<GxAIDockWaitForClearanceStateRow &>(*m_gxAIDockWaitForClearanceStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 class AIDockAdvancePositionState : public AIInternalMoveToState
@@ -161,6 +189,7 @@ public:
 EMPTY_DTOR(AIDockMoveToRallyState)
 
 //-----------------------------------------------------------------------------------------------------------
+struct GxAIDockProcessDockStateRow;
 class AIDockProcessDockState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIDockProcessDockState, "AIDockProcessDockState")
@@ -171,7 +200,9 @@ public:
 	virtual StateReturnType update();
 
 	void setNextDockActionFrame();//This puts a delay between callings of Action to tweak the speed of docking.
-	UnsignedInt m_nextDockActionFrame;// In the unlikely event of saving a game in the middle of docking, you may
+	GxRow<struct GxAIDockProcessDockStateRow> m_gxAIDockProcessDockStateRow;	///< web port (round 5): this unit's row in TheGxAIDockProcessDockStates
+	friend struct GxAIDockProcessDockStateRow;
+	inline struct GxAIDockProcessDockStateRow &gxRow() const;
 	// complete a Action a few frames sooner than you would have: It does not need to be saved.
 	Object* findMyDrone();
 
@@ -182,10 +213,19 @@ protected:
 	virtual void loadPostProcess(){};
 
 private:
-	ObjectID m_droneID;			///< If I have a drone, the drone will get repaired too.
 
 };
-EMPTY_DTOR(AIDockProcessDockState)
+
+// Web port (round 5, units are pure data): AIDockProcessDockState's per-unit state, one row per unit in TheGxAIDockProcessDockStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIDockProcessDockStateRow
+{
+	UnsignedInt nextDockActionFrame;
+	ObjectID droneID;
+};
+
+
+inline GxAIDockProcessDockStateRow &AIDockProcessDockState::gxRow() const { return const_cast<GxAIDockProcessDockStateRow &>(*m_gxAIDockProcessDockStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 class AIDockMoveToExitState : public AIInternalMoveToState

@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"
+#include "GameLogic/Module/GxPathsKernels.h"
 
 #include "Common/Player.h"
 #include "Common/ThingFactory.h"
@@ -100,66 +101,67 @@ RailroadBehaviorModuleData::RailroadBehaviorModuleData()
 RailroadBehavior::RailroadBehavior( Thing *thing, const ModuleData *moduleData )
 											 : PhysicsBehavior( thing, moduleData )
 {
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	const RailroadBehaviorModuleData *modData = getRailroadBehaviorModuleData();
 
-	m_nextStationTask = DO_NOTHING;
-	m_trailerID = INVALID_ID;
+	R().nextStationTask = DO_NOTHING;
+	R().trailerID = INVALID_ID;
 
-	conductorPullInfo.speed = 0;
-	conductorPullInfo.m_direction = 1.0f;
-	conductorPullInfo.m_mostRecentSpecialPointHandle = 0xfacade;
-	conductorPullInfo.towHitchPosition.set(0,0,0);
-	conductorPullInfo.trackDistance = 0;
-	conductorPullInfo.currentWaypoint = 0xfacade;
-	conductorPullInfo.previousWaypoint = 0xfacade;
+	R().conductorPullInfo.speed = 0;
+	R().conductorPullInfo.m_direction = 1.0f;
+	R().conductorPullInfo.m_mostRecentSpecialPointHandle = 0xfacade;
+	R().conductorPullInfo.towHitchPosition.set(0,0,0);
+	R().conductorPullInfo.trackDistance = 0;
+	R().conductorPullInfo.currentWaypoint = 0xfacade;
+	R().conductorPullInfo.previousWaypoint = 0xfacade;
 
-	m_pullInfo.speed = 0.0f;
-	m_pullInfo.m_direction = 1.0f;
-	m_pullInfo.m_mostRecentSpecialPointHandle = 0xfacade;
-	m_pullInfo.towHitchPosition.set(0,0,0);
-	m_pullInfo.trackDistance = 0.0f;
-	m_pullInfo.currentWaypoint = 0xfacade;
-	m_pullInfo.previousWaypoint = 0xfacade;
+	R().pullInfo.speed = 0.0f;
+	R().pullInfo.m_direction = 1.0f;
+	R().pullInfo.m_mostRecentSpecialPointHandle = 0xfacade;
+	R().pullInfo.towHitchPosition.set(0,0,0);
+	R().pullInfo.trackDistance = 0.0f;
+	R().pullInfo.currentWaypoint = 0xfacade;
+	R().pullInfo.previousWaypoint = 0xfacade;
 
 
 #ifdef RAILROAD_DESYNC_TEST
 	_LARGE_INTEGER pc;
 	QueryPerformanceCounter( &pc ); // absolutely, positively random every call!
 	Real random = 100000.0f / (Real)pc.LowPart;
-	conductorPullInfo.m_direction = random;
-	m_pullInfo.m_direction = random;
+	R().conductorPullInfo.m_direction = random;
+	R().pullInfo.m_direction = random;
 #endif
 
-	m_runningSound = modData->m_runningSound;
-	m_clicketyClackSound = modData->m_clicketyClackSound;
-	m_whistleSound = modData->m_whistleSound;
-	m_runningSound.setObjectID( getObject()->getID() );
-	m_whistleSound.setObjectID( getObject()->getID() ) ;
-	m_clicketyClackSound.setObjectID( getObject()->getID() ) ;
+	R().runningSound = modData->m_runningSound;
+	R().clicketyClackSound = modData->m_clicketyClackSound;
+	R().whistleSound = modData->m_whistleSound;
+	R().runningSound.setObjectID( getObject()->getID() );
+	R().whistleSound.setObjectID( getObject()->getID() ) ;
+	R().clicketyClackSound.setObjectID( getObject()->getID() ) ;
 
-	m_track = nullptr;
+	R().track = nullptr;
 
-	m_currentPointHandle = 0xfacade;
-	m_waitAtStationTimer = 0;
-
-
-
-	m_anchorWaypointID = INVALID_WAYPOINT_ID;
-
-	m_carriagesCreated = FALSE;
-	m_hasEverBeenHitched = FALSE;
-	m_trackDataLoaded = FALSE;
-	m_waitingInWings = TRUE;
-	m_endOfLine = FALSE;
-	m_isLocomotive = modData->m_isLocomotive;
-	m_isLeadCarriage = m_isLocomotive;  // for now, I am the lead, only if I am the locomotive
-	m_wantsToBeLeadCarriage = FALSE;
-	m_disembark = FALSE;
-	m_inTunnel = FALSE;
-  m_held = FALSE;
+	R().currentPointHandle = 0xfacade;
+	R().waitAtStationTimer = 0;
 
 
-	m_conductorState = m_isLocomotive ? ACCELERATE : COAST;
+
+	R().anchorWaypointID = INVALID_WAYPOINT_ID;
+
+	R().carriagesCreated = FALSE;
+	R().hasEverBeenHitched = FALSE;
+	R().trackDataLoaded = FALSE;
+	R().waitingInWings = TRUE;
+	R().endOfLine = FALSE;
+	R().isLocomotive = modData->m_isLocomotive;
+	R().isLeadCarriage = R().isLocomotive;  // for now, I am the lead, only if I am the locomotive
+	R().wantsToBeLeadCarriage = FALSE;
+	R().disembark = FALSE;
+	R().inTunnel = FALSE;
+  R().held = FALSE;
+
+
+	R().conductorState = R().isLocomotive ? ACCELERATE : COAST;
 
 
 }
@@ -168,15 +170,17 @@ RailroadBehavior::RailroadBehavior( Thing *thing, const ModuleData *moduleData )
 //-------------------------------------------------------------------------------------------------
 RailroadBehavior::~RailroadBehavior()
 {
+	GxModuleList<RailroadBehavior>::leave(this, R().gxId);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
-	TheAudio->removeAudioEvent( m_runningSound.getPlayingHandle() );// no more chugchug when I'm dead
+	TheAudio->removeAudioEvent( R().runningSound.getPlayingHandle() );// no more chugchug when I'm dead
 
-	if( m_track != nullptr )
+	if( R().track != nullptr )
 	{
-		if (m_track->releaseReference())
-			delete m_track;
+		if (R().track->releaseReference())
+			delete R().track;
 
-		m_track = nullptr;
+		R().track = nullptr;
 	}
 
 
@@ -187,16 +191,16 @@ RailroadBehavior::~RailroadBehavior()
 
 Bool RailroadBehavior::isRailroad() const
 {
-	if ( ! m_track )
+	if ( ! R().track )
 		return FALSE;// I haven't even started yet!
 
-	if (m_waitingInWings)
+	if (R().waitingInWings)
 		return FALSE;
-	if (m_endOfLine)
+	if (R().endOfLine)
 		return FALSE;
-	if (m_isLeadCarriage)
+	if (R().isLeadCarriage)
 		return TRUE;
-	if (m_trailerID==INVALID_ID)
+	if (R().trailerID==INVALID_ID)
 		return TRUE;
 
 	//Explanation: I return that I am a railroad only if I am at one of the ends, otherwise I refuse to cooperate
@@ -219,9 +223,9 @@ void RailroadBehavior::onCollide( Object *other, const Coord3D *loc, const Coord
 	if ( ! normal)
 		return;  //sanity
 
-	if (m_waitingInWings)
+	if (R().waitingInWings)
 		return ;
-	if (m_endOfLine)
+	if (R().endOfLine)
 		return ;
 
 	for (BehaviorModule** m = other->getBehaviorModules(); *m; ++m)
@@ -233,11 +237,11 @@ void RailroadBehavior::onCollide( Object *other, const Coord3D *loc, const Coord
 		if( collide->isRailroad())
 		{
 
-			if ( m_isLocomotive )//yikes! I just rear ended a stranded train! Oh well...
+			if ( R().isLocomotive )//yikes! I just rear ended a stranded train! Oh well...
 			{
 				other->kill();
 			}
-			else if ( m_isLeadCarriage ) //yikes! I just coasted into some other carriage
+			else if ( R().isLeadCarriage ) //yikes! I just coasted into some other carriage
 			{
 				other->kill();
 				obj->kill();//and I am dead, too
@@ -283,7 +287,7 @@ void RailroadBehavior::onCollide( Object *other, const Coord3D *loc, const Coord
 
 	// maybe we don't want to trample this unit?
 	const RailroadBehaviorModuleData *modData = getRailroadBehaviorModuleData();
-	if ( m_conductorState == WAIT_AT_STATION && (m_pullInfo.speed < modData->m_runningGarrisonSpeedMax) ) // they can grab on safely
+	if ( R().conductorState == WAIT_AT_STATION && (R().pullInfo.speed < modData->m_runningGarrisonSpeedMax) ) // they can grab on safely
 	{
 		AIUpdateInterface *ai = other->getAI();
 		if (ai && ai->getEnterTarget() == obj) // other intends to garrison me.
@@ -316,8 +320,8 @@ void RailroadBehavior::onCollide( Object *other, const Coord3D *loc, const Coord
 	dlt.z = theirLoc->z - myLoc->z;
 
 	//Alert all the players of recent disaster
-	if ( ! m_whistleSound.isCurrentlyPlaying())
-		m_whistleSound.setPlayingHandle(TheAudio->addAudioEvent( &m_whistleSound ));
+	if ( ! R().whistleSound.isCurrentlyPlaying())
+		R().whistleSound.setPlayingHandle(TheAudio->addAudioEvent( &R().whistleSound ));
 
 
 	Real dist = (Real)sqrtf( dlt.x*dlt.x + dlt.y*dlt.y + dlt.z*dlt.z);
@@ -337,7 +341,7 @@ void RailroadBehavior::onCollide( Object *other, const Coord3D *loc, const Coord
 	  other->setPosition( &newPos );
 	}
 
-  if ( m_conductorState == WAIT_AT_STATION || (m_conductorState == COAST && m_pullInfo.speed < modData->m_runningGarrisonSpeedMax) || !m_isLocomotive )
+  if ( R().conductorState == WAIT_AT_STATION || (R().conductorState == COAST && R().pullInfo.speed < modData->m_runningGarrisonSpeedMax) || !R().isLocomotive )
 	{
 //  AIUpdateInterface *ai = other->getAI();
 //	  if ( ai )
@@ -358,14 +362,14 @@ void RailroadBehavior::onCollide( Object *other, const Coord3D *loc, const Coord
 
 	if (other->isEffectivelyDead())
 	{// we just run over debris, instead of shoving it around
-		delta.scale( MIN(0.3f,m_pullInfo.speed * 0.66f) );
+		delta.scale( MIN(0.3f,R().pullInfo.speed * 0.66f) );
 	}
 	else
 	{
-		delta.scale( MIN(1.4f,m_pullInfo.speed  * 0.66f) );// the faster I go, the harder I slam!
+		delta.scale( MIN(1.4f,R().pullInfo.speed  * 0.66f) );// the faster I go, the harder I slam!
 
 		//Absolute death to be hit by a train, no survival
-		if ( m_pullInfo.speed >= modData->m_killSpeedMin ) // they can grab on safely
+		if ( R().pullInfo.speed >= modData->m_killSpeedMin ) // they can grab on safely
 		{
 			other->kill();
 			theirPhys->setPitchRate(GameLogicRandomValueReal(-0.03f, 0.03f));
@@ -379,7 +383,7 @@ void RailroadBehavior::onCollide( Object *other, const Coord3D *loc, const Coord
 			damageInfo.in.m_damageType = DAMAGE_CRUSH;
 			damageInfo.in.m_deathType = DEATH_CRUSHED;
 			damageInfo.in.m_sourceID = getObject()->getID();
-			damageInfo.in.m_amount = m_pullInfo.speed * 10;			// hurt!
+			damageInfo.in.m_amount = R().pullInfo.speed * 10;			// hurt!
 			other->attemptDamage( &damageInfo );
 		}
 	}
@@ -388,7 +392,7 @@ void RailroadBehavior::onCollide( Object *other, const Coord3D *loc, const Coord
 	heft.z = MAX(heft.z, TheTerrainLogic->getGroundHeight(heft.x, heft.y) + 2); // lift them off the ground
 	other->setPosition(&heft);
 
-	delta.z = GameLogicRandomValueReal(0.05f, m_pullInfo.speed/10);	// for some fake heft
+	delta.z = GameLogicRandomValueReal(0.05f, R().pullInfo.speed/10);	// for some fake heft
 	delta.scale(dot);
 
 
@@ -411,7 +415,7 @@ void RailroadBehavior::onCollide( Object *other, const Coord3D *loc, const Coord
 	Real deviationCOG = cross.x * delta.x + cross.y * delta.y + cross.z * delta.z;
 
 	if (dot > 0)
-		theirPhys->setYawRate( deviationCOG * -0.06f * m_pullInfo.speed);
+		theirPhys->setYawRate( deviationCOG * -0.06f * R().pullInfo.speed);
 
 
 
@@ -497,7 +501,7 @@ void RailroadBehavior::playImpactSound(Object *victim, const Coord3D *impactPosi
 void RailroadBehavior::loadTrackData()
 {
 
-	if ( m_track != nullptr )
+	if ( R().track != nullptr )
 		return;// lets do this only once!
 
 
@@ -509,10 +513,10 @@ void RailroadBehavior::loadTrackData()
 
 
 
-	// m_anchorWaypointID COULD HAVE BEEN RECORDED IN XFER, WHICH MEANS I LOADED MY TRACK DATA IN A PRIOR LIFE,
+	// R().anchorWaypointID COULD HAVE BEEN RECORDED IN XFER, WHICH MEANS I LOADED MY TRACK DATA IN A PRIOR LIFE,
 	// SO LETS JUST RE_INIT THE TRACK BASED ON THAT POINT, AUTOMAGICALLY
 	Waypoint *anchorWaypoint = nullptr;
-	if ( m_anchorWaypointID == INVALID_WAYPOINT_ID )
+	if ( R().anchorWaypointID == INVALID_WAYPOINT_ID )
 	{
 		Waypoint *anyWaypoint = TheTerrainLogic->getFirstWaypoint();
 
@@ -526,7 +530,7 @@ void RailroadBehavior::loadTrackData()
 			{
 				closestDistance = delta.length();
 				anchorWaypoint = anyWaypoint;
-				m_anchorWaypointID = anchorWaypoint->getID();// save for XFER, later
+				R().anchorWaypointID = anchorWaypoint->getID();// save for XFER, later
 			}
 
 			anyWaypoint = anyWaypoint->getNext();
@@ -534,7 +538,7 @@ void RailroadBehavior::loadTrackData()
 	}
 	else
 	{
-		anchorWaypoint = TheTerrainLogic->getWaypointByID( m_anchorWaypointID );
+		anchorWaypoint = TheTerrainLogic->getWaypointByID( R().anchorWaypointID );
 	}
 
 
@@ -548,7 +552,7 @@ void RailroadBehavior::loadTrackData()
 
 
 
-	m_track = NEW( TrainTrack );// this constructor inc's the refcount to 1
+	R().track = NEW( TrainTrack );// this constructor inc's the refcount to 1
 
 	// From now until the next carriage is added, this track is writable using getWritablePointList();
 	// This method will return nullptr when refcount is 2 or more
@@ -557,13 +561,13 @@ void RailroadBehavior::loadTrackData()
 	// any subsequent carriage (destructor) will delete this memory here if it releases refcount to zero
 
 	Coord3D fromPos, toPos, fromToDelta;
-	m_track->m_length = 0.0f;
+	R().track->m_length = 0.0f;
 	Waypoint *scanner = anchorWaypoint;
 	Real distFromTo = 0.0f;
 
 
 	//Let's start building our own track data from the waypoint data we find
-	TrackPointList* track = m_track->getWritablePointList();
+	TrackPointList* track = R().track->getWritablePointList();
 	TrackPoint trackPoint; // local workspace
 
 	if ( scanner && track)
@@ -600,10 +604,10 @@ void RailroadBehavior::loadTrackData()
 				fromToDelta.y = fromPos.y - toPos.y;
 				fromToDelta.z = fromPos.z - toPos.z;
 				distFromTo = fromToDelta.length();
-				m_track->m_length += distFromTo;
+				R().track->m_length += distFromTo;
 
 				trackPoint.m_distanceFromPrev = distFromTo;
-				trackPoint.m_distanceFromFirst = m_track->m_length;
+				trackPoint.m_distanceFromFirst = R().track->m_length;
 				trackPoint.m_isFirstPoint = FALSE;
 				trackPoint.m_isLastPoint = anotherWaypoint->getLink( 0 ) == nullptr;
 				trackPoint.m_isTunnelOrBridge = anotherWaypoint->getName().endsWith("Tunnel");
@@ -625,7 +629,7 @@ void RailroadBehavior::loadTrackData()
 
 		if ( scanner == anchorWaypoint )
 		{
-			m_track->m_isLooping = TRUE;
+			R().track->m_isLooping = TRUE;
 			break; // it must be a looping track. Cool.
 		}
 	}
@@ -644,9 +648,9 @@ void RailroadBehavior::makeAWallOutOfThisTrain( Bool on )
   	TheAI->pathfinder()->removeWallFromMyFootprint( getObject() );  // Undo createAWallFromMyFootprint.
 
 
-	if ( m_trailerID != INVALID_ID )
+	if ( R().trailerID != INVALID_ID )
 	{
-		Object *trailer = TheGameLogic->findObjectByID( m_trailerID );
+		Object *trailer = TheGameLogic->findObjectByID( R().trailerID );
     if ( trailer )
     {
 			static NameKeyType key_RGUpdate = NAMEKEY("RailroadBehavior");
@@ -666,26 +670,82 @@ void RailroadBehavior::makeAWallOutOfThisTrain( Bool on )
 
 
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// web port (round 5 addendum): the conductor kernel. Pure: the locomotive's brake / wait / pull-away
+// state and speed. reads: the module data's braking, wait time, acceleration, top speed; reads/writes
+// its row (conductorState, conductorPullInfo.speed, waitAtStationTimer; reads held, direction).
+// Returns what the apply step does (walls, passengers, sounds).
+RailroadBehavior::GxConductorOp RailroadBehavior::gxConductorKernel(GxState &r, Real braking, UnsignedInt waitAtStationTime, Real acceleration, Real speedMax)
+{
+	if ( r.conductorState == APPLY_BRAKES )
+	{
+		r.conductorPullInfo.speed *= braking;
+		if (fabs(r.conductorPullInfo.speed) < 0.1f)
+		{
+			r.conductorPullInfo.speed = 0;
+			r.waitAtStationTimer = waitAtStationTime;
+			r.conductorState = WAIT_AT_STATION;
+			return GXCOND_STOPPED;
+		}
+	}
+	else if ( r.conductorState == WAIT_AT_STATION )
+	{
+		--r.waitAtStationTimer;
+		if ( r.waitAtStationTimer <= 0 && (!r.held) )
+		{
+			r.conductorState = ACCELERATE;
+			r.conductorPullInfo.speed = 0.05f * r.conductorPullInfo.m_direction;
+			return GXCOND_DEPART;
+		}
+		else if ( r.waitAtStationTimer == (waitAtStationTime/4) )
+			return GXCOND_WHISTLE;
+	}
+	else if ( r.conductorState == ACCELERATE )
+	{
+		r.conductorPullInfo.speed += 0.02f * r.conductorPullInfo.m_direction; // push start multiplier
+		r.conductorPullInfo.speed *= acceleration;
+		if ( r.conductorPullInfo.speed > speedMax)
+			r.conductorPullInfo.speed = speedMax;
+		else if ( r.conductorPullInfo.speed < -speedMax)
+			r.conductorPullInfo.speed = -speedMax;
+		return GXCOND_RUNNING;
+	}
+	return GXCOND_NONE;
+}
+
+// web port (round 5): the range kernel through ai's hook, at the start of this module's phase
+GX_PATHS_KERNEL(RailroadBehavior, GXB_PK_TRAIN, PHASE_PHYSICS)
+void RailroadBehavior::gxKernelStep(UnsignedInt now)
+{
+	// reads: its row, the module data; writes: its row (conductor state, speed, wait timer, op)
+	GX_PK_WILL_UPDATE
+	if ( !R().trackDataLoaded || !R().track || !R().isLocomotive )
+		return;
+	const RailroadBehaviorModuleData *modData = getRailroadBehaviorModuleData();
+	R().gxOp = gxConductorKernel(R(), modData->m_braking, modData->m_waitAtStationTime, modData->m_acceleration, modData->m_speedMax);
+	R().gxOpFrame = now + 1;
+}
+
 UpdateSleepTime RailroadBehavior::update()
 {
+	GX_PK_JOIN(RailroadBehavior, GXB_PK_TRAIN)
 
 
 	// load the waypoint data if not loaded
-	if( m_trackDataLoaded == FALSE && m_isLocomotive )
+	if( R().trackDataLoaded == FALSE && R().isLocomotive )
 	{
 
 		loadTrackData();
 
-		if ( m_track )
+		if ( R().track )
 		  createCarriages();
 
-		m_trackDataLoaded = TRUE;
+		R().trackDataLoaded = TRUE;
 	}
 
 
 
 
-	if ( ! m_track )
+	if ( ! R().track )
 	{
 		return UPDATE_SLEEP_NONE;
 	}
@@ -694,112 +754,67 @@ UpdateSleepTime RailroadBehavior::update()
 	//Object *us = getObject();
 	const RailroadBehaviorModuleData *modData = getRailroadBehaviorModuleData();
 
-	if ( m_isLocomotive )
+	if ( R().isLocomotive )
 	{
-
-		if ( m_conductorState == APPLY_BRAKES )
+		// web port (round 5 addendum): the conductor kernel moves the state and speed; apply here
+		switch (GX_PK_HAVE(TheGameLogic->getFrame()) ? (GxConductorOp)R().gxOp
+			: gxConductorKernel(R(), modData->m_braking, modData->m_waitAtStationTime, modData->m_acceleration, modData->m_speedMax))
 		{
-			conductorPullInfo.speed *= modData->m_braking;
-			if (fabs(conductorPullInfo.speed) < 0.1f)
-			{
-				conductorPullInfo.speed = 0;
-				///////////////////////////////////////( &m_hissySteamSound );
-
-				m_waitAtStationTimer = modData->m_waitAtStationTime;
-				m_conductorState = WAIT_AT_STATION;
-
-
-         makeAWallOutOfThisTrain( TRUE );
-
-
-				if ( m_disembark )
+			case GXCOND_STOPPED:	// at the station: a wall, and let the passengers off
+				makeAWallOutOfThisTrain( TRUE );
+				if ( R().disembark )
 				{
 					disembark();
-					m_disembark = FALSE;
+					R().disembark = FALSE;
 				}
-      }
+				break;
+			case GXCOND_DEPART:
+				R().runningSound.setPlayingHandle(TheAudio->addAudioEvent( &R().runningSound ));
+				makeAWallOutOfThisTrain( FALSE );
+				break;
+			case GXCOND_WHISTLE:
+				R().whistleSound.setPlayingHandle(TheAudio->addAudioEvent( &R().whistleSound ));
+				break;
+			case GXCOND_RUNNING:
+				if ( ! R().runningSound.isCurrentlyPlaying() )
+					R().runningSound.setPlayingHandle(TheAudio->addAudioEvent( &R().runningSound ));
+				break;
+			default:
+				break;
 		}
-		else if ( m_conductorState == WAIT_AT_STATION)
-		{
-			--m_waitAtStationTimer;
-			if ( m_waitAtStationTimer <= 0 && (!m_held) )
-			{
-				m_conductorState = ACCELERATE;
-				conductorPullInfo.speed = 0.05f * conductorPullInfo.m_direction;
-
-				m_runningSound.setPlayingHandle(TheAudio->addAudioEvent( &m_runningSound ));
-
-        makeAWallOutOfThisTrain( FALSE );
-
-
-			}
-			else if ( m_waitAtStationTimer == (modData->m_waitAtStationTime/4) )
-			{
-				m_whistleSound.setPlayingHandle(TheAudio->addAudioEvent( &m_whistleSound ));
-			}
-
-		}
-		else if ( m_conductorState == ACCELERATE )
-		{
-			conductorPullInfo.speed += 0.02f * conductorPullInfo.m_direction; // push start multiplier
-			conductorPullInfo.speed *= modData->m_acceleration;
-			if ( conductorPullInfo.speed > modData->m_speedMax)
-			{
-				conductorPullInfo.speed = modData->m_speedMax;
-			}
-			else if ( conductorPullInfo.speed < -modData->m_speedMax)
-			{
-				conductorPullInfo.speed = -modData->m_speedMax;
-			}
-
-
-			if ( ! m_runningSound.isCurrentlyPlaying() )
-				m_runningSound.setPlayingHandle(TheAudio->addAudioEvent( &m_runningSound ));
-
-
-		}
-
 	}
 
-
-
-
-
-
-
-
-
-	if ( m_wantsToBeLeadCarriage > FRAMES_UNPULLED_LONG_ENOUGH_TO_UNHITCH )//if this flag survived until now, I have lost my puller
+	if ( R().wantsToBeLeadCarriage > FRAMES_UNPULLED_LONG_ENOUGH_TO_UNHITCH )//if this flag survived until now, I have lost my puller
 	{
-		m_isLeadCarriage = TRUE;
+		R().isLeadCarriage = TRUE;
 	}
 
-	if ( m_isLeadCarriage )
+	if ( R().isLeadCarriage )
 	{
 
-		if ( m_conductorState == COAST )
+		if ( R().conductorState == COAST )
 		{
-			conductorPullInfo.speed *= modData->m_friction;
-			TheAudio->removeAudioEvent( m_runningSound.getPlayingHandle() );
+			R().conductorPullInfo.speed *= modData->m_friction;
+			TheAudio->removeAudioEvent( R().runningSound.getPlayingHandle() );
 		}
 
-		conductorPullInfo.trackDistance += conductorPullInfo.speed ;
+		R().conductorPullInfo.trackDistance += R().conductorPullInfo.speed ;
 		// only normalize track position for a looping track, otherwise, let train exit by exceeding tracklength
-		while ( (conductorPullInfo.trackDistance > m_track->m_length) && m_track->m_isLooping)
-			conductorPullInfo.trackDistance -= m_track->m_length;
-		while ( (conductorPullInfo.trackDistance < 0.0f ) && m_track->m_isLooping)
-			conductorPullInfo.trackDistance += m_track->m_length;
+		while ( (R().conductorPullInfo.trackDistance > R().track->m_length) && R().track->m_isLooping)
+			R().conductorPullInfo.trackDistance -= R().track->m_length;
+		while ( (R().conductorPullInfo.trackDistance < 0.0f ) && R().track->m_isLooping)
+			R().conductorPullInfo.trackDistance += R().track->m_length;
 
-		FindPosByPathDistance( &conductorPullInfo.towHitchPosition,
-														conductorPullInfo.trackDistance,
-														m_track->m_length);
+		FindPosByPathDistance( &R().conductorPullInfo.towHitchPosition,
+														R().conductorPullInfo.trackDistance,
+														R().track->m_length);
 
 		//let the conductor pull "me" while resetting my info, then...
-		updatePositionTrackDistance( &conductorPullInfo, &m_pullInfo);
+		updatePositionTrackDistance( &R().conductorPullInfo, &R().pullInfo);
 
 
 		//get pointer to my trailer
-		Object *trailer = TheGameLogic->findObjectByID( m_trailerID );
+		Object *trailer = TheGameLogic->findObjectByID( R().trailerID );
 
 		if ( trailer )
 		{
@@ -808,20 +823,20 @@ UpdateSleepTime RailroadBehavior::update()
 			RailroadBehavior *RGUpdate = (RailroadBehavior*)trailer->findUpdateModule(key_RGUpdate);
 			if( RGUpdate )
 			{
-				RGUpdate->getPulled( &m_pullInfo );
+				RGUpdate->getPulled( &R().pullInfo );
 			}
 		}
 		else
 		{
-			m_trailerID = INVALID_ID;// so I will forget about my trailer and designate myself as the caboose
+			R().trailerID = INVALID_ID;// so I will forget about my trailer and designate myself as the caboose
 
-			if ( m_endOfLine )
+			if ( R().endOfLine )
 				TheGameLogic->destroyObject( getObject() );
 		}
 	}
-	else if ( m_wantsToBeLeadCarriage <= FRAMES_UNPULLED_LONG_ENOUGH_TO_UNHITCH )// if I am not the lead carriage
+	else if ( R().wantsToBeLeadCarriage <= FRAMES_UNPULLED_LONG_ENOUGH_TO_UNHITCH )// if I am not the lead carriage
 	{
-		m_wantsToBeLeadCarriage ++; // like every young carriage, I aspire to be the lead carriage some day
+		R().wantsToBeLeadCarriage ++; // like every young carriage, I aspire to be the lead carriage some day
 															// unless getpulled() set this false, I will be on the next update! Joy!
 	}
 
@@ -829,9 +844,9 @@ UpdateSleepTime RailroadBehavior::update()
 	Drawable *draw = getObject()->getDrawable();
 	if (draw)
 	{
-		if ( ! m_track->m_isLooping )
+		if ( ! R().track->m_isLooping )
 		{
-			draw->setDrawableHidden( m_waitingInWings || m_endOfLine );
+			draw->setDrawableHidden( R().waitingInWings || R().endOfLine );
 		}
 
 			// TURN OFF SMOKE EFFECTS IF WE ARE IN A TUNNEL
@@ -864,7 +879,7 @@ void RailroadBehavior::disembark()
 
 
 
-	Object *trailer = TheGameLogic->findObjectByID( m_trailerID );
+	Object *trailer = TheGameLogic->findObjectByID( R().trailerID );
 	if ( trailer )
 	{
 		static NameKeyType key_RGUpdate = NAMEKEY("RailroadBehavior");
@@ -939,9 +954,9 @@ void RailroadBehavior::createCarriages()
 {
 
 
-	if ( ! m_isLocomotive )
+	if ( ! R().isLocomotive )
 	{
-		DEBUG_ASSERTCRASH(m_isLocomotive, ("a not locomotive attempted to create carriages"));
+		DEBUG_ASSERTCRASH(R().isLocomotive, ("a not locomotive attempted to create carriages"));
 		return;
 	}
 
@@ -966,9 +981,9 @@ void RailroadBehavior::createCarriages()
 	Object *closeCarriage = nullptr;
 	Object *firstCarriage = nullptr;
 
-	if ( m_trailerID != INVALID_ID )
+	if ( R().trailerID != INVALID_ID )
 	{
-		xferCarriage = TheGameLogic->findObjectByID( m_trailerID );
+		xferCarriage = TheGameLogic->findObjectByID( R().trailerID );
 	}
 
 	if (xferCarriage != nullptr)
@@ -998,16 +1013,16 @@ void RailroadBehavior::createCarriages()
 				if ( firstCarriage )
 				{
 					firstCarriage->setProducer(self);
-					m_trailerID = firstCarriage->getID();
+					R().trailerID = firstCarriage->getID();
 
 					static NameKeyType key_rb = NAMEKEY("RailroadBehavior");
 					RailroadBehavior *rb = (RailroadBehavior*)firstCarriage->findUpdateModule(key_rb);
 					if( rb )
 					{
 						if ( closeCarriage )
-							rb->hitchNewCarriagebyProximity( self->getID(), m_track );
+							rb->hitchNewCarriagebyProximity( self->getID(), R().track );
 						else
-							rb->hitchNewCarriagebyTemplate( self->getID(), list, ++iter, m_track );// ! increment iter here!
+							rb->hitchNewCarriagebyTemplate( self->getID(), list, ++iter, R().track );// ! increment iter here!
 					}
 					else
 					{
@@ -1021,7 +1036,7 @@ void RailroadBehavior::createCarriages()
 			}
 		}
 
-	m_carriagesCreated = TRUE;
+	R().carriagesCreated = TRUE;
 
 }
 
@@ -1030,9 +1045,9 @@ void RailroadBehavior::createCarriages()
 void RailroadBehavior::hitchNewCarriagebyTemplate( ObjectID locoID, const TemplateNameVector& list, TemplateNameIterator& iter, TrainTrack *track)
 {
 
-	if ( m_isLocomotive )
+	if ( R().isLocomotive )
 	{
-		DEBUG_ASSERTCRASH(m_isLocomotive, ("You can not hitch a locomotive in mid train, dude."));
+		DEBUG_ASSERTCRASH(R().isLocomotive, ("You can not hitch a locomotive in mid train, dude."));
 		return;
 	}
 
@@ -1042,10 +1057,10 @@ void RailroadBehavior::hitchNewCarriagebyTemplate( ObjectID locoID, const Templa
 		return;
 
 
-	m_track = track;				//ALWAYS INCREFERENCE WHENEVER YOU INHERIT THIS POINTER
-	m_track->incReference();//ALWAYS INCREFERENCE WHENEVER YOU INHERIT THIS POINTER
+	R().track = track;				//ALWAYS INCREFERENCE WHENEVER YOU INHERIT THIS POINTER
+	R().track->incReference();//ALWAYS INCREFERENCE WHENEVER YOU INHERIT THIS POINTER
 
-	m_hasEverBeenHitched = TRUE;// so no other trains try to hitch me onto them
+	R().hasEverBeenHitched = TRUE;// so no other trains try to hitch me onto them
 
 
 	//Okay that's me, now for the next guy
@@ -1060,13 +1075,13 @@ void RailroadBehavior::hitchNewCarriagebyTemplate( ObjectID locoID, const Templa
 		{
 			newCarriage = TheThingFactory->newObject( temp, locomotive->getTeam() ); // just a little worried about this...
 			newCarriage->setProducer(locomotive);
-			m_trailerID = newCarriage->getID();
+			R().trailerID = newCarriage->getID();
 
 			static NameKeyType key_rb = NAMEKEY("RailroadBehavior");
 			RailroadBehavior *rb = (RailroadBehavior*)newCarriage->findUpdateModule(key_rb);
 			if( rb )
 			{
-				rb->hitchNewCarriagebyTemplate( locoID, list, ++iter, m_track );
+				rb->hitchNewCarriagebyTemplate( locoID, list, ++iter, R().track );
 			}
 			else
 			{
@@ -1088,9 +1103,9 @@ void RailroadBehavior::hitchNewCarriagebyTemplate( ObjectID locoID, const Templa
 // ------------------------------------------------------------------------------------------------
 void RailroadBehavior::hitchNewCarriagebyProximity( ObjectID locoID, TrainTrack *track)
 {
-	if ( m_isLocomotive )
+	if ( R().isLocomotive )
 	{
-		DEBUG_ASSERTCRASH(m_isLocomotive, ("You can not hitch a locomotive in mid train, dude."));
+		DEBUG_ASSERTCRASH(R().isLocomotive, ("You can not hitch a locomotive in mid train, dude."));
 		return;
 	}
 
@@ -1100,10 +1115,10 @@ void RailroadBehavior::hitchNewCarriagebyProximity( ObjectID locoID, TrainTrack 
 		return;
 
 
-	m_track = track;				//ALWAYS INCREFERENCE WHENEVER YOU INHERIT THIS POINTER
-	m_track->incReference();//ALWAYS INCREFERENCE WHENEVER YOU INHERIT THIS POINTER
+	R().track = track;				//ALWAYS INCREFERENCE WHENEVER YOU INHERIT THIS POINTER
+	R().track->incReference();//ALWAYS INCREFERENCE WHENEVER YOU INHERIT THIS POINTER
 
-	m_hasEverBeenHitched = TRUE;// so no other trains try to hitch me onto them
+	R().hasEverBeenHitched = TRUE;// so no other trains try to hitch me onto them
 
 
 	//Okay that's me, now for the next guy
@@ -1124,9 +1139,9 @@ void RailroadBehavior::hitchNewCarriagebyProximity( ObjectID locoID, TrainTrack 
 	Object* xferCarriage = nullptr;
 	Object *closeCarriage = nullptr;
 
-	if ( m_trailerID != INVALID_ID )
+	if ( R().trailerID != INVALID_ID )
 	{
-		xferCarriage = TheGameLogic->findObjectByID( m_trailerID );
+		xferCarriage = TheGameLogic->findObjectByID( R().trailerID );
 	}
 	if (xferCarriage != nullptr)
 		closeCarriage = xferCarriage;
@@ -1137,12 +1152,12 @@ void RailroadBehavior::hitchNewCarriagebyProximity( ObjectID locoID, TrainTrack 
 	if ( closeCarriage )
 	{
 		closeCarriage->setProducer(self);
-		m_trailerID = closeCarriage->getID();
+		R().trailerID = closeCarriage->getID();
 
 		static NameKeyType key_rb = NAMEKEY("RailroadBehavior");
 		RailroadBehavior *rb = (RailroadBehavior*)closeCarriage->findUpdateModule(key_rb);
 		if( rb )
-			rb->hitchNewCarriagebyProximity( self->getID(), m_track );
+			rb->hitchNewCarriagebyProximity( self->getID(), R().track );
 		else
 		{
 			DEBUG_ASSERTCRASH( rb,
@@ -1165,9 +1180,9 @@ void RailroadBehavior::hitchNewCarriagebyProximity( ObjectID locoID, TrainTrack 
 void RailroadBehavior::getPulled( PullInfo *info )
 {
 	//ENFORCE MY STATUS AS A PULLEE, NOT A PULLER, and update my position, speed etc.
-	m_wantsToBeLeadCarriage = 0;
+	R().wantsToBeLeadCarriage = 0;
 
-	if ( ! m_track )
+	if ( ! R().track )
 	{
 		return;
 	}
@@ -1176,7 +1191,7 @@ void RailroadBehavior::getPulled( PullInfo *info )
 
 
 
-	conductorPullInfo = *info;//copy my puller to my conductor, so that if I ever get detached
+	R().conductorPullInfo = *info;//copy my puller to my conductor, so that if I ever get detached
 	//( meaning that if this function stops getting called ), I will take over as the lead carriage!
 	//Wheeeee!!
 
@@ -1184,11 +1199,11 @@ void RailroadBehavior::getPulled( PullInfo *info )
 
 	info->previousWaypoint = info->currentWaypoint;
 
-	updatePositionTrackDistance( info, &m_pullInfo );
+	updatePositionTrackDistance( info, &R().pullInfo );
 
 
 	//get pointer to my trailer
-	Object *trailer = TheGameLogic->findObjectByID( m_trailerID );
+	Object *trailer = TheGameLogic->findObjectByID( R().trailerID );
 
 	if ( trailer )
 	{
@@ -1197,13 +1212,13 @@ void RailroadBehavior::getPulled( PullInfo *info )
 		RailroadBehavior *RGUpdate = (RailroadBehavior*)trailer->findUpdateModule(key_RGUpdate);
 		if( RGUpdate )
 		{
-			RGUpdate->getPulled( &m_pullInfo ); //< this is MY info, not the one passed to me
+			RGUpdate->getPulled( &R().pullInfo ); //< this is MY info, not the one passed to me
 		}
 	}
 	else
 	{
-		m_trailerID = INVALID_ID;// so I will forget about my trailer and designate myself as the caboose
-		if ( m_endOfLine )
+		R().trailerID = INVALID_ID;// so I will forget about my trailer and designate myself as the caboose
+		if ( R().endOfLine )
 			TheGameLogic->destroyObject( getObject() );
 
 	}
@@ -1250,7 +1265,7 @@ void alignToTerrain( Real angle, const Coord3D& pos, const Coord3D& normal, Matr
 void RailroadBehavior::updatePositionTrackDistance( PullInfo *pullerInfo, PullInfo *myInfo )
 {
 
-	if ( ! m_track )
+	if ( ! R().track )
 	{
 		return;
 	}
@@ -1277,17 +1292,17 @@ void RailroadBehavior::updatePositionTrackDistance( PullInfo *pullerInfo, PullIn
 // I THINK THE TURN_TO POINT SHOULD BE A BONE ON THE PREVIOUS CAR!!!!!!
 	FindPosByPathDistance( &myInfo->towHitchPosition,
 													myInfo->trackDistance, // the look ahead
-													m_track->m_length);
+													R().track->m_length);
 
 	Coord3D carPosition;
 	FindPosByPathDistance( &carPosition,
 													myInfo->trackDistance,
-													m_track->m_length, TRUE);
+													R().track->m_length, TRUE);
 
 
 	Coord3D turnPos = *obj->getPosition();
 
-	if (!m_inTunnel)
+	if (!R().inTunnel)
 		turnPos.z = TheTerrainLogic->getGroundHeight( turnPos.x, turnPos.y );
 
 	const Coord3D* dir = obj->getUnitDirectionVector2D();
@@ -1326,7 +1341,7 @@ void RailroadBehavior::updatePositionTrackDistance( PullInfo *pullerInfo, PullIn
 
 	obj->setTransformMatrix(&mtx);
 
-	if (!m_inTunnel)
+	if (!R().inTunnel)
 		obj->setPositionZ( enforceElevation );
 
 
@@ -1342,7 +1357,7 @@ void RailroadBehavior::destroyTheWholeTrainNow()
 {
 	TheGameLogic->destroyObject( getObject());
 
-	Object *trailer = TheGameLogic->findObjectByID( m_trailerID );
+	Object *trailer = TheGameLogic->findObjectByID( R().trailerID );
 	if ( trailer )
 	{
 		static NameKeyType key_RGUpdate = NAMEKEY("RailroadBehavior");
@@ -1372,14 +1387,14 @@ void RailroadBehavior::destroyTheWholeTrainNow()
 void RailroadBehavior::FindPosByPathDistance( Coord3D *pos, const Real dist, const Real length, Bool setState )
 {
 
-	if ( ! m_track )
+	if ( ! R().track )
 		return;
 
-	m_waitingInWings = FALSE;
+	R().waitingInWings = FALSE;
 
 	Real actualDistance = dist;// WRAP TO NORMALIZE
 
-	if ( m_track->m_isLooping )
+	if ( R().track->m_isLooping )
 	{
 		while ( actualDistance < 0.0f )
 		{
@@ -1396,12 +1411,12 @@ void RailroadBehavior::FindPosByPathDistance( Coord3D *pos, const Real dist, con
 		if ( dist < 0 )
 		{
 			actualDistance = 0;
-			m_waitingInWings = TRUE;
+			R().waitingInWings = TRUE;
 		}
 		else if ( dist >= length )
 		{
 			actualDistance = length;
-			m_endOfLine = TRUE;
+			R().endOfLine = TRUE;
 		}
 
 		actualDistance = MAX(MIN(length,dist),0); // CLAMP TO NORMALIZE
@@ -1409,7 +1424,7 @@ void RailroadBehavior::FindPosByPathDistance( Coord3D *pos, const Real dist, con
 
 	pos->set( 0.0f, 0.0f, 0.0f );
 
-	const TrackPointList *pointList = m_track->getPointList();//read-only
+	const TrackPointList *pointList = R().track->getPointList();//read-only
 	if ( ! pointList )
 		return;
 
@@ -1436,45 +1451,45 @@ void RailroadBehavior::FindPosByPathDistance( Coord3D *pos, const Real dist, con
 			{
 				//I am between this point and the next
 				const Int handleFound = ((TrackPoint*)thisPoint)->getHandle();
-				Bool edge = (m_currentPointHandle != handleFound);
+				Bool edge = (R().currentPointHandle != handleFound);
 				if ( setState  )
 				{
-					m_inTunnel = thisPoint->m_isTunnelOrBridge;
+					R().inTunnel = thisPoint->m_isTunnelOrBridge;
 
-					if ( m_isLocomotive )// since only locomotives care about such things
+					if ( R().isLocomotive )// since only locomotives care about such things
 					{
 						// THE LOCOMOTIVE SNIFFS THE TRACK TO SMELL FOR THE NEXT STATION AND TUNNEL
 						if ( edge )
 						{
-							m_currentPointHandle = handleFound;
+							R().currentPointHandle = handleFound;
 							if ( thisPoint->m_isStation )
 							{
-								m_conductorState = APPLY_BRAKES;
-								m_disembark = FALSE;
-								TheAudio->removeAudioEvent(m_runningSound.getPlayingHandle());
+								R().conductorState = APPLY_BRAKES;
+								R().disembark = FALSE;
+								TheAudio->removeAudioEvent(R().runningSound.getPlayingHandle());
 							}
 							else if ( thisPoint->m_isDisembark )
 							{
-								m_conductorState = APPLY_BRAKES;
-								m_disembark = TRUE;
-								TheAudio->removeAudioEvent(m_runningSound.getPlayingHandle());
+								R().conductorState = APPLY_BRAKES;
+								R().disembark = TRUE;
+								TheAudio->removeAudioEvent(R().runningSound.getPlayingHandle());
 							}
-							else if ( thisPoint->m_isPingPong && conductorPullInfo.m_mostRecentSpecialPointHandle != handleFound )
+							else if ( thisPoint->m_isPingPong && R().conductorPullInfo.m_mostRecentSpecialPointHandle != handleFound )
 							{
-								conductorPullInfo.m_mostRecentSpecialPointHandle = handleFound;
-								m_conductorState = APPLY_BRAKES;
-								m_disembark = FALSE;
-								TheAudio->removeAudioEvent(m_runningSound.getPlayingHandle());
-								conductorPullInfo.m_direction = -conductorPullInfo.m_direction;
+								R().conductorPullInfo.m_mostRecentSpecialPointHandle = handleFound;
+								R().conductorState = APPLY_BRAKES;
+								R().disembark = FALSE;
+								TheAudio->removeAudioEvent(R().runningSound.getPlayingHandle());
+								R().conductorPullInfo.m_direction = -R().conductorPullInfo.m_direction;
 							}
 						}
 					}
 
-					if ( edge && ! m_inTunnel )
+					if ( edge && ! R().inTunnel )
 					{//play my clickety clack sound, `cause I just rode over a join IN the tracks
-						TheAudio->addAudioEvent( &m_clicketyClackSound );
-						m_clicketyClackSound.setPosition( getObject()->getPosition() );
-						m_clicketyClackSound.setVolume( (Real)conductorPullInfo.speed / 10.0f );//assumed max speed
+						TheAudio->addAudioEvent( &R().clicketyClackSound );
+						R().clicketyClackSound.setPosition( getObject()->getPosition() );
+						R().clicketyClackSound.setVolume( (Real)R().conductorPullInfo.speed / 10.0f );//assumed max speed
 					}
 				}
 
@@ -1531,7 +1546,7 @@ void RailroadBehavior::xfer( Xfer *xfer )
 	xfer->xferVersion( &version, currentVersion );
 
 	// PLEASE NOTE:
-	// m_track and trackDataLoaded are indeed NOT xferred,
+	// R().track and trackDataLoaded are indeed NOT xferred,
 	// since these are inited afresh within the update module,
 
 
@@ -1540,61 +1555,61 @@ void RailroadBehavior::xfer( Xfer *xfer )
 		// extend base class
 		PhysicsBehavior::xfer( xfer );
 
-		//StationTask m_nextStationTask;
-		xfer->xferUser( &m_nextStationTask, sizeof( StationTask ) );
+		//StationTask R().nextStationTask;
+		xfer->xferUser( &R().nextStationTask, sizeof( StationTask ) );
 
-		//ObjectID m_trailerID; ///< the ID of the object I am directly pulling
-		xfer->xferObjectID( &m_trailerID );
+		//ObjectID R().trailerID; ///< the ID of the object I am directly pulling
+		xfer->xferObjectID( &R().trailerID );
 
-		//Int m_currentPointHandle;
-		xfer->xferInt( &m_currentPointHandle );
+		//Int R().currentPointHandle;
+		xfer->xferInt( &R().currentPointHandle );
 
-		//Int m_waitAtStationTimer;
-		xfer->xferInt( &m_waitAtStationTimer );
+		//Int R().waitAtStationTimer;
+		xfer->xferInt( &R().waitAtStationTimer );
 
-		//Bool m_carriagesCreated; ///< TRUE once we have made all the cars in the train
-		xfer->xferBool( &m_carriagesCreated );
+		//Bool R().carriagesCreated; ///< TRUE once we have made all the cars in the train
+		xfer->xferBool( &R().carriagesCreated );
 
-		//Bool m_hasEverBeenHitched; /// has somebody ever hitched me? Remains true, even after puller dies.
-		xfer->xferBool( &m_hasEverBeenHitched );
+		//Bool R().hasEverBeenHitched; /// has somebody ever hitched me? Remains true, even after puller dies.
+		xfer->xferBool( &R().hasEverBeenHitched );
 
-		//Bool m_waitingInWings; /// I have not entered the real track yet, so leave me alone
-		xfer->xferBool( &m_waitingInWings );
+		//Bool R().waitingInWings; /// I have not entered the real track yet, so leave me alone
+		xfer->xferBool( &R().waitingInWings );
 
-		//Bool m_endOfLine;				/// I have reached the end of a non looping track
-		xfer->xferBool( &m_endOfLine );
+		//Bool R().endOfLine;				/// I have reached the end of a non looping track
+		xfer->xferBool( &R().endOfLine );
 
-		//Bool m_isLocomotive; ///< Am I a locomotive,
-		xfer->xferBool( &m_isLocomotive );
+		//Bool R().isLocomotive; ///< Am I a locomotive,
+		xfer->xferBool( &R().isLocomotive );
 
-		//Bool m_isLeadCarriage; ///< Am the carriage in front,
-		xfer->xferBool( &m_isLeadCarriage );
+		//Bool R().isLeadCarriage; ///< Am the carriage in front,
+		xfer->xferBool( &R().isLeadCarriage );
 
-		//Int m_wantsToBeLeadCarriage; ///< Am the carriage in front,
-		xfer->xferInt( &m_wantsToBeLeadCarriage );
+		//Int R().wantsToBeLeadCarriage; ///< Am the carriage in front,
+		xfer->xferInt( &R().wantsToBeLeadCarriage );
 
-		//Bool m_disembark; ///< If I wait at a station, I should also evacuate everybody when I get there
-		xfer->xferBool( &m_disembark );
+		//Bool R().disembark; ///< If I wait at a station, I should also evacuate everybody when I get there
+		xfer->xferBool( &R().disembark );
 
-		//Bool m_inTunnel; ///< Am I in a tunnel, so I wil not snap to ground height, until the next waypoint,
-		xfer->xferBool( &m_inTunnel );
+		//Bool R().inTunnel; ///< Am I in a tunnel, so I wil not snap to ground height, until the next waypoint,
+		xfer->xferBool( &R().inTunnel );
 
-		//ConductorState m_conductorState;
-		xfer->xferUser( &m_conductorState, sizeof( ConductorState ) );
+		//ConductorState R().conductorState;
+		xfer->xferUser( &R().conductorState, sizeof( ConductorState ) );
 
-		xfer->xferUser( &m_anchorWaypointID, sizeof( WaypointID ) );
+		xfer->xferUser( &R().anchorWaypointID, sizeof( WaypointID ) );
 
-		//PullInfo m_pullInfo;
-		m_pullInfo.xferPullInfo( xfer );
+		//PullInfo R().pullInfo;
+		R().pullInfo.xferPullInfo( xfer );
 
-		//PullInfo conductorPullInfo;
-		conductorPullInfo.xferPullInfo( xfer );
+		//PullInfo R().conductorPullInfo;
+		R().conductorPullInfo.xferPullInfo( xfer );
 
 	}
 
 	if( version >= 3 )
 	{
-		xfer->xferBool( &m_held );
+		xfer->xferBool( &R().held );
 	}
 
 
@@ -1625,23 +1640,20 @@ void RailroadBehavior::loadPostProcess()
 	// extend base class
 	PhysicsBehavior::loadPostProcess();
 
-	//Bool m_trackDataLoaded; ///< have I TRIED to load track data, yet? I only try once!
-	m_trackDataLoaded = FALSE;
+	//Bool R().trackDataLoaded; ///< have I TRIED to load track data, yet? I only try once!
+	R().trackDataLoaded = FALSE;
 
 
 
 
 	const RailroadBehaviorModuleData *modData = getRailroadBehaviorModuleData();
-	m_runningSound = modData->m_runningSound;
-	m_clicketyClackSound = modData->m_clicketyClackSound;
-	m_whistleSound = modData->m_whistleSound;
+	R().runningSound = modData->m_runningSound;
+	R().clicketyClackSound = modData->m_clicketyClackSound;
+	R().whistleSound = modData->m_whistleSound;
 
-	m_runningSound.setObjectID( getObject()->getID() );
-	m_whistleSound.setObjectID( getObject()->getID() ) ;
-	m_clicketyClackSound.setObjectID( getObject()->getID() ) ;
+	R().runningSound.setObjectID( getObject()->getID() );
+	R().whistleSound.setObjectID( getObject()->getID() ) ;
+	R().clicketyClackSound.setObjectID( getObject()->getID() ) ;
 
 }
-
-
-
 

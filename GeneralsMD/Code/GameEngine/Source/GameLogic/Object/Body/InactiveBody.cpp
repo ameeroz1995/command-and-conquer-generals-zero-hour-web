@@ -44,7 +44,7 @@
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 InactiveBody::InactiveBody( Thing *thing, const ModuleData* moduleData )
-						: BodyModule( thing, moduleData ), m_dieCalled(false)
+						: BodyModule( thing, moduleData )
 {
 	getObject()->setEffectivelyDead(true);
 }
@@ -101,10 +101,10 @@ void InactiveBody::attemptDamage( DamageInfo *damageInfo )
 
 		// since we have no Health, we do not call DamageModules, nor do DamageFX.
 		// however, we DO process DieModules.
-		if (!m_dieCalled)
+		if (!m_gxInactiveBody->m_dieCalled)
 		{
 			getObject()->onDie( damageInfo );
-			m_dieCalled = true;
+			m_gxInactiveBody->m_dieCalled = true;
 		}
 	}
 }

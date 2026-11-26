@@ -53,6 +53,8 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxOverlordContainRow;
 class OverlordContain : public TransportContain
 {
 
@@ -121,6 +123,19 @@ private:
 	void deactivateRedirectedContain();
   void parseInitialPayload( INI* ini, void *instance, void *store, const void* /*userData*/ );
 
-	Bool m_redirectionActivated;
+	GxRow<struct GxOverlordContainRow> m_gxOverlordContainRow;	///< web port (round 5): this unit's row in TheGxOverlordContains
+	friend struct GxOverlordContainRow;
+	inline struct GxOverlordContainRow &gxRow() const;
 
 };
+
+// Web port (round 5, units are pure data): OverlordContain's per-unit state, one row per unit in TheGxOverlordContains;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxOverlordContainRow
+{
+	Bool redirectionActivated;
+};
+
+
+inline GxOverlordContainRow &OverlordContain::gxRow() const { return const_cast<GxOverlordContainRow &>(*m_gxOverlordContainRow); }
+

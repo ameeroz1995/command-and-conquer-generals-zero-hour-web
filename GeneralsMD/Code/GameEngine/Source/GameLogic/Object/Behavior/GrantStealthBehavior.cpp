@@ -45,6 +45,11 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 
+// Web port (round 5, units are pure data): GrantStealthBehavior's per-unit state is a row of TheGxGrantStealthBehaviors;
+// GXROW_GRANTSTEALTHBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_GRANTSTEALTHBEHAVIOR (const_cast<GxGrantStealthBehaviorRow &>(*m_gxGrantStealthBehaviorRow))
+
+
 
 
 //-------------------------------------------------------------------------------------------------
@@ -90,11 +95,12 @@ static void checkForGrantStealth( Object *testObj, void *userData )
 //-------------------------------------------------------------------------------------------------
 GrantStealthBehavior::GrantStealthBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+
 	const GrantStealthBehaviorModuleData *d = getGrantStealthBehaviorModuleData();
 
-	m_radiusParticleSystemID = INVALID_PARTICLE_SYSTEM_ID;
+	GXROW_GRANTSTEALTHBEHAVIOR.radiusParticleSystemID = INVALID_PARTICLE_SYSTEM_ID;
 
-  m_currentScanRadius = d->m_startRadius;
+  GXROW_GRANTSTEALTHBEHAVIOR.currentScanRadius = d->m_startRadius;
 
 
   Object *obj = getObject();
@@ -108,7 +114,7 @@ GrantStealthBehavior::GrantStealthBehavior( Thing *thing, const ModuleData* modu
 			if( particleSystem )
 			{
 				particleSystem->setPosition( obj->getPosition() );
-				m_radiusParticleSystemID = particleSystem->getSystemID();
+				GXROW_GRANTSTEALTHBEHAVIOR.radiusParticleSystemID = particleSystem->getSystemID();
 			}
 		}
 	}
@@ -121,8 +127,8 @@ GrantStealthBehavior::GrantStealthBehavior( Thing *thing, const ModuleData* modu
 GrantStealthBehavior::~GrantStealthBehavior()
 {
 
-	if( m_radiusParticleSystemID != INVALID_PARTICLE_SYSTEM_ID )
-		TheParticleSystemManager->destroyParticleSystemByID( m_radiusParticleSystemID );
+	if( GXROW_GRANTSTEALTHBEHAVIOR.radiusParticleSystemID != INVALID_PARTICLE_SYSTEM_ID )
+		TheParticleSystemManager->destroyParticleSystemByID( GXROW_GRANTSTEALTHBEHAVIOR.radiusParticleSystemID );
 
 }
 
@@ -147,17 +153,17 @@ UpdateSleepTime GrantStealthBehavior::update()
 	PartitionFilter *filters[] = { &relationship, &filterAlive, &filterMapStatus, nullptr };
 
 
-  m_currentScanRadius += d->m_radiusGrowRate;
+  GXROW_GRANTSTEALTHBEHAVIOR.currentScanRadius += d->m_radiusGrowRate;
 
   Bool thisIsFinalScan = FALSE;
-  if ( m_currentScanRadius >=  d->m_finalRadius )
+  if ( GXROW_GRANTSTEALTHBEHAVIOR.currentScanRadius >=  d->m_finalRadius )
   {
-    m_currentScanRadius = d->m_finalRadius;
+    GXROW_GRANTSTEALTHBEHAVIOR.currentScanRadius = d->m_finalRadius;
     thisIsFinalScan = TRUE;
   }
 
 	// scan objects in our region
-	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( self->getPosition(), m_currentScanRadius, FROM_CENTER_2D, filters );
+	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( self->getPosition(), GXROW_GRANTSTEALTHBEHAVIOR.currentScanRadius, FROM_CENTER_2D, filters );
 	MemoryPoolObjectHolder hold( iter );
 	// GRANT STEALTH TO FRIENDLIES IN RADIUS
 	for( Object *obj = iter->first(); obj; obj = iter->next() )
@@ -230,10 +236,10 @@ void GrantStealthBehavior::xfer( Xfer *xfer )
 
 
 	// particle system id
-	xfer->xferUser( &m_radiusParticleSystemID, sizeof( ParticleSystemID ) );
+	xfer->xferUser( &GXROW_GRANTSTEALTHBEHAVIOR.radiusParticleSystemID, sizeof( ParticleSystemID ) );
 
 	// Timer safety
-	xfer->xferReal( &m_currentScanRadius );
+	xfer->xferReal( &GXROW_GRANTSTEALTHBEHAVIOR.currentScanRadius );
 
 }
 

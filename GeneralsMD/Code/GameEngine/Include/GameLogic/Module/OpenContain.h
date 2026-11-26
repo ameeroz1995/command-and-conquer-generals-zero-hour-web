@@ -77,6 +77,8 @@ public:
 //-------------------------------------------------------------------------------------------------
 /** An open container can actually contain other objects */
 //-------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxOpenContainRow;
 class OpenContain : public UpdateModule,
 										public ContainModuleInterface,
 										public CollideModuleInterface,
@@ -160,7 +162,7 @@ public:
 	virtual Bool isEnclosingContainerFor( const Object *obj ) const;	///< Does this type of Contain Visibly enclose its contents?
 	virtual Bool isPassengerAllowedToFire( ObjectID id = INVALID_ID ) const;	///< Hey, can I shoot out of this container?
 
-  virtual void setPassengerAllowedToFire( Bool permission = TRUE ) { m_passengerAllowedToFire = permission; }	///< Hey, can I shoot out of this container?
+  virtual void setPassengerAllowedToFire( Bool permission = TRUE ); ///< Hey, can I shoot out of this container?
 
   virtual void setOverrideDestination( const Coord3D * ){} ///< Instead of falling peacefully towards a clear spot, I will now aim here
 	virtual Bool isDisplayedOnControlBar() const {return FALSE;}///< Does this container display its contents on the ControlBar?
@@ -169,14 +171,14 @@ public:
 
 	// contain list access
 	virtual void iterateContained( ContainIterateFunc func, void *userData, Bool reverse );
-	virtual UnsignedInt getContainCount() const { return m_containListSize; }
-	virtual const ContainedItemsList* getContainedItemsList() const { return &m_containList; }
+	virtual UnsignedInt getContainCount() const;
+	virtual const ContainedItemsList* getContainedItemsList() const;
 	virtual const Object *friend_getRider() const{return nullptr;} ///< Damn.  The draw order dependency bug for riders means that our draw module needs to cheat to get around it.
 	virtual Real getContainedItemsMass() const;
-	virtual UnsignedInt getStealthUnitsContained() const { return m_stealthUnitsContained; }
-	virtual UnsignedInt getHeroUnitsContained() const { return m_heroUnitsContained; }
+	virtual UnsignedInt getStealthUnitsContained() const;
+	virtual UnsignedInt getHeroUnitsContained() const;
 
-	virtual PlayerMaskType getPlayerWhoEntered() const { return m_playerEnteredMask; }
+	virtual PlayerMaskType getPlayerWhoEntered() const;
 
 	virtual Int getContainMax() const;
 
@@ -223,7 +225,7 @@ public:
 	virtual Bool isWeaponBonusPassedToPassengers() const;
 	virtual WeaponBonusConditionFlags getWeaponBonusPassedToPassengers() const;
 
-	virtual void enableLoadSounds( Bool enable ) { m_loadSoundsEnabled = enable; }
+	virtual void enableLoadSounds( Bool enable );
 
   Real getDamagePercentageToUnits();
   virtual Object* getClosestRider ( const Coord3D *pos );
@@ -235,7 +237,7 @@ protected:
 	virtual void putObjAtNextFirePoint( Object *obj );	///< place object at position of the next fire point to use
 	virtual void redeployOccupants();							///< redeploy any objects at firepoints due to a model condition change
 
-	const ContainedItemsList& getContainList() const { return m_containList; }
+	const ContainedItemsList& getContainList() const;
 
 	void scatterToNearbyPosition(Object* obj);
 	void removeFromContainViaIterator( ContainedItemsList::iterator it, Bool exposeStealthUnits = FALSE );  ///< remove item from contain list
@@ -252,34 +254,55 @@ protected:
 
 	void pruneDeadWanters();
 
-	ContainedItemsList	m_containList;						///< the list of contained objects
-	UnsignedInt					m_containListSize;							///< size of contained list
+	GxRow<struct GxOpenContainRow> m_gxOpenContainRow;	///< web port (round 5): this unit's row in TheGxOpenContains
+	friend struct GxOpenContainRow;
+	inline struct GxOpenContainRow &gxRow() const;
 private:
 
 	typedef std::map< ObjectID, ObjectEnterExitType, std::less<ObjectID> > ObjectEnterExitMap;
 
-	ObjectEnterExitMap	m_objectEnterExitInfo;
-	UnsignedInt					m_stealthUnitsContained;				///< number of stealth units that can't be seen by enemy players.
-	UnsignedInt					m_heroUnitsContained;						///< cached hero count
-	Int									m_whichExitPath; ///< Cycles from 1 to n and is used only in modules whose data has numberOfExitPaths > 1.
-	UnsignedInt					m_doorCloseCountdown;						///< When should I shut my door.
 
-	std::list<ObjectID>	m_xferContainIDList;		///< for loading m_containList from a save game
-	PlayerMaskType			m_playerEnteredMask;					///< Mask of player that entered last, if any.
-	UnsignedInt					m_lastUnloadSoundFrame;					///< last frame we did an un-loading sound
-	UnsignedInt					m_lastLoadSoundFrame;						///< last frame we did a loading sound
 
 /// @todo srj -- move this to a lazily-allocated subobject
 	enum { MAX_FIRE_POINTS = 32 };
-	ModelConditionFlags	m_conditionState;				///< The Drawables current behavior state
-	Matrix3D						m_firePoints[ MAX_FIRE_POINTS ];
-	Int									m_firePointStart;												///< start firepoint index to use when building becomes occupied
-	Int									m_firePointNext;												///< next index to place objects at
-	Int									m_firePointSize;												///< how many entries in m_firePoint are valid
-	Bool								m_noFirePointsInArt;										///< TRUE when no fire point bones exist in the art
 
-	Coord3D							m_rallyPoint;												///< Where units should move to after they have reached the "natural" rally point
-	Bool								m_rallyPointExists;										///< Only move to the rally point if this is true
-	Bool								m_loadSoundsEnabled;								///< Don't serialize -- used for disabling sounds during payload creation.
-  Bool                m_passengerAllowedToFire;      ///< Newly promoted from the template data to the module for upgrade overriding access
 };
+
+// Web port (round 5, units are pure data): OpenContain's per-unit state, one row per unit in TheGxOpenContains;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxOpenContainRow
+{
+	ContainedItemsList containList;
+	UnsignedInt containListSize;
+	OpenContain::ObjectEnterExitMap objectEnterExitInfo;
+	UnsignedInt stealthUnitsContained;
+	UnsignedInt heroUnitsContained;
+	Int whichExitPath;
+	UnsignedInt doorCloseCountdown;
+	std::list<ObjectID> xferContainIDList;
+	PlayerMaskType playerEnteredMask;
+	UnsignedInt lastUnloadSoundFrame;
+	UnsignedInt lastLoadSoundFrame;
+	ModelConditionFlags conditionState;
+	Matrix3D firePoints[ OpenContain::MAX_FIRE_POINTS ];
+	Int firePointStart;
+	Int firePointNext;
+	Int firePointSize;
+	Bool noFirePointsInArt;
+	Coord3D rallyPoint;
+	Bool rallyPointExists;
+	Bool loadSoundsEnabled;
+	Bool passengerAllowedToFire;
+};
+
+
+inline GxOpenContainRow &OpenContain::gxRow() const { return const_cast<GxOpenContainRow &>(*m_gxOpenContainRow); }
+inline void OpenContain::setPassengerAllowedToFire( Bool permission) { gxRow().passengerAllowedToFire = permission; }
+inline UnsignedInt OpenContain::getContainCount() const { return gxRow().containListSize; }
+inline const ContainedItemsList* OpenContain::getContainedItemsList() const { return &gxRow().containList; }
+inline UnsignedInt OpenContain::getStealthUnitsContained() const { return gxRow().stealthUnitsContained; }
+inline UnsignedInt OpenContain::getHeroUnitsContained() const { return gxRow().heroUnitsContained; }
+inline PlayerMaskType OpenContain::getPlayerWhoEntered() const { return gxRow().playerEnteredMask; }
+inline void OpenContain::enableLoadSounds( Bool enable ) { gxRow().loadSoundsEnabled = enable; }
+inline const ContainedItemsList& OpenContain::getContainList() const { return gxRow().containList; }
+

@@ -51,32 +51,34 @@
 //-------------------------------------------------------------------------------------------------
 AssaultTransportAIUpdate::AssaultTransportAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_currentMembers = MAX_TRANSPORT_SLOTS; //First time, max it out, to ensure clearing arrays in reset.
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
+	R().currentMembers = MAX_TRANSPORT_SLOTS; //First time, max it out, to ensure clearing arrays in reset.
 	reset();
 }
 
 //-------------------------------------------------------------------------------------------------
 void AssaultTransportAIUpdate::reset()
 {
-	for( int i = 0; i < m_currentMembers; i++ )
+	for( int i = 0; i < R().currentMembers; i++ )
 	{
-		m_memberIDs[ i ] = INVALID_ID;
-		m_memberHealing[ i ] = FALSE;
-		m_newMember[ i ] = FALSE;
+		R().memberIDs[ i ] = INVALID_ID;
+		R().memberHealing[ i ] = FALSE;
+		R().newMember[ i ] = FALSE;
 	}
-	m_currentMembers = 0;
-  m_attackMoveGoalPos.zero();
-  m_designatedTarget = INVALID_ID;
-	m_state = IDLE;
-	m_framesRemaining = 0;
-	m_isAttackMove = FALSE;
-	m_isAttackObject = FALSE;
-	m_newOccupantsAreNewMembers = FALSE;
+	R().currentMembers = 0;
+  R().attackMoveGoalPos.zero();
+  R().designatedTarget = INVALID_ID;
+	R().state = IDLE;
+	R().framesRemaining = 0;
+	R().isAttackMove = FALSE;
+	R().isAttackObject = FALSE;
+	R().newOccupantsAreNewMembers = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
 AssaultTransportAIUpdate::~AssaultTransportAIUpdate()
 {
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -91,17 +93,17 @@ void AssaultTransportAIUpdate::aiDoCommand(const AICommandParms* parms)
 			case AICMD_ATTACKMOVE_TO_POSITION:
 				//Reset because we have been ordered to do something.
 				reset();
-				m_attackMoveGoalPos = parms->m_pos;
-				m_isAttackMove = TRUE;
+				R().attackMoveGoalPos = parms->m_pos;
+				R().isAttackMove = TRUE;
 				break;
 			case AICMD_ATTACK_OBJECT:
 				//Reset because we have been ordered to do something.
 				reset();
-				//m_designatedTarget = parms->m_obj ? parms->m_obj->getID() : INVALID_ID;
-				m_isAttackObject = TRUE;
+				//R().designatedTarget = parms->m_obj ? parms->m_obj->getID() : INVALID_ID;
+				R().isAttackObject = TRUE;
 				break;
 			case AICMD_IDLE:
-				m_designatedTarget = INVALID_ID;
+				R().designatedTarget = INVALID_ID;
 				//Order all outside members back inside!
 				retrieveMembers();
 				reset();
@@ -125,7 +127,7 @@ void AssaultTransportAIUpdate::beginAssault( const Object *designatedTarget ) co
 	//Now order the evacuation of healthy troops, and let the update handle moving them.
 	if( designatedTarget )
 	{
-		m_designatedTarget = designatedTarget->getID();
+		R().designatedTarget = designatedTarget->getID();
 	}
 }
 
@@ -142,6 +144,63 @@ UpdateSleepTime calcSleepTime()
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the member-list kernels. Pure, row only.
+// Drop: removes members whose gathered drop flag (by their index when the frame began) is set, with
+// the old loop's order (the last member moves into a freed slot and is looked at next frame).
+// reads: drop[]; reads/writes its row (memberIDs, memberHealing, newMember, currentMembers).
+// Writes the original indices of the dropped members to dropped[] and returns how many.
+static Int gxAssaultDropKernel(AssaultTransportAIUpdate::GxState &r, const Bool *drop, Int *dropped)
+{
+	Int slotOf[ MAX_TRANSPORT_SLOTS ];	// original index of the member now in each slot
+	for( int i = 0; i < r.currentMembers; i++ )
+		slotOf[ i ] = i;
+	Int n = 0;
+	for( int i = 0; i < r.currentMembers; i++ )
+	{
+		if( !drop[ slotOf[ i ] ] )
+			continue;
+		dropped[ n++ ] = slotOf[ i ];
+		if( r.currentMembers - 1 > i )
+		{
+			//Move the last slot to this slot to keep array contiguous.
+			r.memberIDs[ i ]			= r.memberIDs[ r.currentMembers - 1 ];
+			r.memberHealing[ i ]	= r.memberHealing[ r.currentMembers - 1 ];
+			r.newMember[ i ]			= r.newMember[ r.currentMembers - 1 ];
+			slotOf[ i ]					= slotOf[ r.currentMembers - 1 ];
+		}
+		else
+		{
+			//Just clean out last slot.
+			r.memberIDs[ i ]			= INVALID_ID;
+			r.memberHealing[ i ]	= FALSE;
+			r.newMember[ i ]			= FALSE;
+		}
+		r.currentMembers--;
+	}
+	return n;
+}
+
+// Add: a passenger not yet in the list joins it if there is room. reads: his id and whether he is
+// wounded; reads/writes its row. True when he joined.
+static Bool gxAssaultAddKernel(AssaultTransportAIUpdate::GxState &r, ObjectID id, Bool wounded)
+{
+	for( int i = 0; i < r.currentMembers; i++ )
+		if( id == r.memberIDs[ i ] )
+			return FALSE;	//He is in the list... so skip him.
+	//It's possible to add members manually -- but if we already have 10 members, then wait!
+	if( r.currentMembers >= MAX_TRANSPORT_SLOTS )
+		return FALSE;
+	r.memberIDs[ r.currentMembers ] = id;
+	//Check if the passenger is wounded below threshold (if so make sure we heal him before ordering him to fight!)
+	if( wounded )
+		r.memberHealing[ r.currentMembers ] = TRUE;
+	//New members won't eject out until a new attack order is issued.
+	if( r.newOccupantsAreNewMembers )
+		r.newMember[ r.currentMembers ] = TRUE;
+	r.currentMembers++;
+	return TRUE;
+}
+
 UpdateSleepTime AssaultTransportAIUpdate::update()
 {
 	Object *transport = getObject();
@@ -153,39 +212,30 @@ UpdateSleepTime AssaultTransportAIUpdate::update()
 		return UPDATE_SLEEP_FOREVER;
 	}
 
+	// web port (round 5 addendum): gather each member's and passenger's facts, the kernels update the
+	// member list (row only), apply sets who may chase.
 	//First removing dead members or members that have been ordered to do something outside of this AI.
-	if( m_currentMembers )
+	if( R().currentMembers )
 	{
-		for( int i = 0; i < m_currentMembers; i++ )
+		Bool drop[ MAX_TRANSPORT_SLOTS ];
+		AIUpdateInterface *dropAI[ MAX_TRANSPORT_SLOTS ];
+		const Int n = R().currentMembers;
+		for( int i = 0; i < n; i++ )
 		{
-			Object *member = TheGameLogic->findObjectByID( m_memberIDs[ i ] );
+			Object *member = TheGameLogic->findObjectByID( R().memberIDs[ i ] );
 			AIUpdateInterface *ai = member ? member->getAI() : nullptr;
-			if( !member || member->isEffectivelyDead() || ai->getLastCommandSource() != CMD_FROM_AI )
-			{
-				//Member is toast -- so remove him from our list!
-				if( m_currentMembers - 1 > i )
-				{
-					//Move the last slot to this slot to keep array contiguous.
-					m_memberIDs[ i ]			= m_memberIDs[ m_currentMembers - 1 ];
-					m_memberHealing[ i ]	= m_memberHealing[ m_currentMembers - 1 ];
-					m_newMember[ i ]			= m_newMember[ m_currentMembers - 1 ];
-				}
-				else
-				{
-					//Just clean out last slot.
-					m_memberIDs[ i ]			= INVALID_ID;
-					m_memberHealing[ i ]	= FALSE;
-					m_newMember[ i ]			= FALSE;
-				}
-				if( ai )
-				{
-					//Important! Members of our assault transport must be allowed to chase down designated enemies.
-					//Generally only player commands allow this, so this flag allows AI commands to do the same.
-					//We need to turn this off though, because this ex-member is no longer under transport control.
-					ai->setAllowedToChase( FALSE );
-				}
-				m_currentMembers--;
-			}
+			drop[ i ] = !member || member->isEffectivelyDead() || ai->getLastCommandSource() != CMD_FROM_AI;
+			dropAI[ i ] = ai;
+		}
+		Int dropped[ MAX_TRANSPORT_SLOTS ];
+		const Int nDropped = gxAssaultDropKernel( R(), drop, dropped );
+		for( Int k = 0; k < nDropped; ++k )
+		{
+			//Important! Members of our assault transport must be allowed to chase down designated enemies.
+			//Generally only player commands allow this, so this flag allows AI commands to do the same.
+			//We need to turn this off though, because this ex-member is no longer under transport control.
+			if( dropAI[ dropped[ k ] ] )
+				dropAI[ dropped[ k ] ]->setAllowedToChase( FALSE );
 		}
 	}
 
@@ -194,58 +244,14 @@ UpdateSleepTime AssaultTransportAIUpdate::update()
 	if( contain )
 	{
 		const ContainedItemsList *passengerList = contain->getContainedItemsList();
-		ContainedItemsList::const_iterator passengerIterator;
-		passengerIterator = passengerList->begin();
-		while( passengerIterator != passengerList->end() )
+		for( ContainedItemsList::const_iterator it = passengerList->begin(); it != passengerList->end(); ++it )
 		{
-			Object *passenger = *passengerIterator;
-			//Advance to the next iterator
-			passengerIterator++;
-
-			//Make sure it isn't in our list already.
-			Bool found = FALSE;
-			for( int i = 0; i < m_currentMembers; i++ )
-			{
-				if( passenger->getID() == m_memberIDs[ i ] )
-				{
-					//He is in the list... so skip him.
-					found = TRUE;
-					break;
-				}
-			}
-			if( found )
-			{
-				//Get next passenger.
-				continue;
-			}
-
-			//It's possible to add members manually -- but if we already have 10 members, then wait!
-			if( m_currentMembers < MAX_TRANSPORT_SLOTS )
-			{
-				//Not in list, so add him!
-				m_memberIDs[ m_currentMembers ] = passenger->getID();
-				if( passenger->getAI() )
-				{
-					//Important! Members of our assault transport must be allowed to chase down designated enemies.
-					//Generally only player commands allow this, so this flag allows AI commands to do the same.
-					passenger->getAI()->setAllowedToChase( TRUE );
-				}
-
-				//Check if the passenger is wounded below threshold (if so make sure we heal him before ordering him to fight!)
-				if( isMemberWounded( passenger ) )
-				{
-					m_memberHealing[ m_currentMembers ] = TRUE;
-				}
-				if( m_newOccupantsAreNewMembers )
-				{
-					//New members won't eject out until a new attack order is issued.
-					m_newMember[ m_currentMembers ] = TRUE;
-				}
-
-				m_currentMembers++;
-			}
+			Object *passenger = *it;
+			// the kernel takes him if he is new and there is room; apply: he may chase
+			if( gxAssaultAddKernel( R(), passenger->getID(), isMemberWounded( passenger ) ) && passenger->getAI() )
+				passenger->getAI()->setAllowedToChase( TRUE );
 		}
-		m_newOccupantsAreNewMembers = TRUE;
+		R().newOccupantsAreNewMembers = TRUE;
 	}
 
 	if( isAttackPointless() )
@@ -261,7 +267,7 @@ UpdateSleepTime AssaultTransportAIUpdate::update()
 
 	//If we're already in the process, reacquire the designated target again... see if
 	//it's still alive.
-	Object *designatedTarget = TheGameLogic->findObjectByID( m_designatedTarget );
+	Object *designatedTarget = TheGameLogic->findObjectByID( R().designatedTarget );
 	if( designatedTarget && designatedTarget->isEffectivelyDead() )
 	{
 		designatedTarget = nullptr;
@@ -269,16 +275,16 @@ UpdateSleepTime AssaultTransportAIUpdate::update()
 	if( designatedTarget )
 	{
 		//Look for members not currently attacking this target.
-		for( int i = 0; i < m_currentMembers; i++ )
+		for( int i = 0; i < R().currentMembers; i++ )
 		{
-			Object *member = TheGameLogic->findObjectByID( m_memberIDs[ i ] );
+			Object *member = TheGameLogic->findObjectByID( R().memberIDs[ i ] );
 			AIUpdateInterface *ai = member ? member->getAI() : nullptr;
 
 			if( member && ai )
 			{
 				Bool contained = member->isContained();
 				Bool wounded = isMemberWounded( member );
-				if( contained && isMemberHealthy( member ) && !m_newMember[ i ] )
+				if( contained && isMemberHealthy( member ) && !R().newMember[ i ] )
 				{
 					//This contained member is healthy so order him to exit to start fighting!
 					//New members are exempt!
@@ -315,12 +321,12 @@ UpdateSleepTime AssaultTransportAIUpdate::update()
 	}
 	else
 	{
-		if( m_isAttackMove && getAIStateType() != AI_ATTACK_MOVE_TO )
+		if( R().isAttackMove && getAIStateType() != AI_ATTACK_MOVE_TO )
 		{
 			//Continue to move towards the attackmove area.
-			aiAttackMoveToPosition( &m_attackMoveGoalPos, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
+			aiAttackMoveToPosition( &R().attackMoveGoalPos, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
 		}
-		else if( m_isAttackObject )
+		else if( R().isAttackObject )
 		{
 			retrieveMembers();
 		}
@@ -328,11 +334,11 @@ UpdateSleepTime AssaultTransportAIUpdate::update()
 
 	/*
 	//Keep near the troops.
-	if( !m_framesRemaining )
+	if( !R().framesRemaining )
 	{
 		if( !isMoving() && fightingMembers && designatedTarget )
 		{
-			m_framesRemaining = 45;
+			R().framesRemaining = 45;
 
 			//Get centroid pos now that we know the number of fighting members.
 			Real scale = 1.0f / (Real)fightingMembers;
@@ -362,7 +368,7 @@ UpdateSleepTime AssaultTransportAIUpdate::update()
 	}
 	else
 	{
-		m_framesRemaining--;
+		R().framesRemaining--;
 	}
 	if( designatedTarget && !isMoving() )
 	{
@@ -385,9 +391,9 @@ Bool AssaultTransportAIUpdate::isAttackPointless() const
 	const Object *transport = getObject();
 	if( transport->testStatus( OBJECT_STATUS_IS_ATTACKING ) )
 	{
-		for( int i = 0; i < m_currentMembers; i++ )
+		for( int i = 0; i < R().currentMembers; i++ )
 		{
-			if( !m_newMember[ i ] )
+			if( !R().newMember[ i ] )
 			{
 				//We have a non-new member, so attack is valid.
 				return FALSE;
@@ -436,9 +442,9 @@ Bool AssaultTransportAIUpdate::isMemberHealthy( const Object *member ) const
 void AssaultTransportAIUpdate::retrieveMembers()
 {
 	//Order all outside members back inside!
-	for( int i = 0; i < m_currentMembers; i++ )
+	for( int i = 0; i < R().currentMembers; i++ )
 	{
-		Object *member = TheGameLogic->findObjectByID( m_memberIDs[ i ] );
+		Object *member = TheGameLogic->findObjectByID( R().memberIDs[ i ] );
 		AIUpdateInterface *ai = member ? member->getAI() : nullptr;
 		if( member && ai )
 		{
@@ -458,21 +464,21 @@ void AssaultTransportAIUpdate::retrieveMembers()
 void AssaultTransportAIUpdate::giveFinalOrders()
 {
 	//All members have been ejected outside already -- transfer the original order to the troops
-	for( int i = 0; i < m_currentMembers; i++ )
+	for( int i = 0; i < R().currentMembers; i++ )
 	{
-		Object *member = TheGameLogic->findObjectByID( m_memberIDs[ i ] );
+		Object *member = TheGameLogic->findObjectByID( R().memberIDs[ i ] );
 		AIUpdateInterface *ai = member ? member->getAI() : nullptr;
 		if( member && ai )
 		{
-			Object *designatedTarget = TheGameLogic->findObjectByID( m_designatedTarget );
+			Object *designatedTarget = TheGameLogic->findObjectByID( R().designatedTarget );
 
-			if( m_isAttackObject && designatedTarget )
+			if( R().isAttackObject && designatedTarget )
 			{
 				ai->aiAttackObject( designatedTarget, NO_MAX_SHOTS_LIMIT, CMD_FROM_PLAYER );
 			}
-			else if( m_isAttackMove )
+			else if( R().isAttackMove )
 			{
-				ai->aiAttackMoveToPosition( &m_attackMoveGoalPos, NO_MAX_SHOTS_LIMIT, CMD_FROM_PLAYER );
+				ai->aiAttackMoveToPosition( &R().attackMoveGoalPos, NO_MAX_SHOTS_LIMIT, CMD_FROM_PLAYER );
 			}
 
 			ai->setAllowedToChase( FALSE );
@@ -504,24 +510,24 @@ void AssaultTransportAIUpdate::xfer( Xfer *xfer )
  // extend base class
 	AIUpdateInterface::xfer(xfer);
 
-	xfer->xferInt( &m_currentMembers );
+	xfer->xferInt( &R().currentMembers );
 
-	for( int i = 0; i < m_currentMembers; i++ )
+	for( int i = 0; i < R().currentMembers; i++ )
 	{
-		xfer->xferObjectID( &(m_memberIDs[ i ]) );
-		xfer->xferBool( &(m_memberHealing[ i ]) );
+		xfer->xferObjectID( &(R().memberIDs[ i ]) );
+		xfer->xferBool( &(R().memberHealing[ i ]) );
 	}
 
-	xfer->xferCoord3D( &m_attackMoveGoalPos );
-	xfer->xferObjectID( &m_designatedTarget );
+	xfer->xferCoord3D( &R().attackMoveGoalPos );
+	xfer->xferObjectID( &R().designatedTarget );
 
-	Int state = (Int)m_state;
+	Int state = (Int)R().state;
 	xfer->xferInt( &state );
-	m_state = (AssaultStateTypes)state;
+	R().state = (AssaultStateTypes)state;
 
-	xfer->xferUnsignedInt( &m_framesRemaining );
-	xfer->xferBool( &m_isAttackMove );
-	xfer->xferBool( &m_isAttackObject );
+	xfer->xferUnsignedInt( &R().framesRemaining );
+	xfer->xferBool( &R().isAttackMove );
+	xfer->xferBool( &R().isAttackObject );
 
 }
 

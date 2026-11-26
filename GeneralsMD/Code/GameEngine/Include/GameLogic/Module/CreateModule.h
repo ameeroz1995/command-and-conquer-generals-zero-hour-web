@@ -56,6 +56,8 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxCreateModuleRow;
 class CreateModule : public BehaviorModule, public CreateModuleInterface
 {
 
@@ -74,11 +76,26 @@ public:
 	virtual CreateModuleInterface* getCreate() { return this; }
 
 	virtual void onCreate() = 0;				///< This is called when you become a code Object
-	virtual void onBuildComplete(){ m_needToRunOnBuildComplete = FALSE; }	///< This is called when you are a finished game object
-	virtual Bool shouldDoOnBuildComplete() const { return m_needToRunOnBuildComplete; }
+	virtual void onBuildComplete(); ///< This is called when you are a finished game object
+	virtual Bool shouldDoOnBuildComplete() const;
 
 private:
 
-	Bool m_needToRunOnBuildComplete; ///< Prevent the multiple calling of onBuildComplete
+	GxRow<struct GxCreateModuleRow> m_gxCreateModuleRow;	///< web port (round 5): this unit's row in TheGxCreateModules
+	friend struct GxCreateModuleRow;
+	inline struct GxCreateModuleRow &gxRow() const;
 
 };
+
+// Web port (round 5, units are pure data): CreateModule's per-unit state, one row per unit in TheGxCreateModules;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxCreateModuleRow
+{
+	Bool needToRunOnBuildComplete;
+};
+
+
+inline GxCreateModuleRow &CreateModule::gxRow() const { return const_cast<GxCreateModuleRow &>(*m_gxCreateModuleRow); }
+inline void CreateModule::onBuildComplete() { gxRow().needToRunOnBuildComplete = FALSE; }
+inline Bool CreateModule::shouldDoOnBuildComplete() const { return gxRow().needToRunOnBuildComplete; }
+

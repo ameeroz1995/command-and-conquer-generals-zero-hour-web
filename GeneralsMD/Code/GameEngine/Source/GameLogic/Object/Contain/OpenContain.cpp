@@ -57,6 +57,11 @@
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/Weapon.h"
 
+// Web port (round 5, units are pure data): OpenContain's per-unit state is a row of TheGxOpenContains;
+// GXROW_OPENCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_OPENCONTAIN (const_cast<GxOpenContainRow &>(*m_gxOpenContainRow))
+
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // PUBLIC FUNCTIONS ///////////////////////////////////////////////////////////////////////////////
@@ -121,33 +126,34 @@ OpenContainModuleData::OpenContainModuleData()
 OpenContain::OpenContain( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
 
+
 	// initialize our lists
-	m_containList.clear();
-	m_objectEnterExitInfo.clear();
-	m_playerEnteredMask = 0;
-	m_lastUnloadSoundFrame = 0;
-	m_lastLoadSoundFrame = 0;
-	m_containListSize = 0;
-	m_stealthUnitsContained = 0;
-	m_heroUnitsContained = 0;
-	m_doorCloseCountdown = 0;
+	GXROW_OPENCONTAIN.containList.clear();
+	GXROW_OPENCONTAIN.objectEnterExitInfo.clear();
+	GXROW_OPENCONTAIN.playerEnteredMask = 0;
+	GXROW_OPENCONTAIN.lastUnloadSoundFrame = 0;
+	GXROW_OPENCONTAIN.lastLoadSoundFrame = 0;
+	GXROW_OPENCONTAIN.containListSize = 0;
+	GXROW_OPENCONTAIN.stealthUnitsContained = 0;
+	GXROW_OPENCONTAIN.heroUnitsContained = 0;
+	GXROW_OPENCONTAIN.doorCloseCountdown = 0;
 
-	m_rallyPoint.zero();
-	m_rallyPointExists = FALSE;
-	m_conditionState.clear();
-	m_firePointStart = -1;
-	m_firePointNext = 0;
-	m_firePointSize = 0;
-	m_noFirePointsInArt = false;
-	m_whichExitPath = 1;
-	m_loadSoundsEnabled = TRUE;
+	GXROW_OPENCONTAIN.rallyPoint.zero();
+	GXROW_OPENCONTAIN.rallyPointExists = FALSE;
+	GXROW_OPENCONTAIN.conditionState.clear();
+	GXROW_OPENCONTAIN.firePointStart = -1;
+	GXROW_OPENCONTAIN.firePointNext = 0;
+	GXROW_OPENCONTAIN.firePointSize = 0;
+	GXROW_OPENCONTAIN.noFirePointsInArt = false;
+	GXROW_OPENCONTAIN.whichExitPath = 1;
+	GXROW_OPENCONTAIN.loadSoundsEnabled = TRUE;
 
-  m_passengerAllowedToFire = getOpenContainModuleData()->m_passengersAllowedToFire;
+  GXROW_OPENCONTAIN.passengerAllowedToFire = getOpenContainModuleData()->m_passengersAllowedToFire;
   // overridable by setPass...()  in the parent interface (for use by upgrade module)
 
 	for( Int i = 0; i < MAX_FIRE_POINTS; i++ )
 	{
-		m_firePoints[ i ].Make_Identity();
+		GXROW_OPENCONTAIN.firePoints[ i ].Make_Identity();
 	}
 
 }
@@ -168,13 +174,13 @@ OpenContain::~OpenContain()
 {
 
 	// sanity, the system should be cleaning these up itself if all is going well
-	DEBUG_ASSERTCRASH( m_containList.empty(),
+	DEBUG_ASSERTCRASH( GXROW_OPENCONTAIN.containList.empty(),
 										 ("OpenContain %s: destroying a container that still has items in it!",
 										  getObject()->getTemplate()->getName().str() ) );
 
 	// sanity
-	DEBUG_ASSERTCRASH( m_xferContainIDList.empty(),
-										 ("OpenContain %s: m_xferContainIDList is not empty but should be",
+	DEBUG_ASSERTCRASH( GXROW_OPENCONTAIN.xferContainIDList.empty(),
+										 ("OpenContain %s: GXROW_OPENCONTAIN.xferContainIDList is not empty but should be",
 											getObject()->getTemplate()->getName().str() ) );
 
 }
@@ -192,20 +198,20 @@ void OpenContain::containReactToTransformChange()
 //-------------------------------------------------------------------------------------------------
 UpdateSleepTime OpenContain::update()
 {
-	m_playerEnteredMask = 0;
+	GXROW_OPENCONTAIN.playerEnteredMask = 0;
 
 	// we need to monitor changes in the art and position
 	monitorConditionChanges();
 
-	if( m_doorCloseCountdown )
+	if( GXROW_OPENCONTAIN.doorCloseCountdown )
 	{
 		/// @todo srj -- for now, OpenContain assumes at most one door
-		--m_doorCloseCountdown;
-		if( m_doorCloseCountdown == 0 )
+		--GXROW_OPENCONTAIN.doorCloseCountdown;
+		if( GXROW_OPENCONTAIN.doorCloseCountdown == 0 )
 			getObject()->clearAndSetModelConditionState( MODELCONDITION_DOOR_1_OPENING, MODELCONDITION_DOOR_1_CLOSING );
 	}
 
-	if (!m_objectEnterExitInfo.empty())
+	if (!GXROW_OPENCONTAIN.objectEnterExitInfo.empty())
 		pruneDeadWanters();
 
 	return UPDATE_SLEEP_NONE;
@@ -338,7 +344,7 @@ void OpenContain::addToContain( Object *rider )
 	// Which list to physically add to needs to be overridable
 	addToContainList(rider);
 
-	m_playerEnteredMask = rider->getControllingPlayer()->getPlayerMask();
+	GXROW_OPENCONTAIN.playerEnteredMask = rider->getControllingPlayer()->getPlayerMask();
 
 	if (isEnclosingContainerFor( rider ))
 	{
@@ -375,15 +381,15 @@ void OpenContain::addToContain( Object *rider )
 //-------------------------------------------------------------------------------------------------
 void OpenContain::addToContainList( Object *rider )
 {
-	m_containList.push_back(rider);
-	m_containListSize++;
+	GXROW_OPENCONTAIN.containList.push_back(rider);
+	GXROW_OPENCONTAIN.containListSize++;
 	if( rider->isKindOf( KINDOF_STEALTH_GARRISON ) )
 	{
-		m_stealthUnitsContained++;
+		GXROW_OPENCONTAIN.stealthUnitsContained++;
 	}
 	if( rider->isKindOf( KINDOF_HERO ) )
 	{
-		m_heroUnitsContained++;
+		GXROW_OPENCONTAIN.heroUnitsContained++;
 	}
 }
 
@@ -416,8 +422,8 @@ void OpenContain::removeFromContain( Object *rider, Bool exposeStealthUnits )
 
 	}
 
-	ContainedItemsList::iterator it = std::find(m_containList.begin(), m_containList.end(), rider);
-	if (it != m_containList.end())
+	ContainedItemsList::iterator it = std::find(GXROW_OPENCONTAIN.containList.begin(), GXROW_OPENCONTAIN.containList.end(), rider);
+	if (it != GXROW_OPENCONTAIN.containList.end())
 	{
 		// note that this invalidates the iterator!
 		removeFromContainViaIterator( it, exposeStealthUnits );
@@ -432,7 +438,7 @@ void OpenContain::removeAllContained( Bool exposeStealthUnits )
 {
 	ContainedItemsList::iterator it;
 
- 	while ((it = m_containList.begin()) != m_containList.end())
+ 	while ((it = GXROW_OPENCONTAIN.containList.begin()) != GXROW_OPENCONTAIN.containList.end())
 	{
 
  		// note that this invalidates the iterator!
@@ -447,16 +453,16 @@ void OpenContain::removeAllContained( Bool exposeStealthUnits )
 //-------------------------------------------------------------------------------------------------
 void OpenContain::killAllContained()
 {
-	// TheSuperHackers @bugfix xezon 23/05/2025 Empty m_containList straight away
-	// to prevent a potential child call to catastrophically modify the m_containList as well.
+	// TheSuperHackers @bugfix xezon 23/05/2025 Empty GXROW_OPENCONTAIN.containList straight away
+	// to prevent a potential child call to catastrophically modify the GXROW_OPENCONTAIN.containList as well.
 	// This scenario can happen if the killed occupant(s) apply deadly damage on death
 	// to the host container, which then attempts to remove all remaining occupants
 	// on the death of the host container. This is reproducible by shooting with
 	// Neutron Shells on a GLA Technical containing GLA Terrorists.
 
 	ContainedItemsList list;
-	list.swap(m_containList);
-	m_containListSize = 0;
+	list.swap(GXROW_OPENCONTAIN.containList);
+	GXROW_OPENCONTAIN.containListSize = 0;
 
 	ContainedItemsList::iterator it = list.begin();
 
@@ -480,9 +486,9 @@ void OpenContain::killAllContained()
 //--------------------------------------------------------------------------------------------------------
 void OpenContain::harmAndForceExitAllContained( DamageInfo *info )
 {
-	ContainedItemsList::iterator it = m_containList.begin();
+	ContainedItemsList::iterator it = GXROW_OPENCONTAIN.containList.begin();
 
- 	while ( it != m_containList.end() )
+ 	while ( it != GXROW_OPENCONTAIN.containList.end() )
 	{
 		Object *rider = *it;
 
@@ -498,12 +504,12 @@ void OpenContain::harmAndForceExitAllContained( DamageInfo *info )
 		//Causes recursive damage where a bunker buster destroys an infantry, the infantry explodes and blows up
 		//another missile which kills everyone inside while the first missile is killing everyone. And the game blows up.
 		//Fix is to reset the list.
-		it = m_containList.begin();
+		it = GXROW_OPENCONTAIN.containList.begin();
 
 	}
 
 
-  DEBUG_ASSERTCRASH( m_containListSize == 0, ("harmAndForceExitAllContained just made a booboo, list size != zero.") );
+  DEBUG_ASSERTCRASH( GXROW_OPENCONTAIN.containListSize == 0, ("harmAndForceExitAllContained just made a booboo, list size != zero.") );
 
 }
 
@@ -515,10 +521,10 @@ void OpenContain::doLoadSound()
 	//
 	// play a sound for loading someone into a building
 	//
-	if( m_loadSoundsEnabled )
+	if( GXROW_OPENCONTAIN.loadSoundsEnabled )
 	{
 		UnsignedInt now = TheGameLogic->getFrame();
-		if( now != m_lastLoadSoundFrame )
+		if( now != GXROW_OPENCONTAIN.lastLoadSoundFrame )
 		{
 			if (getOpenContainModuleData())
 			{
@@ -527,7 +533,7 @@ void OpenContain::doLoadSound()
 				TheAudio->addAudioEvent(&enterSound);
 			}
 			// save this frame as the last time we did this sound
-			m_lastLoadSoundFrame = now;
+			GXROW_OPENCONTAIN.lastLoadSoundFrame = now;
 		}
 	}
 }
@@ -541,7 +547,7 @@ void OpenContain::doUnloadSound()
 	// than one per frame (we can do meta unload all commands)
 	//
 	UnsignedInt now = TheGameLogic->getFrame();
-	if( now != m_lastUnloadSoundFrame )
+	if( now != GXROW_OPENCONTAIN.lastUnloadSoundFrame )
 	{
 		if (getOpenContainModuleData())
 		{
@@ -551,7 +557,7 @@ void OpenContain::doUnloadSound()
 			TheAudio->addAudioEvent(&exitSound);
 		}
 		// save this frame as the last time we did this sound
-		m_lastUnloadSoundFrame = now;
+		GXROW_OPENCONTAIN.lastUnloadSoundFrame = now;
 	}
 }
 
@@ -564,7 +570,7 @@ void OpenContain::iterateContained( ContainIterateFunc func, void *userData, Boo
 	{
 		// note that this has to be smart enough to handle items in the list being deleted
 		// via the callback function.
-		for(ContainedItemsList::reverse_iterator it = m_containList.rbegin(); it != m_containList.rend(); )
+		for(ContainedItemsList::reverse_iterator it = GXROW_OPENCONTAIN.containList.rbegin(); it != GXROW_OPENCONTAIN.containList.rend(); )
 		{
 			// save the rider...
 			Object* rider = *it;
@@ -581,7 +587,7 @@ void OpenContain::iterateContained( ContainIterateFunc func, void *userData, Boo
 	{
 		// note that this has to be smart enough to handle items in the list being deleted
 		// via the callback function.
-		for(ContainedItemsList::iterator it = m_containList.begin(); it != m_containList.end(); )
+		for(ContainedItemsList::iterator it = GXROW_OPENCONTAIN.containList.begin(); it != GXROW_OPENCONTAIN.containList.end(); )
 		{
 			// save the rider...
 			Object* rider = *it;
@@ -603,7 +609,7 @@ Object* OpenContain::getClosestRider( const Coord3D *pos )
 	Object *closest = nullptr;
 	Real closestDistance;
 
-	for(ContainedItemsList::const_iterator it = m_containList.begin(); it != m_containList.end(); ++it)
+	for(ContainedItemsList::const_iterator it = GXROW_OPENCONTAIN.containList.begin(); it != GXROW_OPENCONTAIN.containList.end(); ++it)
 	{
     Object *rider = *it;
 
@@ -657,12 +663,12 @@ void OpenContain::removeFromContainViaIterator( ContainedItemsList::iterator it,
 	Object *rider = *it;
 
 	// remove item from list
-	m_containList.erase(it);
-	m_containListSize--;
+	GXROW_OPENCONTAIN.containList.erase(it);
+	GXROW_OPENCONTAIN.containListSize--;
 	if( rider->isKindOf( KINDOF_STEALTH_GARRISON ) )
 	{
-		DEBUG_ASSERTCRASH( m_stealthUnitsContained > 0, ("OpenContain::removeFromContainViaIterator - Removing stealth unit but stealth count is %d", m_stealthUnitsContained) );
-		m_stealthUnitsContained--;
+		DEBUG_ASSERTCRASH( GXROW_OPENCONTAIN.stealthUnitsContained > 0, ("OpenContain::removeFromContainViaIterator - Removing stealth unit but stealth count is %d", GXROW_OPENCONTAIN.stealthUnitsContained) );
+		GXROW_OPENCONTAIN.stealthUnitsContained--;
 		if( exposeStealthUnits )
 		{
 			StealthUpdate* stealth = rider->getStealth();
@@ -674,8 +680,8 @@ void OpenContain::removeFromContainViaIterator( ContainedItemsList::iterator it,
 	}
 	if( rider->isKindOf( KINDOF_HERO ) )
 	{
-		DEBUG_ASSERTCRASH( m_heroUnitsContained > 0, ("OpenContain::removeFromContainViaIterator - Removing hero but hero count is %d", m_heroUnitsContained) );
-		m_heroUnitsContained--;
+		DEBUG_ASSERTCRASH( GXROW_OPENCONTAIN.heroUnitsContained > 0, ("OpenContain::removeFromContainViaIterator - Removing hero but hero count is %d", GXROW_OPENCONTAIN.heroUnitsContained) );
+		GXROW_OPENCONTAIN.heroUnitsContained--;
 	}
 
 
@@ -760,7 +766,7 @@ void OpenContain::scatterToNearbyPosition(Object* rider)
 void OpenContain::onContaining( Object *rider, Bool wasSelected )
 {
 	// Play audio
-	if( m_loadSoundsEnabled )
+	if( GXROW_OPENCONTAIN.loadSoundsEnabled )
 	{
 		AudioEventRTS enterSound = *getObject()->getTemplate()->getSoundEnter();
 		enterSound.setObjectID(getObject()->getID());
@@ -789,7 +795,7 @@ Real OpenContain::getContainedItemsMass() const
 {
 	/// @todo srj -- may want to cache this information.
 	Real mass = 0;
-	for(ContainedItemsList::const_iterator it = m_containList.begin(); it != m_containList.end(); ++it)
+	for(ContainedItemsList::const_iterator it = GXROW_OPENCONTAIN.containList.begin(); it != GXROW_OPENCONTAIN.containList.end(); ++it)
 	{
 		PhysicsBehavior* phys = (*it)->getPhysics();
 		if (phys)
@@ -821,7 +827,7 @@ void OpenContain::onCollide( Object *other, const Coord3D *loc, const Coord3D *n
 
 	// last-minute change: don't allow units from multiple (different) players to occupy the same
 	// unit. so eject everyone else if they aren't controlled by the same player. (srj)
-	for( ContainedItemsList::iterator it = m_containList.begin(); it != m_containList.end(); )
+	for( ContainedItemsList::iterator it = GXROW_OPENCONTAIN.containList.begin(); it != GXROW_OPENCONTAIN.containList.end(); )
 	{
 		// save the rider...
 		Object* rider = *it;
@@ -864,7 +870,7 @@ void OpenContain::onCollide( Object *other, const Coord3D *loc, const Coord3D *n
 void OpenContain::onDelete()	///< Last possible moment cleanup
 {
 	// This uses my literal list, and not the gettor, because we don't want to get redirected some place fancy.
-	for(ContainedItemsList::iterator it = m_containList.begin(); it != m_containList.end(); )
+	for(ContainedItemsList::iterator it = GXROW_OPENCONTAIN.containList.begin(); it != GXROW_OPENCONTAIN.containList.end(); )
 	{
 		Object* rider = *it;
 		++it;
@@ -965,8 +971,8 @@ void OpenContain::exitObjectViaDoor( Object *exitObj, ExitDoorType exitDoor )
 
 	Object *me = getObject();
 
-	m_doorCloseCountdown = getOpenContainModuleData()->m_doorOpenTime;
-	if (m_doorCloseCountdown)
+	GXROW_OPENCONTAIN.doorCloseCountdown = getOpenContainModuleData()->m_doorOpenTime;
+	if (GXROW_OPENCONTAIN.doorCloseCountdown)
 	{
 		// srj sez: only diddle the doors if this countdown is nonzero.
 		// this allows us to prevent this module from messing with the doors
@@ -987,14 +993,14 @@ void OpenContain::exitObjectViaDoor( Object *exitObj, ExitDoorType exitDoor )
 		if( numberExits > 1 )
 		{
 			char suffix[8];
-			itoa(m_whichExitPath, suffix, 10);
-			if( m_whichExitPath < 10 )
+			itoa(GXROW_OPENCONTAIN.whichExitPath, suffix, 10);
+			if( GXROW_OPENCONTAIN.whichExitPath < 10 )
 			{
 				startBone.concat('0');
 				endBone.concat('0');
 			}
 
-			m_whichExitPath = (m_whichExitPath % numberExits) + 1;// To cycle from 1 to n
+			GXROW_OPENCONTAIN.whichExitPath = (GXROW_OPENCONTAIN.whichExitPath % numberExits) + 1;// To cycle from 1 to n
 
 			startBone.concat(suffix);
 			endBone.concat(suffix);
@@ -1045,8 +1051,8 @@ void OpenContain::exitObjectViaDoor( Object *exitObj, ExitDoorType exitDoor )
 		std::vector<Coord3D> exitPath;
 		exitPath.push_back(endPosition);
 		exitPath.push_back(endPosition); // Do it twice, in case units stack up due to brief flying.  jba.
-		if (m_rallyPointExists) {
-			exitPath.push_back(m_rallyPoint);
+		if (GXROW_OPENCONTAIN.rallyPointExists) {
+			exitPath.push_back(GXROW_OPENCONTAIN.rallyPoint);
 		}
 
 		if( ai )
@@ -1084,8 +1090,8 @@ void OpenContain::exitObjectInAHurry( Object *exitObj )
 
 	Object *me = getObject();
 
-	m_doorCloseCountdown = getOpenContainModuleData()->m_doorOpenTime;
-	if (m_doorCloseCountdown)
+	GXROW_OPENCONTAIN.doorCloseCountdown = getOpenContainModuleData()->m_doorOpenTime;
+	if (GXROW_OPENCONTAIN.doorCloseCountdown)
 	{
 		// srj sez: only diddle the doors if this countdown is nonzero.
 		// this allows us to prevent this module from messing with the doors
@@ -1106,14 +1112,14 @@ void OpenContain::exitObjectInAHurry( Object *exitObj )
 		if( numberExits > 1 )
 		{
 			char suffix[8];
-			itoa(m_whichExitPath, suffix, 10);
-			if( m_whichExitPath < 10 )
+			itoa(GXROW_OPENCONTAIN.whichExitPath, suffix, 10);
+			if( GXROW_OPENCONTAIN.whichExitPath < 10 )
 			{
 				startBone.concat('0');
 				endBone.concat('0');
 			}
 
-			m_whichExitPath = (m_whichExitPath % numberExits) + 1;// To cycle from 1 to n
+			GXROW_OPENCONTAIN.whichExitPath = (GXROW_OPENCONTAIN.whichExitPath % numberExits) + 1;// To cycle from 1 to n
 
 			startBone.concat(suffix);
 			endBone.concat(suffix);
@@ -1148,8 +1154,8 @@ void OpenContain::exitObjectInAHurry( Object *exitObj )
 			TheAI->pathfinder()->adjustToPossibleDestination(exitObj, ai->getLocomotorSet(), &endPosition);
 		}
 		exitPath.push_back(endPosition);
-		if (m_rallyPointExists) {
-			exitPath.push_back(m_rallyPoint);
+		if (GXROW_OPENCONTAIN.rallyPointExists) {
+			exitPath.push_back(GXROW_OPENCONTAIN.rallyPoint);
 		}
 
 		if( ai )
@@ -1174,7 +1180,7 @@ Bool OpenContain::isPassengerAllowedToFire( ObjectID id ) const
 //	const OpenContainModuleData *modData = getOpenContainModuleData();
   //this flag is owned by opencontain, now, so that the upgrade can override the template data
   //M Lorenzen, 5/6/03
-	if( ! m_passengerAllowedToFire )
+	if( ! GXROW_OPENCONTAIN.passengerAllowedToFire )
 		return FALSE;// Just no, no matter what.
 
 	// If we are ourselves contained, our passengers need to check with them if they get past us
@@ -1199,7 +1205,7 @@ void OpenContain::monitorConditionChanges()
 	if( draw )
 	{
 		currCondition = draw->getModelConditionFlags();
-		if(currCondition != m_conditionState )
+		if(currCondition != GXROW_OPENCONTAIN.conditionState )
 			stateChanged = TRUE;
 	}
 
@@ -1209,7 +1215,7 @@ void OpenContain::monitorConditionChanges()
 		// just yank all objects from the fire points and redeploy
 		redeployOccupants();
 		// record this as our current and up to date state
-		m_conditionState = currCondition;
+		GXROW_OPENCONTAIN.conditionState = currCondition;
 	}
 
 }
@@ -1225,10 +1231,10 @@ void OpenContain::redeployOccupants()
 	// having any before (for optimization reasons) we want to check at least one more
 	// time again
 	//
-	m_noFirePointsInArt = false;
-	m_firePointStart = -1;
-	m_firePointNext = 0;
-	m_firePointSize = 0;				// 0 here will cause a re-lookup in the new art
+	GXROW_OPENCONTAIN.noFirePointsInArt = false;
+	GXROW_OPENCONTAIN.firePointStart = -1;
+	GXROW_OPENCONTAIN.firePointNext = 0;
+	GXROW_OPENCONTAIN.firePointSize = 0;				// 0 here will cause a re-lookup in the new art
 
 	//
 	// redeploy the occupants, note that we're starting at the last occupant and going
@@ -1253,17 +1259,17 @@ void OpenContain::putObjAtNextFirePoint( Object *obj )
 	// determined there is no firepoints in the current art we will avoid searching for
 	// it all the time
 	//
-	if( m_firePointSize == 0 && m_noFirePointsInArt == false )
+	if( GXROW_OPENCONTAIN.firePointSize == 0 && GXROW_OPENCONTAIN.noFirePointsInArt == false )
 	{
 
-		m_firePointSize = getObject()->getMultiLogicalBonePosition("FIREPOINT", MAX_FIRE_POINTS, nullptr, m_firePoints, TRUE );
+		GXROW_OPENCONTAIN.firePointSize = getObject()->getMultiLogicalBonePosition("FIREPOINT", MAX_FIRE_POINTS, nullptr, GXROW_OPENCONTAIN.firePoints, TRUE );
 
 		//
 		// if there is still no firepoints in the art, we'll set a flag so that we don't
 		// ever go through the art stuff again
 		//
-		if( m_firePointSize == 0 )
-			m_noFirePointsInArt = TRUE;
+		if( GXROW_OPENCONTAIN.firePointSize == 0 )
+			GXROW_OPENCONTAIN.noFirePointsInArt = TRUE;
 
 	}
 
@@ -1271,7 +1277,7 @@ void OpenContain::putObjAtNextFirePoint( Object *obj )
 	// if there are no fire points in the art we just put the object at the center
 	// of the object
 	//
-	if( m_noFirePointsInArt == TRUE )
+	if( GXROW_OPENCONTAIN.noFirePointsInArt == TRUE )
 	{
 		const Coord3D *pos = getObject()->getPosition();
 
@@ -1287,8 +1293,8 @@ void OpenContain::putObjAtNextFirePoint( Object *obj )
 		// If our passengers are in our turret, we need to recompute the Matrix.
 		AsciiString firepoint("FIREPOINT");
 		char suffix[8];
-		itoa( m_firePointNext + 1, suffix, 10 );//+1 from bone names starting at 1, not zero like my array
-		if( m_firePointNext < 10 )
+		itoa( GXROW_OPENCONTAIN.firePointNext + 1, suffix, 10 );//+1 from bone names starting at 1, not zero like my array
+		if( GXROW_OPENCONTAIN.firePointNext < 10 )
 		{
 			firepoint.concat('0');
 		}
@@ -1298,7 +1304,7 @@ void OpenContain::putObjAtNextFirePoint( Object *obj )
 	}
 	else
 	{
-		matrix = m_firePoints[ m_firePointNext ];
+		matrix = GXROW_OPENCONTAIN.firePoints[ GXROW_OPENCONTAIN.firePointNext ];
 	}
 
 	Vector3 vectorPos = matrix.Get_Translation();
@@ -1312,9 +1318,9 @@ void OpenContain::putObjAtNextFirePoint( Object *obj )
 		obj->setTransformMatrix( &matrix );//Only do everything if it matters
 
 	// increment the next firepoint to use ... make sure to wrap if we need to
-	m_firePointNext++;
-	if( m_firePointNext >= m_firePointSize )
-		m_firePointNext = 0;
+	GXROW_OPENCONTAIN.firePointNext++;
+	if( GXROW_OPENCONTAIN.firePointNext >= GXROW_OPENCONTAIN.firePointSize )
+		GXROW_OPENCONTAIN.firePointNext = 0;
 
 }
 
@@ -1333,20 +1339,20 @@ void OpenContain::onObjectWantsToEnterOrExit(Object* obj, ObjectEnterExitType wa
 	ObjectID id = obj->getID();
 	if (wants == WANTS_NEITHER)
 	{
-		ObjectEnterExitMap::iterator it = m_objectEnterExitInfo.find(id);
-		if (it != m_objectEnterExitInfo.end())
-			m_objectEnterExitInfo.erase(it);
+		ObjectEnterExitMap::iterator it = GXROW_OPENCONTAIN.objectEnterExitInfo.find(id);
+		if (it != GXROW_OPENCONTAIN.objectEnterExitInfo.end())
+			GXROW_OPENCONTAIN.objectEnterExitInfo.erase(it);
 	}
 	else
 	{
-		m_objectEnterExitInfo[id] = wants;
+		GXROW_OPENCONTAIN.objectEnterExitInfo[id] = wants;
 	}
 }
 
 //-------------------------------------------------------------------------------------------------
 void OpenContain::pruneDeadWanters()
 {
-	for (ObjectEnterExitMap::iterator it = m_objectEnterExitInfo.begin(); it != m_objectEnterExitInfo.end(); /*++it*/)
+	for (ObjectEnterExitMap::iterator it = GXROW_OPENCONTAIN.objectEnterExitInfo.begin(); it != GXROW_OPENCONTAIN.objectEnterExitInfo.end(); /*++it*/)
 	{
 		ObjectID id = (*it).first;
 		Object* obj = TheGameLogic->findObjectByID(id);
@@ -1354,7 +1360,7 @@ void OpenContain::pruneDeadWanters()
 		{
 			ObjectEnterExitMap::iterator tmp = it;
 			++it;
-			m_objectEnterExitInfo.erase(tmp);
+			GXROW_OPENCONTAIN.objectEnterExitInfo.erase(tmp);
 		}
 		else
 		{
@@ -1366,7 +1372,7 @@ void OpenContain::pruneDeadWanters()
 //-------------------------------------------------------------------------------------------------
 void OpenContain::markAllPassengersDetected()
 {
-	for( ContainedItemsList::iterator it = m_containList.begin(); it != m_containList.end(); )
+	for( ContainedItemsList::iterator it = GXROW_OPENCONTAIN.containList.begin(); it != GXROW_OPENCONTAIN.containList.end(); )
 	{
 		// save the rider...
 		Object* rider = *it;
@@ -1509,20 +1515,20 @@ void OpenContain::processDamageToContained(Real percentDamage)
 
 #else
 
-	// TheSuperHackers @bugfix xezon 05/06/2025 Temporarily empty the m_containList
-	// to prevent a potential child call to catastrophically modify the m_containList.
+	// TheSuperHackers @bugfix xezon 05/06/2025 Temporarily empty the GXROW_OPENCONTAIN.containList
+	// to prevent a potential child call to catastrophically modify the GXROW_OPENCONTAIN.containList.
 	// This scenario can happen if the killed occupant(s) apply deadly damage on death
 	// to the host container, which then attempts to remove all remaining occupants
 	// on the death of the host container. This is reproducible by destroying a
 	// GLA Battle Bus with at least 2 half damaged GLA Terrorists inside.
 
-	// Caveat: While the m_containList is empty, it will not be possible to apply damage
+	// Caveat: While the GXROW_OPENCONTAIN.containList is empty, it will not be possible to apply damage
 	// on death of a unit to another unit in the host container. If this functionality
 	// is desired, then this implementation needs to be revisited.
 
 	ContainedItemsList list;
-	m_containList.swap(list);
-	m_containListSize = 0;
+	GXROW_OPENCONTAIN.containList.swap(list);
+	GXROW_OPENCONTAIN.containListSize = 0;
 
 	ContainedItemsList::iterator it = list.begin();
 
@@ -1558,8 +1564,8 @@ void OpenContain::processDamageToContained(Real percentDamage)
 	}
 
 	// Swap the list back where it belongs.
-	m_containList.swap(list);
-	m_containListSize = (UnsignedInt)m_containList.size();
+	GXROW_OPENCONTAIN.containList.swap(list);
+	GXROW_OPENCONTAIN.containListSize = (UnsignedInt)GXROW_OPENCONTAIN.containList.size();
 
 #endif // RETAIL_COMPATIBLE_CRC
 }
@@ -1592,22 +1598,22 @@ Bool OpenContain::isEnclosingContainerFor( const Object * ) const
 //-------------------------------------------------------------------------------------------------
 Bool OpenContain::hasObjectsWantingToEnterOrExit() const
 {
-	return !m_objectEnterExitInfo.empty();
+	return !GXROW_OPENCONTAIN.objectEnterExitInfo.empty();
 }
 
 
 //-------------------------------------------------------------------------------------------------
 void OpenContain::setRallyPoint( const Coord3D *pos )
 {
-	m_rallyPoint = *pos;
-	m_rallyPointExists = true;
+	GXROW_OPENCONTAIN.rallyPoint = *pos;
+	GXROW_OPENCONTAIN.rallyPointExists = true;
 }
 
 //-------------------------------------------------------------------------------------------------
 const Coord3D *OpenContain::getRallyPoint() const
 {
-	if (m_rallyPointExists)
-		return &m_rallyPoint;
+	if (GXROW_OPENCONTAIN.rallyPointExists)
+		return &GXROW_OPENCONTAIN.rallyPoint;
 
 	return nullptr;
 }
@@ -1705,9 +1711,9 @@ void OpenContain::xfer( Xfer *xfer )
 	{
 
 		// contain list size
-		xfer->xferUnsignedInt( &m_containListSize );
+		xfer->xferUnsignedInt( &GXROW_OPENCONTAIN.containListSize );
 
-		for( ContainedItemsList::const_iterator it = m_containList.begin(); it != m_containList.end(); ++it )
+		for( ContainedItemsList::const_iterator it = GXROW_OPENCONTAIN.containList.begin(); it != GXROW_OPENCONTAIN.containList.end(); ++it )
 		{
 
 			objectID = (*it)->getID();
@@ -1720,20 +1726,20 @@ void OpenContain::xfer( Xfer *xfer )
 	{
 
 		// the containment list should be empty at this time
-		if( m_containList.empty() == FALSE )
+		if( GXROW_OPENCONTAIN.containList.empty() == FALSE )
 		{
 #if 1
 			// srj sez: yeah, it SHOULD be, but a few rogue things come into existence (via their ctor) preloaded
 			// with stuff (eg, "CabooseFullOfTerrorists"). so just nuke 'em here. sigh...
-			m_containListSize = 0;
-			for (ContainedItemsList::iterator it = m_containList.begin(); it != m_containList.end(); /*++it*/ )
+			GXROW_OPENCONTAIN.containListSize = 0;
+			for (ContainedItemsList::iterator it = GXROW_OPENCONTAIN.containList.begin(); it != GXROW_OPENCONTAIN.containList.end(); /*++it*/ )
 			{
 				// clear as go along, otherwise the obj will try to remove itself, munging things
 				Object* tmp = *it;
-				it = m_containList.erase(it);
+				it = GXROW_OPENCONTAIN.containList.erase(it);
 				TheGameLogic->destroyObject(tmp);
 			}
-			m_containList.clear();
+			GXROW_OPENCONTAIN.containList.clear();
 #else
 			DEBUG_CRASH(( "OpenContain::xfer - Contain list should be empty before load but is not" ));
 			throw SC_INVALID_DATA;
@@ -1742,70 +1748,70 @@ void OpenContain::xfer( Xfer *xfer )
 		}
 
 		// contain list size
-		xfer->xferUnsignedInt( &m_containListSize );
+		xfer->xferUnsignedInt( &GXROW_OPENCONTAIN.containListSize );
 
 		// read all contained items
-		for( UnsignedInt i = 0; i < m_containListSize; ++i )
+		for( UnsignedInt i = 0; i < GXROW_OPENCONTAIN.containListSize; ++i )
 		{
 
 			// read id
 			xfer->xferObjectID( &objectID );
 
 			// put on list for later processing once objects are loaded
-			m_xferContainIDList.push_back( objectID );
+			GXROW_OPENCONTAIN.xferContainIDList.push_back( objectID );
 
 		}
 
 	}
 
 	// player entered mask
-	xfer->xferUser( &m_playerEnteredMask, sizeof( PlayerMaskType ) );
+	xfer->xferUser( &GXROW_OPENCONTAIN.playerEnteredMask, sizeof( PlayerMaskType ) );
 
 	// last unload sound frame
-	xfer->xferUnsignedInt( &m_lastUnloadSoundFrame );
+	xfer->xferUnsignedInt( &GXROW_OPENCONTAIN.lastUnloadSoundFrame );
 
 	// last load sound frame
-	xfer->xferUnsignedInt( &m_lastLoadSoundFrame );
+	xfer->xferUnsignedInt( &GXROW_OPENCONTAIN.lastLoadSoundFrame );
 
 	// stealth units contained
-	xfer->xferUnsignedInt( &m_stealthUnitsContained ); // TheSuperHackers @todo This is redundant information in xfer. Remove it.
+	xfer->xferUnsignedInt( &GXROW_OPENCONTAIN.stealthUnitsContained ); // TheSuperHackers @todo This is redundant information in xfer. Remove it.
 
 	// door close countdown
-	xfer->xferUnsignedInt( &m_doorCloseCountdown );
+	xfer->xferUnsignedInt( &GXROW_OPENCONTAIN.doorCloseCountdown );
 
 	// condition state
-	m_conditionState.xfer( xfer );
+	GXROW_OPENCONTAIN.conditionState.xfer( xfer );
 
 	// fire points
-	xfer->xferUser( &m_firePoints, sizeof( Matrix3D ) * MAX_FIRE_POINTS );
+	xfer->xferUser( &GXROW_OPENCONTAIN.firePoints, sizeof( Matrix3D ) * MAX_FIRE_POINTS );
 
 	// fire point start
-	xfer->xferInt( &m_firePointStart );
+	xfer->xferInt( &GXROW_OPENCONTAIN.firePointStart );
 
 	// fire point next
-	xfer->xferInt( &m_firePointNext );
+	xfer->xferInt( &GXROW_OPENCONTAIN.firePointNext );
 
 	// fire point size
-	xfer->xferInt( &m_firePointSize );
+	xfer->xferInt( &GXROW_OPENCONTAIN.firePointSize );
 
 	// no fire points in art
-	xfer->xferBool( &m_noFirePointsInArt );
+	xfer->xferBool( &GXROW_OPENCONTAIN.noFirePointsInArt );
 
 	// rally point
-	xfer->xferCoord3D( &m_rallyPoint );
+	xfer->xferCoord3D( &GXROW_OPENCONTAIN.rallyPoint );
 
 	// rally point exists
-	xfer->xferBool( &m_rallyPointExists );
+	xfer->xferBool( &GXROW_OPENCONTAIN.rallyPointExists );
 
 	// enter exit map info
-	UnsignedShort enterExitCount = m_objectEnterExitInfo.size();
+	UnsignedShort enterExitCount = GXROW_OPENCONTAIN.objectEnterExitInfo.size();
 	xfer->xferUnsignedShort( &enterExitCount );
 	ObjectEnterExitType enterExitType;
 	if( xfer->getXferMode() == XFER_SAVE )
 	{
 
 		ObjectEnterExitMap::const_iterator it;
-		for( it = m_objectEnterExitInfo.begin(); it != m_objectEnterExitInfo.end(); ++it )
+		for( it = GXROW_OPENCONTAIN.objectEnterExitInfo.begin(); it != GXROW_OPENCONTAIN.objectEnterExitInfo.end(); ++it )
 		{
 
 			// object id
@@ -1823,10 +1829,10 @@ void OpenContain::xfer( Xfer *xfer )
 	{
 
 		// the map should be empty now
-		if( m_objectEnterExitInfo.empty() == FALSE )
+		if( GXROW_OPENCONTAIN.objectEnterExitInfo.empty() == FALSE )
 		{
 
-			DEBUG_CRASH(( "OpenContain::xfer - m_objectEnterExitInfo should be empty, but is not" ));
+			DEBUG_CRASH(( "OpenContain::xfer - GXROW_OPENCONTAIN.objectEnterExitInfo should be empty, but is not" ));
 			throw SC_INVALID_DATA;
 
 		}
@@ -1842,19 +1848,19 @@ void OpenContain::xfer( Xfer *xfer )
 			xfer->xferUser( &enterExitType, sizeof( ObjectEnterExitType ) );
 
 			// assign
-			m_objectEnterExitInfo[ objectID ] = enterExitType;
+			GXROW_OPENCONTAIN.objectEnterExitInfo[ objectID ] = enterExitType;
 
 		}
 
 	}
 
 	// which exit path
-	xfer->xferInt( &m_whichExitPath );
+	xfer->xferInt( &GXROW_OPENCONTAIN.whichExitPath );
 
 
   if ( version >= 2 )
   {
-    xfer->xferBool( &m_passengerAllowedToFire );
+    xfer->xferBool( &GXROW_OPENCONTAIN.passengerAllowedToFire );
   }
 
 
@@ -1871,7 +1877,7 @@ void OpenContain::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 	// the containment list should be empty at this time
-	if( m_containList.empty() == FALSE )
+	if( GXROW_OPENCONTAIN.containList.empty() == FALSE )
 	{
 
 		DEBUG_CRASH(( "OpenContain::loadPostProcess - Contain list should be empty before load but is not" ));
@@ -1880,12 +1886,12 @@ void OpenContain::loadPostProcess()
 	}
 
 	// turn the contained id list into actual object pointers in the contain list
-	m_containListSize = 0;
-	m_stealthUnitsContained = 0;
-	m_heroUnitsContained = 0;
+	GXROW_OPENCONTAIN.containListSize = 0;
+	GXROW_OPENCONTAIN.stealthUnitsContained = 0;
+	GXROW_OPENCONTAIN.heroUnitsContained = 0;
 	Object *obj;
 	std::list<ObjectID>::const_iterator idIt;
-	for( idIt = m_xferContainIDList.begin(); idIt != m_xferContainIDList.end(); ++idIt )
+	for( idIt = GXROW_OPENCONTAIN.xferContainIDList.begin(); idIt != GXROW_OPENCONTAIN.xferContainIDList.end(); ++idIt )
 	{
 
 		// find this object
@@ -1913,10 +1919,10 @@ void OpenContain::loadPostProcess()
 	}
 
 	// sanity
-	DEBUG_ASSERTCRASH( m_containListSize == m_containList.size(),
+	DEBUG_ASSERTCRASH( GXROW_OPENCONTAIN.containListSize == GXROW_OPENCONTAIN.containList.size(),
 										 ("OpenContain::loadPostProcess - contain list count mismatch") );
 
 	// clear the list as we don't need it anymore
-	m_xferContainIDList.clear();
+	GXROW_OPENCONTAIN.xferContainIDList.clear();
 
 }

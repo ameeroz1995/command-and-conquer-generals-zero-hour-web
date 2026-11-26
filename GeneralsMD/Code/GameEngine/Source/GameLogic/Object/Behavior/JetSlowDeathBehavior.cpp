@@ -43,6 +43,11 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/ObjectCreationList.h"
 
+// Web port (round 5, units are pure data): JetSlowDeathBehavior's per-unit state is a row of TheGxJetSlowDeathBehaviors;
+// GXROW_JETSLOWDEATHBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_JETSLOWDEATHBEHAVIOR (const_cast<GxJetSlowDeathBehaviorRow &>(*m_gxJetSlowDeathBehaviorRow))
+
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -125,13 +130,13 @@ JetSlowDeathBehaviorModuleData::JetSlowDeathBehaviorModuleData()
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-JetSlowDeathBehavior::JetSlowDeathBehavior( Thing *thing, const ModuleData *moduleData )
-										: SlowDeathBehavior( thing, moduleData )
+JetSlowDeathBehavior::JetSlowDeathBehavior( Thing *thing, const ModuleData *moduleData ) : SlowDeathBehavior( thing, moduleData )
 {
 
-	m_timerDeathFrame = 0;
-	m_timerOnGroundFrame = 0;
-	m_rollRate = 0.0f;
+
+	GXROW_JETSLOWDEATHBEHAVIOR.timerDeathFrame = 0;
+	GXROW_JETSLOWDEATHBEHAVIOR.timerOnGroundFrame = 0;
+	GXROW_JETSLOWDEATHBEHAVIOR.rollRate = 0.0f;
 
 }
 
@@ -188,24 +193,24 @@ void JetSlowDeathBehavior::beginSlowDeath( const DamageInfo *damageInfo )
 	const JetSlowDeathBehaviorModuleData *modData = getJetSlowDeathBehaviorModuleData();
 
 	// record the frame we died on
-	m_timerDeathFrame = TheGameLogic->getFrame();
+	GXROW_JETSLOWDEATHBEHAVIOR.timerDeathFrame = TheGameLogic->getFrame();
 
 	// do some effects
 	FXList::doFXObj( modData->m_fxInitialDeath, us );
 	ObjectCreationList::create( modData->m_oclInitialDeath, us, nullptr );
 
 	// start audio loop playing
-	m_deathLoopSound = modData->m_deathLoopSound;
-	if( m_deathLoopSound.getEventName().isEmpty() == FALSE )
+	GXROW_JETSLOWDEATHBEHAVIOR.deathLoopSound = modData->m_deathLoopSound;
+	if( GXROW_JETSLOWDEATHBEHAVIOR.deathLoopSound.getEventName().isEmpty() == FALSE )
 	{
 
-		m_deathLoopSound.setObjectID( us->getID() );
-		m_deathLoopSound.setPlayingHandle( TheAudio->addAudioEvent( &m_deathLoopSound ) );
+		GXROW_JETSLOWDEATHBEHAVIOR.deathLoopSound.setObjectID( us->getID() );
+		GXROW_JETSLOWDEATHBEHAVIOR.deathLoopSound.setPlayingHandle( TheAudio->addAudioEvent( &GXROW_JETSLOWDEATHBEHAVIOR.deathLoopSound ) );
 
 	}
 
 	// initialize our roll rate to that defined as the initial value in the module data
-	m_rollRate = modData->m_rollRate;
+	GXROW_JETSLOWDEATHBEHAVIOR.rollRate = modData->m_rollRate;
 
 	// set the locomotor so that the plane starts falling
 	Locomotor *locomotor = us->getAIUpdateInterface()->getCurLocomotor();
@@ -237,13 +242,13 @@ UpdateSleepTime JetSlowDeathBehavior::update()
 	DEBUG_ASSERTCRASH( physics, ("JetSlowDeathBehavior::beginSlowDeath - '%s' has no physics",
 															us->getTemplate()->getName().str()) );
 	if( physics )
-		physics->setRollRate( m_rollRate );
+		physics->setRollRate( GXROW_JETSLOWDEATHBEHAVIOR.rollRate );
 
 	// adjust the roll rate over time
-	m_rollRate *= modData->m_rollRateDelta;
+	GXROW_JETSLOWDEATHBEHAVIOR.rollRate *= modData->m_rollRateDelta;
 
 	// do effects for death while in the air
-	if( m_timerOnGroundFrame == 0 )
+	if( GXROW_JETSLOWDEATHBEHAVIOR.timerOnGroundFrame == 0 )
 	{
 
 		PathfindLayerEnum layer = TheTerrainLogic->getLayerForDestination(us->getPosition());
@@ -269,7 +274,7 @@ UpdateSleepTime JetSlowDeathBehavior::update()
 		Bool hitATree = FALSE;
 		// Here we want to make sure we crash if we collide with a tree on the way down
 		PhysicsBehavior *phys = us->getPhysics();
-		if ( m_timerOnGroundFrame == 0 && phys )
+		if ( GXROW_JETSLOWDEATHBEHAVIOR.timerOnGroundFrame == 0 && phys )
 		{
 			ObjectID treeID = phys->getLastCollidee();
 			Object *tree = TheGameLogic->findObjectByID( treeID );
@@ -287,14 +292,14 @@ UpdateSleepTime JetSlowDeathBehavior::update()
 		{
 
 			// stop the death looping sound at the right time
-			TheAudio->removeAudioEvent( m_deathLoopSound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( GXROW_JETSLOWDEATHBEHAVIOR.deathLoopSound.getPlayingHandle() );
 
 			// do some effects
 			FXList::doFXObj( modData->m_fxHitGround, us );
 			ObjectCreationList::create( modData->m_oclHitGround, us, nullptr );
 
 			// we are now on the ground
-			m_timerOnGroundFrame = TheGameLogic->getFrame();
+			GXROW_JETSLOWDEATHBEHAVIOR.timerOnGroundFrame = TheGameLogic->getFrame();
 
 			// start us rolling on another axis too
 			if( physics )
@@ -303,8 +308,8 @@ UpdateSleepTime JetSlowDeathBehavior::update()
 		}
 
 		// timers for the secondary effect
-		if( m_timerDeathFrame != 0 &&
-				TheGameLogic->getFrame() - m_timerDeathFrame >= modData->m_delaySecondaryFromInitialDeath )
+		if( GXROW_JETSLOWDEATHBEHAVIOR.timerDeathFrame != 0 &&
+				TheGameLogic->getFrame() - GXROW_JETSLOWDEATHBEHAVIOR.timerDeathFrame >= modData->m_delaySecondaryFromInitialDeath )
 		{
 
 			// do some effects
@@ -312,7 +317,7 @@ UpdateSleepTime JetSlowDeathBehavior::update()
 			ObjectCreationList::create( modData->m_oclSecondary, us, nullptr );
 
 			// clear the death frame timer since we've already executed the event now
-			m_timerDeathFrame = 0;
+			GXROW_JETSLOWDEATHBEHAVIOR.timerDeathFrame = 0;
 
 		}
 
@@ -320,7 +325,7 @@ UpdateSleepTime JetSlowDeathBehavior::update()
 	else
 	{
 		// we are on the ground, pay attention to the final explosion timers
-		if( TheGameLogic->getFrame() - m_timerOnGroundFrame >= modData->m_delayFinalBlowUpFromHitGround )
+		if( TheGameLogic->getFrame() - GXROW_JETSLOWDEATHBEHAVIOR.timerOnGroundFrame >= modData->m_delayFinalBlowUpFromHitGround )
 		{
 
 			// do some effects
@@ -366,13 +371,13 @@ void JetSlowDeathBehavior::xfer( Xfer *xfer )
 	SlowDeathBehavior::xfer( xfer );
 
 	// timer death frame
-	xfer->xferUnsignedInt( &m_timerDeathFrame );
+	xfer->xferUnsignedInt( &GXROW_JETSLOWDEATHBEHAVIOR.timerDeathFrame );
 
 	// on ground frame
-	xfer->xferUnsignedInt( &m_timerOnGroundFrame );
+	xfer->xferUnsignedInt( &GXROW_JETSLOWDEATHBEHAVIOR.timerOnGroundFrame );
 
 	// roll rate
-	xfer->xferReal( &m_rollRate );
+	xfer->xferReal( &GXROW_JETSLOWDEATHBEHAVIOR.rollRate );
 
 }
 

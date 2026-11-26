@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"	// web port: per-tick timers and work counters (tickTiming switch)
 #include <algorithm>
 #include <map>
 #include <Utility/gx_trace.h>
@@ -2685,7 +2686,7 @@ void GameLogic::gxPassMerge()
 	gxPassMergeJoin();
 }
 
-static const Int GX_KIND_BIT0 = 32, GX_KIND_MAX = 28;	// GxUnitStore behaviour bits 32-59 (ai); 60-63 misc per phase
+static const Int GX_KIND_BIT0 = 32, GX_KIND_MAX = 24;	// GxUnitStore behaviour bits 32-55 (ai); 56-59 ai kernels; 60-63 misc per phase
 static const Int GX_MISC_BIT0 = 60;
 
 Int GameLogic::gxKindOf(UpdateModulePtr u, Bool create)
@@ -3947,7 +3948,50 @@ extern __int64 Total_Load_3D_Assets;
 
 // ------------------------------------------------------------------------------------------------
 /** Update all objects in the world by invoking their update() methods. */
+static void gxRunKernels( Int phase );	// round 5 kernels (defined with the registry below)
+namespace {
+struct GxKindKernelEntry { NameKeyType kind; GameLogic::GxKindKernelFn kernel; GameLogic::GxKindApplyFn apply; };
+std::vector<GxKindKernelEntry> &gxKindKernels() { static std::vector<GxKindKernelEntry> k; return k; }
+}
+void GameLogic::gxRegisterKindKernel( NameKeyType kind, GxKindKernelFn kernel, GxKindApplyFn apply )
+{
+	for (GxKindKernelEntry &e : gxKindKernels())
+		if (e.kind == kind) { e.kernel = kernel; e.apply = apply; return; }
+	GxKindKernelEntry e = { kind, kernel, apply };
+	gxKindKernels().push_back(e);
+}
+// Whether kernels run changes the game (they compute before the units' turns), so it follows the
+// match rule updatePasses (host / replay header decide); the kindKernels setting can only turn them
+// off in a local single-player game.
+static Bool gxKernelsOn()
+{
+	extern bool gxMatchRule(unsigned int rule);
+	if (!gxMatchRule(131072)) return FALSE;
+	if (!(GLES3_Page_Switches4() & 128) && TheGameLogic && !TheGameLogic->isInMultiplayerGame()
+			&& !(TheRecorder && TheRecorder->isPlaybackMode()))
+		return FALSE;
+	return TRUE;
+}
+static const GxKindKernelEntry *gxKindKernelOf( NameKeyType kind )
+{
+	if (!gxKernelsOn()) return nullptr;
+	for (const GxKindKernelEntry &e : gxKindKernels())
+		if (e.kind == kind) return &e;
+	return nullptr;
+}
+static void gxRunKindKernel( const GxKindKernelEntry *e, std::vector<UpdateModulePtr> &mods )
+{
+	if (!e || mods.empty()) return;
+	GxTimeScope t(GXT_AI_KERNELS);
+	gxCount(GXC_AI_KERNEL_SLOTS, (unsigned long long)mods.size());
+	if (e->kernel) e->kernel(mods.data(), 0, (Int)mods.size());
+	if (e->apply) e->apply(mods.data(), (Int)mods.size());
+}
+
+
+
 // ------------------------------------------------------------------------------------------------
+
 void GameLogic::update()
 {
 	USE_PERF_TIMER(GameLogic_update)
@@ -4082,6 +4126,7 @@ void GameLogic::update()
 #endif
 
 	{ extern void gxWeaponReloadSystem(); gxWeaponReloadSystem(); }	// combat, round 5: weapon reloads as a system (fourth word bit 24)
+	{ GxTimeScope gxLoopScope(GXT_AI_LOOP);	// tickTiming: the update loop (queue, passes, kernels)
 	extern bool gxMatchRule(unsigned int rule);
 	if (gxMatchRule(131072))
 	{
@@ -4096,6 +4141,7 @@ void GameLogic::update()
 			{
 				m_curUpdateModule = u;
 				sleepLen = u->update();
+				gxCount(GXC_AI_MODULE_CALLS);
 				if (sleepLen < 1)
 					sleepLen = UPDATE_SLEEP_NONE;
 				m_curUpdateModule = nullptr;
@@ -4127,6 +4173,7 @@ void GameLogic::update()
 		};
 		for (Int ph = 0; ph < 4; ++ph)
 		{
+			gxRunKernels(ph);	// round 5 kernels of this phase, before any of its module updates
 			runHeap((now << 2) | ph);
 			// the dispatch table: kinds of this phase in table order, each over its store list
 			auto afterRun = [&](UpdateModulePtr u, UpdateSleepTime sleepLen)
@@ -4162,6 +4209,24 @@ void GameLogic::update()
 						ai.push_back(e);
 					}
 				}
+				// per-kind batch hook: each AI kind's modules, object-ID order, before the state passes
+				for (size_t oi = 0; oi < m_gxKindOrder.size(); ++oi)
+				{
+					GxKind &kd = m_gxKinds[m_gxKindOrder[oi]];
+					if (!kd.isAI || kd.phase != ph) continue;
+					const GxKindKernelEntry *ke = gxKindKernelOf(kd.nk);
+					if (!ke) continue;
+					static std::vector<UpdateModulePtr> km; km.clear();
+					const std::vector<int> &ks = TheGxUnitStore.pass(kd.bit);
+					for (size_t q = 0; q < ks.size(); ++q)
+					{
+						const int sl = ks[q];
+						if (!TheGxUnitStore.obj[sl]) continue;
+						const int id = TheGxUnitStore.id[sl];
+						if (id < (int)kd.modById.size() && kd.modById[id]) km.push_back(kd.modById[id]);
+					}
+					gxRunKindKernel(ke, km);
+				}
 				std::sort(ai.begin(), ai.end(), [](const GxPassEntry &a, const GxPassEntry &b) { return a.key < b.key; });
 				for (size_t q = 0; q < ai.size(); ++q)
 				{
@@ -4177,6 +4242,18 @@ void GameLogic::update()
 					const Int ki = m_gxKindOrder[oi];
 					if (m_gxKinds[ki].isAI || m_gxKinds[ki].phase != ph) continue;
 					slotsCopy = TheGxUnitStore.pass(m_gxKinds[ki].bit);	// copied: masks change as modules leave
+					if (const GxKindKernelEntry *ke = gxKindKernelOf(m_gxKinds[ki].nk))
+					{
+						static std::vector<UpdateModulePtr> km; km.clear();
+						for (size_t q = 0; q < slotsCopy.size(); ++q)
+						{
+							const int sl = slotsCopy[q];
+							if (!TheGxUnitStore.obj[sl]) continue;
+							const int id = TheGxUnitStore.id[sl];
+							if (id < (int)m_gxKinds[ki].modById.size() && m_gxKinds[ki].modById[id]) km.push_back(m_gxKinds[ki].modById[id]);
+						}
+						gxRunKindKernel(ke, km);
+					}
 					for (size_t q = 0; q < slotsCopy.size(); ++q)
 					{
 						const int sl = slotsCopy[q];
@@ -4195,6 +4272,24 @@ void GameLogic::update()
 				static std::vector<int> miscSlots;
 				static std::vector<UpdateModulePtr> mods;
 				miscSlots = TheGxUnitStore.pass(GX_MISC_BIT0 + ph);
+				if (gxKernelsOn())
+				{
+					// per-kind batch hook for kinds without a bit of their own: their modules among the misc lists
+					for (const GxKindKernelEntry &ke : gxKindKernels())
+					{
+						static std::vector<UpdateModulePtr> km; km.clear();
+						for (size_t q = 0; q < miscSlots.size(); ++q)
+						{
+							const int sl = miscSlots[q];
+							if (!TheGxUnitStore.obj[sl]) continue;
+							const int id = TheGxUnitStore.id[sl];
+							if (id >= (int)m_gxMiscById[ph].size()) continue;
+							for (UpdateModulePtr u : m_gxMiscById[ph][id])
+								if (u->getModuleNameKey() == ke.kind) km.push_back(u);
+						}
+						gxRunKindKernel(&ke, km);
+					}
+				}
 				for (size_t q = 0; q < miscSlots.size(); ++q)
 				{
 					const int sl = miscSlots[q];
@@ -4246,6 +4341,7 @@ void GameLogic::update()
 	{
 		gxPassFlushToHeap();
 	{
+		Int gxPhaseDone = -1;	// round 5 kernels: run each phase's before its first module update
 		while (!m_sleepyUpdates.empty())
 		{
 			UpdateModulePtr u = peekSleepyUpdate();
@@ -4262,6 +4358,10 @@ void GameLogic::update()
 			{
 				break;
 			}
+			{
+				const Int ph = (Int)(u->friend_getPriority() & 3);
+				while (gxPhaseDone < ph) gxRunKernels(++gxPhaseDone);
+			}
 
 			UpdateSleepTime sleepLen = UPDATE_SLEEP_NONE;	// default, if it is disabled.
 
@@ -4274,6 +4374,7 @@ void GameLogic::update()
 				m_curUpdateModule = u;
 
 				sleepLen = u->update();
+				gxCount(GXC_AI_MODULE_CALLS);
 				DEBUG_ASSERTCRASH(sleepLen > 0, ("you may not return 0 from update"));
 				if (sleepLen < 1)
 					sleepLen = UPDATE_SLEEP_NONE;
@@ -4286,9 +4387,11 @@ void GameLogic::update()
 			u->friend_setNextCallFrame(now + sleepLen);
 			rebalanceSleepyUpdate(0);
 		}
+		while (gxPhaseDone < 3) gxRunKernels(++gxPhaseDone);	// phases with no module due this frame
 	}
 
 	}
+	}	// end of the timed update loop
 	validateSleepyUpdate();
 
 	// web port (match rule moveAfterTick, paths agent): every unit's locomotion in one pass
@@ -4513,6 +4616,38 @@ void GameLogic::gxCheckDisabledObjects()
 		else obj->m_gxDisabledListed = false;
 	}
 	m_gxDisabledObjs.resize(w);
+}
+
+// ------------------------------------------------------------------------------------------------
+// Web port (round 5 addendum): kernel registry (GameLogic.h gxRegisterKernel). Kept in registration
+// order; a bit+phase pair registered twice replaces the earlier entry.
+// ------------------------------------------------------------------------------------------------
+namespace {
+struct GxKernelEntry { Int bit, phase; GameLogic::GxKernelFn kernel; GameLogic::GxApplyFn apply; };
+std::vector<GxKernelEntry> &gxKernels() { static std::vector<GxKernelEntry> k; return k; }
+}
+void GameLogic::gxRegisterKernel( Int storeBit, Int phase, GxKernelFn kernel, GxApplyFn apply )
+{
+	for (GxKernelEntry &e : gxKernels())
+		if (e.bit == storeBit && e.phase == phase) { e.kernel = kernel; e.apply = apply; return; }
+	GxKernelEntry e = { storeBit, phase & 3, kernel, apply };
+	gxKernels().push_back(e);
+}
+static void gxRunKernels( Int phase )
+{
+	if (!gxKernelsOn()) return;	// same rule as the per-kind hook
+	static std::vector<int> slots;
+	for (const GxKernelEntry &e : gxKernels())
+	{
+		if (e.phase != phase) continue;
+		slots = TheGxUnitStore.pass(e.bit);	// copied: apply may change masks
+		const Int n = (Int)slots.size();
+		if (!n) continue;
+		GxTimeScope t(GXT_AI_KERNELS);
+		gxCount(GXC_AI_KERNEL_SLOTS, (unsigned long long)n);
+		if (e.kernel) e.kernel(slots.data(), 0, n);
+		if (e.apply) e.apply(slots.data(), n);
+	}
 }
 
 // ------------------------------------------------------------------------------------------------

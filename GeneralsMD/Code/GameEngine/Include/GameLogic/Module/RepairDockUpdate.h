@@ -30,6 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponentPool.h"
 #include "Common/GameMemory.h"
 #include "GameLogic/Module/SupplyCenterDockUpdate.h"
 
@@ -69,7 +70,17 @@ public:
 
 protected:
 
-  ObjectID m_lastRepair;			///< object we were repairing last
-	Real m_healthToAddPerFrame;	///< health to add per frame to current docked object
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		ObjectID lastRepair; ///< object we were repairing last
+		Real healthToAddPerFrame; ///< health to add per frame to current docked object
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline RepairDockUpdate::GxState &RepairDockUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

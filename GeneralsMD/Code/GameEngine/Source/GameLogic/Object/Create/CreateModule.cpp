@@ -32,12 +32,17 @@
 #include "Common/Xfer.h"
 #include "GameLogic/Module/CreateModule.h"
 
+// Web port (round 5, units are pure data): CreateModule's per-unit state is a row of TheGxCreateModules;
+// GXROW_CREATEMODULE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_CREATEMODULE (const_cast<GxCreateModuleRow &>(*m_gxCreateModuleRow))
+
+
 // ------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-CreateModule::CreateModule( Thing *thing, const ModuleData* moduleData )
-						: BehaviorModule( thing, moduleData ),
-						  m_needToRunOnBuildComplete(TRUE)
+CreateModule::CreateModule( Thing *thing, const ModuleData* moduleData ) : BehaviorModule( thing, moduleData )
 {
+	GXROW_CREATEMODULE.needToRunOnBuildComplete = TRUE;
+
 
 }
 
@@ -76,7 +81,7 @@ void CreateModule::xfer( Xfer *xfer )
 	BehaviorModule::xfer( xfer );
 
 	// need to run on build complete
-	xfer->xferBool( &m_needToRunOnBuildComplete );
+	xfer->xferBool( &GXROW_CREATEMODULE.needToRunOnBuildComplete );
 
 }
 

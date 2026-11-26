@@ -224,7 +224,7 @@ TransitionDamageFX::TransitionDamageFX( Thing *thing, const ModuleData* moduleDa
 
 	for( i = 0; i < BODYDAMAGETYPE_COUNT; i++ )
 		for( j = 0; j < DAMAGE_MODULE_MAX_FX; j++ )
-			m_particleSystemID[ i ][ j ] = INVALID_PARTICLE_SYSTEM_ID;
+			m_gxTransitionDamageFX->m_particleSystemID[ i ][ j ] = INVALID_PARTICLE_SYSTEM_ID;
 
 }
 
@@ -321,11 +321,11 @@ void TransitionDamageFX::onBodyDamageStateChange( const DamageInfo* damageInfo,
 	for( i = 0; i < DAMAGE_MODULE_MAX_FX; i++ )
 	{
 
-		if( m_particleSystemID[ oldState ][ i ] != INVALID_PARTICLE_SYSTEM_ID )
+		if( m_gxTransitionDamageFX->m_particleSystemID[ oldState ][ i ] != INVALID_PARTICLE_SYSTEM_ID )
 		{
 
-			TheParticleSystemManager->destroyParticleSystemByID( m_particleSystemID[ oldState ][ i ] );
-			m_particleSystemID[ oldState ][ i ] = INVALID_PARTICLE_SYSTEM_ID;
+			TheParticleSystemManager->destroyParticleSystemByID( m_gxTransitionDamageFX->m_particleSystemID[ oldState ][ i ] );
+			m_gxTransitionDamageFX->m_particleSystemID[ oldState ][ i ] = INVALID_PARTICLE_SYSTEM_ID;
 
 		}
 
@@ -408,7 +408,7 @@ void TransitionDamageFX::onBodyDamageStateChange( const DamageInfo* damageInfo,
 						pSystem->attachToObject( getObject() );
 
 						// save the id of this particle system so we can remove it later if it still exists
-						m_particleSystemID[ newState ][ i ] = pSystem->getSystemID();
+						m_gxTransitionDamageFX->m_particleSystemID[ newState ][ i ] = pSystem->getSystemID();
 
 					}
 
@@ -450,7 +450,7 @@ void TransitionDamageFX::xfer( Xfer *xfer )
 	DamageModule::xfer( xfer );
 
 	// particle systems ids
-	xfer->xferUser( m_particleSystemID, sizeof( ParticleSystemID ) * BODYDAMAGETYPE_COUNT * DAMAGE_MODULE_MAX_FX );
+	xfer->xferUser( m_gxTransitionDamageFX->m_particleSystemID, sizeof( ParticleSystemID ) * BODYDAMAGETYPE_COUNT * DAMAGE_MODULE_MAX_FX );
 
 }
 

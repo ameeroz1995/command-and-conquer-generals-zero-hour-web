@@ -115,6 +115,8 @@ typedef std::vector<ObjectID> CountermeasuresVec;
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxCountermeasuresBehaviorRow;
 class CountermeasuresBehavior : public UpdateModule, public UpgradeMux, public CountermeasuresBehaviorInterface
 {
 
@@ -180,12 +182,25 @@ protected:
 	void launchVolley();
 
 private:
-	CountermeasuresVec m_counterMeasures;		//vector of countermeasures in the world.
-	UnsignedInt m_availableCountermeasures;	//number of countermeasures that can be launched to divert missiles.
-	UnsignedInt m_activeCountermeasures;		//number of countermeasures currently able to divert missiles.
-	UnsignedInt m_divertedMissiles;					//number of missiles that have been diverted to countermeasures.
-	UnsignedInt m_incomingMissiles;					//grand total of all missiles that were ever fired at me.
-	UnsignedInt m_reactionFrame;						//The frame countermeasures will be launched after initial hostile act.
-	UnsignedInt m_nextVolleyFrame;					//Frame the next volley is fired.
-	UnsignedInt m_reloadFrame;							//The frame countermeasures will be ready to use again.
+	GxRow<struct GxCountermeasuresBehaviorRow> m_gxCountermeasuresBehaviorRow;	///< web port (round 5): this unit's row in TheGxCountermeasuresBehaviors
+	friend struct GxCountermeasuresBehaviorRow;
+	inline struct GxCountermeasuresBehaviorRow &gxRow() const;
 };
+
+// Web port (round 5, units are pure data): CountermeasuresBehavior's per-unit state, one row per unit in TheGxCountermeasuresBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxCountermeasuresBehaviorRow
+{
+	CountermeasuresVec counterMeasures;
+	UnsignedInt availableCountermeasures;
+	UnsignedInt activeCountermeasures;
+	UnsignedInt divertedMissiles;
+	UnsignedInt incomingMissiles;
+	UnsignedInt reactionFrame;
+	UnsignedInt nextVolleyFrame;
+	UnsignedInt reloadFrame;
+};
+
+
+inline GxCountermeasuresBehaviorRow &CountermeasuresBehavior::gxRow() const { return const_cast<GxCountermeasuresBehaviorRow &>(*m_gxCountermeasuresBehaviorRow); }
+

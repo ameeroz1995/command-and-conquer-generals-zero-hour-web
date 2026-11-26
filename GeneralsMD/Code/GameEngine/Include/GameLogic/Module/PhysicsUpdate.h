@@ -28,6 +28,8 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
+
 #include "Common/GxUnitStore.h"
 #include "Common/AudioEventRTS.h"
 #include "Common/GameAudio.h"
@@ -76,6 +78,34 @@ public:
 /**
  * Simple rigid body physics update module
  */
+// web port (round 5, units are pure data): PhysicsBehavior's per-unit state, one row per module in
+// GxComponentPool<PhysicsBehaviorRow> (the module keeps only the row index, m_gxPhysicsBehavior)
+struct PhysicsBehaviorRow
+{
+	Real												m_yawRate;								///< rate of rotation around up vector
+	Real												m_rollRate;								///< rate of rotation around forward vector
+	Real												m_pitchRate;							///< rate or rotation around side vector
+	DynamicAudioEventRTS*				m_bounceSound;						///< The sound for when this thing bounces, or nullptr
+	Coord3D											m_prevAccel;							///< last frame's acceleration
+	PhysicsTurningType					m_turning;								///< 0 = not turning, -1 = turn negative, 1 = turn positive.
+	ObjectID										m_ignoreCollisionsWith;
+	Int													m_flags;
+	Real												m_mass;
+	ObjectID										m_currentOverlap;					///< object(s) being overlapped, if any
+	ObjectID										m_previousOverlap;				///< last frame's object(s) being overlapped
+	ObjectID										m_lastCollidee;						///< ID of the last object I collided with, can be quite old.
+	UnsignedInt									m_motiveForceExpires;			///< frames at which "recent" applyMotiveForce is no longer considered
+	Real												m_extraBounciness;				///< modifier to ground stiffness
+	Real												m_extraFriction;					///< modifier to friction(s)
+	ProjectileUpdateInterface*	m_pui;
+	mutable Real								m_velMag;									///< magnitude of cur vel (recalced when m_vel changes)
+	Bool												m_originalAllowBounce;		///< original state of allow bounce
+	UnsignedInt									m_gxPreFrame;							///< frame whose step the physics pass already ran
+	UpdateSleepTime							m_gxSleep;								///< what that step returned
+	mutable Coord3D							m_gxVelOut;								///< web port (round 5): getVelocity()'s copy
+	UnsignedInt									m_gxIntegrated = ~0u;					///< web port (physSimd): frame whose forces + integration the column pass did
+};
+
 class PhysicsBehavior : public UpdateModule,
 												public CollideModuleInterface
 {
@@ -121,7 +151,7 @@ public:
 
 	/** This is a force clear for when objects are going out of bounds, so the locomotor
 		can push them back into legal space. */
-	void clearAcceleration() { m_accel.zero(); }
+	void clearAcceleration() { gxAccel().zero(); }
 
 	/**
 		add the velocity of 'this' to 'that'... useful when a unit disgorges another unit
@@ -133,10 +163,10 @@ public:
 
 	void setAngles( Real yaw, Real pitch, Real roll );
 	Real getMass() const;
-	void setMass( Real mass ) { m_mass = mass; }
+	void setMass( Real mass ) { m_gxPhysicsBehavior->m_mass = mass; }
 	Real getCenterOfMassOffset() const { return getPhysicsBehaviorModuleData()->m_centerOfMassOffset; }
 
-	const Coord3D *getAcceleration() const { return &m_prevAccel; }		///< get last frame's acceleration
+	const Coord3D *getAcceleration() const { return &m_gxPhysicsBehavior->m_prevAccel; }		///< get last frame's acceleration
 	const Coord3D *getVelocity() const;			///< get current velocity (a copy, valid until the next call)
 	Real getVelocityMagnitude() const;																		///< return velocity magnitude (speed)
 	Real getForwardSpeed2D() const;															///< compute speed along object's 2d direction vector
@@ -151,8 +181,8 @@ public:
 
 	Bool isMotive() const;
 
-	PhysicsTurningType getTurning() const { return m_turning; }		///< 0 = not turning, -1 = turn negative, 1 = turn positive.
-	void setTurning(PhysicsTurningType turning) { m_turning = turning; }
+	PhysicsTurningType getTurning() const { return m_gxPhysicsBehavior->m_turning; }		///< 0 = not turning, -1 = turn negative, 1 = turn positive.
+	void setTurning(PhysicsTurningType turning) { m_gxPhysicsBehavior->m_turning = turning; }
 
 	/** This is a force scrub for velocity when ai objects are colliding. */
 	void scrubVelocity2D( Real desiredVelocity );
@@ -188,11 +218,11 @@ public:
 
 	Bool getIsStunned() const { return getFlag(IS_STUNNED); }
 
-	void setExtraBounciness(Real b) { m_extraBounciness = b; }
-	void setExtraFriction(Real b) { m_extraFriction = b; }
+	void setExtraBounciness(Real b) { m_gxPhysicsBehavior->m_extraBounciness = b; }
+	void setExtraFriction(Real b) { m_gxPhysicsBehavior->m_extraFriction = b; }
 
 	void setBounceSound(const AudioEventRTS* bounceSound);
-	const AudioEventRTS* getBounceSound() { return m_bounceSound ? &m_bounceSound->m_event : TheAudio->getValidSilentAudioEvent(); }
+	const AudioEventRTS* getBounceSound() { return m_gxPhysicsBehavior->m_bounceSound ? &m_gxPhysicsBehavior->m_bounceSound->m_event : TheAudio->getValidSilentAudioEvent(); }
 
 	/**
 		Reset all values (vel, accel, etc) to starting values.
@@ -261,42 +291,23 @@ private:
 		even if you are a subclass... if you want to change the acceleration, you
 		MUST call applyForce().
 	*/
-	Real												m_yawRate;								///< rate of rotation around up vector
-	Real												m_rollRate;								///< rate of rotation around forward vector
-	Real												m_pitchRate;							///< rate or rotation around side vector
-	DynamicAudioEventRTS*				m_bounceSound;						///< The sound for when this thing bounces, or nullptr
-	Coord3D											m_accel;									///< current acceleration
-	Coord3D											m_prevAccel;							///< last frame's acceleration
+	GxRow<PhysicsBehaviorRow> m_gxPhysicsBehavior;	///< web port (round 5): this module's state, a row of its component pool
 	// web port (round 4): the velocity lives in the unit store (TheGxUnitStore.vel), found by slot
-	PhysicsTurningType					m_turning;								///< 0 = not turning, -1 = turn negative, 1 = turn positive.
-	ObjectID										m_ignoreCollisionsWith;
-	Int													m_flags;
-	Real												m_mass;
-	ObjectID										m_currentOverlap;					///< object(s) being overlapped, if any
-	ObjectID										m_previousOverlap;				///< last frame's object(s) being overlapped
-	ObjectID										m_lastCollidee;						///< ID of the last object I collided with, can be quite old.
-	UnsignedInt									m_motiveForceExpires;			///< frames at which "recent" applyMotiveForce is no longer considered
-	Real												m_extraBounciness;				///< modifier to ground stiffness
-	Real												m_extraFriction;					///< modifier to friction(s)
-	ProjectileUpdateInterface*	m_pui;
-	mutable Real								m_velMag;									///< magnitude of cur vel (recalced when m_vel changes)
 
-	Bool												m_originalAllowBounce;		///< original state of allow bounce
 
 	// web port (match rule physBulk): the whole physics step of every due unit runs in one pass over
 	// the unit store's PHYS list (object-ID order) at the start of the physics phase
-	UnsignedInt									m_gxPreFrame;							///< frame whose step the physics pass already ran
-	UpdateSleepTime							m_gxSleep;								///< what that step returned
 	UpdateSleepTime gxStep();
 	void gxIntegrate();
 	static void gxBulkPass(UnsignedInt now);
 
 	/// the current velocity, in the unit store (web port, round 4)
 	GxVec3Ref gxVel() const;
-	mutable Coord3D m_gxVelOut;	///< web port (round 5): getVelocity()'s copy
+	GxVec3Ref gxAccel() const;
+	static void gxIntegrateColumns(const UnsignedInt *due, Int begin, Int end);	///< kernel (thread-safe over disjoint ranges)	///< web port (round 5): the acceleration lives in the store's ax/ay/az columns
 
-	void setFlag(PhysicsFlagsType f, Bool set) { if (set) m_flags |= f; else m_flags &= ~f; }
-	Bool getFlag(PhysicsFlagsType f) const { return (m_flags & f) != 0; }
+	void setFlag(PhysicsFlagsType f, Bool set) { if (set) m_gxPhysicsBehavior->m_flags |= f; else m_gxPhysicsBehavior->m_flags &= ~f; }
+	Bool getFlag(PhysicsFlagsType f) const { return (m_gxPhysicsBehavior->m_flags & f) != 0; }
 
 
 };
@@ -304,16 +315,16 @@ private:
 //-------------------------------------------------------------------------------------------------
 inline ObjectID PhysicsBehavior::getCurrentOverlap() const
 {
-	return m_currentOverlap;
+	return m_gxPhysicsBehavior->m_currentOverlap;
 }
 
 //-------------------------------------------------------------------------------------------------
 inline ObjectID PhysicsBehavior::getPreviousOverlap() const
 {
-	return m_previousOverlap;
+	return m_gxPhysicsBehavior->m_previousOverlap;
 }
 
 inline ObjectID PhysicsBehavior::getLastCollidee() const
 {
-	return m_lastCollidee;
+	return m_gxPhysicsBehavior->m_lastCollidee;
 }

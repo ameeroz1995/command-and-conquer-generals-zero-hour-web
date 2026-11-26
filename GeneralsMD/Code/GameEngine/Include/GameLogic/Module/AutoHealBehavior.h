@@ -106,6 +106,8 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxAutoHealBehaviorRow;
 class AutoHealBehavior : public UpdateModule,
 												 public UpgradeMux,
 												 public DamageModuleInterface
@@ -175,7 +177,9 @@ private:
 
 	void pulseHealObject( Object *obj );
 
-	ParticleSystemID m_radiusParticleSystemID;
+	GxRow<struct GxAutoHealBehaviorRow> m_gxAutoHealBehaviorRow;	///< web port (round 5): this unit's row in TheGxAutoHealBehaviors
+	friend struct GxAutoHealBehaviorRow;
+	inline struct GxAutoHealBehaviorRow &gxRow() const;
 
 	UnsignedInt m_soonestHealFrame;/** I need to record this, because with multiple wake up sources,
 																		I can't rely solely on my sleeping.  So this will guard onDamage's wake up.
@@ -183,6 +187,17 @@ private:
 																		a sleepy module.  I never want to run update unless I am going to heal.
 																 */
 
-	Bool m_stopped;
 
 };
+
+// Web port (round 5, units are pure data): AutoHealBehavior's per-unit state, one row per unit in TheGxAutoHealBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAutoHealBehaviorRow
+{
+	ParticleSystemID radiusParticleSystemID;
+	Bool stopped;
+};
+
+
+inline GxAutoHealBehaviorRow &AutoHealBehavior::gxRow() const { return const_cast<GxAutoHealBehaviorRow &>(*m_gxAutoHealBehaviorRow); }
+

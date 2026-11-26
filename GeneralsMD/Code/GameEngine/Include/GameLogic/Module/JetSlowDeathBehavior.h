@@ -76,6 +76,8 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxJetSlowDeathBehaviorRow;
 class JetSlowDeathBehavior : public SlowDeathBehavior
 {
 
@@ -94,11 +96,24 @@ public:
 
 protected:
 
-	UnsignedInt m_timerDeathFrame;					///< fame we died on
-	UnsignedInt m_timerOnGroundFrame;				///< frame we landed on the ground on
+	GxRow<struct GxJetSlowDeathBehaviorRow> m_gxJetSlowDeathBehaviorRow;	///< web port (round 5): this unit's row in TheGxJetSlowDeathBehaviors
+	friend struct GxJetSlowDeathBehaviorRow;
+	inline struct GxJetSlowDeathBehaviorRow &gxRow() const;
 
-	Real m_rollRate;												///< our roll rate
 
-	AudioEventRTS m_deathLoopSound;					///< death loop sound
 
 };
+
+// Web port (round 5, units are pure data): JetSlowDeathBehavior's per-unit state, one row per unit in TheGxJetSlowDeathBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxJetSlowDeathBehaviorRow
+{
+	UnsignedInt timerDeathFrame;
+	UnsignedInt timerOnGroundFrame;
+	Real rollRate;
+	AudioEventRTS deathLoopSound;
+};
+
+
+inline GxJetSlowDeathBehaviorRow &JetSlowDeathBehavior::gxRow() const { return const_cast<GxJetSlowDeathBehaviorRow &>(*m_gxJetSlowDeathBehaviorRow); }
+
