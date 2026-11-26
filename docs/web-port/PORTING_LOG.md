@@ -3922,6 +3922,95 @@ ai's per-kind hook lands, the range kernel is a loop of these calls over the kin
   with weaponReload on replays to a match (verify 18225, 0); mt referee matches.
 - Not yet: kernel + apply splits for the update modules (waiting on a per-kind system hook in the
   updatePasses dispatch, ai's file); timing pairs (load 60+ while every lane builds).
+### Round 5 (lane 4, collide): units are pure data — store SoA, component rows, SIMD
+
+- Merged origin/perf/low-end f8473f1 (fourth switch word).
+- **Store SoA layout** (9e1aa3d, pushed first): GxUnitStore keeps float columns x/y/z, vx/vy/vz,
+  ax/ay/az (acceleration) and radius. pos[]/vel[] are gone: posOf(s), velOf(s), velRef(s)/accelRef(s)
+  (GxVec3Ref, a Coord3D-shaped view of three columns). Thing::getPosition() reads through the columns
+  with positionInStore (copies them into the Thing's cached Coord3D); PhysicsBehavior::getVelocity()
+  copies vx/vy/vz out. Replay: matches with positionInStore off and on (verify 0 mismatches).
+- **Component rows** (Common/GxComponentPool.h): GxComponentPool<Row> (deque rows, never move, free
+  list) and GxRow<Row> (the module's only state member, allocates/frees its row). Rows are per module,
+  not per store slot (an object can have several modules of one kind). Converted (all per-unit state
+  out of the module objects; the modules stay as facades for INI, engine calls, xfer and CRC):
+  PhysicsBehavior (20 fields; acceleration in the store columns), BodyModule, ActiveBody (20),
+  InactiveBody, StructureBody, TransitionDamageFX, FireWeaponCollide, SpecialPowerCompletionDie.
+  The other files of the families (Collide/ 19 incl. crates, Body/ Highlander, Immortal,
+  HiveStructure, Damage/ BoneFXDamage, DamageModule, Destroy/, Die/ 11) hold no per-unit state: they
+  are already facades over INI data, nothing to move. No family file has a per-frame update besides
+  physics; the rest are event handlers (onCollide / onDie / onDamage) over their rows.
+- **SIMD physics integration** (switch physSimd, fourth word bit 0, off; rides on match rule physBulk):
+  the physics pass does every due unit's forces, then velocity += acceleration, the tiny-velocity clamp
+  and the acceleration reset for all of them in one wasm simd128 pass over the store columns
+  (gxIntegrateColumns, 4 rows per instruction, same float ops), then each unit's remaining step.
+- **SIMD collision broad phase** (switch collideSimd, fourth word bit 1, on; works under storePairs):
+  the store grid is laid out as one block per cell (units in the same order the linked lists visit
+  them) with x, y, radius copied in, so the distance cut tests 4 units per instruction. Same pairs as
+  storePairs without it.
+- **Kernel + apply split** (round 5 addendum, for the round-6 job system; both on the main thread
+  now): physics integration is the kernel gxIntegrateColumns(due, begin, end) (reads due[], v, a;
+  writes v, a of its rows only); the forces before it and each unit's remaining step after it are the
+  main-thread parts. The broad phase is prepare (main: grid blocks, each seeker's slot and cell
+  rectangle) -> gxPairKernel(in, begin, end, out, cap) (reads the blocks and store columns, writes
+  only (seeker, slot) pairs to its own out; returns -1 when out is full, the main thread grows it and
+  reruns) -> apply (main, seekers in object-ID order: collideStagger, addToContactList).
+- **Pool rows in place** (de3d971, asked by ai): GxComponentPool keeps raw slots; alloc constructs the
+  row in place, release destroys it in place (a row may hold non-copyable members such as another
+  GxRow, a freed row holds nothing); GxRow caches its row pointer (one load per field access).
+- **Shared tick timer** (merged origin/perf/logic-query 2fd63e3, Common/GxTime.h, switch tickTiming):
+  GXT physics, collideBuild (dirty cells + pair offers), collideProcess; counters physUnits,
+  collideSeekers, pairCells, pairTests, pairs (the SIMD kernel's cells/tests are counted in its
+  prepare step so the kernel stays free of globals) and allocs (game-memory blocks per logic tick:
+  every pool block plus every large dynamic block, g_gxAllocs in GameMemory.cpp, read across
+  GameLogic::UPDATE in GameEngine.cpp).
+- **More rows**: UndeadBody (m_isSecondLife). **Object**: all ~75 private fields (ids, status, geometry,
+  group, sighting, vision/shroud ranges, disabled mask and frames, helper and module links, contain
+  links, team, weapons, special powers, healing benefactor, triggers, layers, formation, byte flags)
+  in one nested Object::ObjectRow (m_gxObj); the object keeps its row and the team list links
+  (MAKE_DLINK). The constructor's init list became row defaults. Not moved: m_gxListSeq and
+  m_gxDisabledListed (public, GameLogic's disabledList). **Thing**: the transform and the cached
+  pos/angle/dir/altitudes in Thing::ThingRow (m_gxThing); the template, store slot and posInStore flag
+  stay. HeightDieUpdate: combat's (d85d85d), not touched here.
+- **Hot fields as store columns** (write-through, the rows stay the truth): status (64 bits),
+  disabled, layer, geomType/geomHeight/geomMajor/geomMinor (GxUnitStore::setHot from every Object
+  setter of them and after load), angle and xf (the 3x4 transform, setXf from reactToTransformChange
+  next to the position write-through). Verify mode checks every stored object's columns against the
+  object at each frame's first pass ("GXVERIFY store hot fields").
+- Replay soa-8 (verify): default, storePairs (collide-sp.rep), physBulk+physSimd (collide-ps.rep) and
+  positionInStore all match; hot fields 1,295,856 checks, 0 mismatches; disabled list 0 mismatches.
+  Earlier: soa-4 default / storePairs+collideSimd / physSimd record-replay match; the physSimd
+  recording replayed with scalar physics matches (SIMD integration = scalar). soa-6 (timer) matches.
+- **Hot fields: the store columns are the truth** (switch hotInStore, fourth word bit 2, off until
+  timed; fixed per object when it enters the store). The write-through copies are gone. Columns
+  status (ObjectStatusMaskType), disabled (DisabledMaskType), layer, geom (GeometryInfo), angle, xf
+  (Matrix3D). Object and Thing read and write them only through ref accessors (gxStatus(), gxDisabled(),
+  gxLayerRef(), gxGeom(), Thing::gxAngle(), gxXf(): the column while stored with the switch, else the
+  row); every former m_status / m_disabledMask / m_layer / m_geometryInfo / m_transform / m_cachedAngle
+  use goes through them (xfer too). GxUnitStore::add moves the row values in (Object::gxSetHotInStore),
+  remove moves them back (setID, destruction). Moving in leaves marks in the rows; verify mode checks
+  each frame that every stored object's rows still hold them ("GXVERIFY store hot fields (rows
+  untouched while stored)"), i.e. nothing read or wrote around the columns. Without the switch the
+  columns are unused.
+- Replay soa-9 (verify), all match: switch off; on (default rep); on + storePairs (collide-sp.rep); on +
+  physBulk + physSimd (collide-ps.rep); on + positionInStore. Rows untouched: 1,295,856 checks per run,
+  0 mismatches.
+- hotInStore also moves the position into the store (one data switch; positionInStore alone kept
+  for comparison). Light replay (collide-sp.rep, storePairs, soa-10, locked, both orders): logic
+  0.585/0.590 ms/tick off vs 0.619/0.632 on (+6%); without the position (soa-9) 0.568/0.612 vs
+  0.575/0.587 (no cost). Cause found: getTransformMatrix() rewrote the translation from x/y/z on
+  every read. Every setter writes the translation and x/y/z together and nothing else writes x/y/z,
+  so the refresh is gone (soa-12); verify mode now also checks each placed stored object's
+  translation = x/y/z. Rows cost (soa-6 vs soa-8, same replay): 0.580/0.571 vs 0.570 ms/tick (none).
+  That replay has almost no units (logic 0.6 ms/tick), so the real timing is the battle benchmark.
+- Counters: collideSeekers/pairCells/pairTests/pairs were only counted on the storePairs path (off by
+  default); now also in PartitionData::addPossibleCollisions (pairs = offers to the contact list).
+- Replay soa-12 (verify), all match: default; hotInStore; positionInStore; storePairs + hotInStore
+  (collide-sp.rep); collide-hot.rep (recorded with hotInStore + storePairs on soa-9, also replayed
+  with hotInStore off on soa-9: match). Store checks 2,591,712 (hot) / 1,295,856 (position only), 0
+  mismatches.
+- Timing: SIMD pairs (collideSimd, physSimd) wait until the data work is timed.
+
 ## Round 5 (query): scan-type modules and helpers hold their per-unit state in component tables
 - New GameLogic/GxComponentTable.h: rows in a deque (never move, never copied; RadiusDecal can't be),
   freed rows reset in place and reused. A module keeps only its row index (R()); xfer/CRC read the row.

@@ -495,6 +495,7 @@ void GLES3_Begin_Scene() {
                  | (o.kernelSimd === false ? 0 : 512)   // bit 9: the slow-death kernel steps 4 dying units per wasm SIMD instruction (SlowDeathBehavior.cpp; same game)
                  | (o.containKernels === false ? 0 : 256)   // bit 8: containers / rebuild holes step their own countdowns in a kernel ahead of the turns (OpenContain.cpp, RebuildHoleBehavior.cpp; under updatePasses; off = match rule containKernelsOff, the host / replay decide)
                  | (o.kindKernels === false ? 0 : 128)   // bit 7: per-kind kernels under updatePasses; off = match rule kindKernelsOff, the host / replay decide (GameLogic.cpp)
+                 | (o.hotInStore === true ? 4 : 0)   // bit 2: objects' position, status, disabled mask, layer, geometry, angle and transform live in the unit store's columns (GxUnitStore.h, Object.h, Thing.h; same game)
                  | (o.rowKernels === false ? 0 : 4096)   // bit 12: scan countdowns of EnemyNear/AutoFindHealing/PointDefenseLaser run as one kernel per table (GxComponentTable.h; same game)
                  | (o.simdSearch === false ? 0 : 8192)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.fogStamps === false ? 0 : 16384)   // bit 14: sight circles from precomputed stamps, 8 cells at a time with wasm SIMD over dense shroud counters (PartitionManager.cpp; same game)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)

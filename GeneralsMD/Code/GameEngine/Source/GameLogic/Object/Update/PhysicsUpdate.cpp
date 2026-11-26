@@ -32,6 +32,7 @@
 #define NO_DEBUG_CRC
 
 #include "Common/PerfTimer.h"
+#include "Common/GxTime.h"
 #include "Common/ThingTemplate.h"
 #include "Common/Xfer.h"
 #include "GameLogic/GameLogic.h"
@@ -793,6 +794,8 @@ void PhysicsBehavior::gxIntegrateColumns(const UnsignedInt *due, Int begin, Int 
 
 UpdateSleepTime PhysicsBehavior::update()
 {
+	GxTimeScope gxT(GXT_PHYSICS);	// tickTiming (Common/GxTime.h)
+	gxCount(GXC_PHYS_UNITS);
 	if (gxMatchRule(GXRULE_PHYS_BULK))
 	{
 		const UnsignedInt now = TheGameLogic->getFrame();
