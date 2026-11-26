@@ -4766,6 +4766,7 @@ void PartitionData::gxRefreshPlace()
 		m_coiArray[i].gxSetPlace(p->x, p->y, r);
 }
 
+UnsignedInt g_gxWalks = 0;	// walks started (gxClosestImpl), for batchScan's nesting check
 Bool g_gxNoSearchVerify = false;	// set while a caller times its own searches (verify mode)
 static UnsignedInt gx_gco_calls;	// verify mode: searches checked, and the time of both runs
 static double gx_gco_fastMs, gx_gco_refMs;
@@ -5067,6 +5068,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 
 	static Int theIterFlag = 1;	// nonzero, thanks
 	++theIterFlag;
+	++g_gxWalks;	// batchScan: a walk run from inside another one's filters moves the done flags under it
 	if (gxFlags & GX_GCO_SNAP)
 		++s_gxSnapSearch;
 
@@ -5413,7 +5415,7 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 static std::vector<Int> s_gxBatchSurv;
 struct GxBatchList { UnsignedInt session, mask; Real maxR; std::vector<float> x, y, r; std::vector<Int> slot; };
 static std::vector<GxBatchList> s_gxBatchLists;	// per batch and enemy mask: the enemies by place x
-static unsigned s_gxBatchChecked, s_gxBatchBad, s_gxBatchFallbacks;
+static unsigned s_gxBatchChecked, s_gxBatchBad, s_gxBatchFallbacks, s_gxBatchNested;
 
 Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, PartitionFilter **filters, UnsignedInt gxFlags, UnsignedInt gxMask,
 	Bool snap, Real *distOut, Coord3D *vecOut)
@@ -5551,6 +5553,7 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 	Real bestD = 0.0f;
 	Int bestRing = 0x7fffffff, bestW = 0x7fffffff, bestSlot = 0x7fffffff;
 	Bool tie = false;
+	const UnsignedInt walksAtStart = g_gxWalks;
 	Coord3D bestVec;
 	bestVec.x = bestVec.y = bestVec.z = maxDist;	// as the walk's unset vector
 	for (size_t i = 0; i < s_gxBatchSurv.size(); ++i)
@@ -5622,6 +5625,13 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 		else if (d == bestD && w == bestW && !snap)
 			tie = true;	// both first seen in one cell: the cell's list order decides (the tick's lists: slot order, as here)
 	}
+	// a filter ran a search: inside the walk that search would have moved the done flags (stamps)
+	// under it, so the walk may skip objects it already flagged. Only the walk itself gives that answer.
+	if (g_gxWalks != walksAtStart)
+	{
+		tie = true;
+		++s_gxBatchNested;
+	}
 	Object *ref = nullptr;
 	const Bool verify = (GLES3_Page_Switches() & 2097152) != 0;
 	Real refD = 0.0f;
@@ -5679,7 +5689,7 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 			}
 		}
 		if (s_gxBatchChecked % 2000 == 0)
-			printf("GXVERIFY batchScan checked %u, mismatches %u, tie fallbacks %u\n", s_gxBatchChecked, s_gxBatchBad, s_gxBatchFallbacks);
+			printf("GXVERIFY batchScan checked %u, mismatches %u, tie fallbacks %u (nested searches %u)\n", s_gxBatchChecked, s_gxBatchBad, s_gxBatchFallbacks, s_gxBatchNested);
 	}
 	return best;
 }
