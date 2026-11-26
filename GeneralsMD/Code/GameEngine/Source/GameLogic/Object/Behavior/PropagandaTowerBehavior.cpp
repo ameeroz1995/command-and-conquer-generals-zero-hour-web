@@ -178,6 +178,7 @@ void PropagandaTowerBehavior::onCapture( Player *oldOwner, Player *newOwner )
 // ------------------------------------------------------------------------------------------------
 /** The update callback */
 // ------------------------------------------------------------------------------------------------
+extern int GLES3_Page_Switches4();
 UpdateSleepTime PropagandaTowerBehavior::update()
 {
 /// @todo srj use SLEEPY_UPDATE here
@@ -234,6 +235,12 @@ UpdateSleepTime PropagandaTowerBehavior::update()
 	}
 
 	// go through any objects in our area of influence and do the effect logic on them
+	// (dataBehaviors: the four score kinds as one mask test, and the tower's upgrade looked up once:
+	// nothing in the loop completes upgrades)
+	const Bool gxData = (GLES3_Page_Switches4() & 64) != 0;
+	static const KindOfMaskType gxScoreKinds = []() { KindOfMaskType m; m.set(KINDOF_SCORE); m.set(KINDOF_SCORE_CREATE);
+		m.set(KINDOF_SCORE_DESTROY); m.set(KINDOF_MP_COUNT_FOR_VICTORY); return m; }();
+	const Int gxUpgraded = gxData ? (self->getControllingPlayer()->hasUpgradeComplete( GXROW_PROPAGANDATOWERBEHAVIOR.upgradeRequired ) ? 1 : 0) : -1;
 	Object *obj;
 	ObjectTracker *curr = nullptr, *prev = nullptr, *next = nullptr;
 	for( curr = GXROW_PROPAGANDATOWERBEHAVIOR.insideList; curr; curr = next )
@@ -245,11 +252,12 @@ UpdateSleepTime PropagandaTowerBehavior::update()
 		// find this object
 		obj = TheGameLogic->findObjectByID( curr->objectID );
 		if ((obj) &&
-			 (obj->isKindOf(KINDOF_SCORE) || obj->isKindOf(KINDOF_SCORE_CREATE) || obj->isKindOf(KINDOF_SCORE_DESTROY) || obj->isKindOf(KINDOF_MP_COUNT_FOR_VICTORY)))
+			 (gxData ? obj->isAnyKindOf(gxScoreKinds)
+			 : (obj->isKindOf(KINDOF_SCORE) || obj->isKindOf(KINDOF_SCORE_CREATE) || obj->isKindOf(KINDOF_SCORE_DESTROY) || obj->isKindOf(KINDOF_MP_COUNT_FOR_VICTORY))))
 		{
 
 			// give any bonus to this object
-			effectLogic( obj, TRUE, getPropagandaTowerBehaviorModuleData() );
+			effectLogic( obj, TRUE, getPropagandaTowerBehaviorModuleData(), gxUpgraded );
 
 			// record this element as the previous one found in the list
 			prev = curr;
@@ -295,9 +303,9 @@ void PropagandaTowerBehavior::onDie( const DamageInfo *damageInfo )
 /** Grant or remove effect to this object */
 // ------------------------------------------------------------------------------------------------
 void PropagandaTowerBehavior::effectLogic( Object *obj, Bool giving,
-																					 const PropagandaTowerBehaviorModuleData *modData )
+																					 const PropagandaTowerBehaviorModuleData *modData, Int upgraded )
 {
-	Bool effectUpgraded = getObject()->getControllingPlayer()->hasUpgradeComplete( GXROW_PROPAGANDATOWERBEHAVIOR.upgradeRequired );
+	Bool effectUpgraded = upgraded >= 0 ? (upgraded != 0) : getObject()->getControllingPlayer()->hasUpgradeComplete( GXROW_PROPAGANDATOWERBEHAVIOR.upgradeRequired );
 
 	// if giving the effect
 	if( giving )

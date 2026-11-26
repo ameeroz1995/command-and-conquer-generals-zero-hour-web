@@ -4188,3 +4188,23 @@ Timing, battle benchmark, ai-38m (same tree, skip compiled out) / ai-38, tickTim
 - 2700-tick runs: ai-38m 18.88 ms/tick logic (aiLoop 9.26) / ai-38 18.85, 19.07 (aiLoop 9.19, 9.26)
 - 3000/3300-tick runs (different work, not comparable): ai-38m 16.69, 16.52 / ai-38 14.62 (3300 ticks)
 Level within noise (the ceiling was the call's 0.4% self share).
+
+### ai: spawn slaved cache, PropagandaTower scan, batchScan rule (ai-40)
+- SpawnBehavior::computeAggregateStates looked up each slave's SlavedUpdateInterface by name every
+  call. The row keeps (ObjectID, interface) pairs (switch dataBehaviors, same game). Verify: 27.6M
+  checks, 0 mismatches.
+- PropagandaTowerBehavior: the per-object KindOf test uses one static mask (isAnyKindOf) and the
+  upgrade is looked up once per tower, not per unit (dataBehaviors, same game).
+- StealthUpdate: looked, nothing worth building (cost is the call itself).
+- batchScan (fifth word bit 0, off) = match rule GXRULE_BATCH_SCAN (bit 26). Needs updatePasses and
+  kind kernels on. A per-kind kernel collects the units whose mood scan is due this frame and asks
+  gxBatchFindClosestEnemy for all of them at once (query's SIMD pass; a weak fallback calls
+  findClosestEnemy per unit). getNextMoodTarget uses the stored answer when the stamp, range, flags
+  and priority info match; a dead answer is searched again. Answers come from earlier in the frame,
+  so it is a rule, not a plain switch.
+Checks (ai-40): referee.rep, ai-ck.rep, ai-kon.rep, ai-koff.rep match; ai-bs.rep (batchScan on,
+GXRULES 4FEE6E7) records and replays to a match.
+Timing, battle benchmark, ai-38 / ai-40 (batchScan off), tickTiming, timing.lock, load 6-7 (busy):
+- 2700-tick pair: ai-38 25.13 ms/tick logic (aiLoop 12.70) / ai-40 25.32 (aiLoop 12.88)
+- ai-40 2700-tick runs 24.99, 25.39; ai-38 3000-tick runs 21.87, 22.23 (not comparable)
+Level within noise. batchScan on is timed once query's pass lands.
