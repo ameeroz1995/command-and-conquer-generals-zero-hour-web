@@ -4113,3 +4113,8 @@ kernel can later run over workers / SIMD).
   it off in local single player only (GameLogic::gxKernelSwitch).
 Checks (ai-34): referee.rep (rule off) matches; new recording ai-ck.rep made on ai-34 replays to a
 match; ai-up5.rep still matches; verify mode on the battle benchmark: 0 mismatches.
+Timing, battle benchmark, ai-34, tickTiming, timing.lock, load 4-8 (just after a reboot), containKernels off / on:
+- run 1: logic 20.37 / 21.66 ms/tick; aiLoop 10.40 / 10.90; aiKernels 0.39 / 0.41; p99 122 / 110 ms; over 100 ms 76 / 48
+- run 2: logic 21.36 / 18.46 ms/tick; aiLoop 10.79 / 9.27; aiKernels 0.41 / 0.34; p99 128 / 107 ms; over 100 ms 117 / 41
+- kernel slots 712-791/tick (counted also when off: the hook runs, the kernel returns at once)
+Level within noise (the run's work differs: 2700 vs 3000 ticks, 3215-3572 module calls/tick).
