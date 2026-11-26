@@ -5175,6 +5175,22 @@ SimpleObjectIterator *PartitionManager::gxSplashSearch(const Coord3D *pos, Real 
 #ifdef __wasm_simd128__
 	{
 		const v128_t vpx = wasm_f32x4_splat(px), vpy = wasm_f32x4_splat(py), vreach = wasm_f32x4_splat(reach);
+		// ILP (fourth word bit 27, splashIlp): 8 slots per step as two independent chains; each lane's
+		// math is the 4-wide step's, so the same slots come out in the same order
+		if (GLES3_Page_Switches4() & 134217728)
+		for (; s + 8 <= n; s += 8)
+		{
+			const v128_t dx0 = wasm_f32x4_sub(wasm_v128_load(&S.x[s]), vpx);
+			const v128_t dx1 = wasm_f32x4_sub(wasm_v128_load(&S.x[s + 4]), vpx);
+			const v128_t dy0 = wasm_f32x4_sub(wasm_v128_load(&S.y[s]), vpy);
+			const v128_t dy1 = wasm_f32x4_sub(wasm_v128_load(&S.y[s + 4]), vpy);
+			const v128_t l0 = wasm_f32x4_add(vreach, wasm_v128_load(&S.sphere[s]));
+			const v128_t l1 = wasm_f32x4_add(vreach, wasm_v128_load(&S.sphere[s + 4]));
+			const v128_t in0 = wasm_f32x4_le(wasm_f32x4_add(wasm_f32x4_mul(dx0, dx0), wasm_f32x4_mul(dy0, dy0)), wasm_f32x4_mul(l0, l0));
+			const v128_t in1 = wasm_f32x4_le(wasm_f32x4_add(wasm_f32x4_mul(dx1, dx1), wasm_f32x4_mul(dy1, dy1)), wasm_f32x4_mul(l1, l1));
+			for (Int m = wasm_i32x4_bitmask(in0) | (wasm_i32x4_bitmask(in1) << 4); m; m &= m - 1)
+				near.push_back(s + __builtin_ctz(m));
+		}
 		for (; s + 4 <= n; s += 4)
 		{
 			const v128_t dx = wasm_f32x4_sub(wasm_v128_load(&S.x[s]), vpx);

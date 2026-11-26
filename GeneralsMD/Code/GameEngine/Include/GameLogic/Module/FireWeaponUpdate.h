@@ -69,11 +69,20 @@ protected:
 
 	Bool isOkayToFire();
 
+	// combat, kind kernel (ai's GameLogic::gxRegisterKindKernel; match rule updatePasses): the kernel
+	// decides for every every-frame FireWeaponUpdate whether it fires (reads its own weapon and object,
+	// writes only its row); apply fires them in object-ID order; update() then does nothing this frame
+	static void gxKernel( UpdateModulePtr *mods, Int begin, Int end );
+	static void gxApply( UpdateModulePtr *mods, Int count );
+	Bool gxDecide( UnsignedInt now ) { return now >= D().m_initialDelayFrame && isOkayToFire(); }
+
 	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
 	struct Row
 	{
 		Weapon* m_weapon;
 	  UnsignedInt m_initialDelayFrame;
+		UnsignedInt gxKernelFrame = 0;	///< frame the kind kernel decided for (0: never)
+		Bool gxFire = FALSE;	///< the kernel's decision
 	};
 	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
 public:

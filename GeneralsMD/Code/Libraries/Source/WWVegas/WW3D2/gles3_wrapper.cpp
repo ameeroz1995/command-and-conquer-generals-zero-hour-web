@@ -475,8 +475,9 @@ void GLES3_Begin_Scene() {
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
                  | (o.weaponReload === true ? 16777216 : 0)   // bit 24: weaponReload, with match rule updatePasses: weapon reloads as a system at the start of the tick (Weapon.cpp)
-                 | (o.splashSimd === true ? 33554432 : 0)    // bit 25: splashSimd, splash victims found by a SIMD pass over the unit store, in the cell walk's order (PartitionManager.cpp; same game)
+                 | (o.splashSimd === false ? 0 : 33554432)    // bit 25: splashSimd (on), splash victims found by a SIMD pass over the unit store, in the cell walk's order (PartitionManager.cpp; same game)
                  | (o.damageTable === true ? 67108864 : 0)  // bit 26: damageTable, per-frame table of weapon bonuses for target evaluation (Weapon.cpp; same game)
+                 | (o.splashIlp === true ? 134217728 : 0)  // bit 27: splashIlp, with splashSimd: the splash pass does 8 slots per step as two independent chains (PartitionManager.cpp; same game)
                  | (o.dataBehaviors === false ? 0 : 64)   // bit 6: behaviours as data: lookups made per frame by name done once (Behavior/*.cpp; same game)
                  | (o.kindKernels === false ? 0 : 128)   // bit 7: kernels follow match rule updatePasses; off here turns them off in local single player only (GameLogic.cpp)
                  | (o.rowKernels === false ? 0 : 4096)   // bit 12: scan countdowns of EnemyNear/AutoFindHealing/PointDefenseLaser run as one kernel per table (GxComponentTable.h; same game)

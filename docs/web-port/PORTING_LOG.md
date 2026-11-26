@@ -4122,3 +4122,43 @@ Timing, battle benchmark, ai-33, tickTiming, timing.lock, load 4-5, kindKernels 
 - kernel slots 474/tick on; module calls 3154-3497 off / 3215 on (the benchmark's work varies run to run).
 Level within noise: the kernel part is a few compares per unit; the gain is the split itself (the
 kernel can later run over workers / SIMD).
+
+## 2026-11-26 — combat: splash SIMD, damage table, last data, ILP, FireWeapon kind kernel (logic-combat)
+- splashSimd (fourth word bit 25, off; same game): a splash's victims (WeaponTemplate::dealDamageInternal)
+  come from PartitionManager::gxSplashSearch: a SIMD pass over the unit store's x/y/sphere columns keeps
+  slots within range + bounding sphere + 2, then each kept unit gets the cell walk's own distance test
+  and its walk key (ring rank of its first visited cell, then COI sequence, high first), and goes into
+  the iterator in that order. The store got a `sphere` column (bounding sphere radius, set in
+  Object::setGeometryInfo): 2x the circle radius was not a bound for tall units (49/3500 searches wrong
+  before; 5500 checked, 0 mismatches after). Not used under match rule scanManager. Verify mode
+  compares every search with iterateObjectsInRange ("GXVERIFY splash").
+- splashIlp (bit 27, off; same game): with splashSimd, the pass does 8 slots per step as two
+  independent chains (each lane's math unchanged), per the ILP + FMA rule; no FMA.
+- damageTable (bit 26, off; same game): per frame, Weapon::computeBonus answers from a table keyed by
+  weapon template + bonus flags, and estimateWeaponTemplateDamage from one keyed by weapon template +
+  armor template + damage amount (subdual, kill-garrisoned and sniper damage are left out).
+- Last per-unit state: LeafletDropBehavior (EMPUpdate.h) and ProductionEntry (ProductionUpdate.h) in
+  GxComponentPool rows. ProductionEntry::m_exitDoor is now zeroed at creation (was uninitialised).
+  The combat data list is empty.
+- FireWeaponUpdate on ai's per-kind hook (match rule updatePasses): the kernel decides for each
+  every-frame module whether it fires (its own weapon status, object status and last shot frame; writes
+  only its row), apply fires in object-ID order, update() then skips that frame. Verify mode re-decides
+  in apply and counts differences ("GXVERIFY kindKernels fireWeapon").
+- GxTime ids: splash, estimate, reload (ms/tick); splashes, splashVictims, splashScanned, splashNear,
+  estimates, table/bonus hits and misses, reloadRows/reloadChanged.
+- Checks (combat-r5j, all four switches on): referee replay matches (verify 90584 checks, 0
+  mismatches); mt replay matches.
+- Battle timings (bench_run, scanManager off so splashes take the new path, tickTiming, two rounds
+  under timing.lock, single thread). Own ms/tick of the system, then its counters:
+  - splash: base 0.081 / 0.074, splashSimd 0.058 / 0.056 (-25%), +splashIlp 0.066 / 0.067 (no gain:
+    13.7k slots scanned and 190 kept per tick; the pass is memory-bound, not latency-bound).
+    4.0 splashes/tick, 158 victims/tick, same in every run.
+  - estimate: base 0.181 / 0.158, damageTable 0.204 / 0.199 (slower): table hits 192, misses 93 per
+    tick (67%); bonus table hits 1353, misses 86. The hashing costs more than the sums it saves.
+  - reload: the kernel costs 0.009 / 0.010 ms over 1670-1820 weapon rows per tick.
+  - Logic total per tick (whole run, noisy with machine load): base 18.2 / 16.4, splash 14.7 / 14.2,
+    ilp 16.0 / 16.4, table 15.7 / 14.6, reload 16.2 / 20.9 (reload2 ran at load 9). Frame p99 and
+    frames over 100 ms follow load the same way; per-system ms above are the comparable numbers.
+  - fps (footnote): strikes 13.7-19.4 across runs.
+- Defaults: splashSimd on (faster, same game). splashIlp, damageTable, weaponReload stay off (not
+  faster).
