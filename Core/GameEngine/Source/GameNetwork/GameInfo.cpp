@@ -1670,6 +1670,7 @@ void SkirmishGameInfo::loadPostProcess()
 extern int GLES3_Page_Switches();
 extern int GLES3_Page_Switches2();
 extern int GLES3_Page_Switches3();
+extern int GLES3_Page_Switches4();
 #endif
 static UnsignedInt s_gxMatchRules = 0;
 static Bool s_gxMatchRulesFixed = FALSE;
@@ -1699,7 +1700,9 @@ unsigned int gxLocalMatchRules()
 		| ((GLES3_Page_Switches3() & 65536) ? GXRULE_WEAPON_PASS : 0)	// third word bit 16: weaponPass
 		| ((GLES3_Page_Switches3() & 512) ? GXRULE_UPDATE_PASSES : 0)	// third word bit 9: updatePasses
 		| ((GLES3_Page_Switches3() & 262144) ? GXRULE_DAMAGE_QUEUE : 0)	// third word bit 18: damageQueue
-		| ((GLES3_Page_Switches3() & 64) ? GXRULE_STORE_PAIRS : 0);	// third word bit 6: storePairs
+		| ((GLES3_Page_Switches3() & 64) ? GXRULE_STORE_PAIRS : 0)	// third word bit 6: storePairs
+		| ((GLES3_Page_Switches4() & 128) ? 0 : GXRULE_KIND_KERNELS_OFF)	// fourth word bit 7: kindKernels
+		| ((GLES3_Page_Switches4() & 256) ? 0 : GXRULE_CONTAIN_KERNELS_OFF);	// fourth word bit 8: containKernels
 #else
 	return 0;
 #endif

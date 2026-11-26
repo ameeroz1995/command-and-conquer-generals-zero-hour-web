@@ -35,6 +35,7 @@
 #include "Common/Xfer.h"
 #include "GameClient/Drawable.h"
 #include "GameLogic/GameLogic.h"
+#include "Common/GxMatchRules.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/ScriptEngine.h"
 #include "GameLogic/Module/AIUpdate.h"
@@ -191,10 +192,10 @@ void RebuildHoleBehavior::transferBombs( Object *reconstruction )
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-// Round 5 addendum (drifting part: match rule updatePasses, switch containKernels, fourth word bit 8)
+// Round 5 addendum (drifting part: match rule updatePasses, switch containKernels, fourth word bit 8, carried as match rule containKernelsOff)
 void RebuildHoleBehavior::gxKernel( UpdateModulePtr *mods, Int begin, Int end )
 {
-	if (!GameLogic::gxKernelSwitch(256)) return;
+	if (!GameLogic::gxKernelSwitch(GXRULE_CONTAIN_KERNELS_OFF)) return;
 	const UnsignedInt now = TheGameLogic->getFrame();	// read only: fixed for the frame
 	for (Int k = begin; k < end; ++k)
 	{

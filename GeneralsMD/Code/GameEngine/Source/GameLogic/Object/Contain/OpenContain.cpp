@@ -48,6 +48,7 @@
 
 #include "GameLogic/AIPathfind.h"
 #include "GameLogic/GameLogic.h"
+#include "Common/GxMatchRules.h"
 #include "GameLogic/Module/OpenContain.h"
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/PhysicsUpdate.h"
@@ -207,7 +208,7 @@ void OpenContain::containReactToTransformChange()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-// Round 5 addendum (drifting part: match rule updatePasses, switch containKernels, fourth word bit 8):
+// Round 5 addendum (drifting part: match rule updatePasses, switch containKernels, fourth word bit 8, carried as match rule containKernelsOff):
 // the container kernel steps each container's own row ahead of the units' turns; update() then does the
 // rest in the container's own turn. Other units' turns can write these fields (a rider entering sets
 // the entered mask and opens the door), so results differ from the in-turn order, hence the rule.
@@ -240,7 +241,7 @@ void OpenContain::gxApplyStep( UnsignedInt due )
 
 void OpenContain::gxKernel( UpdateModulePtr *mods, Int begin, Int end )
 {
-	if (!GameLogic::gxKernelSwitch(256)) return;	// containKernels off (local single player only)
+	if (!GameLogic::gxKernelSwitch(GXRULE_CONTAIN_KERNELS_OFF)) return;	// match rule containKernelsOff
 	const UnsignedInt now = TheGameLogic->getFrame();	// read only: fixed for the frame
 	for (Int k = begin; k < end; ++k)
 	{

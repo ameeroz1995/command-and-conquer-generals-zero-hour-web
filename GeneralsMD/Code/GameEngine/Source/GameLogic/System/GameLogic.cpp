@@ -3960,19 +3960,15 @@ void GameLogic::gxRegisterKindKernel( NameKeyType kind, GxKindKernelFn kernel, G
 	GxKindKernelEntry e = { kind, kernel, apply };
 	gxKindKernels().push_back(e);
 }
-// Whether kernels run changes the game (they compute before the units' turns), so it follows the
-// match rule updatePasses (host / replay header decide); the kindKernels setting can only turn them
-// off in a local single-player game.
-Bool GameLogic::gxKernelSwitch( Int bit4 )
+// Whether kernels run changes the game (they compute before the units' turns), so it is match rules:
+// updatePasses on and kindKernelsOff not set (the host's Settings / the replay header decide; in single
+// player the local switches, which the recording keeps).
+Bool GameLogic::gxKernelSwitch( Int offRule )
 {
 	extern bool gxMatchRule(unsigned int rule);
-	if (!gxMatchRule(131072)) return FALSE;
-	if (!(GLES3_Page_Switches4() & bit4) && TheGameLogic && !TheGameLogic->isInMultiplayerGame()
-			&& !(TheRecorder && TheRecorder->isPlaybackMode()))
-		return FALSE;
-	return TRUE;
+	return gxMatchRule(GXRULE_UPDATE_PASSES) && !gxMatchRule(offRule);
 }
-static Bool gxKernelsOn() { return GameLogic::gxKernelSwitch(128); }
+static Bool gxKernelsOn() { return GameLogic::gxKernelSwitch(GXRULE_KIND_KERNELS_OFF); }
 static const GxKindKernelEntry *gxKindKernelOf( NameKeyType kind )
 {
 	if (!gxKernelsOn()) return nullptr;

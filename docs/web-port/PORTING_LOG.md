@@ -4133,3 +4133,13 @@ Timing, battle benchmark, ai-35, tickTiming, timing.lock, load 2-3, kernelSimd o
 - run 2: logic 15.04 / 14.92 ms/tick; aiLoop 7.35 / 7.25; aiKernels 0.266 / 0.256; p99 88.6 / 83.6 ms; over 100 ms 24 / 19
 - same work both sides: 3214.6 module calls/tick, 711.9 kernel slots/tick. Level to slightly faster
   (aiKernels includes the apply step, which is most of it).
+
+### ai: kernel switches carried in the replay header (match rules kindKernelsOff 16777216, containKernelsOff 33554432)
+- Before: kindKernels / containKernels off only worked in local single player and playback forced
+  kernels on, so a single-player game recorded with a switch off would not replay.
+- Now both are "off" match rules (bits 24, 25: an old recording without them plays as before, kernels
+  on). The local switches set them; the host's Settings decide network games; the replay header keeps
+  them. GameLogic::gxKernelSwitch(offRule) = updatePasses on and offRule not set.
+Checks (ai-36): single-player game recorded with both switches off (rules 3FEE6E7 in the header)
+replays to a match (rules read back 3FEE6E7); one recorded with defaults (FEE6E7) replays to a match;
+referee.rep, ai-ck.rep, ai-up5.rep match.
