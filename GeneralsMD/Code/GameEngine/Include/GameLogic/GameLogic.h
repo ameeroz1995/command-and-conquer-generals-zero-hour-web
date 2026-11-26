@@ -144,6 +144,9 @@ public:
 	typedef void (*GxKindKernelFn)( UpdateModulePtr *mods, Int begin, Int end );
 	typedef void (*GxKindApplyFn)( UpdateModulePtr *mods, Int count );
 	static void gxRegisterKindKernel( NameKeyType kind, GxKindKernelFn kernel, GxKindApplyFn apply );
+	// TRUE while match rule updatePasses is on, unless the fourth-word switch bit4 is off in a local
+	// single-player game (the rule the kernel hooks follow; a kernel's own switch uses it too)
+	static Bool gxKernelSwitch( Int bit4 );
 	void gxNoteDisabled( Object *obj );	///< web port: obj may now be disabled (switch disabledList)
 
 	void addObjectToLookupTable( Object *obj );			///< add object ID to hash lookup table

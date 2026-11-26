@@ -4099,3 +4099,17 @@ Timing, battle benchmark, ai-33, tickTiming, timing.lock, load 4-5, kindKernels 
 - kernel slots 474/tick on; module calls 3154-3497 off / 3215 on (the benchmark's work varies run to run).
 Level within noise: the kernel part is a few compares per unit; the gain is the split itself (the
 kernel can later run over workers / SIMD).
+
+### ai: containers and rebuild holes as kernels (drifting part, rides on match rule updatePasses)
+- OpenContain (and every container kind: Transport, Garrison, Tunnel, Cave, Heal, InternetHack,
+  MobNexus, Overlord, Helix, Parachute, RailedTransport, RiderChange; each update() calls
+  OpenContain::update() unconditionally): the kind kernel clears the entered mask and steps the door
+  countdown of all containers ahead of the turns; update() does the rest (art monitor, door close,
+  dead wanters) in the container's own turn.
+- RebuildHoleBehavior: the kernel steps the worker wait counter of holes with no worker; a worker
+  lost this frame starts its countdown next frame.
+- Results differ from the in-turn order (riders entering / workers dying in other units' turns), so
+  it follows match rule updatePasses; switch containKernels (fourth word bit 8, default on) can turn
+  it off in local single player only (GameLogic::gxKernelSwitch).
+Checks (ai-34): referee.rep (rule off) matches; new recording ai-ck.rep made on ai-34 replays to a
+match; ai-up5.rep still matches; verify mode on the battle benchmark: 0 mismatches.

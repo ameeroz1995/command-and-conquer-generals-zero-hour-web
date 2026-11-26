@@ -85,6 +85,12 @@ RebuildHoleBehaviorModuleData::RebuildHoleBehaviorModuleData()
 //-------------------------------------------------------------------------------------------------
 RebuildHoleBehavior::RebuildHoleBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	static Bool gxRegistered = FALSE;
+	if (!gxRegistered)
+	{
+		gxRegistered = TRUE;
+		GameLogic::gxRegisterKindKernel(NAMEKEY("RebuildHoleBehavior"), gxKernel, nullptr);
+	}
 
 
 	GXROW_REBUILDHOLEBEHAVIOR.workerID = INVALID_ID;
@@ -185,6 +191,21 @@ void RebuildHoleBehavior::transferBombs( Object *reconstruction )
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+// Round 5 addendum (drifting part: match rule updatePasses, switch containKernels, fourth word bit 8)
+void RebuildHoleBehavior::gxKernel( UpdateModulePtr *mods, Int begin, Int end )
+{
+	if (!GameLogic::gxKernelSwitch(256)) return;
+	const UnsignedInt now = TheGameLogic->getFrame();	// read only: fixed for the frame
+	for (Int k = begin; k < end; ++k)
+	{
+		GxRebuildHoleBehaviorRow &r = static_cast<RebuildHoleBehavior *>(mods[k])->gxRow();
+		r.gxSpawnDue = FALSE;
+		if (r.workerID == 0 && r.workerWaitCounter > 0)
+			r.gxSpawnDue = (--r.workerWaitCounter == 0);
+		r.gxKernelFrame = now;
+	}
+}
+
 UpdateSleepTime RebuildHoleBehavior::update()
 {
 	const RebuildHoleBehaviorModuleData *modData = getRebuildHoleBehaviorModuleData();
@@ -224,12 +245,14 @@ UpdateSleepTime RebuildHoleBehavior::update()
 
 	}
 
-	// see if it's time for us to spawn a worker
-	if( worker == nullptr && GXROW_REBUILDHOLEBEHAVIOR.workerWaitCounter > 0 )
+	// see if it's time for us to spawn a worker (under the kernel the counter was stepped ahead of the
+	// turns for holes without a worker; a worker lost this frame starts its countdown next frame)
+	const Bool gxStepped = GXROW_REBUILDHOLEBEHAVIOR.gxKernelFrame == TheGameLogic->getFrame() && GXROW_REBUILDHOLEBEHAVIOR.gxKernelFrame != 0;
+	if( worker == nullptr && (gxStepped || GXROW_REBUILDHOLEBEHAVIOR.workerWaitCounter > 0) )
 	{
 
 		// decrement counter and respawn if it's time
-		if( --GXROW_REBUILDHOLEBEHAVIOR.workerWaitCounter == 0 )
+		if( gxStepped ? GXROW_REBUILDHOLEBEHAVIOR.gxSpawnDue : --GXROW_REBUILDHOLEBEHAVIOR.workerWaitCounter == 0 )
 		{
 
 			// resolve the worker template pointer if necessary

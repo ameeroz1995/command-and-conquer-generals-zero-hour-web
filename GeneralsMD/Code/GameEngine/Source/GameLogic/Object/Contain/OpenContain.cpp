@@ -125,6 +125,17 @@ OpenContainModuleData::OpenContainModuleData()
 //-------------------------------------------------------------------------------------------------
 OpenContain::OpenContain( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	static Bool gxRegistered = FALSE;
+	if (!gxRegistered)
+	{
+		gxRegistered = TRUE;
+		// every container kind: each one's update() calls OpenContain::update() unconditionally
+		static const char *const kinds[] = { "OpenContain", "TransportContain", "GarrisonContain", "TunnelContain",
+			"CaveContain", "HealContain", "InternetHackContain", "MobNexusContain", "OverlordContain", "HelixContain",
+			"ParachuteContain", "RailedTransportContain", "RiderChangeContain" };
+		for (const char *k : kinds)
+			GameLogic::gxRegisterKindKernel(NAMEKEY(k), gxKernel, nullptr);
+	}
 
 
 	// initialize our lists
@@ -196,24 +207,57 @@ void OpenContain::containReactToTransformChange()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-UpdateSleepTime OpenContain::update()
+// Round 5 addendum (drifting part: match rule updatePasses, switch containKernels, fourth word bit 8):
+// the container kernel steps each container's own row ahead of the units' turns; update() then does the
+// rest in the container's own turn. Other units' turns can write these fields (a rider entering sets
+// the entered mask and opens the door), so results differ from the in-turn order, hence the rule.
+UnsignedInt OpenContain::gxStep()
 {
-	GXROW_OPENCONTAIN.playerEnteredMask = 0;
+	GxOpenContainRow &r = GXROW_OPENCONTAIN;
+	r.playerEnteredMask = 0;
+	UnsignedInt due = 0;
+	if( r.doorCloseCountdown )
+	{
+		/// @todo srj -- for now, OpenContain assumes at most one door
+		--r.doorCloseCountdown;
+		if( r.doorCloseCountdown == 0 )
+			due |= 1;
+	}
+	return due;
+}
 
+void OpenContain::gxApplyStep( UnsignedInt due )
+{
 	// we need to monitor changes in the art and position
 	monitorConditionChanges();
 
-	if( GXROW_OPENCONTAIN.doorCloseCountdown )
-	{
-		/// @todo srj -- for now, OpenContain assumes at most one door
-		--GXROW_OPENCONTAIN.doorCloseCountdown;
-		if( GXROW_OPENCONTAIN.doorCloseCountdown == 0 )
-			getObject()->clearAndSetModelConditionState( MODELCONDITION_DOOR_1_OPENING, MODELCONDITION_DOOR_1_CLOSING );
-	}
+	if( due & 1 )
+		getObject()->clearAndSetModelConditionState( MODELCONDITION_DOOR_1_OPENING, MODELCONDITION_DOOR_1_CLOSING );
 
 	if (!GXROW_OPENCONTAIN.objectEnterExitInfo.empty())
 		pruneDeadWanters();
+}
 
+void OpenContain::gxKernel( UpdateModulePtr *mods, Int begin, Int end )
+{
+	if (!GameLogic::gxKernelSwitch(256)) return;	// containKernels off (local single player only)
+	const UnsignedInt now = TheGameLogic->getFrame();	// read only: fixed for the frame
+	for (Int k = begin; k < end; ++k)
+	{
+		OpenContain *m = static_cast<OpenContain *>(mods[k]);
+		GxOpenContainRow &r = m->gxRow();
+		r.gxDue = m->gxStep();
+		r.gxKernelFrame = now;
+	}
+}
+
+UpdateSleepTime OpenContain::update()
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if (GXROW_OPENCONTAIN.gxKernelFrame == now && now != 0)
+		gxApplyStep(GXROW_OPENCONTAIN.gxDue);	// the kernel stepped the row this frame
+	else
+		gxApplyStep(gxStep());
 	return UPDATE_SLEEP_NONE;
 }
 

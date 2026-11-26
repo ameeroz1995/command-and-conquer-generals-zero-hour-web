@@ -60,7 +60,7 @@ static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 13421
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // Fourth switch word (round 5: units as pure data). Bits by owner: collide 0-5, ai 6-11, query 12-17,
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
-static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 4096 | 8192 | 16384 | 32768;	// default-on bits of every lane (collideSimd, dataBehaviors, rowKernels, simdSearch, fogStamps, fogKeep)
+static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 4096 | 8192 | 16384 | 32768;	// default-on bits of every lane (collideSimd, dataBehaviors, rowKernels, simdSearch, fogStamps, fogKeep)
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -475,6 +475,7 @@ void GLES3_Begin_Scene() {
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
                  | (o.dataBehaviors === false ? 0 : 64)   // bit 6: behaviours as data: lookups made per frame by name done once (Behavior/*.cpp; same game)
+                 | (o.containKernels === false ? 0 : 256)   // bit 8: containers / rebuild holes step their own countdowns in a kernel ahead of the turns (OpenContain.cpp, RebuildHoleBehavior.cpp; rides on match rule updatePasses, off only in local single player)
                  | (o.kindKernels === false ? 0 : 128)   // bit 7: kernels follow match rule updatePasses; off here turns them off in local single player only (GameLogic.cpp)
                  | (o.rowKernels === false ? 0 : 4096)   // bit 12: scan countdowns of EnemyNear/AutoFindHealing/PointDefenseLaser run as one kernel per table (GxComponentTable.h; same game)
                  | (o.simdSearch === false ? 0 : 8192)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
