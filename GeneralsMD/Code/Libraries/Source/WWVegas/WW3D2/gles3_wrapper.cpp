@@ -62,6 +62,8 @@ int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
 static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 512 | 4096 | 8192 | 16384 | 32768 | 262144;	// default-on bits of every lane (collideSimd, dataBehaviors, kindKernels, containKernels, kernelSimd, rowKernels, simdSearch, fogStamps, fogKeep, cpopSimd)
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
+static int g_PageSwitches5 = 0;	// fifth word, default-on bits of every lane (none yet)
+int GLES3_Page_Switches5() { return g_PageSwitches5; }	// non-web builds: callers use a local stub returning 0
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
@@ -486,6 +488,11 @@ void GLES3_Begin_Scene() {
                  | (o.tickTiming === true ? 65536 : 0)   // bit 16 (measuring only, off): per-tick logic / system ms, work counters, frame p99 as GXTIME lines (Common/GxTime.h)
                  | (o.physSimd === true ? 1 : 0)   // bit 0: with physBulk, physics integration for all due units in one SIMD pass over the store columns (PhysicsUpdate.cpp; rides on match rule physBulk)
                  | (o.collideSimd === false ? 0 : 2);   // bit 1: with storePairs, the broad phase's distance cut 4 units per instruction over per-cell blocks (PartitionManager.cpp; same pairs as storePairs)
+        });
+        g_PageSwitches5 = EM_ASM_INT({
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+                 | (o.batchScan === true ? 1 : 0);   // bit 0 (value 1): batchScan, due mood scans of AI units collected per phase and searched in one pass over the unit store (AIUpdate.cpp, PartitionManager.cpp; off until timed)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
