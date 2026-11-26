@@ -111,6 +111,8 @@ protected:
 
 	void newWorkerRespawnProcess( Object *existingWorker );		///< start the worker respawn process (again if existingWorker is non nullptr)
 
+	static void gxKernel( UpdateModulePtr *mods, Int begin, Int end );	///< round 5 addendum: steps the worker wait counter
+
 	GxRow<struct GxRebuildHoleBehaviorRow> m_gxRebuildHoleBehaviorRow;	///< web port (round 5): this unit's row in TheGxRebuildHoleBehaviors
 	friend struct GxRebuildHoleBehaviorRow;
 	inline struct GxRebuildHoleBehaviorRow &gxRow() const;
@@ -127,6 +129,8 @@ struct GxRebuildHoleBehaviorRow
 	UnsignedInt workerWaitCounter;
 	const ThingTemplate* workerTemplate;
 	const ThingTemplate* rebuildTemplate;
+	UnsignedInt gxKernelFrame = 0;	///< frame the kernel last stepped the wait counter
+	Bool gxSpawnDue = FALSE;	///< the counter reached 0 in that step
 };
 
 

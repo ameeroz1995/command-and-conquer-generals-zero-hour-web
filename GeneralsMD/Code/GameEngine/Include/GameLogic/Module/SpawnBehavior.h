@@ -193,6 +193,12 @@ private:
 	Bool shouldTryToSpawn(); ///< For my own use, should I even think of spawning
 	Bool createSpawn();										///< Actual work of creating a guy
 
+	// round 5 addendum: update() = gxStep (kernel: own row only) + gxApplyStep (side effects)
+	Bool gxStep();
+	UpdateSleepTime gxApplyStep( Bool due );
+	static void gxKernel( UpdateModulePtr *mods, Int begin, Int end );
+	static void gxApply( UpdateModulePtr *mods, Int count );
+
 	GxRow<struct GxSpawnBehaviorRow> m_gxSpawnBehaviorRow;	///< web port (round 5): this unit's row in TheGxSpawnBehaviors
 	friend struct GxSpawnBehaviorRow;
 	inline struct GxSpawnBehaviorRow &gxRow() const;
@@ -231,6 +237,9 @@ struct GxSpawnBehaviorRow
 	Int spawnCount;
 	UnsignedInt selfTaskingSpawnCount;
 	UnsignedInt initialBurstCountdown;
+	UnsignedInt gxKernelFrame = 0;	///< frame the kind kernel last ran this row
+	Bool gxDue = FALSE;	///< the kernel's result for gxApplyStep
+	Int gxSnap = 0;	///< verify mode: the timer as the kernel left it
 };
 
 

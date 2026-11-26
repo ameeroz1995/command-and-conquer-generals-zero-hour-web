@@ -4080,6 +4080,82 @@ migration / ai-30 after):
 - work counters identical: 33.7 module calls/tick; frames 9598, p99 17.5 / 17.4 ms, 5 frames over 100 ms
 Level (this recording is a light game: 0.5 ms of logic per tick).
 
+### ai: kernel + apply for SlowDeath and Spawn (round 5 addendum), kernels follow match rule (5db1c81)
+- Kernels follow the match rule updatePasses (131072); the kindKernels setting can only turn them off in
+  local single player (paths: a local setting would desync).
+- SlowDeathBehavior::update() = gxStep (kernel: row + module data only: LOD time scale, flung frame
+  bump, which of sink / midpoint / final are due) + gxApplyStep (destroy, bounce, tree snag, sink,
+  phase effects). SpawnBehavior::update() = gxStep (spawn timer) + gxApplyStep (aggregate health,
+  burst setup, spawning). Registered on the per-kind hook (subclasses keep their own update()).
+  update() returns at once when the kernel already took that frame's turn.
+- Not split: OpenContain family and RebuildHole. Their per-frame fields (door countdown, entered
+  mask, wanters, worker counter) are written by other units' turns (riders entering, workers dying),
+  so a kernel ahead of the turns would change results.
+- Verify mode (bit 21): at each apply the row must still be as the kernel left it. Battle benchmark:
+  36.9M checks, 0 mismatches. Replays referee.rep and ai-up5.rep match (ai-33).
+Timing, battle benchmark, ai-33, tickTiming, timing.lock, load 4-5, kindKernels off / on:
+- run 1: logic 18.31 / 16.53 ms/tick; aiLoop 8.78 / 7.95; aiKernels 0 / 0.30; p99 89.1 / 93.3 ms; over 100 ms 21 / 23
+- run 2: logic 16.39 / 17.11 ms/tick; aiLoop 7.74 / 8.32; aiKernels 0 / 0.31; p99 90.9 / 96.6 ms; over 100 ms 19 / 29
+- kernel slots 474/tick on; module calls 3154-3497 off / 3215 on (the benchmark's work varies run to run).
+Level within noise: the kernel part is a few compares per unit; the gain is the split itself (the
+kernel can later run over workers / SIMD).
+
+### ai: containers and rebuild holes as kernels (drifting part, rides on match rule updatePasses)
+- OpenContain (and every container kind: Transport, Garrison, Tunnel, Cave, Heal, InternetHack,
+  MobNexus, Overlord, Helix, Parachute, RailedTransport, RiderChange; each update() calls
+  OpenContain::update() unconditionally): the kind kernel clears the entered mask and steps the door
+  countdown of all containers ahead of the turns; update() does the rest (art monitor, door close,
+  dead wanters) in the container's own turn.
+- RebuildHoleBehavior: the kernel steps the worker wait counter of holes with no worker; a worker
+  lost this frame starts its countdown next frame.
+- Results differ from the in-turn order (riders entering / workers dying in other units' turns), so
+  it follows match rule updatePasses; switch containKernels (fourth word bit 8, default on) can turn
+  it off in local single player only (GameLogic::gxKernelSwitch).
+Checks (ai-34): referee.rep (rule off) matches; new recording ai-ck.rep made on ai-34 replays to a
+match; ai-up5.rep still matches; verify mode on the battle benchmark: 0 mismatches.
+Timing, battle benchmark, ai-34, tickTiming, timing.lock, load 4-8 (just after a reboot), containKernels off / on:
+- run 1: logic 20.37 / 21.66 ms/tick; aiLoop 10.40 / 10.90; aiKernels 0.39 / 0.41; p99 122 / 110 ms; over 100 ms 76 / 48
+- run 2: logic 21.36 / 18.46 ms/tick; aiLoop 10.79 / 9.27; aiKernels 0.41 / 0.34; p99 128 / 107 ms; over 100 ms 117 / 41
+- kernel slots 712-791/tick (counted also when off: the hook runs, the kernel returns at once)
+Level within noise (the run's work differs: 2700 vs 3000 ticks, 3215-3572 module calls/tick).
+
+### ai: SIMD step, slow-death kernel 4 rows per instruction (switch kernelSimd, fourth word bit 9, on; same game)
+- Profile of the battle benchmark (ai-34): no math loops in the ai lane; its own cost is branchy
+  scalar work (isIdle 0.5%, doLocomotor 0.5%, state updates ~0.4% each). The SIMD step applies to
+  the biggest ai kernel, SlowDeath (~250 rows/tick): with LOD scale 1 the step is integer compares
+  and adds, done 4 rows per wasm SIMD instruction, branchless (masks + and/or), gathered from and
+  scattered back to the pool; no FMA, no float math. Spawn / container kernels are one decrement
+  over a few dozen rows: left scalar.
+- Checks (ai-35): referee.rep and ai-ck.rep match; verify mode runs the scalar step on a copy of every
+  row: 37.25M checks, 0 mismatches (all GXVERIFY checks 0).
+Timing, battle benchmark, ai-35, tickTiming, timing.lock, load 2-3, kernelSimd off / on:
+- run 1: logic 15.28 / 15.22 ms/tick; aiLoop 7.48 / 7.44; aiKernels 0.271 / 0.270; p99 84.7 / 86.0 ms; over 100 ms 19 / 21
+- run 2: logic 15.04 / 14.92 ms/tick; aiLoop 7.35 / 7.25; aiKernels 0.266 / 0.256; p99 88.6 / 83.6 ms; over 100 ms 24 / 19
+- same work both sides: 3214.6 module calls/tick, 711.9 kernel slots/tick. Level to slightly faster
+  (aiKernels includes the apply step, which is most of it).
+
+### ai: kernel switches carried in the replay header (match rules kindKernelsOff 16777216, containKernelsOff 33554432)
+- Before: kindKernels / containKernels off only worked in local single player and playback forced
+  kernels on, so a single-player game recorded with a switch off would not replay.
+- Now both are "off" match rules (bits 24, 25: an old recording without them plays as before, kernels
+  on). The local switches set them; the host's Settings decide network games; the replay header keeps
+  them. GameLogic::gxKernelSwitch(offRule) = updatePasses on and offRule not set.
+Checks (ai-36): single-player game recorded with both switches off (rules 3FEE6E7 in the header)
+replays to a match (rules read back 3FEE6E7); one recorded with defaults (FEE6E7) replays to a match;
+referee.rep, ai-ck.rep, ai-up5.rep match.
+
+### ai: idle check from a cached state ID / idleness (switch dataBehaviors; same game)
+- AIUpdateInterface::isIdle() (75 call sites) read the state machine's current state object and made a
+  virtual isIdle() call. A state's isIdle() is fixed per state class, so the state machine now keeps
+  the current state's ID and idleness in its row, refreshed at the 7 places that set the current state
+  (StateMachine.cpp); isIdle() reads those two fields. All call sites benefit without being touched.
+- Verify mode compares with the old computation: 40.0M checks, 0 mismatches (battle benchmark, ai-37).
+  Replays referee.rep, ai-ck.rep, ai-kon.rep, ai-koff.rep match.
+Timing, battle benchmark, ai-36 / ai-37 (before / after), tickTiming, timing.lock, load 3-5, 3 pairs. The
+benchmark ran two ways (2700 ticks at ~3570 module calls/tick, or 3000 ticks at 3215), so compare like with like:
+- 2700-tick runs: ai-36 19.31, 19.07 ms/tick logic (aiLoop 9.68, 9.43) / ai-37 19.62, 19.49 (aiLoop 9.86, 9.73)
+- 3000-tick runs: ai-36 17.92 (aiLoop 8.86, p99 100.0 ms) / ai-37 16.48 (aiLoop 8.21, p99 94.1 ms)
+- frames over 100 ms 30-40 / 25-48. Level within noise (the expected ceiling was isIdle's 0.6% share).
 ## 2026-11-26 — paths: route following with SIMD (cpopSimd), cell-types counter, pathfind/loco timing
 - Kept: c8dfa88, range kernels moved onto ai's per-kind hook (GameLogic::gxRegisterKindKernel, keyed by
   module name, joined on first update). Store bits 20-27 and the per-unit join lists are gone. Replays:
@@ -4105,3 +4181,15 @@ Level (this recording is a light game: 0.5 ms of logic per tick).
   paths-iso (paths' round-5 commits reverted) vs r5l at the same work (~775 movers/tick): iso2 20.78,
   l1 19.74, l2 21.62 ms/tick logic: no regression from paths' round 5. (iso1 14.50 ran ~696
   movers/tick, a different battle.)
+
+### ai: same-cell locomotor skip (switch dataBehaviors; same game; uses paths' Pathfinder::gxCellTypeVersion, b4f1531)
+- chooseGoodLocomotorFromCurrentSet asked Pathfinder::chooseBestLocomotorForPosition every tick for every
+  moving unit (one pathfind-cell read + findLocomotor). The AI row keeps the last answer with its key
+  (cell x/y, layer, cell-type version); same key -> same answer. Invalidated wherever the locomotor set
+  is rebuilt (4 clears + load).
+Checks (ai-38): verify mode calls the pathfinder on every cache hit and compares: 46.7M checks,
+0 mismatches; referee.rep, ai-ck.rep, ai-kon.rep, ai-koff.rep match.
+Timing, battle benchmark, ai-38m (same tree, skip compiled out) / ai-38, tickTiming, timing.lock, load 3-5:
+- 2700-tick runs: ai-38m 18.88 ms/tick logic (aiLoop 9.26) / ai-38 18.85, 19.07 (aiLoop 9.19, 9.26)
+- 3000/3300-tick runs (different work, not comparable): ai-38m 16.69, 16.52 / ai-38 14.62 (3300 ticks)
+Level within noise (the ceiling was the call's 0.4% self share).
