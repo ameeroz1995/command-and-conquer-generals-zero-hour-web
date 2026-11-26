@@ -4869,6 +4869,7 @@ void AIUpdateInterface::gxMoodScanKernel( UpdateModulePtr *mods, Int begin, Int 
 	if (who.empty())
 		return;
 	out.assign(who.size(), nullptr);
+	gxCount(GXC_BATCH_SCANNED, who.size());
 	gxBatchFindClosestEnemy((Int)who.size(), me.data(), range.data(), quals.data(), info.data(), out.data());
 	const UnsignedInt now = TheGameLogic->getFrame();
 	for (size_t i = 0; i < who.size(); ++i)
@@ -5028,6 +5029,7 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 	}
 
 	Object *newVictim = nullptr;
+	gxCount(GXC_MOOD_SCANS);
 	GxAIUpdateInterfaceRow &gxR = GXROW_AIUPDATEINTERFACE;
 	if (calledByAI && gxR.gxScanFrame == now && gxR.gxScanRange == rangeToFindWithin && gxR.gxScanFlags == flags
 			&& gxR.gxScanInfo == getAttackInfo() && gxMatchRule(GXRULE_BATCH_SCAN))
@@ -5035,6 +5037,7 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 		// batchScan: this tick's batched answer (searched before the turns, so it can differ from a search now;
 		// rides on updatePasses). An answer that died since then is searched again.
 		gxR.gxScanFrame = 0;
+		gxCount(GXC_BATCH_USED);
 		Bool fresh = gxR.gxScanResult == INVALID_ID;
 		if (!fresh)
 		{
