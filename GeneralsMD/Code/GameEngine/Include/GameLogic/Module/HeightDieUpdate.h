@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -70,9 +71,17 @@ public:
 protected:
 
 
-	Bool m_hasDied;							///< TRUE once we have triggered death
-	Bool m_particlesDestroyed;	///< TRUE once we destroy attached systems (so we do it only once)
-	Coord3D m_lastPosition;			///< we record our last position for logic that needs to know our direction of travel
-	UnsignedInt m_earliestDeathFrame; ///< Earliest we are allowed to think about dying
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		Bool m_hasDied;							///< TRUE once we have triggered death
+		Bool m_particlesDestroyed;	///< TRUE once we destroy attached systems (so we do it only once)
+		Coord3D m_lastPosition;			///< we record our last position for logic that needs to know our direction of travel
+		UnsignedInt m_earliestDeathFrame; ///< Earliest we are allowed to think about dying
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 };

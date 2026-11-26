@@ -36,6 +36,21 @@
 #include "GameLogic/Module/SupplyTruckAIUpdate.h"
 #include "GameLogic/Module/UpdateModule.h"
 
+// Web port (round 5, units are pure data): AIDockWaitForClearanceState's per-unit state is a row of TheGxAIDockWaitForClearanceStates;
+// GXROW_AIDOCKWAITFORCLEARANCESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_AIDOCKWAITFORCLEARANCESTATE (const_cast<GxAIDockWaitForClearanceStateRow &>(*m_gxAIDockWaitForClearanceStateRow))
+
+
+// Web port (round 5, units are pure data): AIDockProcessDockState's per-unit state is a row of TheGxAIDockProcessDockStates;
+// GXROW_AIDOCKPROCESSDOCKSTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_AIDOCKPROCESSDOCKSTATE (const_cast<GxAIDockProcessDockStateRow &>(*m_gxAIDockProcessDockStateRow))
+
+
+// Web port (round 5, units are pure data): AIDockMachine's per-unit state is a row of TheGxAIDockMachines;
+// GXROW_AIDOCKMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_AIDOCKMACHINE (const_cast<GxAIDockMachineRow &>(*m_gxAIDockMachineRow))
+
+
 //----------------------------------------------------------------------------------------------------------
 /**
  * Create an AI state machine. Define all of the states the machine
@@ -43,6 +58,7 @@
  */
 AIDockMachine::AIDockMachine( Object *obj ) : StateMachine( obj, "AIDockMachine" )
 {
+
 	static const StateConditionInfo waitForClearanceConditions[] =
 	{
 		StateConditionInfo(ableToAdvance, AI_DOCK_ADVANCE_POSITION, nullptr),
@@ -59,7 +75,7 @@ AIDockMachine::AIDockMachine( Object *obj ) : StateMachine( obj, "AIDockMachine"
 	defineState( AI_DOCK_MOVE_TO_EXIT,				newInstance(AIDockMoveToExitState)( this ), AI_DOCK_MOVE_TO_RALLY, EXIT_MACHINE_WITH_FAILURE );
 	defineState( AI_DOCK_MOVE_TO_RALLY,				newInstance(AIDockMoveToRallyState)( this ), EXIT_MACHINE_WITH_SUCCESS, EXIT_MACHINE_WITH_FAILURE );
 
-	m_approachPosition = -1;
+	GXROW_AIDOCKMACHINE.approachPosition = -1;
 }
 
 AIDockMachine::~AIDockMachine()
@@ -104,7 +120,7 @@ void AIDockMachine::xfer( Xfer *xfer )
 	xfer->xferVersion( &v, cv );
 
 	StateMachine::xfer(xfer);
-	xfer->xferInt(&m_approachPosition);
+	xfer->xferInt(&GXROW_AIDOCKMACHINE.approachPosition);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -132,7 +148,7 @@ void AIDockMachine::loadPostProcess()
 		return FALSE;
 
 	// if the dock says we can advance, then sidetrack to the scoot forward state
-	if( dock->isClearToAdvance( thisState->getMachineOwner(), myMachine->m_approachPosition ) )
+	if( dock->isClearToAdvance( thisState->getMachineOwner(), myMachine->gxRow().approachPosition ) )
 		return TRUE;
 
 	// continue to wait
@@ -187,7 +203,7 @@ StateReturnType AIDockApproachState::onEnter()
 	}
 
 	// get a good place to wait from the dock
-	Bool reserved = dock->reserveApproachPosition( getMachineOwner(), &m_goalPosition, &(( (AIDockMachine*)getMachine() )->m_approachPosition) );
+	Bool reserved = dock->reserveApproachPosition( getMachineOwner(), &AIInternalMoveToState::gxRow().goalPosition, &(( (AIDockMachine*)getMachine() )->gxRow().approachPosition) );
 	if( reserved == FALSE )
 	{
 		// dock is full
@@ -247,7 +263,7 @@ void AIDockApproachState::onExit( StateExitType status )
  */
 StateReturnType AIDockWaitForClearanceState::onEnter()
 {
-	m_enterFrame = TheGameLogic->getFrame();
+	GXROW_AIDOCKWAITFORCLEARANCESTATE.enterFrame = TheGameLogic->getFrame();
 	return STATE_CONTINUE;
 }
 
@@ -279,7 +295,7 @@ StateReturnType AIDockWaitForClearanceState::update()
 	if (dock->isClearToEnter( getMachineOwner() ))
 		return STATE_SUCCESS;
 
-	if (m_enterFrame + 30*LOGICFRAMES_PER_SECOND < TheGameLogic->getFrame()) {
+	if (GXROW_AIDOCKWAITFORCLEARANCESTATE.enterFrame + 30*LOGICFRAMES_PER_SECOND < TheGameLogic->getFrame()) {
 		return STATE_FAILURE;
 	}
 	// continue to wait
@@ -307,9 +323,9 @@ void AIDockWaitForClearanceState::xfer(Xfer *xfer )
 	XferVersion v = cv;
 	xfer->xferVersion( &v, cv );
 	if (v >= 2) {
-		xfer->xferUnsignedInt(&m_enterFrame);
+		xfer->xferUnsignedInt(&GXROW_AIDOCKWAITFORCLEARANCESTATE.enterFrame);
 	} else {
-		m_enterFrame = TheGameLogic->getFrame();
+		GXROW_AIDOCKWAITFORCLEARANCESTATE.enterFrame = TheGameLogic->getFrame();
 	}
 }
 //----------------------------------------------------------------------------------------------
@@ -343,7 +359,7 @@ StateReturnType AIDockAdvancePositionState::onEnter()
 	}
 
 	// get a good place to wait from the dock
-	Bool reserved = dock->advanceApproachPosition( getMachineOwner(), &m_goalPosition, &(( (AIDockMachine*)getMachine() )->m_approachPosition) );
+	Bool reserved = dock->advanceApproachPosition( getMachineOwner(), &AIInternalMoveToState::gxRow().goalPosition, &(( (AIDockMachine*)getMachine() )->gxRow().approachPosition) );
 	if( reserved == FALSE )
 	{
 		// dock is full
@@ -428,9 +444,9 @@ StateReturnType AIDockMoveToEntryState::onEnter()
 	}
 
 	// get the enter position and set as our goal position
-	dock->getEnterPosition( getMachineOwner(), &m_goalPosition );
+	dock->getEnterPosition( getMachineOwner(), &AIInternalMoveToState::gxRow().goalPosition );
 
-	( (AIDockMachine*)getMachine() )->m_approachPosition = -1;
+	( (AIDockMachine*)getMachine() )->gxRow().approachPosition = -1;
 
 	// this behavior is an extension of basic MoveTo
 	return AIInternalMoveToState::onEnter();
@@ -502,7 +518,7 @@ StateReturnType AIDockMoveToDockState::onEnter()
 	}
 
 	// get the docking position
-	dock->getDockPosition( getMachineOwner(), &m_goalPosition );
+	dock->getDockPosition( getMachineOwner(), &AIInternalMoveToState::gxRow().goalPosition );
 
 	AIUpdateInterface *ai = getMachineOwner()->getAIUpdateInterface();
 	if( ai  &&  dock->isAllowPassthroughType() )
@@ -567,7 +583,8 @@ void AIDockMoveToDockState::onExit( StateExitType status )
 //----------------------------------------------------------------------------------------------
 AIDockProcessDockState::AIDockProcessDockState( StateMachine *machine ) : State( machine, "AIDockProcessDockState" )
 {
-	m_nextDockActionFrame = 0;
+
+	GXROW_AIDOCKPROCESSDOCKSTATE.nextDockActionFrame = 0;
 }
 
 //----------------------------------------------------------------------------------------------
@@ -578,12 +595,12 @@ void AIDockProcessDockState::setNextDockActionFrame()
 	SupplyTruckAIInterface *supplyTruck = getMachineOwner()->getAI()->getSupplyTruckAIInterface();
 	if( supplyTruck )
 	{
-		m_nextDockActionFrame = TheGameLogic->getFrame() + supplyTruck->getActionDelayForDock( getMachineGoalObject() );
+		GXROW_AIDOCKPROCESSDOCKSTATE.nextDockActionFrame = TheGameLogic->getFrame() + supplyTruck->getActionDelayForDock( getMachineGoalObject() );
 		return;
 	}
 
 	// The default is that it is simply okay to Action right away
-	m_nextDockActionFrame = TheGameLogic->getFrame();
+	GXROW_AIDOCKPROCESSDOCKSTATE.nextDockActionFrame = TheGameLogic->getFrame();
 }
 
 //----------------------------------------------------------------------------------------------
@@ -623,7 +640,7 @@ StateReturnType AIDockProcessDockState::update()
 		return STATE_FAILURE;
 
 	// Some dockers can have a delay built in
-	if( TheGameLogic->getFrame() < m_nextDockActionFrame )
+	if( TheGameLogic->getFrame() < GXROW_AIDOCKPROCESSDOCKSTATE.nextDockActionFrame )
 		return STATE_CONTINUE;
 	setNextDockActionFrame();
 
@@ -662,7 +679,7 @@ void findDrone( Object *obj, void *droneInfo )
 Object* AIDockProcessDockState::findMyDrone()
 {
 	//First do the fast cached check.
-	Object *drone = TheGameLogic->findObjectByID( m_droneID );
+	Object *drone = TheGameLogic->findObjectByID( GXROW_AIDOCKPROCESSDOCKSTATE.droneID );
 	if( drone )
 	{
 		return drone;
@@ -685,7 +702,7 @@ Object* AIDockProcessDockState::findMyDrone()
 	//If we found a drone, store it's ID as cached.
 	if( dInfo.drone )
 	{
-		m_droneID = dInfo.drone->getID();
+		GXROW_AIDOCKPROCESSDOCKSTATE.droneID = dInfo.drone->getID();
 	}
 	return dInfo.drone;
 }
@@ -718,7 +735,7 @@ StateReturnType AIDockMoveToExitState::onEnter()
 		return STATE_FAILURE;
 
 	// get the exit position
-	dock->getExitPosition( getMachineOwner(), &m_goalPosition );
+	dock->getExitPosition( getMachineOwner(), &AIInternalMoveToState::gxRow().goalPosition );
 
 	AIUpdateInterface *ai = getMachineOwner()->getAIUpdateInterface();
 	if( ai  &&  dock->isAllowPassthroughType() )
@@ -792,7 +809,7 @@ StateReturnType AIDockMoveToRallyState::onEnter()
 	}
 
 	// get the rally point and set as our goal position
-	m_goalPosition = *goalObject->getObjectExitInterface()->getRallyPoint();
+	AIInternalMoveToState::gxRow().goalPosition = *goalObject->getObjectExitInterface()->getRallyPoint();
 
 	// this behavior is an extension of basic MoveTo
 	return AIInternalMoveToState::onEnter();
@@ -816,4 +833,15 @@ void AIDockMoveToRallyState::onExit( StateExitType status )
 	AIInternalMoveToState::onExit( status );
 }
 
+AIDockProcessDockState::~AIDockProcessDockState()
+{
+}
 
+AIDockWaitForClearanceState::AIDockWaitForClearanceState( StateMachine *machine ) : State( machine, "AIDockWaitForClearanceState" )
+{
+	GXROW_AIDOCKWAITFORCLEARANCESTATE.enterFrame = 0;
+ }
+
+AIDockWaitForClearanceState::~AIDockWaitForClearanceState()
+{
+}

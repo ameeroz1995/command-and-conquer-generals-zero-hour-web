@@ -34,12 +34,14 @@
 #include "GameLogic/Module/RadiusDecalUpdate.h"
 #include "GameLogic/Object.h"
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 RadiusDecalUpdate::RadiusDecalUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_deliveryDecal.clear();
-	m_killWhenNoLongerAttacking = false;
+
+	D().m_deliveryDecal.clear();
+	D().m_killWhenNoLongerAttacking = false;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
 
@@ -47,23 +49,23 @@ RadiusDecalUpdate::RadiusDecalUpdate( Thing *thing, const ModuleData* moduleData
 //-------------------------------------------------------------------------------------------------
 RadiusDecalUpdate::~RadiusDecalUpdate()
 {
-	m_deliveryDecal.clear();
+	D().m_deliveryDecal.clear();
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 void RadiusDecalUpdate::createRadiusDecal( const RadiusDecalTemplate& tmpl, Real radius, const Coord3D& pos )
 {
-	m_deliveryDecal.clear();
-	tmpl.createRadiusDecal(pos, radius, getObject()->getControllingPlayer(), m_deliveryDecal);
-	setWakeFrame(getObject(), m_deliveryDecal.isEmpty() ? UPDATE_SLEEP_FOREVER : UPDATE_SLEEP_NONE);
+	D().m_deliveryDecal.clear();
+	tmpl.createRadiusDecal(pos, radius, getObject()->getControllingPlayer(), D().m_deliveryDecal);
+	setWakeFrame(getObject(), D().m_deliveryDecal.isEmpty() ? UPDATE_SLEEP_FOREVER : UPDATE_SLEEP_NONE);
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 void RadiusDecalUpdate::killRadiusDecal()
 {
-	m_deliveryDecal.clear();
+	D().m_deliveryDecal.clear();
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
 
@@ -71,13 +73,13 @@ void RadiusDecalUpdate::killRadiusDecal()
 //-------------------------------------------------------------------------------------------------
 UpdateSleepTime RadiusDecalUpdate::update()
 {
-	if (m_killWhenNoLongerAttacking && !getObject()->testStatus( OBJECT_STATUS_IS_ATTACKING ))
+	if (D().m_killWhenNoLongerAttacking && !getObject()->testStatus( OBJECT_STATUS_IS_ATTACKING ))
 	{
-		m_deliveryDecal.clear();
+		D().m_deliveryDecal.clear();
 		return UPDATE_SLEEP_FOREVER;
 	}
 
-	m_deliveryDecal.update();
+	D().m_deliveryDecal.update();
 	return UPDATE_SLEEP_NONE;
 }
 
@@ -109,9 +111,9 @@ void RadiusDecalUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// decal, if any
-	m_deliveryDecal.xferRadiusDecal(xfer);
+	D().m_deliveryDecal.xferRadiusDecal(xfer);
 
-	xfer->xferBool(&m_killWhenNoLongerAttacking);
+	xfer->xferBool(&D().m_killWhenNoLongerAttacking);
 
 }
 

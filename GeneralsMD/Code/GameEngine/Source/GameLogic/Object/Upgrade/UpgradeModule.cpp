@@ -82,16 +82,27 @@ void UpgradeModule::loadPostProcess()
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-UpgradeMux::UpgradeMux() : m_upgradeExecuted(false)
-{
+// web port (round 5): the "executed" flag lives in a row of TheGxUpgradeMuxes
+#define GXROW_UPGRADEMUX (const_cast<GxUpgradeMuxRow &>(*m_gxUpgradeMuxRow))
 
+UpgradeMux::UpgradeMux()
+{
+}
+
+UpgradeMux::~UpgradeMux()
+{
+}
+
+void UpgradeMux::setUpgradeExecuted(Bool e)
+{
+	GXROW_UPGRADEMUX.upgradeExecuted = e;
 }
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 Bool UpgradeMux::isAlreadyUpgraded() const
 {
-	return m_upgradeExecuted;
+	return GXROW_UPGRADEMUX.upgradeExecuted;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -99,7 +110,7 @@ Bool UpgradeMux::isAlreadyUpgraded() const
 // ------------------------------------------------------------------------------------------------
 void UpgradeMux::forceRefreshUpgrade()
 {
-	if( m_upgradeExecuted )
+	if( GXROW_UPGRADEMUX.upgradeExecuted )
 	{
 		//Only do this if we've already made the upgrade!
 		upgradeImplementation();
@@ -127,7 +138,7 @@ Bool UpgradeMux::wouldUpgrade( const UpgradeMaskType& keyMask ) const
 	getUpgradeActivationMasks(activation, conflicting);
 
 	//Make sure we have activation conditions and we haven't performed the upgrade already.
-	if( activation.any() && keyMask.any() && !m_upgradeExecuted )
+	if( activation.any() && keyMask.any() && !GXROW_UPGRADEMUX.upgradeExecuted )
 	{
 		//Okay, make sure we don't have any conflicting upgrades
 		if( !keyMask.testForAny( conflicting) )
@@ -211,9 +222,9 @@ Bool UpgradeMux::resetUpgrade( const UpgradeMaskType& keyMask )
 {
 	UpgradeMaskType activation, conflicting;
 	getUpgradeActivationMasks(activation, conflicting);
-	if( keyMask.testForAny( activation ) && m_upgradeExecuted )
+	if( keyMask.testForAny( activation ) && GXROW_UPGRADEMUX.upgradeExecuted )
 	{
-		m_upgradeExecuted = false;
+		GXROW_UPGRADEMUX.upgradeExecuted = false;
 		return true;
 	}
 	return false;
@@ -242,7 +253,7 @@ void UpgradeMux::upgradeMuxXfer( Xfer *xfer )
 	xfer->xferVersion( &version, currentVersion );
 
 	// upgrade executed
-	xfer->xferBool( &m_upgradeExecuted );
+	xfer->xferBool( &GXROW_UPGRADEMUX.upgradeExecuted );
 
 }
 

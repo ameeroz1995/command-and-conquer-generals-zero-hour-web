@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/KindOf.h"
 #include "GameLogic/Module/SpecialPowerUpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class SpecialPowerModule;
@@ -102,7 +103,7 @@ public:
 	virtual Bool initiateIntentToDoSpecialPower(const SpecialPowerTemplate *specialPowerTemplate, const Object *targetObj, const Coord3D *targetPos, const Waypoint *way, UnsignedInt commandOptions );
 	virtual Bool isSpecialAbility() const { return false; }
 	virtual Bool isSpecialPower() const { return true; }
-	virtual Bool isActive() const {return m_status < GUNSHIP_STATUS_DEPARTING;}
+	virtual Bool isActive() const {return D().m_status < GUNSHIP_STATUS_DEPARTING;}
 	virtual SpecialPowerUpdateInterface* getSpecialPowerUpdateInterface() { return this; }
 	virtual CommandOption getCommandOption() const { return (CommandOption)0; }
 	virtual Bool isPowerCurrentlyInUse( const CommandButton *command = nullptr ) const;
@@ -123,47 +124,55 @@ public:
 
 protected:
 
-  void setLogicalStatus( GunshipStatus newStatus ) { m_status = newStatus; }
+  void setLogicalStatus( GunshipStatus newStatus ) { D().m_status = newStatus; }
   void disengageAndDepartAO( Object *gunship );
 
   Bool isPointOffMap( const Coord3D& testPos ) const;
   Bool isFairDistanceFromShip( Object *target );
 
-	SpecialPowerModuleInterface* m_specialPowerModule;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		SpecialPowerModuleInterface* m_specialPowerModule;
+	  Coord3D				m_initialTargetPosition;
+		Coord3D				m_overrideTargetDestination;
+	  Coord3D       m_satellitePosition;
+	  Coord3D       m_gattlingTargetPosition;
+	  Coord3D       m_positionToShootAt;
+		GunshipStatus		m_status;
+	  UnsignedInt     m_okToFireHowitzerCounter;
+	  UnsignedInt     m_orbitEscapeFrame;
+	  ObjectID        m_gattlingID;
+		RadiusDecal			m_attackAreaDecal;
+		RadiusDecal			m_targetingReticleDecal;
+	  RadiusDecal			m_howitzerTrackerDecal;
+	  AudioEventRTS m_afterburnerSound;
+	  AudioEventRTS m_howitzerFireSound;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
   void friend_enableAfterburners(Bool v);
 
 
 
 
-  Coord3D				m_initialTargetPosition;
-	Coord3D				m_overrideTargetDestination;
-  Coord3D       m_satellitePosition;
-  Coord3D       m_gattlingTargetPosition;
-  Coord3D       m_positionToShootAt;
 
 
-	GunshipStatus		m_status;
 
-  UnsignedInt     m_okToFireHowitzerCounter;
-  UnsignedInt     m_orbitEscapeFrame;
 
 
 //  ObjectID        m_howitzerID;
-  ObjectID        m_gattlingID;
 
 
-	RadiusDecal			m_attackAreaDecal;
-	RadiusDecal			m_targetingReticleDecal;
 
 
 
 
 #if defined TRACKERS
-  RadiusDecal			m_howitzerTrackerDecal;
 #endif
 
-  AudioEventRTS m_afterburnerSound;
-  AudioEventRTS m_howitzerFireSound;
 
 };

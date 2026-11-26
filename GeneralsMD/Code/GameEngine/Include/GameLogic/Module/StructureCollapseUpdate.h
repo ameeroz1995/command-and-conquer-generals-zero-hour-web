@@ -34,6 +34,7 @@
 #include "GameLogic/Module/DieModule.h"
 #include "GameLogic/Module/UpdateModule.h"
 #include "Common/RandomValue.h"
+#include "Common/GxComponentPool.h"
 
 class FXList;
 class ObjectCreationList;
@@ -136,10 +137,18 @@ protected:
 		COLLAPSESTATE_DONE
 	};
 
-	UnsignedInt									m_collapseFrame;
-	UnsignedInt									m_burstFrame;
-	StructureCollapseStateType	m_collapseState;
-	Real												m_collapseVelocity;
-	Real												m_currentHeight;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		UnsignedInt									m_collapseFrame;
+		UnsignedInt									m_burstFrame;
+		StructureCollapseStateType	m_collapseState;
+		Real												m_collapseVelocity;
+		Real												m_currentHeight;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 };

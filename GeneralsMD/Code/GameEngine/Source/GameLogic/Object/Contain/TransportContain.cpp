@@ -49,6 +49,11 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/Weapon.h"
 
+// Web port (round 5, units are pure data): TransportContain's per-unit state is a row of TheGxTransportContains;
+// GXROW_TRANSPORTCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_TRANSPORTCONTAIN (const_cast<GxTransportContainRow &>(*m_gxTransportContainRow))
+
+
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 TransportContainModuleData::TransportContainModuleData() {
@@ -142,15 +147,17 @@ Int TransportContain::getContainMax() const {
 // /////////////////////////////////////////////////////////////////////////////////////////
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-TransportContain::TransportContain(Thing *thing, const ModuleData *moduleData)
-    : OpenContain(thing, moduleData) {
-  m_extraSlotsInUse = 0;
-  m_frameExitNotBusy = 0;
+TransportContain::TransportContain(Thing *thing, const ModuleData *moduleData) : OpenContain(thing, moduleData)
+{
+
+  GXROW_TRANSPORTCONTAIN.extraSlotsInUse = 0;
+  GXROW_TRANSPORTCONTAIN.frameExitNotBusy = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-TransportContain::~TransportContain() {}
+TransportContain::~TransportContain() {
+}
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -207,7 +214,7 @@ Bool TransportContain::isValidContainerFor(const Object *rider,
     Int containMax = getContainMax();
     Int containCount = getContainCount();
 
-    return (m_extraSlotsInUse + containCount + transportSlotCount <=
+    return (GXROW_TRANSPORTCONTAIN.extraSlotsInUse + containCount + transportSlotCount <=
             containMax);
 
   } else {
@@ -280,9 +287,9 @@ void TransportContain::onContaining(Object *rider, Bool wasSelected) {
 
   DEBUG_ASSERTCRASH(transportSlotCount > 0,
                     ("Hmm, this object isnt transportable"));
-  m_extraSlotsInUse += transportSlotCount - 1;
-  DEBUG_ASSERTCRASH(m_extraSlotsInUse >= 0 &&
-                        m_extraSlotsInUse + getContainCount() <=
+  GXROW_TRANSPORTCONTAIN.extraSlotsInUse += transportSlotCount - 1;
+  DEBUG_ASSERTCRASH(GXROW_TRANSPORTCONTAIN.extraSlotsInUse >= 0 &&
+                        GXROW_TRANSPORTCONTAIN.extraSlotsInUse + getContainCount() <=
                             getContainMax(),
                     ("Hmm, bad slot count"));
 
@@ -362,9 +369,9 @@ void TransportContain::onRemoving(Object *rider) {
   Int transportSlotCount = rider->getTransportSlotCount();
   DEBUG_ASSERTCRASH(transportSlotCount > 0,
                     ("Hmm, this object isnt transportable"));
-  m_extraSlotsInUse -= transportSlotCount - 1;
-  DEBUG_ASSERTCRASH(m_extraSlotsInUse >= 0 &&
-                        m_extraSlotsInUse + getContainCount() <=
+  GXROW_TRANSPORTCONTAIN.extraSlotsInUse -= transportSlotCount - 1;
+  DEBUG_ASSERTCRASH(GXROW_TRANSPORTCONTAIN.extraSlotsInUse >= 0 &&
+                        GXROW_TRANSPORTCONTAIN.extraSlotsInUse + getContainCount() <=
                             getContainMax(),
                     ("Hmm, bad slot count"));
 
@@ -399,7 +406,7 @@ void TransportContain::onRemoving(Object *rider) {
     rider->getAI()->wakeUpAndAttemptToTarget();
   }
 
-  m_frameExitNotBusy = TheGameLogic->getFrame() + d->m_exitDelay;
+  GXROW_TRANSPORTCONTAIN.frameExitNotBusy = TheGameLogic->getFrame() + d->m_exitDelay;
 
   if (d->m_armedRidersUpgradeWeaponSet)
     letRidersUpgradeWeaponSet();
@@ -451,7 +458,7 @@ void TransportContain::createPayload() {
     contain->enableLoadSounds(TRUE);
   }
 
-  m_payloadCreated = TRUE;
+  GXROW_TRANSPORTCONTAIN.payloadCreated = TRUE;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -460,7 +467,7 @@ UpdateSleepTime TransportContain::update() {
   const TransportContainModuleData *moduleData =
       getTransportContainModuleData();
 
-  if (m_payloadCreated == FALSE)
+  if (GXROW_TRANSPORTCONTAIN.payloadCreated == FALSE)
     createPayload();
 
   if (moduleData && moduleData->m_healthRegen) {
@@ -618,7 +625,7 @@ Bool TransportContain::isExitBusy()
   if (data->m_isDelayExitInAir && getObject()->isAboveTerrain())
     return TRUE;
 
-  return TheGameLogic->getFrame() < m_frameExitNotBusy;
+  return TheGameLogic->getFrame() < GXROW_TRANSPORTCONTAIN.frameExitNotBusy;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -661,13 +668,13 @@ void TransportContain::xfer(Xfer *xfer) {
   OpenContain::xfer(xfer);
 
   // payload created
-  xfer->xferBool(&m_payloadCreated);
+  xfer->xferBool(&GXROW_TRANSPORTCONTAIN.payloadCreated);
 
   // extra slots in use
-  xfer->xferInt(&m_extraSlotsInUse);
+  xfer->xferInt(&GXROW_TRANSPORTCONTAIN.extraSlotsInUse);
 
   // frame exit not busy
-  xfer->xferUnsignedInt(&m_frameExitNotBusy);
+  xfer->xferUnsignedInt(&GXROW_TRANSPORTCONTAIN.frameExitNotBusy);
 }
 
 // ------------------------------------------------------------------------------------------------

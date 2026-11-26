@@ -64,6 +64,8 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxPropagandaTowerBehaviorRow;
 class PropagandaTowerBehavior : public UpdateModule,
 																public DieModuleInterface
 {
@@ -103,9 +105,22 @@ protected:
 	virtual void effectLogic( Object *obj, Bool giving,
 														const PropagandaTowerBehaviorModuleData *modData);///< give/remove effect on object
 
-	UnsignedInt m_lastScanFrame;									///< last frame we did a scan on
+	GxRow<struct GxPropagandaTowerBehaviorRow> m_gxPropagandaTowerBehaviorRow;	///< web port (round 5): this unit's row in TheGxPropagandaTowerBehaviors
+	friend struct GxPropagandaTowerBehaviorRow;
+	inline struct GxPropagandaTowerBehaviorRow &gxRow() const;
 
-	ObjectTracker *m_insideList;									///< objects that are inside our area of influence
-	const UpgradeTemplate *m_upgradeRequired;			///< Upgrade required to use the upgraded pulse FX
 
 };
+
+// Web port (round 5, units are pure data): PropagandaTowerBehavior's per-unit state, one row per unit in TheGxPropagandaTowerBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxPropagandaTowerBehaviorRow
+{
+	UnsignedInt lastScanFrame;
+	ObjectTracker* insideList;
+	const UpgradeTemplate* upgradeRequired;
+};
+
+
+inline GxPropagandaTowerBehaviorRow &PropagandaTowerBehavior::gxRow() const { return const_cast<GxPropagandaTowerBehaviorRow &>(*m_gxPropagandaTowerBehaviorRow); }
+

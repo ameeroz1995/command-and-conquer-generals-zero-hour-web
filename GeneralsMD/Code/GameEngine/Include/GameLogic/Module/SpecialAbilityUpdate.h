@@ -34,6 +34,7 @@
 #include "Common/INI.h"
 #include "GameLogic/Module/SpecialPowerUpdateModule.h"
 #include "GameClient/ParticleSys.h"
+#include "Common/GxComponentPool.h"
 
 class DamageInfo;
 class SpecialPowerTemplate;
@@ -181,7 +182,7 @@ public:
 	virtual Bool initiateIntentToDoSpecialPower(const SpecialPowerTemplate *specialPowerTemplate, const Object *targetObj, const Coord3D *targetPos, const Waypoint *way, UnsignedInt commandOptions );
 	virtual Bool isSpecialAbility() const { return true; }
 	virtual Bool isSpecialPower() const { return false; }
-	virtual Bool isActive() const { return m_active; }
+	virtual Bool isActive() const { return D().m_active; }
 	virtual Bool doesSpecialPowerHaveOverridableDestinationActive() const { return false; } //Is it active now?
 	virtual Bool doesSpecialPowerHaveOverridableDestination() const { return false; }	//Does it have it, even if it's not active?
 	virtual void setSpecialPowerOverridableDestination( const Coord3D *loc ) {}
@@ -232,10 +233,10 @@ protected:
 	Bool needToPack() const;
 	Bool needToUnpack() const;
 
-	Bool isPreparationComplete() const { return !m_prepFrames; }
+	Bool isPreparationComplete() const { return !D().m_prepFrames; }
 	void endPreparation();
 	Bool isPersistentAbility() const { return getSpecialAbilityUpdateModuleData()->m_persistentPrepFrames > 0; }
-	void resetPreparation() { m_prepFrames = getSpecialAbilityUpdateModuleData()->m_persistentPrepFrames; }
+	void resetPreparation() { D().m_prepFrames = getSpecialAbilityUpdateModuleData()->m_persistentPrepFrames; }
 
 	Bool isFacing();
 	Bool needToFace() const;
@@ -251,7 +252,7 @@ protected:
 
 	UpdateSleepTime calcSleepTime()
 	{
-		return (m_active || getSpecialAbilityUpdateModuleData()->m_alwaysValidateSpecialObjects) ? UPDATE_SLEEP_NONE : UPDATE_SLEEP_FOREVER;
+		return (D().m_active || getSpecialAbilityUpdateModuleData()->m_alwaysValidateSpecialObjects) ? UPDATE_SLEEP_NONE : UPDATE_SLEEP_FOREVER;
 	}
 
 private:
@@ -265,20 +266,28 @@ private:
 		STATE_UNPACKED,
 	};
 
-	AudioEventRTS									m_prepSoundLoop;
-	UnsignedInt										m_prepFrames;
-	UnsignedInt										m_animFrames;	//Used for packing/unpacking unit before or after using ability.
-	ObjectID											m_targetID;
-	Coord3D												m_targetPos;
-	Int														m_locationCount;
-	std::list<ObjectID>						m_specialObjectIDList; //The list of special objects
-	UnsignedInt										m_specialObjectEntries;				 //The size of the list of member Objects
-	Real													m_captureFlashPhase;    ///< used to track the accelerating flash of the capture FX
-	PackingState									m_packingState;
-	Bool													m_active;
-	Bool													m_noTargetCommand;
-	Bool													m_facingInitiated;
-	Bool													m_facingComplete;
-	Bool													m_withinStartAbilityRange;
-	Bool													m_doDisableFXParticles;      // smaller targets cause this flag to toggle, making the particle effect more sparse
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		AudioEventRTS									m_prepSoundLoop;
+		UnsignedInt										m_prepFrames;
+		UnsignedInt										m_animFrames;	//Used for packing/unpacking unit before or after using ability.
+		ObjectID											m_targetID;
+		Coord3D												m_targetPos;
+		Int														m_locationCount;
+		std::list<ObjectID>						m_specialObjectIDList; //The list of special objects
+		UnsignedInt										m_specialObjectEntries;				 //The size of the list of member Objects
+		Real													m_captureFlashPhase;    ///< used to track the accelerating flash of the capture FX
+		PackingState									m_packingState;
+		Bool													m_active;
+		Bool													m_noTargetCommand;
+		Bool													m_facingInitiated;
+		Bool													m_facingComplete;
+		Bool													m_withinStartAbilityRange;
+		Bool													m_doDisableFXParticles;      // smaller targets cause this flag to toggle, making the particle effect more sparse
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+private:
 };

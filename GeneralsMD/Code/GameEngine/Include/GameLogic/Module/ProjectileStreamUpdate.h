@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class Thing;
 class Vector3;
@@ -66,11 +67,19 @@ protected:
 	void cullFrontOfList();
 	Bool considerDying();
 
-	ObjectID m_projectileIDs[MAX_PROJECTILE_STREAM];
-	Int m_nextFreeIndex;
-	Int m_firstValidIndex;
-	ObjectID m_owningObject;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		ObjectID m_projectileIDs[MAX_PROJECTILE_STREAM];
+		Int m_nextFreeIndex;
+		Int m_firstValidIndex;
+		ObjectID m_owningObject;
+		ObjectID m_targetObject;///< Need to insert a hole if target changes, so track target ID and target position
+		Coord3D m_targetPosition;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
-	ObjectID m_targetObject;///< Need to insert a hole if target changes, so track target ID and target position
-	Coord3D m_targetPosition;
 };

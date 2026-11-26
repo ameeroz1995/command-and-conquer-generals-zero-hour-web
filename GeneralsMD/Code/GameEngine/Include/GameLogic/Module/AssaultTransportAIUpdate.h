@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 
@@ -108,15 +109,25 @@ public:
 
 protected:
 
-  ObjectID					m_memberIDs[ MAX_TRANSPORT_SLOTS ];
-	Bool							m_memberHealing[ MAX_TRANSPORT_SLOTS ];
-	Bool							m_newMember[ MAX_TRANSPORT_SLOTS ];
-  Coord3D						m_attackMoveGoalPos;
-  mutable ObjectID	m_designatedTarget;
-	AssaultStateTypes	m_state;
-	UnsignedInt				m_framesRemaining;
-	Int								m_currentMembers;
-	Bool							m_isAttackMove;
-	Bool							m_isAttackObject;
-	Bool							m_newOccupantsAreNewMembers;
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		ObjectID memberIDs[ MAX_TRANSPORT_SLOTS ];
+		Bool memberHealing[ MAX_TRANSPORT_SLOTS ];
+		Bool newMember[ MAX_TRANSPORT_SLOTS ];
+		Coord3D attackMoveGoalPos;
+		mutable ObjectID designatedTarget;
+		AssaultStateTypes state;
+		UnsignedInt framesRemaining;
+		Int currentMembers;
+		Bool isAttackMove;
+		Bool isAttackObject;
+		Bool newOccupantsAreNewMembers;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline AssaultTransportAIUpdate::GxState &AssaultTransportAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

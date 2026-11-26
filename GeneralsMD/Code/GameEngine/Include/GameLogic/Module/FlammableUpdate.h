@@ -33,6 +33,7 @@
 #include "Common/AudioEventRTS.h"
 #include "GameLogic/Module/DamageModule.h"
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 
 //-------------------------------------------------------------------------------------------------
@@ -102,12 +103,20 @@ protected:
 	void startBurningSound();
 	void stopBurningSound();
 
-	FlammabilityStatusType	m_status;
-	UnsignedInt							m_aflameEndFrame;
-	UnsignedInt							m_burnedEndFrame;
-	UnsignedInt							m_damageEndFrame;
-	AudioHandle							m_audioHandle;
-	Real										m_flameDamageLimit;
-	ObjectID								m_flameSource;
-	UnsignedInt							m_lastFlameDamageDealt;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		FlammabilityStatusType	m_status;
+		UnsignedInt							m_aflameEndFrame;
+		UnsignedInt							m_burnedEndFrame;
+		UnsignedInt							m_damageEndFrame;
+		AudioHandle							m_audioHandle;
+		Real										m_flameDamageLimit;
+		ObjectID								m_flameSource;
+		UnsignedInt							m_lastFlameDamageDealt;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 };

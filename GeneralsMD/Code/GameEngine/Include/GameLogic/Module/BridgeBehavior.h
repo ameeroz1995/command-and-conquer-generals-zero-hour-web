@@ -111,6 +111,8 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxBridgeBehaviorRow;
 class BridgeBehavior : public UpdateModule,
 											 public BridgeBehaviorInterface,
 											 public DamageModuleInterface,
@@ -155,7 +157,7 @@ public:
 	virtual void createScaffolding();		///< create scaffolding around bridge
 	virtual void removeScaffolding();		///< remove scaffolding around bridge
 	virtual Bool isScaffoldInMotion();	///< is scaffold in motion
-	virtual Bool isScaffoldPresent() { return m_scaffoldPresent; }
+	virtual Bool isScaffoldPresent();
 
 protected:
 
@@ -174,23 +176,37 @@ protected:
 																 const BridgeInfo *bridgeInfo,
 																 Coord3D *pos );
 
-	ObjectID m_towerID[ BRIDGE_MAX_TOWERS ];		///< the towers that are a part of us
+	GxRow<struct GxBridgeBehaviorRow> m_gxBridgeBehaviorRow;	///< web port (round 5): this unit's row in TheGxBridgeBehaviors
+	friend struct GxBridgeBehaviorRow;
+	inline struct GxBridgeBehaviorRow &gxRow() const;
 
 	// got damaged fx stuff
-	const ObjectCreationList *m_damageToOCL[ BODYDAMAGETYPE_COUNT ][ MAX_BRIDGE_BODY_FX ];
-	const FXList *m_damageToFX[ BODYDAMAGETYPE_COUNT ][ MAX_BRIDGE_BODY_FX ];
-	AudioEventRTS m_damageToSound[ BODYDAMAGETYPE_COUNT ];
 
 	// got repaired fx stuff
-	const ObjectCreationList *m_repairToOCL[ BODYDAMAGETYPE_COUNT ][ MAX_BRIDGE_BODY_FX ];
-	const FXList *m_repairToFX[ BODYDAMAGETYPE_COUNT ][ MAX_BRIDGE_BODY_FX ];
-	AudioEventRTS m_repairToSound[ BODYDAMAGETYPE_COUNT ];
 
-	Bool m_fxResolved;		///< TRUE until we've loaded our fx pointers and sounds
 
-	Bool m_scaffoldPresent;									///< TRUE when we have repair scaffolding visible
-	ObjectIDList m_scaffoldObjectIDList;		///< list of scaffold object IDs
 
-	UnsignedInt m_deathFrame;								///< frame we died on
 
 };
+
+// Web port (round 5, units are pure data): BridgeBehavior's per-unit state, one row per unit in TheGxBridgeBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxBridgeBehaviorRow
+{
+	ObjectID towerID[ BRIDGE_MAX_TOWERS ];
+	const ObjectCreationList* damageToOCL[ BODYDAMAGETYPE_COUNT ][ MAX_BRIDGE_BODY_FX ];
+	const FXList* damageToFX[ BODYDAMAGETYPE_COUNT ][ MAX_BRIDGE_BODY_FX ];
+	AudioEventRTS damageToSound[ BODYDAMAGETYPE_COUNT ];
+	const ObjectCreationList* repairToOCL[ BODYDAMAGETYPE_COUNT ][ MAX_BRIDGE_BODY_FX ];
+	const FXList* repairToFX[ BODYDAMAGETYPE_COUNT ][ MAX_BRIDGE_BODY_FX ];
+	AudioEventRTS repairToSound[ BODYDAMAGETYPE_COUNT ];
+	Bool fxResolved;
+	Bool scaffoldPresent;
+	ObjectIDList scaffoldObjectIDList;
+	UnsignedInt deathFrame;
+};
+
+
+inline GxBridgeBehaviorRow &BridgeBehavior::gxRow() const { return const_cast<GxBridgeBehaviorRow &>(*m_gxBridgeBehaviorRow); }
+inline Bool BridgeBehavior::isScaffoldPresent() { return gxRow().scaffoldPresent; }
+

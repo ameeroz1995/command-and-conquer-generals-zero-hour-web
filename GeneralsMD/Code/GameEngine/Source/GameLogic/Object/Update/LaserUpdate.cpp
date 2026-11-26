@@ -45,6 +45,7 @@
 #include "WWMath/vector3.h"
 
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 LaserUpdateModuleData::LaserUpdateModuleData()
@@ -85,14 +86,15 @@ LaserRadiusUpdate::LaserRadiusUpdate()
 //-------------------------------------------------------------------------------------------------
 LaserUpdate::LaserUpdate( Thing *thing, const ModuleData* moduleData ) : ClientUpdateModule( thing, moduleData )
 {
-	m_dirty = FALSE;
-	m_endPos.zero();
-	m_startPos.zero();
-	m_particleSystemID = INVALID_PARTICLE_SYSTEM_ID;
-	m_targetParticleSystemID = INVALID_PARTICLE_SYSTEM_ID;
-	m_parentID = INVALID_DRAWABLE_ID;
-	m_targetID = INVALID_DRAWABLE_ID;
-	m_parentBoneName.clear();
+
+	D().m_dirty = FALSE;
+	D().m_endPos.zero();
+	D().m_startPos.zero();
+	D().m_particleSystemID = INVALID_PARTICLE_SYSTEM_ID;
+	D().m_targetParticleSystemID = INVALID_PARTICLE_SYSTEM_ID;
+	D().m_parentID = INVALID_DRAWABLE_ID;
+	D().m_targetID = INVALID_DRAWABLE_ID;
+	D().m_parentBoneName.clear();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -100,30 +102,30 @@ LaserUpdate::LaserUpdate( Thing *thing, const ModuleData* moduleData ) : ClientU
 LaserUpdate::~LaserUpdate()
 {
 
-	if( m_particleSystemID )
-		TheParticleSystemManager->destroyParticleSystemByID( m_particleSystemID );
-	if( m_targetParticleSystemID )
-		TheParticleSystemManager->destroyParticleSystemByID( m_targetParticleSystemID );
+	if( D().m_particleSystemID )
+		TheParticleSystemManager->destroyParticleSystemByID( D().m_particleSystemID );
+	if( D().m_targetParticleSystemID )
+		TheParticleSystemManager->destroyParticleSystemByID( D().m_targetParticleSystemID );
 
 }
 
 //-------------------------------------------------------------------------------------------------
 void LaserUpdate::updateStartPos()
 {
-	Coord3D oldStartPos = m_startPos;
+	Coord3D oldStartPos = D().m_startPos;
 
-	if( m_parentID == INVALID_DRAWABLE_ID )
+	if( D().m_parentID == INVALID_DRAWABLE_ID )
 		return;// Can't update if not told to update
 
-	const Drawable *parentDrawable = TheGameClient->findDrawableByID(m_parentID);
+	const Drawable *parentDrawable = TheGameClient->findDrawableByID(D().m_parentID);
 	if( parentDrawable == nullptr )
 		return;// Can't update if no one to ask
 
-	if( m_parentBoneName.isNotEmpty() )
+	if( D().m_parentBoneName.isNotEmpty() )
 	{
 		Matrix3D startPosMatrix;
 
-		if( !parentDrawable->getCurrentWorldspaceClientBonePositions( m_parentBoneName.str(), startPosMatrix ) )
+		if( !parentDrawable->getCurrentWorldspaceClientBonePositions( D().m_parentBoneName.str(), startPosMatrix ) )
 		{
 			// failed to find the required bone, so just die
 
@@ -131,39 +133,39 @@ void LaserUpdate::updateStartPos()
 			//      create a nasty assert.
 			//TheGameClient->destroyDrawable( getDrawable() );
 
-			m_startPos.set( parentDrawable->getPosition() );
+			D().m_startPos.set( parentDrawable->getPosition() );
 			DEBUG_CRASH( ("LaserUpdate::updateStartPos() -- Drawable %s is expecting to find a bone %s but can't. Defaulting to position of drawable.",
-				parentDrawable->getTemplate()->getName().str(), m_parentBoneName.str() ) );
+				parentDrawable->getTemplate()->getName().str(), D().m_parentBoneName.str() ) );
 
 			return;
 		}
 
 
 
-		m_startPos.x = startPosMatrix.Get_X_Translation();
-		m_startPos.y = startPosMatrix.Get_Y_Translation();
-		m_startPos.z = startPosMatrix.Get_Z_Translation();
+		D().m_startPos.x = startPosMatrix.Get_X_Translation();
+		D().m_startPos.y = startPosMatrix.Get_Y_Translation();
+		D().m_startPos.z = startPosMatrix.Get_Z_Translation();
 	}
 	else
 	{
 		// Just use parent position
-		m_startPos = *parentDrawable->getPosition();
+		D().m_startPos = *parentDrawable->getPosition();
 	}
 
-	if( !(m_startPos == oldStartPos) ) // No != operator.  Heh.
-		m_dirty = TRUE;
+	if( !(D().m_startPos == oldStartPos) ) // No != operator.  Heh.
+		D().m_dirty = TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
 void LaserUpdate::updateEndPos()
 {
 	const LaserUpdateModuleData *data = getLaserUpdateModuleData();
-	Coord3D oldEndPos = m_endPos;
+	Coord3D oldEndPos = D().m_endPos;
 
-	if( m_targetID == INVALID_DRAWABLE_ID )
+	if( D().m_targetID == INVALID_DRAWABLE_ID )
 		return;// Can't update if not told to update
 
-	const Drawable *targetDrawable = TheGameClient->findDrawableByID(m_targetID);
+	const Drawable *targetDrawable = TheGameClient->findDrawableByID(D().m_targetID);
 	Bool targetDead = (targetDrawable && targetDrawable->getObject())
 										? targetDrawable->getObject()->isEffectivelyDead()
 										: FALSE;
@@ -174,24 +176,24 @@ void LaserUpdate::updateEndPos()
 		if( data->m_punchThroughScalar > 0 )
 		{
 			Vector3 laserVector;
-			laserVector.Set(m_endPos.x, m_endPos.y, m_endPos.z);
-			laserVector = laserVector - Vector3(m_startPos.x, m_startPos.y, m_startPos.z);
+			laserVector.Set(D().m_endPos.x, D().m_endPos.y, D().m_endPos.z);
+			laserVector = laserVector - Vector3(D().m_startPos.x, D().m_startPos.y, D().m_startPos.z);
 			laserVector *= data->m_punchThroughScalar;
-			laserVector = laserVector + Vector3(m_startPos.x, m_startPos.y, m_startPos.z);
-			m_endPos.x = laserVector.X;
-			m_endPos.y = laserVector.Y;
-			m_endPos.z = laserVector.Z;
+			laserVector = laserVector + Vector3(D().m_startPos.x, D().m_startPos.y, D().m_startPos.z);
+			D().m_endPos.x = laserVector.X;
+			D().m_endPos.y = laserVector.Y;
+			D().m_endPos.z = laserVector.Z;
 		}
 
-		m_targetID = INVALID_DRAWABLE_ID;
+		D().m_targetID = INVALID_DRAWABLE_ID;
 	}
 	else
 	{
-		m_endPos = *targetDrawable->getPosition();
+		D().m_endPos = *targetDrawable->getPosition();
 	}
 
-	if( !(m_endPos == oldEndPos) ) // No != operator.  Heh.
-		m_dirty = TRUE;
+	if( !(D().m_endPos == oldEndPos) ) // No != operator.  Heh.
+		D().m_dirty = TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -201,7 +203,7 @@ void LaserUpdate::clientUpdate()
 {
 	updateStartPos();
 	updateEndPos();
-	m_dirty |= m_laserRadius.updateRadius();
+	D().m_dirty |= D().m_laserRadius.updateRadius();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -297,24 +299,24 @@ void LaserUpdate::initLaser( const Object *parent, const Object *target, const C
 	const LaserUpdateModuleData *data = getLaserUpdateModuleData();
 	ParticleSystem *system;
 
-	m_laserRadius.initRadius( sizeDeltaFrames );
+	D().m_laserRadius.initRadius( sizeDeltaFrames );
 
 	// Write down the bone name override
-	m_parentBoneName = parentBoneName;
+	D().m_parentBoneName = parentBoneName;
 
 	//Record IDs if we have them, then figure out starting points
 	if( parent )
 	{
 		// If a source object, use it
 		if( parent->getDrawable() )
-			m_parentID = parent->getDrawable()->getID();
+			D().m_parentID = parent->getDrawable()->getID();
 
 		updateStartPos();
 	}
 	else if( startPos )
 	{
 		// or just use what they gave
-		m_startPos = *startPos;
+		D().m_startPos = *startPos;
 	}
 	else
 	{
@@ -327,14 +329,14 @@ void LaserUpdate::initLaser( const Object *parent, const Object *target, const C
 	{
 		// If a target object, use it (unless we override it!)
 		if( target->getDrawable() )
-			m_targetID = target->getDrawable()->getID();
+			D().m_targetID = target->getDrawable()->getID();
 
-		m_endPos = *target->getPosition();
+		D().m_endPos = *target->getPosition();
 	}
 	else if( endPos )
 	{
 		// just use what they gave, no override here
-		m_endPos = *endPos;
+		D().m_endPos = *endPos;
 	}
 	else
 	{
@@ -345,7 +347,7 @@ void LaserUpdate::initLaser( const Object *parent, const Object *target, const C
 
 	// Create special particle systems
 	//PLEASE NOTE You cannot check an ID for nullptr.  This should be a check against INVALID_PARTICLE_SYSTEM_ID.  Can't change it on the last day without a bug though.
-	if( !m_particleSystemID )
+	if( !D().m_particleSystemID )
 	{
 		const Player *localPlayer = rts::getObservedOrLocalPlayer();
 
@@ -362,7 +364,7 @@ void LaserUpdate::initLaser( const Object *parent, const Object *target, const C
 					system = TheParticleSystemManager->createParticleSystem( tmp );
 					if( system )
 					{
-						m_particleSystemID = system->getSystemID();
+						D().m_particleSystemID = system->getSystemID();
 					}
 				}
 			}
@@ -376,7 +378,7 @@ void LaserUpdate::initLaser( const Object *parent, const Object *target, const C
 					system = TheParticleSystemManager->createParticleSystem( tmp );
 					if( system )
 					{
-						m_targetParticleSystemID = system->getSystemID();
+						D().m_targetParticleSystemID = system->getSystemID();
 					}
 				}
 			}
@@ -385,22 +387,22 @@ void LaserUpdate::initLaser( const Object *parent, const Object *target, const C
 
 	//Adjust the position of any existing particle system.
 	//PLEASE NOTE You cannot check an ID for nullptr.  This should be a check against INVALID_PARTICLE_SYSTEM_ID.  Can't change it on the last day without a bug though.
-	if( m_particleSystemID )
+	if( D().m_particleSystemID )
 	{
-		system = TheParticleSystemManager->findParticleSystem( m_particleSystemID );
+		system = TheParticleSystemManager->findParticleSystem( D().m_particleSystemID );
 		if( system )
 		{
-			system->setPosition( &m_startPos );
+			system->setPosition( &D().m_startPos );
 		}
 	}
 
 	//PLEASE NOTE You cannot check an ID for nullptr.  This should be a check against INVALID_PARTICLE_SYSTEM_ID.  Can't change it on the last day without a bug though.
-	if( m_targetParticleSystemID )
+	if( D().m_targetParticleSystemID )
 	{
-		system = TheParticleSystemManager->findParticleSystem( m_targetParticleSystemID );
+		system = TheParticleSystemManager->findParticleSystem( D().m_targetParticleSystemID );
 		if( system )
 		{
-			system->setPosition( &m_endPos );
+			system->setPosition( &D().m_endPos );
 		}
 	}
 
@@ -425,7 +427,7 @@ void LaserUpdate::initLaser( const Object *parent, const Object *target, const C
 		draw->setPosition( &posToUse );
 	}
 
-	m_dirty = true;
+	D().m_dirty = true;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -482,26 +484,26 @@ void LaserUpdate::xfer( Xfer *xfer )
 	ClientUpdateModule::xfer( xfer );
 
 	// start pos
-	xfer->xferCoord3D( &m_startPos );
+	xfer->xferCoord3D( &D().m_startPos );
 
 	// end pos
-	xfer->xferCoord3D( &m_endPos );
+	xfer->xferCoord3D( &D().m_endPos );
 
 	// dirty
-	xfer->xferBool( &m_dirty );
+	xfer->xferBool( &D().m_dirty );
 
 	// particle system ID
-	xfer->xferUser( &m_particleSystemID, sizeof( ParticleSystemID ) );
+	xfer->xferUser( &D().m_particleSystemID, sizeof( ParticleSystemID ) );
 
 	// target particle system id
-	xfer->xferUser( &m_targetParticleSystemID, sizeof( ParticleSystemID ) );
+	xfer->xferUser( &D().m_targetParticleSystemID, sizeof( ParticleSystemID ) );
 
-	m_laserRadius.xfer( xfer );
+	D().m_laserRadius.xfer( xfer );
 
-	xfer->xferDrawableID(&m_parentID);
-	xfer->xferDrawableID(&m_targetID);
+	xfer->xferDrawableID(&D().m_parentID);
+	xfer->xferDrawableID(&D().m_targetID);
 
-	xfer->xferAsciiString(&m_parentBoneName);
+	xfer->xferAsciiString(&D().m_parentBoneName);
 
 }
 

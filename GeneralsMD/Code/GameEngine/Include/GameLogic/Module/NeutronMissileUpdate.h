@@ -35,6 +35,7 @@
 #include "GameLogic/Module/DieModule.h"
 #include "Common/INI.h"
 #include "WWMath/matrix3d.h"
+#include "Common/GxComponentPool.h"
 
 enum ParticleSystemID CPP_11(: Int);
 class FXList;
@@ -97,10 +98,10 @@ public:
 
 	virtual void projectileLaunchAtObjectOrPosition(const Object *victim, const Coord3D* victimPos, const Object *launcher, WeaponSlotType wslot, Int specificBarrelToUse, const WeaponTemplate* detWeap, const ParticleSystemTemplate* exhaustSysOverride);
 	virtual void projectileFireAtObjectOrPosition( const Object *victim, const Coord3D *victimPos, const WeaponTemplate *detWeap, const ParticleSystemTemplate* exhaustSysOverride );
-	virtual Bool projectileIsArmed() const { return m_isArmed; }											///< return true if the missile is armed and ready to explode
-	virtual ObjectID projectileGetLauncherID() const { return m_launcherID; }				///< Return firer of missile. Returns 0 if not yet fired.
+	virtual Bool projectileIsArmed() const { return D().m_isArmed; }											///< return true if the missile is armed and ready to explode
+	virtual ObjectID projectileGetLauncherID() const { return D().m_launcherID; }				///< Return firer of missile. Returns 0 if not yet fired.
 	virtual Bool projectileHandleCollision( Object *other );
-	virtual const Coord3D *getVelocity() const { return &m_vel; }		///< get current velocity
+	virtual const Coord3D *getVelocity() const { return &D().m_vel; }		///< get current velocity
 	virtual void setFramesTillCountermeasureDiversionOccurs( UnsignedInt frames ) {}
 	virtual void projectileNowJammed() {}
 
@@ -109,27 +110,35 @@ public:
 
 private:
 
-	MissileStateType m_state;						///< the behavior state of the missile
-	Coord3D m_targetPos;								///< the position of the target
-	Coord3D m_intermedPos;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		MissileStateType m_state;						///< the behavior state of the missile
+		Coord3D m_targetPos;								///< the position of the target
+		Coord3D m_intermedPos;
+		ObjectID m_launcherID;							///< ID of object that launched us (zero if not yet launched)
+		WeaponSlotType m_attach_wslot;			///< where to fire the missile from
+		Int m_attach_specificBarrelToUse;							///< where to fire the missile from
+		Coord3D m_accel;
+		Coord3D m_vel;
+		UnsignedInt m_stateTimestamp;				///< time of state change
+		Bool m_isLaunched;
+		Bool m_isArmed;											///< if true, missile will explode on contact
+		Real m_noTurnDistLeft;				///< when zero, ok to start turning
+		Bool m_reachedIntermediatePos;
+		UnsignedInt m_frameAtLaunch;
+		Real m_heightAtLaunch;
+		RadiusDecal	m_deliveryDecal;
+		const ParticleSystemTemplate* m_exhaustSysTmpl;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+private:
 
-	ObjectID m_launcherID;							///< ID of object that launched us (zero if not yet launched)
-	WeaponSlotType m_attach_wslot;			///< where to fire the missile from
-	Int m_attach_specificBarrelToUse;							///< where to fire the missile from
 
-	Coord3D m_accel;
-	Coord3D m_vel;
 
-	UnsignedInt m_stateTimestamp;				///< time of state change
-	Bool m_isLaunched;
-	Bool m_isArmed;											///< if true, missile will explode on contact
-	Real m_noTurnDistLeft;				///< when zero, ok to start turning
-	Bool m_reachedIntermediatePos;
-	UnsignedInt m_frameAtLaunch;
-	Real m_heightAtLaunch;
-	RadiusDecal	m_deliveryDecal;
 
-	const ParticleSystemTemplate* m_exhaustSysTmpl;
 
 	void doLaunch();							///< implement LAUNCH state
 	void doAttack();							///< implement ATTACK state

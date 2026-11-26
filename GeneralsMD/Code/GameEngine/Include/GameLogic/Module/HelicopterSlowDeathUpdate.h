@@ -32,6 +32,7 @@
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 #include "Common/AudioEventRTS.h"
 #include "GameLogic/Module/SlowDeathBehavior.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD DECLARATIONS ///////////////////////////////////////////////////////////////////////////
 class ParticleSystemTemplate;
@@ -96,17 +97,25 @@ public:
 
 protected:
 
-	Int m_orbitDirection;			 ///< -1 or +1 ... use ORBIT_DIRECTION_LEFT/RIGHT
-	Real m_forwardAngle;			 /**< angle of the direction "forward" we want to move in our downspin
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		Real m_forwardAngle;			 /**< angle of the direction "forward" we want to move in our downspin
 																	which is independent of the actual direction angle of the object */
-	Real m_forwardSpeed;			 ///< the speed we're travelling forward in our spiral orbit
-	Real m_selfSpin;					 ///< rads per frame that we change our facing direction
-	Bool m_selfSpinTowardsMax; ///< TRUE when our self spin rate is increasing towards the MaxSelfSpin
-	UnsignedInt m_lastSelfSpinUpdateFrame;	///< frame we last updated the self spin on
-	UnsignedInt m_bladeFlyOffFrame;		///< frame we throw the blade off at
-	UnsignedInt m_hitGroundFrame;			///< frame we hit the ground on
+		Int m_orbitDirection;			 ///< -1 or +1 ... use ORBIT_DIRECTION_LEFT/RIGHT
+		Real m_forwardSpeed;			 ///< the speed we're travelling forward in our spiral orbit
+		Real m_selfSpin;					 ///< rads per frame that we change our facing direction
+		Bool m_selfSpinTowardsMax; ///< TRUE when our self spin rate is increasing towards the MaxSelfSpin
+		UnsignedInt m_lastSelfSpinUpdateFrame;	///< frame we last updated the self spin on
+		UnsignedInt m_bladeFlyOffFrame;		///< frame we throw the blade off at
+		UnsignedInt m_hitGroundFrame;			///< frame we hit the ground on
+		AudioEventRTS m_deathSound;						///< Sound played during death sequence.
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 	// @todo propagate this up to SlowDeathBehavior. I don't wanna do it today, cause its 4/3. jkmcd
-	AudioEventRTS m_deathSound;						///< Sound played during death sequence.
 
 };

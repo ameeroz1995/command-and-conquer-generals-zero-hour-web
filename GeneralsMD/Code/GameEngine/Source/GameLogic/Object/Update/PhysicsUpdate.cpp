@@ -71,11 +71,16 @@ const Real STUN_RELIEF_EPSILON = 0.5f;
 // web port: performance switches (gles3_wrapper.cpp) and verify counters (GameLogic.cpp)
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
+#ifdef __wasm_simd128__
+#include <wasm_simd128.h>
+#endif
 extern int GLES3_Page_Switches2();
+extern int GLES3_Page_Switches4();
 extern int gx_verify_mismatch, gx_verify_checked;
 #else
 static int GLES3_Page_Switches() { return 0; }
 static int GLES3_Page_Switches2() { return 0; }
+static int GLES3_Page_Switches4() { return 0; }
 static int gx_verify_mismatch, gx_verify_checked;
 #endif
 
@@ -211,50 +216,68 @@ const Real INVALID_VEL_MAG = -1.0f;
 
 //-------------------------------------------------------------------------------------------------
 // web port (round 4): the current velocity lives in the unit store
-Coord3D &PhysicsBehavior::gxVel() const
+GxVec3Ref PhysicsBehavior::gxVel() const
 {
 	const Int slot = getObject()->gxStoreSlot();
 	if (slot < 0)
 	{
-		static Coord3D s_none;	// object not in the store (never for a live object)
-		s_none.zero();
-		return s_none;
+		static Real s_none[3];	// object not in the store (never for a live object)
+		s_none[0] = s_none[1] = s_none[2] = 0.0f;
+		return GxVec3Ref(s_none[0], s_none[1], s_none[2]);
 	}
-	return TheGxUnitStore.vel[slot];
+	return TheGxUnitStore.velRef(slot);
+}
+
+GxVec3Ref PhysicsBehavior::gxAccel() const
+{
+	const Int slot = getObject()->gxStoreSlot();
+	if (slot < 0)
+	{
+		static Real s_none[3];
+		s_none[0] = s_none[1] = s_none[2] = 0.0f;
+		return GxVec3Ref(s_none[0], s_none[1], s_none[2]);
+	}
+	return TheGxUnitStore.accelRef(slot);
+}
+
+const Coord3D *PhysicsBehavior::getVelocity() const
+{
+	m_gxPhysicsBehavior->m_gxVelOut = gxVel();	// web port (round 5): copied out of the store's vx/vy/vz columns
+	return &m_gxPhysicsBehavior->m_gxVelOut;
 }
 
 static UnsignedInt s_gxBulkFrame = ~0u;	// web port (match rule physBulk): the frame whose pass ran
 
 PhysicsBehavior::PhysicsBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_accel.zero();
-	m_prevAccel = m_accel;
+	gxAccel().zero();
+	m_gxPhysicsBehavior->m_prevAccel = gxAccel();
 	gxVel().zero();
-	m_velMag = 0.0f;
-	m_yawRate = 0.0f;
-	m_rollRate = 0.0f;
-	m_pitchRate = 0.0f;
-	m_mass = getPhysicsBehaviorModuleData()->m_mass;
-	m_motiveForceExpires = 0;
+	m_gxPhysicsBehavior->m_velMag = 0.0f;
+	m_gxPhysicsBehavior->m_yawRate = 0.0f;
+	m_gxPhysicsBehavior->m_rollRate = 0.0f;
+	m_gxPhysicsBehavior->m_pitchRate = 0.0f;
+	m_gxPhysicsBehavior->m_mass = getPhysicsBehaviorModuleData()->m_mass;
+	m_gxPhysicsBehavior->m_motiveForceExpires = 0;
 
-	m_flags = 0;
-	m_extraBounciness = 0.0f;
-	m_extraFriction = 0.0f;
+	m_gxPhysicsBehavior->m_flags = 0;
+	m_gxPhysicsBehavior->m_extraBounciness = 0.0f;
+	m_gxPhysicsBehavior->m_extraFriction = 0.0f;
 
-	m_currentOverlap = INVALID_ID;
-	m_previousOverlap = INVALID_ID;
-	m_lastCollidee = INVALID_ID;
+	m_gxPhysicsBehavior->m_currentOverlap = INVALID_ID;
+	m_gxPhysicsBehavior->m_previousOverlap = INVALID_ID;
+	m_gxPhysicsBehavior->m_lastCollidee = INVALID_ID;
 
-	m_ignoreCollisionsWith = INVALID_ID;
+	m_gxPhysicsBehavior->m_ignoreCollisionsWith = INVALID_ID;
 
 	setAllowBouncing(getPhysicsBehaviorModuleData()->m_allowBouncing);
 	setAllowCollideForce(getPhysicsBehaviorModuleData()->m_allowCollideForce);
 
-	m_pui = nullptr;
-	m_bounceSound = nullptr;
+	m_gxPhysicsBehavior->m_pui = nullptr;
+	m_gxPhysicsBehavior->m_bounceSound = nullptr;
 
-	m_gxPreFrame = ~0u;
-	m_gxSleep = UPDATE_SLEEP_NONE;
+	m_gxPhysicsBehavior->m_gxPreFrame = ~0u;
+	m_gxPhysicsBehavior->m_gxSleep = UPDATE_SLEEP_NONE;
 
 #ifdef SLEEPY_PHYSICS
 	setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
@@ -279,32 +302,32 @@ static ProjectileUpdateInterface* getPui(Object* obj)
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::onObjectCreated()
 {
-	m_pui = getPui(getObject());
+	m_gxPhysicsBehavior->m_pui = getPui(getObject());
 }
 
 //-------------------------------------------------------------------------------------------------
 PhysicsBehavior::~PhysicsBehavior()
 {
-	deleteInstance(m_bounceSound);
-	m_bounceSound = nullptr;
+	deleteInstance(m_gxPhysicsBehavior->m_bounceSound);
+	m_gxPhysicsBehavior->m_bounceSound = nullptr;
 }
 
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::setIgnoreCollisionsWith(const Object* obj)
 {
-	m_ignoreCollisionsWith = obj ? obj->getID() : INVALID_ID;
+	m_gxPhysicsBehavior->m_ignoreCollisionsWith = obj ? obj->getID() : INVALID_ID;
 }
 
 //-------------------------------------------------------------------------------------------------
 Bool PhysicsBehavior::isIgnoringCollisionsWith(ObjectID id) const
 {
-	return id != INVALID_ID && id == m_ignoreCollisionsWith;
+	return id != INVALID_ID && id == m_gxPhysicsBehavior->m_ignoreCollisionsWith;
 }
 
 //-------------------------------------------------------------------------------------------------
 Real PhysicsBehavior::getAerodynamicFriction() const
 {
-	Real f = getPhysicsBehaviorModuleData()->m_aerodynamicFriction + m_extraFriction;
+	Real f = getPhysicsBehaviorModuleData()->m_aerodynamicFriction + m_gxPhysicsBehavior->m_extraFriction;
 	if (f < MIN_AERO_FRICTION) f = MIN_AERO_FRICTION;
 	if (f > MAX_FRICTION) f = MAX_FRICTION;
 	return f;
@@ -313,7 +336,7 @@ Real PhysicsBehavior::getAerodynamicFriction() const
 //-------------------------------------------------------------------------------------------------
 Real PhysicsBehavior::getForwardFriction() const
 {
-	Real f = getPhysicsBehaviorModuleData()->m_forwardFriction + m_extraFriction;
+	Real f = getPhysicsBehaviorModuleData()->m_forwardFriction + m_gxPhysicsBehavior->m_extraFriction;
 	if (f < MIN_NON_AERO_FRICTION) f = MIN_NON_AERO_FRICTION;
 	if (f > MAX_FRICTION) f = MAX_FRICTION;
 	return f;
@@ -322,7 +345,7 @@ Real PhysicsBehavior::getForwardFriction() const
 //-------------------------------------------------------------------------------------------------
 Real PhysicsBehavior::getLateralFriction() const
 {
-	Real f = getPhysicsBehaviorModuleData()->m_lateralFriction + m_extraFriction;
+	Real f = getPhysicsBehaviorModuleData()->m_lateralFriction + m_gxPhysicsBehavior->m_extraFriction;
 	if (f < MIN_NON_AERO_FRICTION) f = MIN_NON_AERO_FRICTION;
 	if (f > MAX_FRICTION) f = MAX_FRICTION;
 	return f;
@@ -331,7 +354,7 @@ Real PhysicsBehavior::getLateralFriction() const
 //-------------------------------------------------------------------------------------------------
 Real PhysicsBehavior::getZFriction() const
 {
-	Real f = getPhysicsBehaviorModuleData()->m_ZFriction + m_extraFriction;
+	Real f = getPhysicsBehaviorModuleData()->m_ZFriction + m_gxPhysicsBehavior->m_extraFriction;
 	if (f < MIN_NON_AERO_FRICTION) f = MIN_NON_AERO_FRICTION;
 	if (f > MAX_FRICTION) f = MAX_FRICTION;
 	return f;
@@ -363,11 +386,11 @@ void PhysicsBehavior::applyForce( const Coord3D *force )
 	}
 
 	Real massInv = 1.0f / mass;
-	m_accel.x += modForce.x * massInv;
-	m_accel.y += modForce.y * massInv;
-	m_accel.z += modForce.z * massInv;
+	gxAccel().x += modForce.x * massInv;
+	gxAccel().y += modForce.y * massInv;
+	gxAccel().z += modForce.z * massInv;
 
-	//DEBUG_ASSERTCRASH(!(_isnan(m_accel.x) || _isnan(m_accel.y) || _isnan(m_accel.z)), ("PhysicsBehavior::applyForce accel NAN!"));
+	//DEBUG_ASSERTCRASH(!(_isnan(gxAccel().x) || _isnan(gxAccel().y) || _isnan(gxAccel().z)), ("PhysicsBehavior::applyForce accel NAN!"));
 	//DEBUG_ASSERTCRASH(!(_isnan(gxVel().x) || _isnan(gxVel().y) || _isnan(gxVel().z)), ("PhysicsBehavior::applyForce vel NAN!"));
 	//DEBUG_ASSERTCRASH(fabs(force->z) < 3, ("unlikely z-force"));
 #ifdef SLEEPY_PHYSICS
@@ -412,13 +435,13 @@ void PhysicsBehavior::applyRandomRotation()
 	Real randomModifier;
 
 	randomModifier = GameLogicRandomValue(-1.0f, 1.0f);
-	m_yawRate += getPhysicsBehaviorModuleData()->m_shockMaxYaw * randomModifier;
+	m_gxPhysicsBehavior->m_yawRate += getPhysicsBehaviorModuleData()->m_shockMaxYaw * randomModifier;
 
 	randomModifier = GameLogicRandomValue(-1.0f, 1.0f);
-	m_pitchRate += getPhysicsBehaviorModuleData()->m_shockMaxPitch * randomModifier;
+	m_gxPhysicsBehavior->m_pitchRate += getPhysicsBehaviorModuleData()->m_shockMaxPitch * randomModifier;
 
 	randomModifier = GameLogicRandomValue(-1.0f, 1.0f);
-	m_rollRate += getPhysicsBehaviorModuleData()->m_shockMaxRoll * randomModifier;
+	m_gxPhysicsBehavior->m_rollRate += getPhysicsBehaviorModuleData()->m_shockMaxRoll * randomModifier;
 
 #ifdef SLEEPY_PHYSICS
 	if (getFlag(IS_IN_UPDATE))
@@ -437,28 +460,28 @@ void PhysicsBehavior::applyRandomRotation()
 //-------------------------------------------------------------------------------------------------
 Bool PhysicsBehavior::isMotive() const
 {
-	return m_motiveForceExpires > TheGameLogic->getFrame();
+	return m_gxPhysicsBehavior->m_motiveForceExpires > TheGameLogic->getFrame();
 }
 
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::applyMotiveForce( const Coord3D *force )
 {
-	m_motiveForceExpires = 0; // make it accept this force unquestioningly :)
+	m_gxPhysicsBehavior->m_motiveForceExpires = 0; // make it accept this force unquestioningly :)
 	applyForce(force);
-	m_motiveForceExpires = TheGameLogic->getFrame() + MOTIVE_FRAMES;
+	m_gxPhysicsBehavior->m_motiveForceExpires = TheGameLogic->getFrame() + MOTIVE_FRAMES;
 }
 
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::resetDynamicPhysics()
 {
-	m_accel.zero();
-	m_prevAccel.zero();
+	gxAccel().zero();
+	m_gxPhysicsBehavior->m_prevAccel.zero();
 	gxVel().zero();
-	m_velMag = 0.0f;
-	m_turning = TURN_NONE;
-	m_yawRate = 0;
-	m_rollRate = 0;
-	m_pitchRate = 0;
+	m_gxPhysicsBehavior->m_velMag = 0.0f;
+	m_gxPhysicsBehavior->m_turning = TURN_NONE;
+	m_gxPhysicsBehavior->m_yawRate = 0;
+	m_gxPhysicsBehavior->m_rollRate = 0;
+	m_gxPhysicsBehavior->m_pitchRate = 0;
 	setFlag(HAS_PITCHROLLYAW, false);
 #ifdef SLEEPY_PHYSICS
 	DEBUG_ASSERTCRASH(!getFlag(IS_IN_UPDATE), ("hmm, should not happen, may not work"));
@@ -469,7 +492,7 @@ void PhysicsBehavior::resetDynamicPhysics()
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::applyGravitationalForces()
 {
-	m_accel.z += TheGlobalData->m_gravity;
+	gxAccel().z += TheGlobalData->m_gravity;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -517,9 +540,9 @@ void PhysicsBehavior::applyFrictionalForces()
 		Real aerodynamics = -getAerodynamicFriction();	// negated!
 
 		// Air resistance is proportional to velocity in the opposite direction
-		m_accel.x += gxVel().x * aerodynamics;
-		m_accel.y += gxVel().y * aerodynamics;
-		m_accel.z += gxVel().z * aerodynamics;
+		gxAccel().x += gxVel().x * aerodynamics;
+		gxAccel().y += gxVel().y * aerodynamics;
+		gxAccel().z += gxVel().z * aerodynamics;
 
 		applyYPRDamping(1.0f + aerodynamics);	// since aero is negated, this results in 1.0-getAerodynamicFriction()
 	}
@@ -568,7 +591,7 @@ Bool PhysicsBehavior::handleBounce(Real oldZ, Real newZ, Real groundZ, Coord3D* 
 		}
 		else
 		{
-			setAllowBouncing(m_originalAllowBounce);
+			setAllowBouncing(m_gxPhysicsBehavior->m_originalAllowBounce);
 			return false;
 		}
 	}
@@ -595,31 +618,31 @@ inline Bool isZero3D(const Coord3D& v)
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::setPitchRate(Real pitch)
 {
-	m_pitchRate = pitch;
-	setFlag(HAS_PITCHROLLYAW, (m_pitchRate != 0.0f || m_rollRate != 0.0f || m_yawRate != 0.0f));
+	m_gxPhysicsBehavior->m_pitchRate = pitch;
+	setFlag(HAS_PITCHROLLYAW, (m_gxPhysicsBehavior->m_pitchRate != 0.0f || m_gxPhysicsBehavior->m_rollRate != 0.0f || m_gxPhysicsBehavior->m_yawRate != 0.0f));
 }
 
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::setRollRate(Real roll)
 {
-	m_rollRate = roll;
-	setFlag(HAS_PITCHROLLYAW, (m_pitchRate != 0.0f || m_rollRate != 0.0f || m_yawRate != 0.0f));
+	m_gxPhysicsBehavior->m_rollRate = roll;
+	setFlag(HAS_PITCHROLLYAW, (m_gxPhysicsBehavior->m_pitchRate != 0.0f || m_gxPhysicsBehavior->m_rollRate != 0.0f || m_gxPhysicsBehavior->m_yawRate != 0.0f));
 }
 
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::setYawRate(Real yaw)
 {
-	m_yawRate = yaw;
-	setFlag(HAS_PITCHROLLYAW, (m_pitchRate != 0.0f || m_rollRate != 0.0f || m_yawRate != 0.0f));
+	m_gxPhysicsBehavior->m_yawRate = yaw;
+	setFlag(HAS_PITCHROLLYAW, (m_gxPhysicsBehavior->m_pitchRate != 0.0f || m_gxPhysicsBehavior->m_rollRate != 0.0f || m_gxPhysicsBehavior->m_yawRate != 0.0f));
 }
 
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::applyYPRDamping(Real factor)
 {
-	m_pitchRate *= factor;
-	m_rollRate *= factor;
-	m_yawRate *= factor;
-	setFlag(HAS_PITCHROLLYAW, (m_pitchRate != 0.0f || m_rollRate != 0.0f || m_yawRate != 0.0f));
+	m_gxPhysicsBehavior->m_pitchRate *= factor;
+	m_gxPhysicsBehavior->m_rollRate *= factor;
+	m_gxPhysicsBehavior->m_yawRate *= factor;
+	setFlag(HAS_PITCHROLLYAW, (m_gxPhysicsBehavior->m_pitchRate != 0.0f || m_gxPhysicsBehavior->m_rollRate != 0.0f || m_gxPhysicsBehavior->m_yawRate != 0.0f));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -627,15 +650,15 @@ void PhysicsBehavior::setBounceSound(const AudioEventRTS* bounceSound)
 {
 	if (bounceSound)
 	{
-		if (m_bounceSound == nullptr)
-			m_bounceSound = newInstance(DynamicAudioEventRTS);
+		if (m_gxPhysicsBehavior->m_bounceSound == nullptr)
+			m_gxPhysicsBehavior->m_bounceSound = newInstance(DynamicAudioEventRTS);
 
-		m_bounceSound->m_event = *bounceSound;
+		m_gxPhysicsBehavior->m_bounceSound->m_event = *bounceSound;
 	}
 	else
 	{
-		deleteInstance(m_bounceSound);
-		m_bounceSound = nullptr;
+		deleteInstance(m_gxPhysicsBehavior->m_bounceSound);
+		m_gxPhysicsBehavior->m_bounceSound = nullptr;
 	}
 }
 
@@ -652,9 +675,9 @@ void PhysicsBehavior::gxIntegrate()
 	applyFrictionalForces();
 
 	// integrate acceleration into velocity
-	gxVel().x += m_accel.x;
-	gxVel().y += m_accel.y;
-	gxVel().z += m_accel.z;
+	gxVel().x += gxAccel().x;
+	gxVel().y += gxAccel().y;
+	gxVel().z += gxAccel().z;
 
 	// when vel gets tiny, just clamp to zero
 	const Real THRESH = 0.001f;
@@ -662,7 +685,7 @@ void PhysicsBehavior::gxIntegrate()
 	if (fabsf(gxVel().y) < THRESH) gxVel().y = 0.0f;
 	if (fabsf(gxVel().z) < THRESH) gxVel().z = 0.0f;
 
-	m_velMag = INVALID_VEL_MAG;
+	m_gxPhysicsBehavior->m_velMag = INVALID_VEL_MAG;
 }
 
 // web port (match rule physBulk = physics pass): at the first physics update of a frame, run the
@@ -675,14 +698,96 @@ void PhysicsBehavior::gxBulkPass(UnsignedInt now)
 {
 	static std::vector<int> s_list;	// a copy: the step can create objects, which may rebuild pass lists
 	s_list = TheGxUnitStore.pass(GXB_PHYS);
+	// web port (round 5, switch physSimd, fourth word bit 0; rides on physBulk): the forces of every
+	// due unit first, then velocity += acceleration (and the tiny-velocity clamp) for all of them in
+	// one 4-units-per-instruction pass over the store columns, then each unit's remaining step.
+	// Exact (same float ops); the drift beyond physBulk's: a force one unit's step applies to a unit
+	// that steps later in the frame now counts from the next frame.
+	const Bool simd = (GLES3_Page_Switches4() & 1) != 0;
+	if (simd)
+	{
+		GxUnitStore &S = TheGxUnitStore;
+		static std::vector<UnsignedInt> s_due;
+		s_due.assign(((size_t)S.size() + 3) & ~(size_t)3, 0u);
+		for (size_t i = 0; i < s_list.size(); ++i)
+		{
+			Object *o = S.obj[s_list[i]];
+			PhysicsBehavior *pb = o ? o->getPhysics() : nullptr;
+			if (!pb || pb->friend_getNextCallFrame() != now || pb->m_gxPhysicsBehavior->m_gxPreFrame == now || o->isDisabledByType(DISABLED_HELD))
+				continue;
+			pb->m_gxPhysicsBehavior->m_prevAccel = pb->gxAccel();
+			pb->applyGravitationalForces();
+			pb->applyFrictionalForces();
+			pb->m_gxPhysicsBehavior->m_velMag = INVALID_VEL_MAG;
+			pb->m_gxPhysicsBehavior->m_gxIntegrated = now;
+			s_due[s_list[i]] = ~0u;
+		}
+		gxIntegrateColumns(s_due.data(), 0, S.size());	// kernel over all rows (a job system can split the range)
+	}
 	for (size_t i = 0; i < s_list.size(); ++i)
 	{
 		Object *o = TheGxUnitStore.obj[s_list[i]];
 		PhysicsBehavior *pb = o ? o->getPhysics() : nullptr;
-		if (!pb || pb->friend_getNextCallFrame() != now || pb->m_gxPreFrame == now)
+		if (!pb || pb->friend_getNextCallFrame() != now || pb->m_gxPhysicsBehavior->m_gxPreFrame == now)
 			continue;
-		pb->m_gxPreFrame = now;
-		pb->m_gxSleep = pb->gxStep();
+		pb->m_gxPhysicsBehavior->m_gxPreFrame = now;
+		pb->m_gxPhysicsBehavior->m_gxSleep = pb->gxStep();
+	}
+}
+
+// web port (round 5): the physics integration kernel. For rows [begin, end) whose due[] is all ones:
+// v += a, |v| < 0.001 -> 0, a = 0 (wasm simd128, 4 rows per instruction; same float ops).
+// Reads: due[], store vx/vy/vz, ax/ay/az. Writes: vx/vy/vz, ax/ay/az of rows in [begin, end) only.
+// No allocation, events, RNG or other globals: safe on a worker thread for disjoint ranges.
+// (The forces before it and the rest of each unit's step after it are the main-thread parts.)
+void PhysicsBehavior::gxIntegrateColumns(const UnsignedInt *due, Int begin, Int end)
+{
+	GxUnitStore &S = TheGxUnitStore;
+	float *v[3] = { S.vx.data(), S.vy.data(), S.vz.data() };
+	float *a[3] = { S.ax.data(), S.ay.data(), S.az.data() };
+	const float THRESH = 0.001f;
+	const Int n = end;
+	Int i = begin;
+	for (; i < n && (i & 3); ++i)	// to a multiple of 4
+	{
+		if (!due[i])
+			continue;
+		for (int k = 0; k < 3; ++k)
+		{
+			Real nv = v[k][i] + a[k][i];
+			if (fabsf(nv) < THRESH) nv = 0.0f;
+			v[k][i] = nv;
+			a[k][i] = 0.0f;
+		}
+	}
+#ifdef __wasm_simd128__
+	const v128_t th = wasm_f32x4_splat(THRESH), zero = wasm_f32x4_splat(0.0f);
+	for (; i + 4 <= n; i += 4)
+	{
+		const v128_t m = wasm_v128_load(due + i);
+		if (!wasm_v128_any_true(m))
+			continue;
+		for (int k = 0; k < 3; ++k)
+		{
+			const v128_t vv = wasm_v128_load(v[k] + i), aa = wasm_v128_load(a[k] + i);
+			v128_t nv = wasm_f32x4_add(vv, aa);
+			nv = wasm_v128_andnot(nv, wasm_f32x4_lt(wasm_f32x4_abs(nv), th));	// tiny -> 0
+			wasm_v128_store(v[k] + i, wasm_v128_bitselect(nv, vv, m));
+			wasm_v128_store(a[k] + i, wasm_v128_bitselect(zero, aa, m));
+		}
+	}
+#endif
+	for (; i < n; ++i)
+	{
+		if (!due[i])
+			continue;
+		for (int k = 0; k < 3; ++k)
+		{
+			Real nv = v[k][i] + a[k][i];
+			if (fabsf(nv) < THRESH) nv = 0.0f;
+			v[k][i] = nv;
+			a[k][i] = 0.0f;
+		}
 	}
 }
 
@@ -696,8 +801,8 @@ UpdateSleepTime PhysicsBehavior::update()
 			s_gxBulkFrame = now;
 			gxBulkPass(now);
 		}
-		if (m_gxPreFrame == now)
-			return m_gxSleep;
+		if (m_gxPhysicsBehavior->m_gxPreFrame == now)
+			return m_gxPhysicsBehavior->m_gxSleep;
 	}
 	return gxStep();
 }
@@ -723,7 +828,9 @@ UpdateSleepTime PhysicsBehavior::gxStep()
 	}
 
 	Coord3D prevPos = *obj->getPosition();
-	m_prevAccel = m_accel;
+	const Bool gxPreIntegrated = m_gxPhysicsBehavior->m_gxIntegrated == TheGameLogic->getFrame();	// physSimd did forces + integration
+	if (!gxPreIntegrated)
+		m_gxPhysicsBehavior->m_prevAccel = gxAccel();
 
 	// web port (switch physReuse, second word bit 26; same game): reuse this step's ground height
 	const Bool gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
@@ -733,7 +840,8 @@ UpdateSleepTime PhysicsBehavior::gxStep()
 	{
 		Matrix3D mtx = *obj->getTransformMatrix();
 
-		gxIntegrate();
+		if (!gxPreIntegrated)
+			gxIntegrate();
 
 		Real oldPosZ = mtx.Get_Z_Translation();
 
@@ -800,9 +908,9 @@ UpdateSleepTime PhysicsBehavior::gxStep()
 
 			// only update the position if we are not HELD
 			// (otherwise, slowdeath sinking into ground won't work)
-			Real yawRateToUse = m_yawRate * d->m_pitchRollYawFactor;
-			Real pitchRateToUse = m_pitchRate * d->m_pitchRollYawFactor;
-			Real rollRateToUse = m_rollRate * d->m_pitchRollYawFactor;
+			Real yawRateToUse = m_gxPhysicsBehavior->m_yawRate * d->m_pitchRollYawFactor;
+			Real pitchRateToUse = m_gxPhysicsBehavior->m_pitchRate * d->m_pitchRollYawFactor;
+			Real rollRateToUse = m_gxPhysicsBehavior->m_rollRate * d->m_pitchRollYawFactor;
 
 			// With a center of mass listing, pitchRate needs to dampen towards straight down/straight up
 			Real offset = getCenterOfMassOffset();
@@ -848,7 +956,7 @@ UpdateSleepTime PhysicsBehavior::gxStep()
 			if (gxVel().z > 0.0f)
 				gxVel().z = 0.0f;
 
-			m_velMag = INVALID_VEL_MAG;
+			m_gxPhysicsBehavior->m_velMag = INVALID_VEL_MAG;
 
 			mtx.Set_Z_Translation(groundZ);
 
@@ -910,12 +1018,14 @@ UpdateSleepTime PhysicsBehavior::gxStep()
 		}
 	}
 
-	// reset the acceleration for accumulation next frame
-	m_accel.zero();
+	// reset the acceleration for accumulation next frame (physSimd: zeroed by the column pass; forces
+	// applied since then belong to the next frame)
+	if (!gxPreIntegrated)
+		gxAccel().zero();
 
 	// clear overlap object, which will be set by PhysicsCollide later
-	m_previousOverlap = m_currentOverlap;
-	m_currentOverlap = INVALID_ID;
+	m_gxPhysicsBehavior->m_previousOverlap = m_gxPhysicsBehavior->m_currentOverlap;
+	m_gxPhysicsBehavior->m_currentOverlap = INVALID_ID;
 
 	if (gotBounceForce && getFlag(ALLOW_BOUNCE))
 	{
@@ -949,7 +1059,7 @@ UpdateSleepTime PhysicsBehavior::gxStep()
 		//
 		Real netSpeed = -activeVelZ - d->m_minFallSpeedForDamage;
 
-		if (netSpeed > 0.0f && m_pui == nullptr)
+		if (netSpeed > 0.0f && m_gxPhysicsBehavior->m_pui == nullptr)
 		{
 			// only apply force if it's a pretty steep fall, so that things
 			// going down hills don't injure themselves (unless the hill is really steep)
@@ -1013,7 +1123,7 @@ UpdateSleepTime PhysicsBehavior::calcSleepTime() const
 {
 #ifdef SLEEPY_PHYSICS
 	if (isZero3D(gxVel())
-			&& isZero3D(m_accel)
+			&& isZero3D(gxAccel())
 			&& !getFlag(HAS_PITCHROLLYAW)
 			&& !isMotive()
 			&& (getObject()->getLayer() == LAYER_GROUND && !getObject()->isAboveTerrain())
@@ -1033,11 +1143,11 @@ UpdateSleepTime PhysicsBehavior::calcSleepTime() const
 //-------------------------------------------------------------------------------------------------
 Real PhysicsBehavior::getVelocityMagnitude() const
 {
-	if (m_velMag == INVALID_VEL_MAG)
+	if (m_gxPhysicsBehavior->m_velMag == INVALID_VEL_MAG)
 	{
-		m_velMag = (Real)sqrtf( sqr(gxVel().x) + sqr(gxVel().y) + sqr(gxVel().z) );
+		m_gxPhysicsBehavior->m_velMag = (Real)sqrtf( sqr(gxVel().x) + sqr(gxVel().y) + sqr(gxVel().z) );
 	}
-	return m_velMag;
+	return m_gxPhysicsBehavior->m_velMag;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1091,13 +1201,13 @@ Real PhysicsBehavior::getForwardSpeed3D() const
 //-------------------------------------------------------------------------------------------------
 Bool PhysicsBehavior::isCurrentlyOverlapped(Object *obj) const
 {
-	return obj != nullptr && obj->getID() == m_currentOverlap;
+	return obj != nullptr && obj->getID() == m_gxPhysicsBehavior->m_currentOverlap;
 }
 
 //-------------------------------------------------------------------------------------------------
 Bool PhysicsBehavior::wasPreviouslyOverlapped(Object *obj) const
 {
-	return obj != nullptr && obj->getID() == m_previousOverlap;
+	return obj != nullptr && obj->getID() == m_gxPhysicsBehavior->m_previousOverlap;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1114,7 +1224,7 @@ void PhysicsBehavior::scrubVelocityZ( Real desiredVelocity )
 			gxVel().z = desiredVelocity;
 		}
 	}
-	m_velMag = INVALID_VEL_MAG;
+	m_gxPhysicsBehavior->m_velMag = INVALID_VEL_MAG;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1136,7 +1246,7 @@ void PhysicsBehavior::scrubVelocity2D( Real desiredVelocity )
 		gxVel().x *= desiredVelocity;
 		gxVel().y *= desiredVelocity;
 	}
-	m_velMag = INVALID_VEL_MAG;
+	m_gxPhysicsBehavior->m_velMag = INVALID_VEL_MAG;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1144,7 +1254,7 @@ void PhysicsBehavior::addOverlap(Object *obj)
 {
 	if (obj && !isCurrentlyOverlapped(obj))
 	{
-		m_currentOverlap = obj->getID();
+		m_gxPhysicsBehavior->m_currentOverlap = obj->getID();
 	}
 }
 
@@ -1153,8 +1263,8 @@ void PhysicsBehavior::transferVelocityTo(PhysicsBehavior* that) const
 {
 	if (that != nullptr)
 	{
-		that->gxVel().add(&gxVel());
-		that->m_velMag = INVALID_VEL_MAG;
+		{ const Coord3D v = gxVel(); that->gxVel().add(&v); }
+		that->m_gxPhysicsBehavior->m_velMag = INVALID_VEL_MAG;
 	}
 }
 
@@ -1183,7 +1293,7 @@ void PhysicsBehavior::setAngles( Real yaw, Real pitch, Real roll )
 //-------------------------------------------------------------------------------------------------
 Real PhysicsBehavior::getMass() const
 {
-	Real mass = m_mass;
+	Real mass = m_gxPhysicsBehavior->m_mass;
 	ContainModuleInterface* contain = getObject()->getContain();
 	if (contain)
 		mass += contain->getContainedItemsMass();
@@ -1199,14 +1309,14 @@ inline Real calcDistSqr(const Coord3D& a, const Coord3D& b)
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::doBounceSound(const Coord3D& prevPos)
 {
-	if (!m_bounceSound)
+	if (!m_gxPhysicsBehavior->m_bounceSound)
 		return;
 
 	const Real NORMAL_VEL_Z	= 0.25f;
 	const Real NORMAL_MASS	= 50.0f;
 
 	// get the per-unit sound for the collision which was stuffed in on Object creation.
-	AudioEventRTS collisionSound = m_bounceSound->m_event;
+	AudioEventRTS collisionSound = m_gxPhysicsBehavior->m_bounceSound->m_event;
 
 //Real vel = fabs(getVelocity()->z);
 // can't use velocity, because it's already been updated this frame, and will be zero... (srj)
@@ -1252,10 +1362,10 @@ void PhysicsBehavior::doBounceSound(const Coord3D& prevPos)
 void PhysicsBehavior::onCollide( Object *other, const Coord3D *loc, const Coord3D *normal )
 {
 	//USE_PERF_TIMER(PhysicsBehavioronCollide)
-	if (m_pui != nullptr)
+	if (m_gxPhysicsBehavior->m_pui != nullptr)
 	{
 		// projectiles always get a chance to handle their own collisions, and not go thru here
-		if (m_pui->projectileHandleCollision(other))
+		if (m_gxPhysicsBehavior->m_pui->projectileHandleCollision(other))
 			return;
 	}
 
@@ -1410,7 +1520,7 @@ void PhysicsBehavior::onCollide( Object *other, const Coord3D *loc, const Coord3
 	}
 
 
-	m_lastCollidee = other->getID();
+	m_gxPhysicsBehavior->m_lastCollidee = other->getID();
 
 	Real dist = sqrtf(distSqr);
 	Real overlap = usRadius + themRadius - dist;
@@ -1492,7 +1602,7 @@ void PhysicsBehavior::onCollide( Object *other, const Coord3D *loc, const Coord3
 			gxVel().x = 0;
 			gxVel().y = 0;
 			gxVel().z = 0;
-			m_velMag = INVALID_VEL_MAG;
+			m_gxPhysicsBehavior->m_velMag = INVALID_VEL_MAG;
 		}
 		else
 		{
@@ -1932,25 +2042,25 @@ void PhysicsBehavior::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// yaw rate
-	xfer->xferReal( &m_yawRate );
+	xfer->xferReal( &m_gxPhysicsBehavior->m_yawRate );
 
 	// roll rate
-	xfer->xferReal( &m_rollRate );
+	xfer->xferReal( &m_gxPhysicsBehavior->m_rollRate );
 
 	// pitch rate
-	xfer->xferReal( &m_pitchRate );
+	xfer->xferReal( &m_gxPhysicsBehavior->m_pitchRate );
 
 	// we dont' need to mess with sound stuff
-	// m_bounceSound <---- do nothing with this
+	// m_gxPhysicsBehavior->m_bounceSound <---- do nothing with this
 
 	// accel
-	xfer->xferCoord3D( &m_accel );
+	{ Coord3D a = gxAccel(); xfer->xferCoord3D( &a ); gxAccel() = a; }
 
 	// prev accel
-	xfer->xferCoord3D( &m_prevAccel );
+	xfer->xferCoord3D( &m_gxPhysicsBehavior->m_prevAccel );
 
 	// velocity
-	xfer->xferCoord3D( &gxVel() );
+	{ Coord3D v = gxVel(); xfer->xferCoord3D( &v ); gxVel() = v; }
 
 	// prevPos (now defunct)
 	if (version < 2)
@@ -1961,37 +2071,37 @@ void PhysicsBehavior::xfer( Xfer *xfer )
 	}
 
 	// turning
-	xfer->xferUser( &m_turning, sizeof( PhysicsTurningType ) );
+	xfer->xferUser( &m_gxPhysicsBehavior->m_turning, sizeof( PhysicsTurningType ) );
 
 	// ignore collisions with
-	xfer->xferObjectID( &m_ignoreCollisionsWith );
+	xfer->xferObjectID( &m_gxPhysicsBehavior->m_ignoreCollisionsWith );
 
 	// flags
-	xfer->xferInt( &m_flags );
+	xfer->xferInt( &m_gxPhysicsBehavior->m_flags );
 
 	// mass
-	xfer->xferReal( &m_mass );
+	xfer->xferReal( &m_gxPhysicsBehavior->m_mass );
 
 	// current overlap
-	xfer->xferObjectID( &m_currentOverlap );
+	xfer->xferObjectID( &m_gxPhysicsBehavior->m_currentOverlap );
 
 	// previous overlap
-	xfer->xferObjectID( &m_previousOverlap );
+	xfer->xferObjectID( &m_gxPhysicsBehavior->m_previousOverlap );
 
 	// motive force applied
-	xfer->xferUnsignedInt( &m_motiveForceExpires );
+	xfer->xferUnsignedInt( &m_gxPhysicsBehavior->m_motiveForceExpires );
 
 	// extra bounciness
-	xfer->xferReal( &m_extraBounciness );
+	xfer->xferReal( &m_gxPhysicsBehavior->m_extraBounciness );
 
 	// extra friction
-	xfer->xferReal( &m_extraFriction );
+	xfer->xferReal( &m_gxPhysicsBehavior->m_extraFriction );
 
 	// we don't need to save/load this, it is acquired on object creation
-	// m_pui  <---- do nothing with this
+	// m_gxPhysicsBehavior->m_pui  <---- do nothing with this
 
 	// mag of current vel
-	xfer->xferReal( &m_velMag );
+	xfer->xferReal( &m_gxPhysicsBehavior->m_velMag );
 
 }
 

@@ -44,6 +44,11 @@
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/PhysicsUpdate.h"
 
+// Web port (round 5, units are pure data): BattleBusSlowDeathBehavior's per-unit state is a row of TheGxBattleBusSlowDeathBehaviors;
+// GXROW_BATTLEBUSSLOWDEATHBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_BATTLEBUSSLOWDEATHBEHAVIOR (const_cast<GxBattleBusSlowDeathBehaviorRow &>(*m_gxBattleBusSlowDeathBehaviorRow))
+
+
 
 enum
 {
@@ -105,14 +110,14 @@ BattleBusSlowDeathBehaviorModuleData::BattleBusSlowDeathBehaviorModuleData()
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-BattleBusSlowDeathBehavior::BattleBusSlowDeathBehavior( Thing *thing, const ModuleData *moduleData )
-										: SlowDeathBehavior( thing, moduleData )
+BattleBusSlowDeathBehavior::BattleBusSlowDeathBehavior( Thing *thing, const ModuleData *moduleData ) : SlowDeathBehavior( thing, moduleData )
 {
 
-	m_isRealDeath = FALSE;
-	m_isInFirstDeath = FALSE;
-	m_groundCheckFrame = 0;
-	m_penaltyDeathFrame = 0;
+
+	GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.isRealDeath = FALSE;
+	GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.isInFirstDeath = FALSE;
+	GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.groundCheckFrame = 0;
+	GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.penaltyDeathFrame = 0;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -126,8 +131,8 @@ BattleBusSlowDeathBehavior::~BattleBusSlowDeathBehavior()
 // ------------------------------------------------------------------------------------------------
 void BattleBusSlowDeathBehavior::onDie( const DamageInfo *damageInfo )
 {
-	m_isRealDeath = TRUE;// Set beforehand because onDie could result in picking us to beginSlowDeath
-	m_isInFirstDeath = FALSE; // and clear this incase we died while in the alternate death
+	GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.isRealDeath = TRUE;// Set beforehand because onDie could result in picking us to beginSlowDeath
+	GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.isInFirstDeath = FALSE; // and clear this incase we died while in the alternate death
 
 	SlowDeathBehavior::onDie(damageInfo);
 }
@@ -138,11 +143,11 @@ void BattleBusSlowDeathBehavior::beginSlowDeath( const DamageInfo *damageInfo )
 {
 	Object *me = getObject();
 	const BattleBusSlowDeathBehaviorModuleData * data = getBattleBusSlowDeathBehaviorModuleData();
-	if( !m_isRealDeath )
+	if( !GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.isRealDeath )
 	{
 		// We can intercept and do our extra slow death if this is not from a real onDie
-		m_isInFirstDeath = TRUE;
-		m_groundCheckFrame = TheGameLogic->getFrame() + GROUND_CHECK_DELAY;
+		GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.isInFirstDeath = TRUE;
+		GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.groundCheckFrame = TheGameLogic->getFrame() + GROUND_CHECK_DELAY;
 
 		// First do the special effects
 		FXList::doFXObj(data->m_fxStartUndeath, me );
@@ -189,14 +194,14 @@ UpdateSleepTime BattleBusSlowDeathBehavior::update()
 {
 	Object *me = getObject();
 	const BattleBusSlowDeathBehaviorModuleData * data = getBattleBusSlowDeathBehaviorModuleData();
-	if( m_isInFirstDeath )
+	if( GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.isInFirstDeath )
 	{
 		// First death means we are doing our throw up in the air conversion
 
-		if( (m_groundCheckFrame< TheGameLogic->getFrame() )  &&  !me->isAboveTerrain() )
+		if( (GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.groundCheckFrame< TheGameLogic->getFrame() )  &&  !me->isAboveTerrain() )
 		{
 			// We're done since we hit the ground
-			m_isInFirstDeath = FALSE;
+			GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.isInFirstDeath = FALSE;
 
 			// Do the special FX
 			FXList::doFXObj(data->m_fxHitGround, me );
@@ -225,7 +230,7 @@ UpdateSleepTime BattleBusSlowDeathBehavior::update()
 		}
 		return UPDATE_SLEEP_NONE;// None, since we are waiting to be able to check for ground collision
 	}
-	else if( m_isRealDeath )
+	else if( GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.isRealDeath )
 	{
 		// If a real death, we aren't allowed to do anything
 
@@ -240,15 +245,15 @@ UpdateSleepTime BattleBusSlowDeathBehavior::update()
 		if( contain == nullptr )
 			return UPDATE_SLEEP_FOREVER;
 
-		if( m_penaltyDeathFrame != 0 )
+		if( GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.penaltyDeathFrame != 0 )
 		{
 			// We have been timed for death, see if we have re-filled first
 			if( contain->getContainCount() > 0 )
 			{
-				m_penaltyDeathFrame = 0;
+				GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.penaltyDeathFrame = 0;
 				return UPDATE_SLEEP(EMPTY_HULK_CHECK_DELAY);
 			}
-			else if( TheGameLogic->getFrame() > m_penaltyDeathFrame )
+			else if( TheGameLogic->getFrame() > GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.penaltyDeathFrame )
 			{
 				// No salvation, see if the timer is up to be killed.  Penalty prevents effects, Extra 4 prevents this die module from recalling.
 				// Can't use Suicided death because a Terrorist actually inflicts Suicide deaths on others.
@@ -265,7 +270,7 @@ UpdateSleepTime BattleBusSlowDeathBehavior::update()
 			// We are not marked for death, so see if we should be
 			if( contain->getContainCount() == 0 )
 			{
-				m_penaltyDeathFrame = TheGameLogic->getFrame() + data->m_emptyHulkDestructionDelay;
+				GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.penaltyDeathFrame = TheGameLogic->getFrame() + data->m_emptyHulkDestructionDelay;
 			}
 			return UPDATE_SLEEP(EMPTY_HULK_CHECK_DELAY);// Stay awake regardless
 		}
@@ -299,13 +304,13 @@ void BattleBusSlowDeathBehavior::xfer( Xfer *xfer )
 	// extend base class
 	SlowDeathBehavior::xfer( xfer );
 
-	xfer->xferBool( &m_isRealDeath );
+	xfer->xferBool( &GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.isRealDeath );
 
-	xfer->xferBool( &m_isInFirstDeath );
+	xfer->xferBool( &GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.isInFirstDeath );
 
-	xfer->xferUnsignedInt( &m_groundCheckFrame );
+	xfer->xferUnsignedInt( &GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.groundCheckFrame );
 
-	xfer->xferUnsignedInt( &m_penaltyDeathFrame );
+	xfer->xferUnsignedInt( &GXROW_BATTLEBUSSLOWDEATHBEHAVIOR.penaltyDeathFrame );
 
 }
 

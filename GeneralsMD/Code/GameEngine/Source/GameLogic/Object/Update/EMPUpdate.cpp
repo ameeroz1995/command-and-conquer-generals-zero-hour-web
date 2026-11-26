@@ -55,6 +55,8 @@
 
 
 
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 //	Static member initialization
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -80,6 +82,7 @@ static void saturateRGB(RGBColor& color, Real factor)
 EMPUpdate::EMPUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
 
+
 	//s_lastInstanceSpunPositive = !s_lastInstanceSpunPositive; //TOGGLES STATIC BOOL
 
 	const EMPUpdateModuleData *data = getEMPUpdateModuleData();
@@ -89,12 +92,12 @@ EMPUpdate::EMPUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModul
 		DEBUG_ASSERTCRASH( TheGameLogic, ("EMPUpdate::EMPUpdate - TheGameLogic is null" ) );
 		UnsignedInt now = TheGameLogic->getFrame();
 
-		m_currentScale = data->m_startScale;
-		m_dieFrame = REAL_TO_UNSIGNEDINT( now + data->m_lifeFrames );
-		m_tintEnvPlayFrame = REAL_TO_UNSIGNEDINT( now + data->m_startFadeFrame );
-		m_tintEnvFadeFrames = m_dieFrame - m_tintEnvPlayFrame;
+		D().m_currentScale = data->m_startScale;
+		D().m_dieFrame = REAL_TO_UNSIGNEDINT( now + data->m_lifeFrames );
+		D().m_tintEnvPlayFrame = REAL_TO_UNSIGNEDINT( now + data->m_startFadeFrame );
+		D().m_tintEnvFadeFrames = D().m_dieFrame - D().m_tintEnvPlayFrame;
 		//m_spinRate = GameLogicRandomValueReal(data->m_spinRateMax * 0.5f, data->m_spinRateMax);
-		m_targetScale = GameLogicRandomValueReal(data->m_targetScaleMin, data->m_targetScaleMax);
+		D().m_targetScale = GameLogicRandomValueReal(data->m_targetScaleMin, data->m_targetScaleMax);
 		//if (s_lastInstanceSpunPositive)
 		//{
 		//	m_spinRate *= -1.0f;
@@ -102,19 +105,19 @@ EMPUpdate::EMPUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModul
 
 		getObject()->setOrientation(GameLogicRandomValueReal(-PI,PI));
 
-		DEBUG_ASSERTCRASH( m_tintEnvPlayFrame < m_dieFrame, ("EMPUpdate::EMPUpdate - you cant play fade after death" ) );
+		DEBUG_ASSERTCRASH( D().m_tintEnvPlayFrame < D().m_dieFrame, ("EMPUpdate::EMPUpdate - you cant play fade after death" ) );
 
 		return;
 	}
 
 	//SANITY
 	DEBUG_ASSERTCRASH( data, ("EMPUpdate::EMPUpdate - getEMPUpdateModuleData is null" ) );
-	m_currentScale = 1.0f;
-	m_dieFrame = 0;
-	m_tintEnvFadeFrames = 0;
-	m_tintEnvPlayFrame  = 0;
+	D().m_currentScale = 1.0f;
+	D().m_dieFrame = 0;
+	D().m_tintEnvFadeFrames = 0;
+	D().m_tintEnvPlayFrame  = 0;
 	//m_spinRate = 0;
-	m_targetScale = 1;
+	D().m_targetScale = 1;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -136,20 +139,20 @@ UpdateSleepTime EMPUpdate::update()
 	Drawable *dr = obj->getDrawable();
 	UnsignedInt now = TheGameLogic->getFrame();
 
-	m_currentScale += ( m_targetScale - m_currentScale ) * 0.05f;
-	dr->setInstanceScale( m_currentScale );
+	D().m_currentScale += ( D().m_targetScale - D().m_currentScale ) * 0.05f;
+	dr->setInstanceScale( D().m_currentScale );
 
-	if ( now < m_tintEnvPlayFrame)
+	if ( now < D().m_tintEnvPlayFrame)
 	{
 		RGBColor start = data->m_startColor;
 		saturateRGB( start, 2 );
 		dr->colorTint( &start );
 	}
-	if ( now == m_tintEnvPlayFrame)
+	if ( now == D().m_tintEnvPlayFrame)
 	{
 		RGBColor end = data->m_endColor;
 		saturateRGB( end, 5 );
-		dr->colorFlash( &end, 0, m_tintEnvFadeFrames, ~0u );
+		dr->colorFlash( &end, 0, D().m_tintEnvFadeFrames, ~0u );
 		doDisableAttack();
 	}
 
@@ -158,7 +161,7 @@ UpdateSleepTime EMPUpdate::update()
 	//curSpin = normalizeAngle(curSpin);
 	//obj->setOrientation( curSpin );
 
-	if( now >= m_dieFrame )
+	if( now >= D().m_dieFrame )
 		obj->kill();
 
 	return UPDATE_SLEEP_NONE;
@@ -413,7 +416,8 @@ void EMPUpdate::loadPostProcess()
 LeafletDropBehavior::LeafletDropBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
 
-  m_fxFired = FALSE;
+
+  D().m_fxFired = FALSE;
 	//s_lastInstanceSpunPositive = !s_lastInstanceSpunPositive; //TOGGLES STATIC BOOL
 
 	const LeafletDropBehaviorModuleData *data = getLeafletDropBehaviorModuleData();
@@ -422,14 +426,14 @@ LeafletDropBehavior::LeafletDropBehavior( Thing *thing, const ModuleData* module
 		//SANITY
 		DEBUG_ASSERTCRASH( TheGameLogic, ("LeafletDropBehavior::LeafletDropBehavior - TheGameLogic is null" ) );
 		UnsignedInt now = TheGameLogic->getFrame();
-    m_startFrame = now + data->m_delayFrames;
+    D().m_startFrame = now + data->m_delayFrames;
 
 		return;
 	}
 
 	//SANITY
 	DEBUG_ASSERTCRASH( data, ("LeafletDropBehavior::LeafletDropBehavior - getLeafletDropBehaviorModuleData is null" ) );
-	m_startFrame = TheGameLogic->getFrame() + 1;
+	D().m_startFrame = TheGameLogic->getFrame() + 1;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -444,7 +448,7 @@ LeafletDropBehavior::~LeafletDropBehavior()
 UpdateSleepTime LeafletDropBehavior::update()
 {
 
-  if ( ! m_fxFired )
+  if ( ! D().m_fxFired )
   {
     // start shoveling out those leaflets, boys.
 	  const LeafletDropBehaviorModuleData *data = getLeafletDropBehaviorModuleData();
@@ -456,11 +460,11 @@ UpdateSleepTime LeafletDropBehavior::update()
 			  sys->attachToObject(getObject());
     }
 
-    m_fxFired = TRUE; // hey, at least we tried.
+    D().m_fxFired = TRUE; // hey, at least we tried.
   }
 
 
-  if( TheGameLogic->getFrame() < m_startFrame )
+  if( TheGameLogic->getFrame() < D().m_startFrame )
   {
 	//	TheGameLogic->destroyObject( getObject() );
     return UPDATE_SLEEP_FOREVER;
@@ -546,7 +550,7 @@ void LeafletDropBehavior::xfer( Xfer *xfer )
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
-  xfer->xferUnsignedInt( &m_startFrame );
+  xfer->xferUnsignedInt( &D().m_startFrame );
 
 }
 

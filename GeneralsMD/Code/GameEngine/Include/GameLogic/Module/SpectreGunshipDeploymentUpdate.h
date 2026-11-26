@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/KindOf.h"
 #include "GameLogic/Module/SpecialPowerUpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class SpecialPowerModule;
@@ -138,9 +139,17 @@ protected:
 
 
 
-	SpecialPowerModuleInterface* m_specialPowerModule;
-  Coord3D				m_initialTargetPosition;
-  ObjectID        m_gunshipID;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		SpecialPowerModuleInterface* m_specialPowerModule;
+	  Coord3D				m_initialTargetPosition;
+	  ObjectID        m_gunshipID;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 
 };

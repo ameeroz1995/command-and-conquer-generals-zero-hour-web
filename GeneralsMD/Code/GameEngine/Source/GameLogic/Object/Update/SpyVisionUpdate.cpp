@@ -39,15 +39,17 @@
 #include "GameLogic/Module/SpyVisionUpdate.h"
 
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 SpyVisionUpdate::SpyVisionUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_deactivateFrame = 0;
+
+	R().m_deactivateFrame = 0;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
-	m_currentlyActive = FALSE;
-	m_resetTimersNextUpdate = FALSE;
-	m_disabledUntilFrame = 0;
+	R().m_currentlyActive = FALSE;
+	R().m_resetTimersNextUpdate = FALSE;
+	R().m_disabledUntilFrame = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -62,9 +64,9 @@ void SpyVisionUpdate::activateSpyVision( UnsignedInt duration )
 {
 	UnsignedInt now = TheGameLogic->getFrame();
 	if( duration == 0 )
-		m_deactivateFrame = UINT_MAX;
+		R().m_deactivateFrame = UINT_MAX;
 	else
-		m_deactivateFrame = now + duration;
+		R().m_deactivateFrame = now + duration;
 
 	doActivationWork( getObject()->getControllingPlayer(), TRUE );
 
@@ -82,26 +84,26 @@ void SpyVisionUpdate::setDisabledUntilFrame( UnsignedInt frame )
 	if( frame > now )
 	{
 		//Turn off the spy vision now since we are disabled
-		if( m_currentlyActive )
+		if( R().m_currentlyActive )
 		{
 			doActivationWork( getObject()->getControllingPlayer(), FALSE );
 		}
 
 		//When should we wake up?
-		m_disabledUntilFrame = frame;
+		R().m_disabledUntilFrame = frame;
 
 		//Mark it so we can turn it on again on next update.
-		m_resetTimersNextUpdate = TRUE;
+		R().m_resetTimersNextUpdate = TRUE;
 
 		//Now sleep until the disabled has expired. If it's expired again when we come back due to another
 		//sabotage or something else... we'll do the same thing over again.
-		setWakeFrame( getObject(), (UpdateSleepTime)(m_disabledUntilFrame - now) );
+		setWakeFrame( getObject(), (UpdateSleepTime)(R().m_disabledUntilFrame - now) );
 	}
 	else
 	{
 		// Else it is a wakeup message.  Update does the turning on.
-		m_disabledUntilFrame = now;
-		m_resetTimersNextUpdate = TRUE;
+		R().m_disabledUntilFrame = now;
+		R().m_resetTimersNextUpdate = TRUE;
 		setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
 	}
 }
@@ -110,7 +112,7 @@ void SpyVisionUpdate::setDisabledUntilFrame( UnsignedInt frame )
 //-------------------------------------------------------------------------------------------------
 void SpyVisionUpdate::onCapture( Player *oldOwner, Player *newOwner )
 {
-	if( m_currentlyActive )
+	if( R().m_currentlyActive )
 	{
 		// If on, flick the switch real fast to get everything to update for the new owner
 		doActivationWork( oldOwner, FALSE );
@@ -138,9 +140,9 @@ UpdateSleepTime SpyVisionUpdate::update()
 	//Once disable has complete and we are waking up from it, then reset the interval so
 	//it has to wait before going on again. If it doesn't have an interval, we turn it on
 	//immediately, but only for self powered objects.
-	if( m_resetTimersNextUpdate )
+	if( R().m_resetTimersNextUpdate )
 	{
-		m_resetTimersNextUpdate = FALSE;
+		R().m_resetTimersNextUpdate = FALSE;
 
 		if( data->m_selfPowered )
 		{
@@ -158,25 +160,25 @@ UpdateSleepTime SpyVisionUpdate::update()
 		}
 	}
 
-	if( m_currentlyActive && (m_deactivateFrame <= TheGameLogic->getFrame()) )
+	if( R().m_currentlyActive && (R().m_deactivateFrame <= TheGameLogic->getFrame()) )
 	{
 		// Turn off SpyVision.
 		doActivationWork( getObject()->getControllingPlayer(), FALSE );
 
-		m_deactivateFrame = 0;
+		R().m_deactivateFrame = 0;
 	}
-	else if( !m_currentlyActive && data->m_selfPowered )
+	else if( !R().m_currentlyActive && data->m_selfPowered )
 	{
 		doActivationWork( getObject()->getControllingPlayer(), TRUE );
 		if( data->m_selfPoweredDuration == 0 )
-			m_deactivateFrame = UINT_MAX;
+			R().m_deactivateFrame = UINT_MAX;
 		else
-			m_deactivateFrame = now + data->m_selfPoweredDuration;
+			R().m_deactivateFrame = now + data->m_selfPoweredDuration;
 	}
 
 	if( data->m_selfPowered )
 	{
-		if( m_currentlyActive )
+		if( R().m_currentlyActive )
 			return UPDATE_SLEEP(data->m_selfPoweredDuration);
 		else
 			return UPDATE_SLEEP(data->m_selfPoweredInterval);
@@ -201,14 +203,14 @@ void SpyVisionUpdate::doActivationWork( Player *playerToSetFor, Bool setting )
 		}
 	}
 
-	m_currentlyActive = setting;
+	R().m_currentlyActive = setting;
 }
 
 //-------------------------------------------------------------------------------------------------
 void SpyVisionUpdate::onDelete()
 {
 	// If I was left on at the time of death, then turn me off.
-	if( m_currentlyActive )
+	if( R().m_currentlyActive )
 	{
 		doActivationWork( getObject()->getControllingPlayer(), FALSE );
 	}
@@ -252,14 +254,14 @@ void SpyVisionUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// deactivate frame
-	xfer->xferUnsignedInt( &m_deactivateFrame );
+	xfer->xferUnsignedInt( &R().m_deactivateFrame );
 
-	xfer->xferBool( &m_currentlyActive );
+	xfer->xferBool( &R().m_currentlyActive );
 
 	if( version >= 2 )
 	{
-		xfer->xferBool( &m_resetTimersNextUpdate );
-		xfer->xferUnsignedInt( &m_disabledUntilFrame );
+		xfer->xferBool( &R().m_resetTimersNextUpdate );
+		xfer->xferUnsignedInt( &R().m_disabledUntilFrame );
 	}
 
 }

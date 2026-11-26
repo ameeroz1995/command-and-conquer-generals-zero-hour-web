@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 //-------------------------------------------------------------------------------------------------
 class DeletionUpdateModuleData : public UpdateModuleData
@@ -72,7 +73,7 @@ public:
 	// virtual destructor prototype provided by memory pool declaration
 
 	void setLifetimeRange( UnsignedInt minFrames, UnsignedInt maxFrames );
-	UnsignedInt getDieFrame() { return m_dieFrame; }
+	UnsignedInt getDieFrame() { return D().m_dieFrame; }
 
 	virtual UpdateSleepTime update();
 
@@ -80,6 +81,14 @@ protected:
 
 	UnsignedInt calcSleepDelay(UnsignedInt minFrames, UnsignedInt maxFrames);
 
-	UnsignedInt m_dieFrame;			///< frame we die on
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		UnsignedInt m_dieFrame;			///< frame we die on
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 };

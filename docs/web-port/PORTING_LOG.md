@@ -3842,3 +3842,323 @@ Stays default off.
   - moveAfterTick off vs on (paths-28): 14.9 → 14.5 / 7.0 → 6.5 / 34 → 35 and 14.7 → 12.3 /
     6.0 → 5.9 / 21 → 115 (that half ran at load 8.6–9.8). Not faster: kept behind its rule,
     default off, as the round-4 bar asks.
+
+## 2026-11-25 — Round 5 (units are pure data), paths families: state in component rows; movement kernel
+- Per-unit state moved out of the module objects into rows of collide's GxComponentPool (one pool per
+  module type, deque rows that never move, freed rows reused). Each module keeps only its row index
+  (`m_gxRow`, `R()`) and stays the facade for INI, the engine's calls, xfer and crc. Same game.
+  - Locomotor: 15 fields (maintainPos, braking/lift/speed/accel/turn limits, close-enough distance,
+    flags, preferred height and damping, wander angle and increment, donut timer) in GxLocoState.
+    The template pointer stays on the object (it is INI data, not unit state).
+  - AI subclasses (14 with state): AssaultTransport, Chinook, DeliverPayload, DeployStyle, Dozer,
+    HackInternet, Jet, Missile, RailedTransport, RailroadBehavior (RailroadGuideAIUpdate.cpp),
+    SupplyTruck, Worker. Wander and Transport have no state of their own; POWTruck is compiled out
+    (ALLOW_SURRENDER) and was left as is.
+  - AnimationSteering, Float, Slaved, MobMemberSlaved, TensileFormation, Horde.
+  - DockUpdate and RepairDock, SupplyWarehouseDock, RailedTransportDock (PrisonDock and SupplyCenterDock
+    have no state of their own); Default/Queue/SpawnPoint/SupplyCenter production exits.
+  - Derived classes reach their base's row as `Base::R()`. The conversion was mechanical (members
+    removed, so any missed use fails to compile).
+- Movement system as kernel + apply (round-5 addendum), under match rule updatePasses with
+  moveAfterTick: the kernel computes every MOVE unit's point on its route (computePointOnPath) for
+  the whole list before any unit moves, writing only that unit's row (reads: its route, locomotor set,
+  position, the pathfinder grid, which nobody changes in this phase; no allocation, events, RNG or
+  object changes, except that cpopSegments, off, builds its segment list on first use). The apply
+  loop then moves units in object-ID order and takes the kernel's point if the unit's route and
+  position are still the ones the kernel saw.
+- Not done yet: the other modules' updates are still called one module at a time by the ai dispatch
+  table, with their state in rows; splitting each into a range kernel + apply is the next step.
+- Checks: referee replay matches with verify on Locomotor rows (paths-r5a, 90,603 checks), on all rows
+  (paths-r5b, 90,376), with the kernel (paths-r5c, 90,823) and on the pool version (paths-r5d,
+  90,643); 0 mismatches each. A recording with updatePasses + moveAfterTick on (GX=FEE6E7) plays back
+  to a match with both off on paths-r5c and on paths-r5d.
+- Timing (one pair under timing.lock, default settings): paths-28 (load 7.7–8.2) vs paths-r5d
+  (load 8.2 → 4.9), strikes fps 11.1 → 14.4, 1% low 4.9 → 6.3, frames over 100 ms 247 → 30. Not an
+  isolated measurement: paths-28 predates collide's and ai's round-4/5 merges, and the r5d half ran
+  at lower load. It does show the rows are not slower. The rows have no switch (the data either
+  lives in the row or on the object); the kernel rides on updatePasses.
+
+## 2026-11-25 — Round 5 paths: kernel + apply inside every paths module (same game)
+Each module's update now calls a pure kernel (its row + gathered inputs in, its row + an op out; no
+allocation, events, RNG or object changes) and then applies the side effects in the old order. When
+ai's per-kind hook lands, the range kernel is a loop of these calls over the kind's list.
+- Kernels: AnimationSteering (turn animation state), Float (water-surface position), Horde (horde
+  state from the gathered neighbour count and rub-off), TensileFormation (slide inertia and step),
+  MobMemberSlaved (branch and catch-up crisis timer), Slaved (update throttle, repair/attack/scout/
+  guard priority), Missile (no-turn distance, decoy timer), Jet (attack-loco, attackers-miss and
+  untargetable timers), Dock (entrance permission), QueueProductionExit (exit delay), RailroadBehavior
+  (conductor brake/wait/pull-away), DeployStyle (deploy timer, then deploy/pack decision; turret facts
+  gathered after the first change, as before), AssaultTransport (member list drop/add, the old loop's
+  slot order kept), DeliverPayload (dive state and strafe point), RailedTransport (arrival),
+  Chinook (healed take-off, idle land/take-off/pending), Dozer and Worker (task validity),
+  HackInternet (pending command), RailedTransportDock (pull-in / push-out scoot step).
+- No kernel needed: SupplyTruck (its update only runs the state machine), SupplyCenterDock (the base
+  dock's kernel), Default/SpawnPoint/SupplyCenter exits (update sleeps forever), Wander, Transport,
+  PrisonDock (no state).
+- Found while splitting: RailroadBehavior kept `conductorPullInfo` (no m_ prefix) on the object; it
+  is now in the train's row too.
+- Checks: paths-r5e (first batch) and paths-r5f (all) match the referee replay with verify (90,629 and
+  90,613 checks, 0 mismatches) and play the kernel recording (GX=FEE6E7) to a match.
+
+## 2026-11-25 — Round 5, combat: weapons, special powers and combat update modules as data
+
+- Weapon and WeaponSet: every field moved into column tables (TheGxWeapons, TheGxWeaponSets in
+  Weapon.h / WeaponSet.h; one row per weapon / set, rows reused through a free list). The classes keep
+  only their row; xfer and CRC read and write the columns. Same game.
+- SpecialPowerModule (the only special-power class with state; the 10 powers built on it hold none)
+  and 39 combat update modules (Lifetime, Deletion, OCL, FireWeapon, Laser, ProjectileStream, Flammable,
+  BoneFX, Topple, StructureTopple/Collapse, HeightDie, NeutronMissile and its slow death, Helicopter
+  slow death, ParticleUplinkCannon, Spectre*, SpecialAbility, Production, PowerPlant, ...): the
+  module's state is one row in GxComponentPool<Module::Row> (collide's Common/GxComponentPool.h);
+  the module holds a GxRow and reaches its row through D(). Done by script
+  (~/generals-bench/gxrows.py: members move into a nested Row, uses in the class's own methods are
+  rewritten, ModuleData code with the same member names is left alone). FireSpread and WeaponBonus
+  have no state.
+- weaponReload (fourth word bit 24, off; rides on match rule updatePasses because a weapon's saved
+  status is in the CRC): a kernel over weapon rows [b, e) gives every weapon whose reload is over the
+  status getStatus() would give it, writing only its own rows and listing the owners; the apply step
+  (main thread) puts those units back into the weapon-status pass.
+- Checks (build combat-r5c): referee replay matches (verify 91200 checks, 0 mismatches); a recording
+  with weaponReload on replays to a match (verify 18225, 0); mt referee matches.
+- Not yet: kernel + apply splits for the update modules (waiting on a per-kind system hook in the
+  updatePasses dispatch, ai's file); timing pairs (load 60+ while every lane builds).
+## Round 5 (query): scan-type modules and helpers hold their per-unit state in component tables
+- New GameLogic/GxComponentTable.h: rows in a deque (never move, never copied; RadiusDecal can't be),
+  freed rows reset in place and reused. A module keeps only its row index (R()); xfer/CRC read the row.
+- Converted: StealthDetector, Stealth, EnemyNear, AutoFindHealing, AssistedTargeting, Radar, SpyVision,
+  DynamicShroudClearingRange, PointDefenseLaser, CommandButtonHunt, ObjectDefectionHelper,
+  StatusDamageHelper, SubdualDamageHelper, TempWeaponBonusHelper. ObjectHelper, ObjectRepulsorHelper,
+  ObjectSMCHelper and ObjectWeaponStatusHelper hold no per-unit fields.
+- Same game: referee replay on query-20 matches (9000 frames). Layout change only, so no switch.
+- Kernel step (rowKernels, fourth word bit 12, default on): EnemyNear, AutoFindHealing and PointDefenseLaser
+  scan countdowns are one kernel over the component pool (reads delay/reload, writes only the row's tick;
+  no allocation, RNG, events or globals); each module's update is the apply step (commit, scan, side effects).
+  A changed delay is recomputed inline, so same game. Sleep-scheduled modules (StealthDetector, SpyVision,
+  CommandButtonHunt, helpers) have no per-frame row math: their update is all apply.
+- On collide's GxComponentPool (9e1aa3d): modules hold GxRow<Row>; GxComponentTable.h is now only R() and the kernel.
+- simdSearch (fourth word bit 13, default on): the store-list search (scanManager) culls 4 slots at a time by
+  distance from the live x/y/radius columns (wasm simd128, same f32 ops, keep unless d2 > lim^2, scalar
+  recheck after): same game. Referee replay and query-mgr3.rep (scanManager on) match on query-22.
+  Pair tests not SIMD: per-cell linked lists of 2-4 neighbours; collide's store broad phase is the place.
+
+## Fog-of-war sight circles: measured, not built (query, 2026-11-25)
+- Profile (query-24, 25 s, inclusive): doShroudReveal 0.2%, undoShroudReveal 0.1%, pending-undo queue and
+  shroud cover 0.0%, in both armies and strikes. Total ~0.3% < the 1% bar: SIMD circle stamps not built.
+  (getShroudedStatus, the per-object read, is 0.5% armies / 0.7% strikes; different code.)
+
+## Laser scan verify mismatches (objects 829/832/1624/1643): scanManager, not laserFilters (query, 2026-11-25)
+- Verify (query-24): scanManager off: laser scans 15000, mismatches 0 (laserFilters exact). On: 30, every one
+  the filtered scan missing in-range missiles fired after the tick's first search. Their cell entries were
+  intact: scanManager answers from per-cell lists built at the tick's first search, by design. Same on every
+  machine (match rule), so no network drift; laserFilters stays on.
+- Fixes: scanManager no longer caches searches from a point (the key named no searcher and ignored whose
+  enemies the filters look for, so two players' searches from one spot could share an answer); the laser
+  verify skips its comparison under scanManager. Changes the scanManager game: new recording query-mgr4.rep.
+  Referee replay on query-25 matches.
+- Built anyway (user rule: build what is asked): fogStamps (fourth word bit 14, default on). The shroud
+  counters are dense per-player Short arrays (truth; the cell struct is filled for CRC/save, refilled after
+  load); sight circles come from per-radius stamps (DiscreteCircle's spans recorded at (0,0)), applied 8 cells
+  at a time with wasm i16x8 (same arithmetic as addLooker/removeLooker), then the edge side effects for cells
+  whose status changed (they touch no counter). Verify: 5.2M cells checked, 0 mismatches; referee and
+  query-mgr4.rep replay. doShroudReveal 0.2 -> 0.1-0.2%, undo 0.1%.
+- fogKeep (bit 15, default on), the bigger nearby cost: getShroudedStatus was recomputed every frame for every
+  moving unit, because each move invalidated all players. A move that keeps the same cells (cellReuse's key)
+  now keeps statuses decided by the cells' shroud alone (off map / all shrouded / all clear / partly clear);
+  ones decided by the fogged branch (which also reads relationship and kinds) are invalidated as before.
+  Verify (recompute and compare): 1.74M checks, 0 mismatches; referee replay matches.
+  getShroudedStatus 0.5/0.7% -> 0.4/0.4% (armies/strikes, profile share).
+- scanManager store-list cull now uses max(circle, sphere) per slot (combat found "2 x circle" too small for
+  tall units): changes the scanManager game; new recording query-mgr5.rep replays to a match (query-27).
+
+## Measuring (rule "fps is not the measure", 2026-11-25): Common/GxTime.h, switch tickTiming (fourth word bit 16, off)
+- Header-only: GXT_LOGIC around TheGameLogic->UPDATE() and frame intervals in GameEngine::update; systems add
+  their own scope timers (GxTimeScope) and work counters (gxCount). Every 300 ticks one console line
+  "GXTIME ticks N: logic X ms/tick; ...; frames F, p99 P ms, over 100 ms K" (averages since start).
+- Query hooks: search ms, searches / cells / entries / units opened / SIMD-culled; fog reveal ms, circles,
+  cells touched (stamp and span paths alike), fog status calls / recomputes / kept.
+- Other lanes: add ids to the enums in GxTime.h; one logic timer for everyone (GameEngine.cpp).
+## 2026-11-25 — Round 5 (units are pure data), logic-ai: component tables for my families
+
+Merged origin/perf/low-end f8473f1 first.
+
+Pattern (GameLogic/GxComponents.h, `GxComponentTable<Row>`): a module family's per-unit state is a
+row in a table owned by the family, not fields of the module object. Rows live in a deque (never
+move), are built in place (zeroed, like the memory-pool objects they replace) and are visited by
+forEach in object-ID order. The module keeps one pointer to its row; its class is a facade (INI
+data, the engine's calls, xfer/CRC reading and writing the row's fields in the old order, so saves
+and CRCs are unchanged). Conversions are mechanical (tools/web-port/gx_rowify.py,
+gx_inline_out.py, gx_base_rewrite.py): members -> row fields; member uses inside the class's own
+functions -> the row; inline header methods that touch the row moved after the row type; subclass
+uses of base members -> Base::gxRow().x. Every-frame updates already run as passes over the store's
+lists in object-ID order through the updatePasses dispatch table (round 4); the module's update is the
+per-row step of that pass.
+
+Converted (per-unit state now in tables):
+- Behavior/ (24 with state): AutoHeal, BattleBusSlowDeath, Bridge, BridgeScaffold, BridgeTower,
+  BunkerBuster, Countermeasures, DumbProjectile, FireWeaponWhenDamaged, FlightDeck, GenerateMinefield,
+  GrantStealth, JetSlowDeath, Minefield, Overcharge, ParkingPlace, Poisoned, PropagandaTower,
+  RebuildHole, SlowDeath, Spawn, SupplyWarehouseCrippling. Stateless already (nothing per unit):
+  BehaviorModule, FireWeaponWhenDead, InstantDeath, POWTruck, TechBuilding. Compiled out
+  (ALLOW_SURRENDER): Prison, PropagandaCenter.
+- Contain/ (10 with state): OpenContain (base), Garrison, Transport, Cave, Helix, MobNexus, Overlord,
+  Parachute, RiderChange, Tunnel; stateless: Heal, InternetHack, RailedTransport.
+- Create/: CreateModule (base, the only state); the 7 others are stateless.
+- Upgrade/: UpgradeMux (every upgrade's "executed" flag) and GrantScienceUpgrade; the 19 others are
+  stateless.
+- AIUpdateInterface (75 fields); AI state machines: 25 AIStates classes, the guard / retaliate /
+  tunnel-guard machines and states, dock machine and states, TurretAI and its states. The three
+  *ExitConditions classes (held by value inside state rows) are converted too (ai-23, after rows were
+  made to be built in place, never copied). Not converted: TurretAIAimTurretState (its only field is
+  compiled out), TurretAIData (per-type INI data).
+- No edit in other agents' files: JetAIUpdate.cpp (paths) still uses `m_goalPosition`,
+  `m_waitingForPath` and `m_path` of its bases, which are now reference names for the row fields.
+- dataBehaviors (fourth word bit 6, same game, on): GenerateMinefieldBehavior looked up the EMP-mines
+  upgrade by name every frame (~140 units); now once (verify mode compares with the lookup).
+Checks: referee replay matches (builds ai-19, ai-20, ai-21, ai-22); a recording made with
+updatePasses on replays to a match on each; verify mode shows no mismatch from these changes (the only
+mismatch lines on perf/low-end come from the "laser scan" check, objects 829/832/1624/1643).
+Timing (under timing.lock; started at load 7.5, other agents' builds pushed it to 11-17), work ms,
+ai-17 (merged base) / ai-22 (converted):
+- run 1: ai-17 at load 7.5: armies 42.9, strikes 73.4, aftermath 81.7; ai-22 at load 16: 77.4, 112.2, 78.1
+- run 2: ai-17 at load 15: 79.6, 116.5, 86.0; ai-22 at load 16->11: 56.0, 86.0, 52.3
+At matched load the converted build is level or faster; run 1's gap follows the load. Not slower within
+what this machine can show; it is the same game, so it stays on (there is no switch for where the
+data lives; dataBehaviors only gates the minefield's cached lookup).
+- ai-23 (ExitConditions converted): referee replay matches, the updatePasses recording replays to a
+  match, verify mode clean (only the laser-scan lines).
+
+## 2026-11-25 — Round 5 paths: every paths class pure data; range kernels on ai's hook; shared GxTime
+- More per-unit state into component rows: the AI state classes in paths files (Jet x7, Chinook x3,
+  Dozer x6, DeliverPayload x4, HackInternet x3), DeliverPayload's target position, SpawnPoint's spawn
+  points. Left on purpose: INI data (module data, LocomotorTemplate), LocomotorStore (global),
+  partition filters (per-call temporaries), POWTruckAIUpdate (compiled out, ALLOW_SURRENDER).
+- Range kernels through ai's per-kind hook (GameLogic::gxRegisterKernel, GxPathsKernels.h, store bits
+  20-27): AnimationSteering, Float, QueueProductionExit, Dock in PHASE_NORMAL; Missile, Jet, DeployStyle
+  in PHASE_INITIAL; the train conductor in PHASE_PHYSICS. At the start of the phase the kernel runs
+  every listed unit's kernel step (own unit only; skipped if its update will not run this frame) and
+  stamps the result in its row; update() applies it. Under match rule updatePasses only (the inputs are
+  read at the start of the phase rather than at the unit's turn); without it update() computes as before.
+  Modules whose kernel inputs come from other units or allocate keep their kernel inside update():
+  Horde (range search), Slaved, MobMember, AssaultTransport, DeliverPayload dive, RailedTransport,
+  Chinook, Dozer, Worker, HackInternet, RailedTransportDock, TensileFormation.
+- Measuring on the shared GxTime (tickTiming, Common/GxTime.h): move / moveKernel ms per tick, and the
+  counters moveUnits, moveKernelPoints, moveKernelTaken, moveApplyPoints, hordeSearches. The GXTIME
+  line buffer is 2048 bytes now (more agents' counters).
+- Checks: paths-r5i (state classes) and paths-r5j (hook kernels) match the referee with verify (90,584
+  checks, 0 mismatches each); r5i plays the round-5 kernel recording (paths-r5c.rep) to a match; a
+  recording made on r5j with updatePasses + moveAfterTick on (GX=FEE6E7, paths-r5j.rep) plays back to
+  a match with both off.
+### Round 5 (lane 4, collide): units are pure data — store SoA, component rows, SIMD
+
+- Merged origin/perf/low-end f8473f1 (fourth switch word).
+- **Store SoA layout** (9e1aa3d, pushed first): GxUnitStore keeps float columns x/y/z, vx/vy/vz,
+  ax/ay/az (acceleration) and radius. pos[]/vel[] are gone: posOf(s), velOf(s), velRef(s)/accelRef(s)
+  (GxVec3Ref, a Coord3D-shaped view of three columns). Thing::getPosition() reads through the columns
+  with positionInStore (copies them into the Thing's cached Coord3D); PhysicsBehavior::getVelocity()
+  copies vx/vy/vz out. Replay: matches with positionInStore off and on (verify 0 mismatches).
+- **Component rows** (Common/GxComponentPool.h): GxComponentPool<Row> (deque rows, never move, free
+  list) and GxRow<Row> (the module's only state member, allocates/frees its row). Rows are per module,
+  not per store slot (an object can have several modules of one kind). Converted (all per-unit state
+  out of the module objects; the modules stay as facades for INI, engine calls, xfer and CRC):
+  PhysicsBehavior (20 fields; acceleration in the store columns), BodyModule, ActiveBody (20),
+  InactiveBody, StructureBody, TransitionDamageFX, FireWeaponCollide, SpecialPowerCompletionDie.
+  The other files of the families (Collide/ 19 incl. crates, Body/ Highlander, Immortal, Undead,
+  HiveStructure, Damage/ BoneFXDamage, DamageModule, Destroy/, Die/ 11) hold no per-unit state: they
+  are already facades over INI data, nothing to move. No family file has a per-frame update besides
+  physics; the rest are event handlers (onCollide / onDie / onDamage) over their rows.
+- **SIMD physics integration** (switch physSimd, fourth word bit 0, off; rides on match rule physBulk):
+  the physics pass does every due unit's forces, then velocity += acceleration, the tiny-velocity clamp
+  and the acceleration reset for all of them in one wasm simd128 pass over the store columns
+  (gxIntegrateColumns, 4 rows per instruction, same float ops), then each unit's remaining step.
+- **SIMD collision broad phase** (switch collideSimd, fourth word bit 1, on; works under storePairs):
+  the store grid is laid out as one block per cell (units in the same order the linked lists visit
+  them) with x, y, radius copied in, so the distance cut tests 4 units per instruction. Same pairs as
+  storePairs without it.
+- **Kernel + apply split** (round 5 addendum, for the round-6 job system; both on the main thread
+  now): physics integration is the kernel gxIntegrateColumns(due, begin, end) (reads due[], v, a;
+  writes v, a of its rows only); the forces before it and each unit's remaining step after it are the
+  main-thread parts. The broad phase is prepare (main: grid blocks, each seeker's slot and cell
+  rectangle) -> gxPairKernel(in, begin, end, out, cap) (reads the blocks and store columns, writes
+  only (seeker, slot) pairs to its own out; returns -1 when out is full, the main thread grows it and
+  reruns) -> apply (main, seekers in object-ID order: collideStagger, addToContactList).
+
+## 2026-11-26 — ai: pool migration, kernel hooks, shared timing (logic-ai)
+
+Merged paths 79c4008, query (GxTime), collide de3d971 (in-place pool rows, cached row pointer).
+- Kernel hooks (GameLogic.h): gxRegisterKernel(storeBit, phase, kernel(slots, b, e), apply(slots, n)),
+  every frame at the start of the phase; gxRegisterKindKernel(kindNameKey, kernel(mods, b, e),
+  apply(mods, n)), in the updatePasses dispatch right before that kind's module updates (fourth word
+  bit 7, kindKernels, on). Paths and combat have the API.
+- Minefield system as kernel + apply on store bit 56 (ai's kernel bits 56-59; dispatch kinds 32-55,
+  misc 60-63).
+- StateMachine / State / AIStateMachine per-unit state in rows too.
+- All 98 ai tables now on the shared GxComponentPool/GxRow (own GxComponents.h removed).
+- Timing on the shared GxTime (ids aiLoop, aiKernels, aiModuleCalls, aiKernelSlots).
+Checks (ai-29, ai-30): referee replay matches; recording ai-up5.rep (default rules 0xFEE6E7) replays
+to a match; verify mode: no mismatch lines.
+Timing, same recording ai-up5.rep, tickTiming on, timing.lock, load 3-5 (ai-29 before the pool
+migration / ai-30 after):
+- run 1: logic 0.511 / 0.522 ms/tick; aiLoop 0.079 / 0.079; aiKernels 0.011 / 0.010
+- run 2: logic 0.525 / 0.516 ms/tick; aiLoop 0.079 / 0.078; aiKernels 0.011 / 0.010
+- work counters identical: 33.7 module calls/tick; frames 9598, p99 17.5 / 17.4 ms, 5 frames over 100 ms
+Level (this recording is a light game: 0.5 ms of logic per tick).
+
+### ai: kernel + apply for SlowDeath and Spawn (round 5 addendum), kernels follow match rule (5db1c81)
+- Kernels follow the match rule updatePasses (131072); the kindKernels setting can only turn them off in
+  local single player (paths: a local setting would desync).
+- SlowDeathBehavior::update() = gxStep (kernel: row + module data only: LOD time scale, flung frame
+  bump, which of sink / midpoint / final are due) + gxApplyStep (destroy, bounce, tree snag, sink,
+  phase effects). SpawnBehavior::update() = gxStep (spawn timer) + gxApplyStep (aggregate health,
+  burst setup, spawning). Registered on the per-kind hook (subclasses keep their own update()).
+  update() returns at once when the kernel already took that frame's turn.
+- Not split: OpenContain family and RebuildHole. Their per-frame fields (door countdown, entered
+  mask, wanters, worker counter) are written by other units' turns (riders entering, workers dying),
+  so a kernel ahead of the turns would change results.
+- Verify mode (bit 21): at each apply the row must still be as the kernel left it. Battle benchmark:
+  36.9M checks, 0 mismatches. Replays referee.rep and ai-up5.rep match (ai-33).
+Timing, battle benchmark, ai-33, tickTiming, timing.lock, load 4-5, kindKernels off / on:
+- run 1: logic 18.31 / 16.53 ms/tick; aiLoop 8.78 / 7.95; aiKernels 0 / 0.30; p99 89.1 / 93.3 ms; over 100 ms 21 / 23
+- run 2: logic 16.39 / 17.11 ms/tick; aiLoop 7.74 / 8.32; aiKernels 0 / 0.31; p99 90.9 / 96.6 ms; over 100 ms 19 / 29
+- kernel slots 474/tick on; module calls 3154-3497 off / 3215 on (the benchmark's work varies run to run).
+Level within noise: the kernel part is a few compares per unit; the gain is the split itself (the
+kernel can later run over workers / SIMD).
+
+## 2026-11-26 — combat: splash SIMD, damage table, last data, ILP, FireWeapon kind kernel (logic-combat)
+- splashSimd (fourth word bit 25, off; same game): a splash's victims (WeaponTemplate::dealDamageInternal)
+  come from PartitionManager::gxSplashSearch: a SIMD pass over the unit store's x/y/sphere columns keeps
+  slots within range + bounding sphere + 2, then each kept unit gets the cell walk's own distance test
+  and its walk key (ring rank of its first visited cell, then COI sequence, high first), and goes into
+  the iterator in that order. The store got a `sphere` column (bounding sphere radius, set in
+  Object::setGeometryInfo): 2x the circle radius was not a bound for tall units (49/3500 searches wrong
+  before; 5500 checked, 0 mismatches after). Not used under match rule scanManager. Verify mode
+  compares every search with iterateObjectsInRange ("GXVERIFY splash").
+- splashIlp (bit 27, off; same game): with splashSimd, the pass does 8 slots per step as two
+  independent chains (each lane's math unchanged), per the ILP + FMA rule; no FMA.
+- damageTable (bit 26, off; same game): per frame, Weapon::computeBonus answers from a table keyed by
+  weapon template + bonus flags, and estimateWeaponTemplateDamage from one keyed by weapon template +
+  armor template + damage amount (subdual, kill-garrisoned and sniper damage are left out).
+- Last per-unit state: LeafletDropBehavior (EMPUpdate.h) and ProductionEntry (ProductionUpdate.h) in
+  GxComponentPool rows. ProductionEntry::m_exitDoor is now zeroed at creation (was uninitialised).
+  The combat data list is empty.
+- FireWeaponUpdate on ai's per-kind hook (match rule updatePasses): the kernel decides for each
+  every-frame module whether it fires (its own weapon status, object status and last shot frame; writes
+  only its row), apply fires in object-ID order, update() then skips that frame. Verify mode re-decides
+  in apply and counts differences ("GXVERIFY kindKernels fireWeapon").
+- GxTime ids: splash, estimate, reload (ms/tick); splashes, splashVictims, splashScanned, splashNear,
+  estimates, table/bonus hits and misses, reloadRows/reloadChanged.
+- Checks (combat-r5j, all four switches on): referee replay matches (verify 90584 checks, 0
+  mismatches); mt replay matches.
+- Battle timings (bench_run, scanManager off so splashes take the new path, tickTiming, two rounds
+  under timing.lock, single thread). Own ms/tick of the system, then its counters:
+  - splash: base 0.081 / 0.074, splashSimd 0.058 / 0.056 (-25%), +splashIlp 0.066 / 0.067 (no gain:
+    13.7k slots scanned and 190 kept per tick; the pass is memory-bound, not latency-bound).
+    4.0 splashes/tick, 158 victims/tick, same in every run.
+  - estimate: base 0.181 / 0.158, damageTable 0.204 / 0.199 (slower): table hits 192, misses 93 per
+    tick (67%); bonus table hits 1353, misses 86. The hashing costs more than the sums it saves.
+  - reload: the kernel costs 0.009 / 0.010 ms over 1670-1820 weapon rows per tick.
+  - Logic total per tick (whole run, noisy with machine load): base 18.2 / 16.4, splash 14.7 / 14.2,
+    ilp 16.0 / 16.4, table 15.7 / 14.6, reload 16.2 / 20.9 (reload2 ran at load 9). Frame p99 and
+    frames over 100 ms follow load the same way; per-system ms above are the comparable numbers.
+  - fps (footnote): strikes 13.7-19.4 across runs.
+- Defaults: splashSimd on (faster, same game). splashIlp, damageTable, weaponReload stay off (not
+  faster).

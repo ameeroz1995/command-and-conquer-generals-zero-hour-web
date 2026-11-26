@@ -26,6 +26,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "Lib/BaseType.h"
 #include "Common/GameType.h"
 #include "Common/KindOf.h"
@@ -191,19 +193,29 @@ enum CanAttackResult CPP_11(: Int)
 };
 
 //-------------------------------------------------------------------------------------------------
+// Round 5 (units are pure data): every WeaponSet's state lives in these columns, one row per set
+// (WeaponSet keeps only its row); rows are reused through a free list.
+struct GxWeaponSetRows
+{
+	std::vector<const WeaponTemplateSet*> tmplSet;
+	std::vector< std::array<Weapon*, WEAPONSLOT_COUNT> > weapons;
+	std::vector<WeaponSlotType> cur;
+	std::vector<ObjectID> owner;	///< the unit holding the set (weaponSkip)
+	std::vector<WeaponLockType> lock;
+	std::vector<UnsignedInt> filledMask;
+	std::vector<Int> antiMask;
+	std::vector<DamageTypeFlags> damageMask;
+	std::vector<UnsignedByte> hasPitchLimit, hasDamageWeapon;
+	std::vector<Int> freeRows;
+	Int alloc();
+	void release(Int r);
+};
+extern GxWeaponSetRows TheGxWeaponSets;
+
 class WeaponSet : public Snapshot
 {
 private:
-	const WeaponTemplateSet*	m_curWeaponTemplateSet;
-	Weapon*										m_weapons[WEAPONSLOT_COUNT];
-	WeaponSlotType						m_curWeapon;
-	ObjectID									m_gxOwner = INVALID_ID;	///< weaponSkip: the unit holding this set
-	WeaponLockType						m_curWeaponLockedStatus;
-	UnsignedInt								m_filledWeaponSlotMask;
-	Int												m_totalAntiMask;						///< anti mask of all current weapons
-	DamageTypeFlags						m_totalDamageTypeMask;			///< damagetype mask of all current weapons
-	Bool											m_hasPitchLimit;
-	Bool											m_hasDamageWeapon;
+	Int m_row;	///< this set's row in TheGxWeaponSets
 
 	Bool isAnyWithinTargetPitch(const Object* obj, const Object* victim) const;
 
@@ -223,19 +235,19 @@ public:
 	void updateWeaponSet(const Object* obj);
 	void reloadAllAmmo(const Object *obj, Bool now);
 	Bool isOutOfAmmo() const;
-	Bool hasAnyWeapon() const { return m_filledWeaponSlotMask != 0; }
-	Bool hasAnyDamageWeapon() const { return m_hasDamageWeapon; }
-	Bool hasWeaponToDealDamageType(DamageType typeToDeal) const { return m_totalDamageTypeMask.test(typeToDeal); }
-	Bool hasSingleDamageType(DamageType typeToDeal) const { return (m_totalDamageTypeMask.test(typeToDeal) && (m_totalDamageTypeMask.count() == 1) ); }
-	Bool isCurWeaponLocked() const { return m_curWeaponLockedStatus != NOT_LOCKED; }
-	Weapon* getCurWeapon() { return m_weapons[m_curWeapon]; }
-	const Weapon* getCurWeapon() const { return m_weapons[m_curWeapon]; }
-	WeaponSlotType getCurWeaponSlot() const { return m_curWeapon; }
+	Bool hasAnyWeapon() const { return TheGxWeaponSets.filledMask[m_row] != 0; }
+	Bool hasAnyDamageWeapon() const { return TheGxWeaponSets.hasDamageWeapon[m_row]; }
+	Bool hasWeaponToDealDamageType(DamageType typeToDeal) const { return TheGxWeaponSets.damageMask[m_row].test(typeToDeal); }
+	Bool hasSingleDamageType(DamageType typeToDeal) const { return (TheGxWeaponSets.damageMask[m_row].test(typeToDeal) && (TheGxWeaponSets.damageMask[m_row].count() == 1) ); }
+	Bool isCurWeaponLocked() const { return TheGxWeaponSets.lock[m_row] != NOT_LOCKED; }
+	Weapon* getCurWeapon() { return TheGxWeaponSets.weapons[m_row][TheGxWeaponSets.cur[m_row]]; }
+	const Weapon* getCurWeapon() const { return TheGxWeaponSets.weapons[m_row][TheGxWeaponSets.cur[m_row]]; }
+	WeaponSlotType getCurWeaponSlot() const { return TheGxWeaponSets.cur[m_row]; }
 	Weapon* findWaypointFollowingCapableWeapon();
 	const Weapon* findAmmoPipShowingWeapon() const;
 	void weaponSetOnWeaponBonusChange(const Object *source);
 	UnsignedInt getMostPercentReadyToFireAnyWeapon() const;
-	inline UnsignedInt getNthCommandSourceMask( WeaponSlotType n ) const { return m_curWeaponTemplateSet ? m_curWeaponTemplateSet->getNthCommandSourceMask( n ) : 0; }
+	inline UnsignedInt getNthCommandSourceMask( WeaponSlotType n ) const { return TheGxWeaponSets.tmplSet[m_row] ? TheGxWeaponSets.tmplSet[m_row]->getNthCommandSourceMask( n ) : 0; }
 
 	Bool setWeaponLock( WeaponSlotType weaponSlot, WeaponLockType lockType );
 	void releaseWeaponLock(WeaponLockType lockType);

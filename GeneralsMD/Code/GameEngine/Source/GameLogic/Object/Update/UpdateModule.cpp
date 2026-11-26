@@ -32,6 +32,7 @@
 #include "Common/Xfer.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Module/UpdateModule.h"
+#include "GameLogic/Object.h"
 
 
 // ------------------------------------------------------------------------------------------------

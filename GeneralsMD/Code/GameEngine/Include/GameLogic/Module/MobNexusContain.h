@@ -59,6 +59,8 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxMobNexusContainRow;
 class MobNexusContain : public OpenContain,
 												public TransportPassengerInterface // lorenzen add a MobMemberInterface
 {
@@ -86,7 +88,7 @@ public:
 	virtual Int getContainMax() const;
 
 	virtual void onObjectCreated();
-	virtual Int getExtraSlotsInUse() { return m_extraSlotsInUse; }
+	virtual Int getExtraSlotsInUse();
 
 	virtual ExitDoorType reserveDoorForExit( const ThingTemplate* objType, Object *specificObject );					///< All types can answer if they are free to exit or not, and you can ask about a specific guy or just exit anything in general
 	virtual void unreserveDoorForExit( ExitDoorType exitDoor );
@@ -97,6 +99,20 @@ protected:
 
 private:
 
-	Int m_extraSlotsInUse;
+	GxRow<struct GxMobNexusContainRow> m_gxMobNexusContainRow;	///< web port (round 5): this unit's row in TheGxMobNexusContains
+	friend struct GxMobNexusContainRow;
+	inline struct GxMobNexusContainRow &gxRow() const;
 
 };
+
+// Web port (round 5, units are pure data): MobNexusContain's per-unit state, one row per unit in TheGxMobNexusContains;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxMobNexusContainRow
+{
+	Int extraSlotsInUse;
+};
+
+
+inline GxMobNexusContainRow &MobNexusContain::gxRow() const { return const_cast<GxMobNexusContainRow &>(*m_gxMobNexusContainRow); }
+inline Int MobNexusContain::getExtraSlotsInUse() { return gxRow().extraSlotsInUse; }
+

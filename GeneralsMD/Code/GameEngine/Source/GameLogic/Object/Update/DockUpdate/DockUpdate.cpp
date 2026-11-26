@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "GameLogic/Module/GxPathsKernels.h"
 #include "Common/Debug.h"
 #include "Common/Xfer.h"
 #include "GameClient/Drawable.h"
@@ -65,66 +66,69 @@ DockUpdateModuleData::DockUpdateModuleData()
 
 DockUpdate::DockUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
-	m_dockOpen = TRUE;
+	R().dockOpen = TRUE;
 
-	m_positionsLoaded = FALSE;
-	m_numberApproachPositionBones = -1;
-	m_activeDocker = INVALID_ID;
-	m_dockerInside = FALSE;
-	m_dockCrippled = FALSE;
+	R().positionsLoaded = FALSE;
+	R().numberApproachPositionBones = -1;
+	R().activeDocker = INVALID_ID;
+	R().dockerInside = FALSE;
+	R().dockCrippled = FALSE;
 
 	const DockUpdateModuleData *md = (const DockUpdateModuleData *)moduleData;
 
-	m_exitPosition.zero();
-	m_dockPosition.zero();
-	m_enterPosition.zero();
+	R().exitPosition.zero();
+	R().dockPosition.zero();
+	R().enterPosition.zero();
 
-	m_numberApproachPositions = md->m_numberApproachPositionsData;
-	if( m_numberApproachPositions != DYNAMIC_APPROACH_VECTOR_FLAG )
+	R().numberApproachPositions = md->m_numberApproachPositionsData;
+	if( R().numberApproachPositions != DYNAMIC_APPROACH_VECTOR_FLAG )
 	{
 		// Not dynamic, so make this the size
-		m_approachPositions.resize(m_numberApproachPositions);
-		m_approachPositionOwners.resize(m_numberApproachPositions);
-		m_approachPositionReached.resize(m_numberApproachPositions);
+		R().approachPositions.resize(R().numberApproachPositions);
+		R().approachPositionOwners.resize(R().numberApproachPositions);
+		R().approachPositionReached.resize(R().numberApproachPositions);
 	}
 	else
 	{
 		//Otherwise, make a default size, and plan on growing it later
-		m_approachPositions.resize(DEFAULT_APPROACH_VECTOR_SIZE);
-		m_approachPositionOwners.resize(DEFAULT_APPROACH_VECTOR_SIZE);
-		m_approachPositionReached.resize(DEFAULT_APPROACH_VECTOR_SIZE);
+		R().approachPositions.resize(DEFAULT_APPROACH_VECTOR_SIZE);
+		R().approachPositionOwners.resize(DEFAULT_APPROACH_VECTOR_SIZE);
+		R().approachPositionReached.resize(DEFAULT_APPROACH_VECTOR_SIZE);
 	}
 
-	for( size_t vectorIndex = 0; vectorIndex < m_approachPositions.size(); ++vectorIndex )
+	for( size_t vectorIndex = 0; vectorIndex < R().approachPositions.size(); ++vectorIndex )
 	{
 		// Whatever size we are, init everything.
-		m_approachPositions[vectorIndex].zero();
-		m_approachPositionOwners[vectorIndex] = INVALID_ID;
-		m_approachPositionReached[vectorIndex] = FALSE;
+		R().approachPositions[vectorIndex].zero();
+		R().approachPositionOwners[vectorIndex] = INVALID_ID;
+		R().approachPositionReached[vectorIndex] = FALSE;
 	}
 }
 
 DockUpdate::~DockUpdate()
 {
+	GxModuleList<DockUpdate>::leave(this, R().gxId);
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 Bool DockUpdate::isClearToApproach( Object const* docker ) const
 {
 	// If we allow infinite approaches, we don't even need to look up.  Just say yes.
 	// The reserve code will handle appending a free spot to the end.
-	if( m_numberApproachPositions == DYNAMIC_APPROACH_VECTOR_FLAG )
+	if( R().numberApproachPositions == DYNAMIC_APPROACH_VECTOR_FLAG )
 		return TRUE;
 
 	ObjectID dockerID = docker->getID();
 
-	for( size_t positionIndex = 0; positionIndex < m_approachPositionOwners.size(); ++positionIndex )
+	for( size_t positionIndex = 0; positionIndex < R().approachPositionOwners.size(); ++positionIndex )
 	{
-		if( m_approachPositionOwners[positionIndex] == INVALID_ID )
+		if( R().approachPositionOwners[positionIndex] == INVALID_ID )
 		{
 			return TRUE;
 		}
-		if( m_approachPositionOwners[positionIndex] == dockerID )
+		if( R().approachPositionOwners[positionIndex] == dockerID )
 		{
 			return TRUE;
 		}
@@ -137,7 +141,7 @@ Bool DockUpdate::reserveApproachPosition( Object* docker, Coord3D *position, Int
 {
 
 	// load dock positions if not loaded yet
-	if( m_positionsLoaded == FALSE )
+	if( R().positionsLoaded == FALSE )
 		loadDockPositions();
 
 	// sanity
@@ -147,17 +151,17 @@ Bool DockUpdate::reserveApproachPosition( Object* docker, Coord3D *position, Int
 	ObjectID dockerID = docker->getID();
 
 	Int positionIndex = 0;
-	for( ; positionIndex < m_approachPositionOwners.size(); ++positionIndex )
+	for( ; positionIndex < R().approachPositionOwners.size(); ++positionIndex )
 	{
-		if( m_approachPositionOwners[positionIndex] == dockerID )
+		if( R().approachPositionOwners[positionIndex] == dockerID )
 		{
 			*position = computeApproachPosition( positionIndex, docker );
 			*index = positionIndex;
 			return TRUE;
 		}
-		if( m_approachPositionOwners[positionIndex] == INVALID_ID )
+		if( R().approachPositionOwners[positionIndex] == INVALID_ID )
 		{
-			m_approachPositionOwners[positionIndex] = dockerID;
+			R().approachPositionOwners[positionIndex] = dockerID;
 			*position = computeApproachPosition( positionIndex, docker );
 			*index = positionIndex;
 			return TRUE;
@@ -165,18 +169,18 @@ Bool DockUpdate::reserveApproachPosition( Object* docker, Coord3D *position, Int
 	}
 
 	// If I make it out of the loop, I am full, so dynamic approach buildings should make a new entry instead of saying no
-	if( m_numberApproachPositions == DYNAMIC_APPROACH_VECTOR_FLAG )
+	if( R().numberApproachPositions == DYNAMIC_APPROACH_VECTOR_FLAG )
 	{
 		Coord3D zero;
 		zero.zero();
-		m_approachPositions.push_back( zero );
-		m_approachPositionOwners.push_back( INVALID_ID );
-		m_approachPositionReached.push_back( FALSE );
+		R().approachPositions.push_back( zero );
+		R().approachPositionOwners.push_back( INVALID_ID );
+		R().approachPositionReached.push_back( FALSE );
 
 		loadDockPositions();// refresh this new one
 
-		positionIndex = m_approachPositionOwners.size() - 1;// The new last spot
-		m_approachPositionOwners[positionIndex] = dockerID;
+		positionIndex = R().approachPositionOwners.size() - 1;// The new last spot
+		R().approachPositionOwners[positionIndex] = dockerID;
 		*position = computeApproachPosition( positionIndex, docker );
 		*index = positionIndex;
 		return TRUE;
@@ -188,7 +192,7 @@ Bool DockUpdate::reserveApproachPosition( Object* docker, Coord3D *position, Int
 Bool DockUpdate::advanceApproachPosition( Object* docker, Coord3D *position, Int *index )
 {
 	// load dock positions if not loaded yet
-	if( m_positionsLoaded == FALSE )
+	if( R().positionsLoaded == FALSE )
 		loadDockPositions();
 
 	// sanity
@@ -196,17 +200,17 @@ Bool DockUpdate::advanceApproachPosition( Object* docker, Coord3D *position, Int
 		return FALSE;
 	if( *index <= 0 )
 		return FALSE;
-	if( m_approachPositionOwners[(*index) - 1] != INVALID_ID )
+	if( R().approachPositionOwners[(*index) - 1] != INVALID_ID )
 		return FALSE;
 
 	Int hisIndex = *index;
 	Int previousIndex = hisIndex - 1;
 
-	m_approachPositionOwners[previousIndex] = docker->getID();
-	m_approachPositionReached[previousIndex] = FALSE;
+	R().approachPositionOwners[previousIndex] = docker->getID();
+	R().approachPositionReached[previousIndex] = FALSE;
 
-	m_approachPositionOwners[hisIndex] = INVALID_ID;
-	m_approachPositionReached[hisIndex] = FALSE;
+	R().approachPositionOwners[hisIndex] = INVALID_ID;
+	R().approachPositionReached[hisIndex] = FALSE;
 
 	*position = computeApproachPosition( previousIndex, docker );
 	*index = previousIndex;
@@ -216,7 +220,7 @@ Bool DockUpdate::advanceApproachPosition( Object* docker, Coord3D *position, Int
 Bool DockUpdate::isClearToEnter( Object const* docker ) const
 {
 	ObjectID dockerID = docker->getID();
-	return dockerID == m_activeDocker;
+	return dockerID == R().activeDocker;
 }
 
 Bool DockUpdate::isClearToAdvance( Object const* docker, Int dockerIndex ) const
@@ -225,9 +229,9 @@ Bool DockUpdate::isClearToAdvance( Object const* docker, Int dockerIndex ) const
 		return FALSE;
 
 	ObjectID dockerID = docker->getID();
-	Bool correctRequest = dockerID == m_approachPositionOwners[dockerIndex];
-	Bool approachReached = m_approachPositionReached[dockerIndex];
-	Bool nextSpotFree = (dockerIndex > 0)  &&  (m_approachPositionOwners[dockerIndex - 1] == INVALID_ID);
+	Bool correctRequest = dockerID == R().approachPositionOwners[dockerIndex];
+	Bool approachReached = R().approachPositionReached[dockerIndex];
+	Bool nextSpotFree = (dockerIndex > 0)  &&  (R().approachPositionOwners[dockerIndex - 1] == INVALID_ID);
 
 	return correctRequest && approachReached && nextSpotFree;
 }
@@ -236,7 +240,7 @@ void DockUpdate::getEnterPosition( Object* docker, Coord3D *position )
 {
 
 	// load dock positions if not loaded yet
-	if( m_positionsLoaded == FALSE )
+	if( R().positionsLoaded == FALSE )
 		loadDockPositions();
 
 	// sanity
@@ -246,7 +250,7 @@ void DockUpdate::getEnterPosition( Object* docker, Coord3D *position )
 	// If I don't have a bone, you are fine where you are, unless you fly, in which case I should recenter you
 	Coord3D zero;
 	zero.zero();
-	if( m_enterPosition == zero )
+	if( R().enterPosition == zero )
 	{
 		if( docker->isUsingAirborneLocomotor() )
 		{
@@ -258,7 +262,7 @@ void DockUpdate::getEnterPosition( Object* docker, Coord3D *position )
 	}
 
 	// take local space position and convert to world space
-	getObject()->convertBonePosToWorldPos( &m_enterPosition, nullptr, position, nullptr );
+	getObject()->convertBonePosToWorldPos( &R().enterPosition, nullptr, position, nullptr );
 
 }
 
@@ -266,7 +270,7 @@ void DockUpdate::getDockPosition( Object* docker, Coord3D *position )
 {
 
 	// load dock positions if not loaded yet
-	if( m_positionsLoaded == FALSE )
+	if( R().positionsLoaded == FALSE )
 		loadDockPositions();
 
 	// sanity
@@ -276,14 +280,14 @@ void DockUpdate::getDockPosition( Object* docker, Coord3D *position )
 	// If I don't have a bone, you are fine where you are.
 	Coord3D zero;
 	zero.zero();
-	if( m_enterPosition == zero )
+	if( R().enterPosition == zero )
 	{
 		*position = *docker->getPosition();
 		return;
 	}
 
 	// take local space position and convert to world space
-	getObject()->convertBonePosToWorldPos( &m_dockPosition, nullptr, position, nullptr );
+	getObject()->convertBonePosToWorldPos( &R().dockPosition, nullptr, position, nullptr );
 
 }
 
@@ -291,7 +295,7 @@ void DockUpdate::getExitPosition( Object* docker, Coord3D *position )
 {
 
 	// load dock positions if not loaded yet
-	if( m_positionsLoaded == FALSE )
+	if( R().positionsLoaded == FALSE )
 		loadDockPositions();
 
 	// sanity
@@ -301,25 +305,25 @@ void DockUpdate::getExitPosition( Object* docker, Coord3D *position )
 	// If I don't have a bone, you are fine where you are.
 	Coord3D zero;
 	zero.zero();
-	if( m_enterPosition == zero )
+	if( R().enterPosition == zero )
 	{
 		*position = *docker->getPosition();
 		return;
 	}
 
 	// take local space position and convert to world space
-	getObject()->convertBonePosToWorldPos( &m_exitPosition, nullptr, position, nullptr );
+	getObject()->convertBonePosToWorldPos( &R().exitPosition, nullptr, position, nullptr );
 
 }
 
 void DockUpdate::onApproachReached( Object* docker )
 {
 	ObjectID dockerID = docker->getID();
-	for( size_t positionIndex = 0; positionIndex < m_approachPositionOwners.size(); ++positionIndex )
+	for( size_t positionIndex = 0; positionIndex < R().approachPositionOwners.size(); ++positionIndex )
 	{
-		if( m_approachPositionOwners[positionIndex] == dockerID )
+		if( R().approachPositionOwners[positionIndex] == dockerID )
 		{
-			m_approachPositionReached[positionIndex] = TRUE;
+			R().approachPositionReached[positionIndex] = TRUE;
 			return;
 		}
 	}
@@ -332,15 +336,15 @@ void DockUpdate::onEnterReached( Object* docker )
 																			MAKE_MODELCONDITION_MASK2(MODELCONDITION_DOCKING_BEGINNING, MODELCONDITION_DOCKING) );
 	docker->clearAndSetModelConditionFlags( MAKE_MODELCONDITION_MASK(MODELCONDITION_DOCKING_ENDING),
 																					MAKE_MODELCONDITION_MASK2(MODELCONDITION_DOCKING_BEGINNING, MODELCONDITION_DOCKING) );
-	m_dockerInside = TRUE;
+	R().dockerInside = TRUE;
 
 	ObjectID dockerID = docker->getID();
-	for( size_t positionIndex = 0; positionIndex < m_approachPositionOwners.size(); ++positionIndex )
+	for( size_t positionIndex = 0; positionIndex < R().approachPositionOwners.size(); ++positionIndex )
 	{
-		if( m_approachPositionOwners[positionIndex] == dockerID )
+		if( R().approachPositionOwners[positionIndex] == dockerID )
 		{
-			m_approachPositionOwners[positionIndex] = INVALID_ID;
-			m_approachPositionReached[positionIndex] = FALSE;
+			R().approachPositionOwners[positionIndex] = INVALID_ID;
+			R().approachPositionReached[positionIndex] = FALSE;
 			return;
 		}
 	}
@@ -360,11 +364,11 @@ void DockUpdate::onExitReached( Object* docker )
 																			MAKE_MODELCONDITION_MASK(MODELCONDITION_DOCKING_ENDING) );
 	docker->clearAndSetModelConditionFlags( MAKE_MODELCONDITION_MASK2(MODELCONDITION_DOCKING_ACTIVE, MODELCONDITION_DOCKING),
 																					MAKE_MODELCONDITION_MASK(MODELCONDITION_DOCKING_ENDING) );
-	m_dockerInside = FALSE;
+	R().dockerInside = FALSE;
 
 	ObjectID dockerID = docker->getID();
-	if( dockerID == m_activeDocker )
-		m_activeDocker = INVALID_ID;
+	if( dockerID == R().activeDocker )
+		R().activeDocker = INVALID_ID;
 	else
 	{
 
@@ -381,19 +385,19 @@ void DockUpdate::onExitReached( Object* docker )
 void DockUpdate::cancelDock( Object* docker )
 {
 	ObjectID dockerID = docker->getID();
-	for( size_t positionIndex = 0; positionIndex < m_approachPositionOwners.size(); ++positionIndex )
+	for( size_t positionIndex = 0; positionIndex < R().approachPositionOwners.size(); ++positionIndex )
 	{
-		if( m_approachPositionOwners[positionIndex] == dockerID )
+		if( R().approachPositionOwners[positionIndex] == dockerID )
 		{
-			m_approachPositionOwners[positionIndex] = INVALID_ID;
-			m_approachPositionReached[positionIndex] = FALSE;
+			R().approachPositionOwners[positionIndex] = INVALID_ID;
+			R().approachPositionReached[positionIndex] = FALSE;
 		}
 	}
-	if( m_activeDocker == dockerID )
+	if( R().activeDocker == dockerID )
 	{
-		Object *dockingObject = TheGameLogic->findObjectByID(m_activeDocker);
-		m_activeDocker = INVALID_ID;
-		m_dockerInside = FALSE;
+		Object *dockingObject = TheGameLogic->findObjectByID(R().activeDocker);
+		R().activeDocker = INVALID_ID;
+		R().dockerInside = FALSE;
 		// clear any model conditions related to docking that may be set on us and them.
 		// (Normal clear is part of each stage, but we won't get there.)
 		ModelConditionFlags clear;
@@ -410,26 +414,52 @@ void DockUpdate::cancelDock( Object* docker )
 void DockUpdate::setDockCrippled( Bool setting )
 {
 	// At this level, Crippling means I will accept Approach requests, but I will never grant Enter clearance.
-	m_dockCrippled = setting;
+	R().dockCrippled = setting;
+}
+
+// web port (round 5 addendum): the dock kernel. Pure: an open, uncrippled dock lets in the first
+// docker that reached its approach position. reads/writes its row (activeDocker,
+// approachPositionReached, approachPositionOwners) only. Apply (in update): a worker docker's
+// model condition.
+static void gxDockKernel(DockUpdate::GxState &r)
+{
+	for( size_t positionIndex = 0; positionIndex < r.approachPositionReached.size(); ++positionIndex )
+	{
+		if( r.approachPositionReached[positionIndex] )
+		{
+			r.activeDocker = r.approachPositionOwners[positionIndex];
+			return;
+		}
+	}
+}
+
+// web port (round 5): the range kernel through ai's hook, at the start of this module's phase
+GX_PATHS_KERNEL(DockUpdate, GXB_PK_DOCK, PHASE_NORMAL)
+void DockUpdate::gxKernelStep(UnsignedInt now)
+{
+	// reads/writes: its row only (entrance permission); op 1 = the open-dock branch was taken
+	GX_PK_WILL_UPDATE
+	R().gxOp = 0;
+	if( R().activeDocker == INVALID_ID  &&  !R().dockCrippled )
+	{
+		gxDockKernel(R());
+		R().gxOp = 1;
+	}
+	R().gxOpFrame = now + 1;
 }
 
 UpdateSleepTime DockUpdate::update()
 {
-	if( m_activeDocker == INVALID_ID  &&  !m_dockCrippled )
+	GX_PK_JOIN(DockUpdate, GXB_PK_DOCK)
+	const Bool kernelRan = GX_PK_HAVE(TheGameLogic->getFrame());
+	if( kernelRan ? R().gxOp == 1 : ( R().activeDocker == INVALID_ID  &&  !R().dockCrippled ) )
 	{
-		// if setDockCrippled has been called, I will never give entrance permission.
-		for( size_t positionIndex = 0; positionIndex < m_approachPositionReached.size(); ++positionIndex )
-		{
-			if( m_approachPositionReached[positionIndex] )
-			{
-				m_activeDocker = m_approachPositionOwners[positionIndex];
-				return UPDATE_SLEEP_NONE;
-			}
-		}
+		if( !kernelRan )
+			gxDockKernel(R());
 	}
 	else if ( getObject()->isKindOf( KINDOF_SUPPLY_SOURCE ) )
 	{
-		Object *docker = TheGameLogic->findObjectByID( m_activeDocker );
+		Object *docker = TheGameLogic->findObjectByID( R().activeDocker );
 		if ( docker && docker->isKindOf( KINDOF_DOZER ) && docker->isKindOf( KINDOF_HARVESTER ))// a worker
 		{
 			ModelConditionFlags test;
@@ -447,7 +477,7 @@ UpdateSleepTime DockUpdate::update()
 Coord3D DockUpdate::computeApproachPosition( Int positionIndex, Object *forWhom )
 {
 	// load dock positions if not loaded yet
-	if( m_positionsLoaded == FALSE )
+	if( R().positionsLoaded == FALSE )
 		loadDockPositions();
 
 	Coord3D bestPosition;// This answer is the best, as it includes findPositionAround
@@ -457,9 +487,9 @@ Coord3D DockUpdate::computeApproachPosition( Int positionIndex, Object *forWhom 
 	// Start with the pristine bone, then convert it to the world, then find a clean spot around it.
 
 	Object *us = getObject();
-	us->convertBonePosToWorldPos( &m_approachPositions[positionIndex], nullptr, &workingPosition, nullptr );
+	us->convertBonePosToWorldPos( &R().approachPositions[positionIndex], nullptr, &workingPosition, nullptr );
 
-	if( m_numberApproachPositionBones == 0 )
+	if( R().numberApproachPositionBones == 0 )
 	{
 		Coord3D ourPosition = *us->getPosition();
 		Coord3D theirPosition = *forWhom->getPosition();
@@ -504,10 +534,10 @@ void DockUpdate::loadDockPositions()
 		if( !obj->isKindOf( KINDOF_IGNORE_DOCKING_BONES ) )
 		{
 
-			myDrawable->getPristineBonePositions( "DockStart", 0, &m_enterPosition, nullptr, 1);
-			myDrawable->getPristineBonePositions( "DockAction", 0, &m_dockPosition, nullptr, 1);
-			myDrawable->getPristineBonePositions( "DockEnd", 0, &m_exitPosition, nullptr, 1);
-			if( m_numberApproachPositions != DYNAMIC_APPROACH_VECTOR_FLAG )
+			myDrawable->getPristineBonePositions( "DockStart", 0, &R().enterPosition, nullptr, 1);
+			myDrawable->getPristineBonePositions( "DockAction", 0, &R().dockPosition, nullptr, 1);
+			myDrawable->getPristineBonePositions( "DockEnd", 0, &R().exitPosition, nullptr, 1);
+			if( R().numberApproachPositions != DYNAMIC_APPROACH_VECTOR_FLAG )
 			{
 				// Dynamic means no bones
 
@@ -517,24 +547,24 @@ void DockUpdate::loadDockPositions()
 				// TheSuperHackers @fix helmutbuhler 19/04/2025 Zero initialize array to prevent uninitialized memory reads.
 				// Important: the entire target vector is used for serialization and crc and must not contain random data.
 				Coord3D approachBones[DEFAULT_APPROACH_VECTOR_SIZE] = {0};
-				m_numberApproachPositionBones = myDrawable->getPristineBonePositions( "DockWaiting", 1, approachBones, nullptr, m_numberApproachPositions);
-				if( m_numberApproachPositions == m_approachPositions.size() )//safeguard: will always be true
+				R().numberApproachPositionBones = myDrawable->getPristineBonePositions( "DockWaiting", 1, approachBones, nullptr, R().numberApproachPositions);
+				if( R().numberApproachPositions == R().approachPositions.size() )//safeguard: will always be true
 				{
-					for( Int copyIndex = 0; copyIndex < m_numberApproachPositions; ++copyIndex )
+					for( Int copyIndex = 0; copyIndex < R().numberApproachPositions; ++copyIndex )
 					{
-						m_approachPositions[copyIndex] = approachBones[copyIndex];
+						R().approachPositions[copyIndex] = approachBones[copyIndex];
 					}
 				}
 			}
 			else
-				m_numberApproachPositionBones = 0;
+				R().numberApproachPositionBones = 0;
 
-			m_positionsLoaded = TRUE;
+			R().positionsLoaded = TRUE;
 		}
 		else
 		{
-			m_numberApproachPositionBones = 0;
-			m_positionsLoaded = TRUE;
+			R().numberApproachPositionBones = 0;
+			R().positionsLoaded = TRUE;
 		}
 	}
 }
@@ -572,64 +602,64 @@ void DockUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// enter position
-	xfer->xferCoord3D( &m_enterPosition );
+	xfer->xferCoord3D( &R().enterPosition );
 
 	// dock position
-	xfer->xferCoord3D( &m_dockPosition );
+	xfer->xferCoord3D( &R().dockPosition );
 
 	// exit position
-	xfer->xferCoord3D( &m_exitPosition );
+	xfer->xferCoord3D( &R().exitPosition );
 
 	// # approach positions
-	xfer->xferInt( &m_numberApproachPositions );
+	xfer->xferInt( &R().numberApproachPositions );
 
 	// positions loaded
-	xfer->xferBool( &m_positionsLoaded );
+	xfer->xferBool( &R().positionsLoaded );
 
 	// approach positions
-	Int vectorSize = m_approachPositions.size();
+	Int vectorSize = R().approachPositions.size();
 	xfer->xferInt( &vectorSize );
-	m_approachPositions.resize(vectorSize);
+	R().approachPositions.resize(vectorSize);
 	Int vectorIndex = 0;
 	for( ; vectorIndex < vectorSize; ++vectorIndex )
 	{
 		// Okay, this is cool.  On save, the size and a bunch of coords will be written.
 		// on load, vectorSize will be at 0 from the .size, but will then get set
 		// by the xfer, and properly control the number of Coords.
-		xfer->xferCoord3D( &m_approachPositions[vectorIndex] );
+		xfer->xferCoord3D( &R().approachPositions[vectorIndex] );
 	}
 
 	// approach position owners
-	vectorSize = m_approachPositionOwners.size();
+	vectorSize = R().approachPositionOwners.size();
 	xfer->xferInt( &vectorSize );
-	m_approachPositionOwners.resize(vectorSize);
+	R().approachPositionOwners.resize(vectorSize);
 	for( vectorIndex = 0; vectorIndex < vectorSize; ++vectorIndex )
 	{
-		xfer->xferObjectID( &m_approachPositionOwners[vectorIndex] );
+		xfer->xferObjectID( &R().approachPositionOwners[vectorIndex] );
 	}
 
 	// approach positions reached
-	vectorSize = m_approachPositionReached.size();
+	vectorSize = R().approachPositionReached.size();
 	xfer->xferInt( &vectorSize );
-	m_approachPositionReached.resize(vectorSize);
+	R().approachPositionReached.resize(vectorSize);
 	for( vectorIndex = 0; vectorIndex < vectorSize; ++vectorIndex )
 	{
 		// Vector of Bool gets packed as bitfield internally
-		Bool unpack = m_approachPositionReached[vectorIndex];
+		Bool unpack = R().approachPositionReached[vectorIndex];
 		xfer->xferBool( &unpack );
 	}
 
 	// active docker
-	xfer->xferObjectID( &m_activeDocker );
+	xfer->xferObjectID( &R().activeDocker );
 
 	// docker inside
-	xfer->xferBool( &m_dockerInside );
+	xfer->xferBool( &R().dockerInside );
 
 	// docker crippled
-	xfer->xferBool( &m_dockCrippled );
+	xfer->xferBool( &R().dockCrippled );
 
 	// dock open
-	xfer->xferBool( &m_dockOpen );
+	xfer->xferBool( &R().dockOpen );
 
 }
 

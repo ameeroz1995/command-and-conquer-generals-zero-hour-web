@@ -38,12 +38,14 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/Weapon.h"
 
+
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 TempWeaponBonusHelper::TempWeaponBonusHelper( Thing *thing, const ModuleData *modData ) : ObjectHelper( thing, modData )
 {
-	m_currentBonus = WEAPONBONUSCONDITION_INVALID;
-	m_frameToRemove = 0;
+
+	R().m_currentBonus = WEAPONBONUSCONDITION_INVALID;
+	R().m_frameToRemove = 0;
 
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
@@ -59,7 +61,7 @@ TempWeaponBonusHelper::~TempWeaponBonusHelper()
 // ------------------------------------------------------------------------------------------------
 UpdateSleepTime TempWeaponBonusHelper::update()
 {
-	DEBUG_ASSERTCRASH(m_frameToRemove <= TheGameLogic->getFrame(), ("TempWeaponBonusHelper woke up too soon.") );
+	DEBUG_ASSERTCRASH(R().m_frameToRemove <= TheGameLogic->getFrame(), ("TempWeaponBonusHelper woke up too soon.") );
 
 	clearTempWeaponBonus(); // We are sleep driven, so seeing an update means our timer is ready implicitly
 	return UPDATE_SLEEP_FOREVER;
@@ -69,11 +71,11 @@ UpdateSleepTime TempWeaponBonusHelper::update()
 // ------------------------------------------------------------------------------------------------
 void TempWeaponBonusHelper::clearTempWeaponBonus()
 {
-	if( m_currentBonus != WEAPONBONUSCONDITION_INVALID )
+	if( R().m_currentBonus != WEAPONBONUSCONDITION_INVALID )
 	{
-		getObject()->clearWeaponBonusCondition(m_currentBonus);
-		m_currentBonus = WEAPONBONUSCONDITION_INVALID;
-		m_frameToRemove = 0;
+		getObject()->clearWeaponBonusCondition(R().m_currentBonus);
+		R().m_currentBonus = WEAPONBONUSCONDITION_INVALID;
+		R().m_frameToRemove = 0;
 
 		if( getObject()->getDrawable() )
     {
@@ -89,12 +91,12 @@ void TempWeaponBonusHelper::clearTempWeaponBonus()
 void TempWeaponBonusHelper::doTempWeaponBonus( WeaponBonusConditionType status, UnsignedInt duration )
 {
 	// Clear any different status we may have.  Re-getting the same status will just reset the timer
-	if( m_currentBonus != status )
+	if( R().m_currentBonus != status )
 		clearTempWeaponBonus();
 
 	getObject()->setWeaponBonusCondition(status);
-	m_currentBonus = status;
-	m_frameToRemove = TheGameLogic->getFrame() + duration;
+	R().m_currentBonus = status;
+	R().m_frameToRemove = TheGameLogic->getFrame() + duration;
 
 	if( getObject()->getDrawable() )
   {
@@ -133,8 +135,8 @@ void TempWeaponBonusHelper::xfer( Xfer *xfer )
 	// object helper base class
 	ObjectHelper::xfer( xfer );
 
-	xfer->xferUser( &m_currentBonus, sizeof(WeaponBonusConditionType) );// an enum
-	xfer->xferUnsignedInt( &m_frameToRemove );
+	xfer->xferUser( &R().m_currentBonus, sizeof(WeaponBonusConditionType) );// an enum
+	xfer->xferUnsignedInt( &R().m_frameToRemove );
 
 }
 

@@ -29,6 +29,7 @@
 #pragma once
 
 #include "Lib/BaseType.h"
+#include "Common/GxComponentPool.h"	// web port (round 5)
 
 #include "Common/AudioEventRTS.h"
 #include "Common/GameMemory.h"
@@ -125,6 +126,7 @@ extern Bool wantToSquishTarget( State *thisState, void* userData );
 	NOTE NOTE NOTE NOTE NOTE
 
  */
+struct GxAIStateMachineRow;
 class AIStateMachine : public StateMachine
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( AIStateMachine, "AIStateMachine" );
@@ -144,7 +146,7 @@ public:
 	void setGoalPath( std::vector<Coord3D>* path );
 	void addToGoalPath( const Coord3D *pathPoint );
 	const Coord3D *getGoalPathPosition( Int i ) const;		///< return path position at index "i"
-	Int getGoalPathSize() const { return m_goalPath.size(); }
+	Int getGoalPathSize() const;
 
 
 	void setGoalWaypoint( const Waypoint *way );		///< move toward this waypoint, continue if connected
@@ -158,7 +160,7 @@ public:
 	Squad *getGoalSquad();
 
 	StateReturnType setTemporaryState( StateID newStateID, Int frameLimitCoount );			///< change the temporary state of the machine, and number of frames limit.
-	StateID getTemporaryState() const {return m_temporaryState?m_temporaryState->getID():INVALID_STATE_ID;}
+	StateID getTemporaryState() const;
 
 public:	// overrides.
 	virtual StateReturnType updateStateMachine();				///< run one step of the machine
@@ -173,15 +175,32 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	std::vector<Coord3D>	m_goalPath;					///< defines a simple path to follow
-	const Waypoint *			m_goalWaypoint;
-	Squad *								m_goalSquad;
+	GxRow<struct GxAIStateMachineRow> m_gxAIStateMachineRow;	///< web port (round 5): this unit's row in TheGxAIStateMachines
+	friend struct GxAIStateMachineRow;
+	inline struct GxAIStateMachineRow &gxRow() const;
 
 	/** A temporary state to run for a while (usually AI_MOVE_OUT_OF_THE_WAY).
 	Doesn't clear or reset the state machine, so it goes back to doing what it was doing.  jba. */
-	State									*m_temporaryState;
-	UnsignedInt						m_temporaryStateFramEnd; ///< Last frame to run m_temporaryState.
 };
+
+// Web port (round 5, units are pure data): AIStateMachine's per-unit state, one row per unit in TheGxAIStateMachines;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIStateMachineRow
+{
+	std::vector<Coord3D> goalPath;
+	const Waypoint * goalWaypoint;
+	Squad * goalSquad;
+	State* temporaryState;
+	UnsignedInt temporaryStateFramEnd;
+};
+
+
+inline GxAIStateMachineRow &AIStateMachine::gxRow() const { return const_cast<GxAIStateMachineRow &>(*m_gxAIStateMachineRow); }
+inline Int AIStateMachine::getGoalPathSize() const
+{ return gxRow().goalPath.size(); }
+inline StateID AIStateMachine::getTemporaryState() const
+{return gxRow().temporaryState?gxRow().temporaryState->getID():INVALID_STATE_ID;}
+
 
 
 //-----------------------------------------------------------------------------------------------------------
@@ -208,14 +227,15 @@ protected:
 };
 
 //-----------------------------------------------------------------------------------------------------------
+struct GxAIIdleStateRow;
 class AIIdleState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIIdleState, "AIIdleState")
 private:
 
-	UnsignedShort m_initialSleepOffset;
-	Bool m_shouldLookForTargets;
-	Bool m_inited;
+	GxRow<struct GxAIIdleStateRow> m_gxAIIdleStateRow;	///< web port (round 5): this unit's row in TheGxAIIdleStates
+	friend struct GxAIIdleStateRow;
+	inline struct GxAIIdleStateRow &gxRow() const;
 
 	void doInitIdleState();
 
@@ -237,26 +257,31 @@ protected:
 	virtual void loadPostProcess();
 
 };
-EMPTY_DTOR(AIIdleState)
+
+// Web port (round 5, units are pure data): AIIdleState's per-unit state, one row per unit in TheGxAIIdleStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIIdleStateRow
+{
+	UnsignedShort initialSleepOffset;
+	Bool shouldLookForTargets;
+	Bool inited;
+};
+
+
+inline GxAIIdleStateRow &AIIdleState::gxRow() const { return const_cast<GxAIIdleStateRow &>(*m_gxAIIdleStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Basic pathfinding and moving to a goal position.
  * Not for direct use (hence no associated state ID), but for deriving from.
  */
+struct GxAIInternalMoveToStateRow;
 class AIInternalMoveToState : public State
 {
 	MEMORY_POOL_GLUE_ABC(AIInternalMoveToState)
 public:
-	AIInternalMoveToState( StateMachine *machine, AsciiString name ) : State( machine, name )
-	{
-		m_goalPosition.zero();
-		m_pathGoalPosition.zero();
-		m_pathTimestamp = 0;
-		m_blockedRepathTimestamp = 0;
-		m_adjustDestinations = true;
-		m_goalLayer = LAYER_INVALID;
-	}
+	AIInternalMoveToState( StateMachine *machine, AsciiString name );	///< web port (round 5): defined in the .cpp
+
 
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
@@ -264,19 +289,15 @@ public:
 
 protected:
 
-	void setAdjustsDestination(Bool b) { m_adjustDestinations = b; }
+	void setAdjustsDestination(Bool b);
 	Bool getAdjustsDestination() const;
 
-	void setGoalPos(const Coord3D* pos) { m_goalPosition = *pos; }
-	const Coord3D* getGoalPos() const { return &m_goalPosition; }
+	void setGoalPos(const Coord3D* pos);
+	const Coord3D* getGoalPos() const;
 
 	virtual Bool computePath();												///< compute the path
 
-	void forceRepath()
-	{
-		m_pathGoalPosition.x = m_pathGoalPosition.y = m_pathGoalPosition.z = -100.0f;
-		m_pathTimestamp = -MIN_REPATH_TIME;
-	}
+	void forceRepath();
 
 private:
 	void startMoveSound();
@@ -290,32 +311,55 @@ protected:
 private:
 	enum { MIN_REPATH_TIME = 10 };										///< minimum # of frames must elapse before re-pathing
 protected:
-	Coord3D							m_goalPosition;											///< the goal position to move to
-	PathfindLayerEnum		m_goalLayer;										///< The layer we are moving towards.
-	Coord3D				m_pathGoalPosition;									///< the position our current path leads to
+	GxRow<struct GxAIInternalMoveToStateRow> m_gxAIInternalMoveToStateRow;	///< web port (round 5): this unit's row in TheGxAIInternalMoveToStates
+	friend struct GxAIInternalMoveToStateRow;
+	inline struct GxAIInternalMoveToStateRow &gxRow() const;
 private:
-	AudioHandle		m_ambientPlayingHandle;							///< Audio handle for the looping sound that we may play.
-	UnsignedInt		m_pathTimestamp;										///< time of last pathfind
-	UnsignedInt		m_blockedRepathTimestamp;						///< time of last blocked pathfind
-	Bool					m_adjustDestinations;								///< Adjust destinations to avoid stacking units on top of each other.  Normally true, but
 																										//   occasionally false for things like car bombs.
 protected:
-	Bool					m_waitingForPath;										///< If we are waiting for a path.
-	Bool					m_tryOneMoreRepath;									///< If true, after we complete movement do another compute path.
 };
-EMPTY_DTOR(AIInternalMoveToState)
+
+// Web port (round 5, units are pure data): AIInternalMoveToState's per-unit state, one row per unit in TheGxAIInternalMoveToStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIInternalMoveToStateRow
+{
+	Coord3D goalPosition;
+	PathfindLayerEnum goalLayer;
+	Coord3D pathGoalPosition;
+	AudioHandle ambientPlayingHandle;
+	UnsignedInt pathTimestamp;
+	UnsignedInt blockedRepathTimestamp;
+	Bool adjustDestinations;
+	Bool waitingForPath;
+	Bool tryOneMoreRepath;
+};
+
+
+inline GxAIInternalMoveToStateRow &AIInternalMoveToState::gxRow() const { return const_cast<GxAIInternalMoveToStateRow &>(*m_gxAIInternalMoveToStateRow); }
+inline void AIInternalMoveToState::setAdjustsDestination(Bool b)
+{ gxRow().adjustDestinations = b; }
+inline void AIInternalMoveToState::setGoalPos(const Coord3D* pos)
+{ gxRow().goalPosition = *pos; }
+inline const Coord3D* AIInternalMoveToState::getGoalPos() const
+{ return &gxRow().goalPosition; }
+inline void AIInternalMoveToState::forceRepath()
+{
+		gxRow().pathGoalPosition.x = gxRow().pathGoalPosition.y = gxRow().pathGoalPosition.z = -100.0f;
+		gxRow().pathTimestamp = -MIN_REPATH_TIME;
+	}
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Move to the GoalPosition, or GoalObject.
  */
+struct GxAIRappelStateRow;
 class AIRappelState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIRappelState, "AIRappelState")
 protected:
-	Real m_rappelRate;
-	Real m_destZ;
-	Bool m_targetIsBldg;
+	GxRow<struct GxAIRappelStateRow> m_gxAIRappelStateRow;	///< web port (round 5): this unit's row in TheGxAIRappelStates
+	friend struct GxAIRappelStateRow;
+	inline struct GxAIRappelStateRow &gxRow() const;
 protected:
 	// snapshot interface
 	virtual void crc( Xfer *xfer );
@@ -328,7 +372,18 @@ public:
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
 };
-EMPTY_DTOR(AIRappelState)
+
+// Web port (round 5, units are pure data): AIRappelState's per-unit state, one row per unit in TheGxAIRappelStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIRappelStateRow
+{
+	Real rappelRate;
+	Real destZ;
+	Bool targetIsBldg;
+};
+
+
+inline GxAIRappelStateRow &AIRappelState::gxRow() const { return const_cast<GxAIRappelStateRow &>(*m_gxAIRappelStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -356,18 +411,30 @@ EMPTY_DTOR(AIBusyState)
 /**
  * Move to the GoalPosition, or GoalObject.
  */
+struct GxAIMoveToStateRow;
 class AIMoveToState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIMoveToState, "AIMoveToState")
 protected:
-	Bool m_isMoveTo;
+	GxRow<struct GxAIMoveToStateRow> m_gxAIMoveToStateRow;	///< web port (round 5): this unit's row in TheGxAIMoveToStates
+	friend struct GxAIMoveToStateRow;
+	inline struct GxAIMoveToStateRow &gxRow() const;
 public:
 	AIMoveToState( StateMachine *machine );
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
 };
-EMPTY_DTOR(AIMoveToState)
+
+// Web port (round 5, units are pure data): AIMoveToState's per-unit state, one row per unit in TheGxAIMoveToStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIMoveToStateRow
+{
+	Bool isMoveTo;
+};
+
+
+inline GxAIMoveToStateRow &AIMoveToState::gxRow() const { return const_cast<GxAIMoveToStateRow &>(*m_gxAIMoveToStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -391,33 +458,39 @@ EMPTY_DTOR(AIMoveOutOfTheWayState)
 /**
  * Moves toward goal pos to tighen up a formation.
  */
+struct GxAIMoveAndTightenStateRow;
 class AIMoveAndTightenState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIMoveAndTightenState, "AIMoveAndTightenState")
 public:
-	AIMoveAndTightenState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIMoveAndTightenState" )
-	{
-		m_checkForPath = false;
-		m_okToRepathTimes = 0;
-	}
-	AIMoveAndTightenState( StateMachine *machine, const char *name ) : AIInternalMoveToState( machine, name )
-	{
-		m_checkForPath = false;
-		m_okToRepathTimes = 0;
-	}
+	AIMoveAndTightenState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
+	AIMoveAndTightenState( StateMachine *machine, const char *name );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 protected:
 	virtual Bool computePath();												///< compute the path
-	Int m_okToRepathTimes;
-	Bool m_checkForPath;
+	GxRow<struct GxAIMoveAndTightenStateRow> m_gxAIMoveAndTightenStateRow;	///< web port (round 5): this unit's row in TheGxAIMoveAndTightenStates
+	friend struct GxAIMoveAndTightenStateRow;
+	inline struct GxAIMoveAndTightenStateRow &gxRow() const;
 protected:
 	// snapshot interface
 	virtual void crc( Xfer *xfer );
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 };
-EMPTY_DTOR(AIMoveAndTightenState)
+
+// Web port (round 5, units are pure data): AIMoveAndTightenState's per-unit state, one row per unit in TheGxAIMoveAndTightenStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIMoveAndTightenStateRow
+{
+	Int okToRepathTimes;
+	Bool checkForPath;
+};
+
+
+inline GxAIMoveAndTightenStateRow &AIMoveAndTightenState::gxRow() const { return const_cast<GxAIMoveAndTightenStateRow &>(*m_gxAIMoveAndTightenStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -441,20 +514,13 @@ EMPTY_DTOR(AIMoveAwayFromRepulsorsState)
 /**
  * Compute a valid spot to fire on GoalObject, and move there.
  */
+struct GxAIAttackApproachTargetStateRow;
 class AIAttackApproachTargetState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIAttackApproachTargetState, "AIAttackApproachTargetState")
 public:
-	AIAttackApproachTargetState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking ) :
-		AIInternalMoveToState( machine, "AIAttackApproachTargetState" ),
-		m_follow(follow),
-		m_isAttackingObject(attackingObject),
-		m_isInitialApproach(true),
-		m_isForceAttacking(forceAttacking)
-	{
-		// we're setting m_isInitialApproach to true in the constructor because we want the first pass
-		// through this state to allow a unit to attack incidental targets (if it is turreted)
-	}
+	AIAttackApproachTargetState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking );	///< web port (round 5): defined in the .cpp
+
 	virtual Bool isAttack() const { return TRUE; }
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
@@ -474,36 +540,38 @@ private:
 
 	StateReturnType updateInternal();
 
-	Coord3D				m_prevVictimPos;									///< Where we think our victim is
-	UnsignedInt		m_approachTimestamp;							///< When we last computed an approach goal
-	Bool					m_follow;													///< If true, follow object until it dies
-	Bool					m_isAttackingObject;							///< If false, attacking position
-	Bool					m_stopIfInRange;									///< If true, we check and stop as soon we can fire.  Used when we have to path to the object instead of to a firing position.
-	Bool					m_isInitialApproach;							///< If true, we can attack other units along the way. We will check for them every N frames (N specified in AI.ini)
-	Bool					m_isForceAttacking;
+	GxRow<struct GxAIAttackApproachTargetStateRow> m_gxAIAttackApproachTargetStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackApproachTargetStates
+	friend struct GxAIAttackApproachTargetStateRow;
+	inline struct GxAIAttackApproachTargetStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIAttackApproachTargetState)
+
+// Web port (round 5, units are pure data): AIAttackApproachTargetState's per-unit state, one row per unit in TheGxAIAttackApproachTargetStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIAttackApproachTargetStateRow
+{
+	Coord3D prevVictimPos;
+	UnsignedInt approachTimestamp;
+	Bool follow;
+	Bool isAttackingObject;
+	Bool stopIfInRange;
+	Bool isInitialApproach;
+	Bool isForceAttacking;
+};
+
+
+inline GxAIAttackApproachTargetStateRow &AIAttackApproachTargetState::gxRow() const { return const_cast<GxAIAttackApproachTargetStateRow &>(*m_gxAIAttackApproachTargetStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Chases a moving GoalObject.  If goal is not object, or not moving, or attacker lacks turret, exits with success.
  */
+struct GxAIAttackPursueTargetStateRow;
 class AIAttackPursueTargetState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIAttackPursueTargetState, "AIAttackPursueTargetState")
 public:
-	AIAttackPursueTargetState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking ) :
-		AIInternalMoveToState( machine, "AIAttackPursueTargetState" ),
-		m_follow(follow),
-		m_isAttackingObject(attackingObject),
-		m_isInitialApproach(true),
-		m_isForceAttacking(forceAttacking),
-		m_approachTimestamp(0),
-		m_stopIfInRange(false)
-	{
-		// we're setting m_isInitialApproach to true in the constructor because we want the first pass
-		// through this state to allow a unit to attack incidental targets (if it is turreted)
-	}
+	AIAttackPursueTargetState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking );	///< web port (round 5): defined in the .cpp
+
 	virtual Bool isAttack() const { return TRUE; }
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
@@ -523,30 +591,38 @@ private:
 
 	StateReturnType updateInternal();
 
-	Coord3D				m_prevVictimPos;									///< Where we think our victim is
-	UnsignedInt		m_approachTimestamp;							///< When we last computed an approach goal
-	Bool					m_follow;													///< If true, follow object until it dies
-	Bool					m_isAttackingObject;							///< If false, attacking position
-	Bool					m_stopIfInRange;									///< If true, we check and stop as soon we can fire.  Used when we have to path to the object instead of to a firing position.
-	Bool					m_isInitialApproach;							///< If true, we can attack other units along the way. We will check for them every N frames (N specified in AI.ini)
-	Bool					m_isForceAttacking;
+	GxRow<struct GxAIAttackPursueTargetStateRow> m_gxAIAttackPursueTargetStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackPursueTargetStates
+	friend struct GxAIAttackPursueTargetStateRow;
+	inline struct GxAIAttackPursueTargetStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIAttackPursueTargetState)
+
+// Web port (round 5, units are pure data): AIAttackPursueTargetState's per-unit state, one row per unit in TheGxAIAttackPursueTargetStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIAttackPursueTargetStateRow
+{
+	Coord3D prevVictimPos;
+	UnsignedInt approachTimestamp;
+	Bool follow;
+	Bool isAttackingObject;
+	Bool stopIfInRange;
+	Bool isInitialApproach;
+	Bool isForceAttacking;
+};
+
+
+inline GxAIAttackPursueTargetStateRow &AIAttackPursueTargetState::gxRow() const { return const_cast<GxAIAttackPursueTargetStateRow &>(*m_gxAIAttackPursueTargetStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Pick up an upgrade crate after a kill.
  */
+struct GxAIPickUpCrateStateRow;
 class AIPickUpCrateState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIPickUpCrateState, "AIPickUpCrateState")
 public:
-	AIPickUpCrateState( StateMachine *machine ) :
-		AIInternalMoveToState( machine, "AIAttackPickUpCrateState" )
-	{
-		// we're setting m_isInitialApproach to true in the constructor because we want the first pass
-		// through this state to allow a unit to attack incidental targets (if it is turreted)
-	}
+	AIPickUpCrateState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -554,14 +630,25 @@ protected:
 	virtual Bool computePath();												///< compute the path
 
 private:
-	Int			m_delayCounter;
+	GxRow<struct GxAIPickUpCrateStateRow> m_gxAIPickUpCrateStateRow;	///< web port (round 5): this unit's row in TheGxAIPickUpCrateStates
+	friend struct GxAIPickUpCrateStateRow;
+	inline struct GxAIPickUpCrateStateRow &gxRow() const;
 protected:
 	// snapshot interface
 	virtual void crc( Xfer *xfer );
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 };
-EMPTY_DTOR(AIPickUpCrateState)
+
+// Web port (round 5, units are pure data): AIPickUpCrateState's per-unit state, one row per unit in TheGxAIPickUpCrateStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIPickUpCrateStateRow
+{
+	Int delayCounter;
+};
+
+
+inline GxAIPickUpCrateStateRow &AIPickUpCrateState::gxRow() const { return const_cast<GxAIPickUpCrateStateRow &>(*m_gxAIPickUpCrateStateRow); }
 
 //-------------------------------------------------------------------------------------------------
 /**
@@ -600,21 +687,15 @@ protected:
 /**
  * Follow a waypoint path
  */
+struct GxAIFollowWaypointPathStateRow;
 class AIFollowWaypointPathState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIFollowWaypointPathState, "AIFollowWaypointPathState")
 public:
-	AIFollowWaypointPathState( StateMachine *machine, Bool asGroup ) : m_isFollowWaypointPathState(true),
-		m_moveAsGroup(asGroup), AIInternalMoveToState( machine, "AIFollowWaypointPathState" )
-	{
-		m_angle = 0.0f;
-	}
-	AIFollowWaypointPathState( StateMachine *machine, Bool asGroup, Bool isFollow) :
-		m_isFollowWaypointPathState(isFollow), m_moveAsGroup(asGroup), AIInternalMoveToState( machine,
-																"AIFollowWaypointPathState" )
-	{
-		m_angle = 0.0f;
-	}
+	AIFollowWaypointPathState( StateMachine *machine, Bool asGroup );	///< web port (round 5): defined in the .cpp
+
+	AIFollowWaypointPathState( StateMachine *machine, Bool asGroup, Bool isFollow);	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -626,17 +707,12 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	Coord2D m_groupOffset;
-	Real		m_angle;
-	Int  m_framesSleeping;
-	const Waypoint *m_currentWaypoint;
-	const Waypoint *m_priorWaypoint;
-	Bool m_appendGoalPosition;
+	GxRow<struct GxAIFollowWaypointPathStateRow> m_gxAIFollowWaypointPathStateRow;	///< web port (round 5): this unit's row in TheGxAIFollowWaypointPathStates
+	friend struct GxAIFollowWaypointPathStateRow;
+	inline struct GxAIFollowWaypointPathStateRow &gxRow() const;
 
-	const Bool m_moveAsGroup;
 	// this is necessary because we derive from FollowWaypointPathState, but we do not want to incur the
 	// expense of checking RTTI to determine whether we are actually a FollowWaypointPathState or not
-	const Bool m_isFollowWaypointPathState;	// derived classes should set this false.
 
 protected:
 	void computeGoal(Bool useGroupOffsets);
@@ -644,19 +720,35 @@ protected:
 	const Waypoint *getNextWaypoint();
 	Bool hasNextWaypoint();
 };
-EMPTY_DTOR(AIFollowWaypointPathState)
+
+// Web port (round 5, units are pure data): AIFollowWaypointPathState's per-unit state, one row per unit in TheGxAIFollowWaypointPathStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIFollowWaypointPathStateRow
+{
+	Coord2D groupOffset;
+	Real angle;
+	Int framesSleeping;
+	const Waypoint* currentWaypoint;
+	const Waypoint* priorWaypoint;
+	Bool appendGoalPosition;
+	Bool moveAsGroup;
+	Bool isFollowWaypointPathState;
+};
+
+
+inline GxAIFollowWaypointPathStateRow &AIFollowWaypointPathState::gxRow() const { return const_cast<GxAIFollowWaypointPathStateRow &>(*m_gxAIFollowWaypointPathStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Follow a waypoint path exactly
  */
+struct GxAIFollowWaypointPathExactStateRow;
 class AIFollowWaypointPathExactState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIFollowWaypointPathExactState, "AIFollowWaypointPathExactState")
 public:
-	AIFollowWaypointPathExactState( StateMachine *machine, Bool asGroup ) : m_moveAsGroup(asGroup),
-		m_lastWaypoint(nullptr),
-		AIInternalMoveToState( machine, "AIFollowWaypointPathExactState" ) { }
+	AIFollowWaypointPathExactState( StateMachine *machine, Bool asGroup );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -668,15 +760,27 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	const Waypoint *m_lastWaypoint;
-	const Bool m_moveAsGroup;
+	GxRow<struct GxAIFollowWaypointPathExactStateRow> m_gxAIFollowWaypointPathExactStateRow;	///< web port (round 5): this unit's row in TheGxAIFollowWaypointPathExactStates
+	friend struct GxAIFollowWaypointPathExactStateRow;
+	inline struct GxAIFollowWaypointPathExactStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIFollowWaypointPathExactState)
+
+// Web port (round 5, units are pure data): AIFollowWaypointPathExactState's per-unit state, one row per unit in TheGxAIFollowWaypointPathExactStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIFollowWaypointPathExactStateRow
+{
+	const Waypoint* lastWaypoint;
+	Bool moveAsGroup;
+};
+
+
+inline GxAIFollowWaypointPathExactStateRow &AIFollowWaypointPathExactState::gxRow() const { return const_cast<GxAIFollowWaypointPathExactStateRow &>(*m_gxAIFollowWaypointPathExactStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Follow a waypoint path, attacking targets encountered along the way
  */
+struct GxAIAttackFollowWaypointPathStateRow;
 class AIAttackFollowWaypointPathState : public AIFollowWaypointPathState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIAttackFollowWaypointPathState, "AIAttackFollowWaypointPathState")
@@ -684,7 +788,7 @@ public:
 	AIAttackFollowWaypointPathState( StateMachine *machine, Bool asGroup );
 	//virtual ~AIAttackFollowWaypointPathState();
 
-	virtual Bool isAttack() const { return m_attackFollowMachine ? m_attackFollowMachine->isInAttackState() : FALSE; }
+	virtual Bool isAttack() const;
 
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
@@ -695,7 +799,9 @@ public:
 
 protected:
 	// We can (and want to) use the attack-move-to logic for when to attack and when to do a normal attack.
-	StateMachine *m_attackFollowMachine;
+	GxRow<struct GxAIAttackFollowWaypointPathStateRow> m_gxAIAttackFollowWaypointPathStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackFollowWaypointPathStates
+	friend struct GxAIAttackFollowWaypointPathStateRow;
+	inline struct GxAIAttackFollowWaypointPathStateRow &gxRow() const;
 protected:
 	// snapshot interface
 	virtual void crc( Xfer *xfer );
@@ -703,22 +809,30 @@ protected:
 	virtual void loadPostProcess();
 };
 
+// Web port (round 5, units are pure data): AIAttackFollowWaypointPathState's per-unit state, one row per unit in TheGxAIAttackFollowWaypointPathStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIAttackFollowWaypointPathStateRow
+{
+	StateMachine* attackFollowMachine;
+};
+
+
+inline GxAIAttackFollowWaypointPathStateRow &AIAttackFollowWaypointPathState::gxRow() const { return const_cast<GxAIAttackFollowWaypointPathStateRow &>(*m_gxAIAttackFollowWaypointPathStateRow); }
+inline Bool AIAttackFollowWaypointPathState::isAttack() const
+{ return gxRow().attackFollowMachine ? gxRow().attackFollowMachine->isInAttackState() : FALSE; }
+
+
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Wanders around following a waypoint path.
  */
+struct GxAIWanderStateRow;
 class AIWanderState : public AIFollowWaypointPathState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIWanderState, "AIWanderState")
 public:
-	AIWanderState( StateMachine *machine ) : AIFollowWaypointPathState( machine, false )
-	{
-#ifdef STATE_MACHINE_DEBUG
-		setName("AIWanderState");
-#endif
-		m_timer = 0;
-		m_waitFrames = 0;
-	}
+	AIWanderState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -730,25 +844,33 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	Int		m_waitFrames;
-	Int		m_timer;
+	GxRow<struct GxAIWanderStateRow> m_gxAIWanderStateRow;	///< web port (round 5): this unit's row in TheGxAIWanderStates
+	friend struct GxAIWanderStateRow;
+	inline struct GxAIWanderStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIWanderState)
+
+// Web port (round 5, units are pure data): AIWanderState's per-unit state, one row per unit in TheGxAIWanderStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIWanderStateRow
+{
+	Int waitFrames;
+	Int timer;
+};
+
+
+inline GxAIWanderStateRow &AIWanderState::gxRow() const { return const_cast<GxAIWanderStateRow &>(*m_gxAIWanderStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Wanders around a point.
  */
+struct GxAIWanderInPlaceStateRow;
 class AIWanderInPlaceState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIWanderInPlaceState, "AIWanderInPlaceState")
 public:
-	AIWanderInPlaceState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIWanderInPlaceState" )
-	{
-		m_origin.zero();
-		m_waitFrames = 0;
-		m_timer = 0;
-	}
+	AIWanderInPlaceState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -761,26 +883,34 @@ protected:
 
 protected:
 	void computeWanderGoal();
-	Coord3D m_origin;									///< The point we're wandering around.
-	Int		m_waitFrames;
-	Int		m_timer;
+	GxRow<struct GxAIWanderInPlaceStateRow> m_gxAIWanderInPlaceStateRow;	///< web port (round 5): this unit's row in TheGxAIWanderInPlaceStates
+	friend struct GxAIWanderInPlaceStateRow;
+	inline struct GxAIWanderInPlaceStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIWanderInPlaceState)
+
+// Web port (round 5, units are pure data): AIWanderInPlaceState's per-unit state, one row per unit in TheGxAIWanderInPlaceStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIWanderInPlaceStateRow
+{
+	Coord3D origin;
+	Int waitFrames;
+	Int timer;
+};
+
+
+inline GxAIWanderInPlaceStateRow &AIWanderInPlaceState::gxRow() const { return const_cast<GxAIWanderInPlaceStateRow &>(*m_gxAIWanderInPlaceStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Runs around screaming following a waypoint path.
  */
+struct GxAIPanicStateRow;
 class AIPanicState : public AIFollowWaypointPathState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIPanicState, "AIPanicState")
 public:
-	AIPanicState( StateMachine *machine ) : AIFollowWaypointPathState( machine, false)
-	{
-#ifdef STATE_MACHINE_DEBUG
-		setName("AIPanicState");
-#endif
-	}
+	AIPanicState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
@@ -791,35 +921,42 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	Int		m_waitFrames;
-	Int		m_timer;
+	GxRow<struct GxAIPanicStateRow> m_gxAIPanicStateRow;	///< web port (round 5): this unit's row in TheGxAIPanicStates
+	friend struct GxAIPanicStateRow;
+	inline struct GxAIPanicStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIPanicState)
 
+// Web port (round 5, units are pure data): AIPanicState's per-unit state, one row per unit in TheGxAIPanicStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIPanicStateRow
+{
+	Int waitFrames;
+	Int timer;
+};
+
+
+inline GxAIPanicStateRow &AIPanicState::gxRow() const { return const_cast<GxAIPanicStateRow &>(*m_gxAIPanicStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Follow simple list of points.
  */
+struct GxAIFollowPathStateRow;
 class AIFollowPathState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIFollowPathState, "AIFollowPathState")
 public:
-	AIFollowPathState( StateMachine *machine, AsciiString name = "AIFollowPathState" ) :
-		m_adjustFinal(true),
-		m_adjustFinalOverride(false),
-		m_index(0),
-		m_retryCount(10),
-		AIInternalMoveToState( machine, name ) { }
+	AIFollowPathState( StateMachine *machine, AsciiString name = "AIFollowPathState" );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
 
 protected:
 
-	Int getCurPathIndex() const { return m_index; }
-	void setAdjustFinalDestination(Bool b) { m_adjustFinal = b; }
-	void setAdjustFinalDestinationEvenIfNotDoingGroundMovement(Bool b) { m_adjustFinalOverride = b; }
+	Int getCurPathIndex() const;
+	void setAdjustFinalDestination(Bool b);
+	void setAdjustFinalDestinationEvenIfNotDoingGroundMovement(Bool b);
 
 protected:
 	// snapshot interface
@@ -828,25 +965,41 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	Int m_index;																		///< current path index
-	Bool m_adjustFinal;
-	Bool m_adjustFinalOverride;
-	Int m_retryCount;
+	GxRow<struct GxAIFollowPathStateRow> m_gxAIFollowPathStateRow;	///< web port (round 5): this unit's row in TheGxAIFollowPathStates
+	friend struct GxAIFollowPathStateRow;
+	inline struct GxAIFollowPathStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIFollowPathState)
+
+// Web port (round 5, units are pure data): AIFollowPathState's per-unit state, one row per unit in TheGxAIFollowPathStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIFollowPathStateRow
+{
+	Int index;
+	Bool adjustFinal;
+	Bool adjustFinalOverride;
+	Int retryCount;
+};
+
+
+inline GxAIFollowPathStateRow &AIFollowPathState::gxRow() const { return const_cast<GxAIFollowPathStateRow &>(*m_gxAIFollowPathStateRow); }
+inline Int AIFollowPathState::getCurPathIndex() const
+{ return gxRow().index; }
+inline void AIFollowPathState::setAdjustFinalDestination(Bool b)
+{ gxRow().adjustFinal = b; }
+inline void AIFollowPathState::setAdjustFinalDestinationEvenIfNotDoingGroundMovement(Bool b)
+{ gxRow().adjustFinalOverride = b; }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Move to and unload transport.
  */
+struct GxAIMoveAndEvacuateStateRow;
 class AIMoveAndEvacuateState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIMoveAndEvacuateState, "AIMoveAndEvacuateState")
 public:
-	AIMoveAndEvacuateState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIMoveAndEvacuateState" )
-	{
-		m_origin.zero();
-	}
+	AIMoveAndEvacuateState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -857,22 +1010,32 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	Coord3D m_origin;													///< current position - set as goal on exit in case we follow with MoveToAndDelete.
+	GxRow<struct GxAIMoveAndEvacuateStateRow> m_gxAIMoveAndEvacuateStateRow;	///< web port (round 5): this unit's row in TheGxAIMoveAndEvacuateStates
+	friend struct GxAIMoveAndEvacuateStateRow;
+	inline struct GxAIMoveAndEvacuateStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIMoveAndEvacuateState)
+
+// Web port (round 5, units are pure data): AIMoveAndEvacuateState's per-unit state, one row per unit in TheGxAIMoveAndEvacuateStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIMoveAndEvacuateStateRow
+{
+	Coord3D origin;
+};
+
+
+inline GxAIMoveAndEvacuateStateRow &AIMoveAndEvacuateState::gxRow() const { return const_cast<GxAIMoveAndEvacuateStateRow &>(*m_gxAIMoveAndEvacuateStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Move to and delete self.  Used for removing reinforcement transports.
  */
+struct GxAIMoveAndDeleteStateRow;
 class AIMoveAndDeleteState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIMoveAndDeleteState, "AIMoveAndDeleteState")
 public:
-	AIMoveAndDeleteState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIMoveAndDeleteState" )
-	{
-		m_appendGoalPosition = FALSE;
-	}
+	AIMoveAndDeleteState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -883,23 +1046,29 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	Bool m_appendGoalPosition;
+	GxRow<struct GxAIMoveAndDeleteStateRow> m_gxAIMoveAndDeleteStateRow;	///< web port (round 5): this unit's row in TheGxAIMoveAndDeleteStates
+	friend struct GxAIMoveAndDeleteStateRow;
+	inline struct GxAIMoveAndDeleteStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIMoveAndDeleteState)
+
+// Web port (round 5, units are pure data): AIMoveAndDeleteState's per-unit state, one row per unit in TheGxAIMoveAndDeleteStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIMoveAndDeleteStateRow
+{
+	Bool appendGoalPosition;
+};
+
+
+inline GxAIMoveAndDeleteStateRow &AIMoveAndDeleteState::gxRow() const { return const_cast<GxAIMoveAndDeleteStateRow &>(*m_gxAIMoveAndDeleteStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
+struct GxAIAttackAimAtTargetStateRow;
 class AIAttackAimAtTargetState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIAttackAimAtTargetState, "AIAttackAimAtTargetState")
 public:
-	AIAttackAimAtTargetState( StateMachine *machine, Bool attackingObject, Bool forceAttacking ) :
-		State( machine, "AIAttackAimAtTargetState" ),
-		m_isAttackingObject(attackingObject),
-		m_canTurnInPlace(false),
-		m_isForceAttacking(forceAttacking),
-		m_setLocomotor(false)
-	{
-	}
+	AIAttackAimAtTargetState( StateMachine *machine, Bool attackingObject, Bool forceAttacking );	///< web port (round 5): defined in the .cpp
+
 	virtual Bool isAttack() const { return TRUE; }
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
@@ -910,12 +1079,23 @@ protected:
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 private:
-	const Bool m_isAttackingObject;
-	Bool m_canTurnInPlace;
-	Bool m_setLocomotor;
-	Bool m_isForceAttacking;
+	GxRow<struct GxAIAttackAimAtTargetStateRow> m_gxAIAttackAimAtTargetStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackAimAtTargetStates
+	friend struct GxAIAttackAimAtTargetStateRow;
+	inline struct GxAIAttackAimAtTargetStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIAttackAimAtTargetState)
+
+// Web port (round 5, units are pure data): AIAttackAimAtTargetState's per-unit state, one row per unit in TheGxAIAttackAimAtTargetStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIAttackAimAtTargetStateRow
+{
+	Bool isAttackingObject;
+	Bool canTurnInPlace;
+	Bool setLocomotor;
+	Bool isForceAttacking;
+};
+
+
+inline GxAIAttackAimAtTargetStateRow &AIAttackAimAtTargetState::gxRow() const { return const_cast<GxAIAttackAimAtTargetStateRow &>(*m_gxAIAttackAimAtTargetStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 class AIWaitState : public State
@@ -975,6 +1155,7 @@ public:
 };
 
 //-----------------------------------------------------------------------------------------------------------
+struct GxAIAttackStateRow;
 class AIAttackState : public State, public NotifyWeaponFiredInterface
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIAttackState, "AIAttackState")
@@ -990,10 +1171,10 @@ public:
 
 	virtual void notifyFired() { /* nothing */ }
 	virtual void notifyNewVictimChosen(Object* victim);
-	virtual const Coord3D* getOriginalVictimPos() const { return &m_originalVictimPos; }
+	virtual const Coord3D* getOriginalVictimPos() const;
 	virtual Bool isWeaponSlotOkToFire(WeaponSlotType wslot) const { return true; }
-	virtual Bool isAttackingObject() const { return m_isAttackingObject; }
-	virtual Bool isForceAttacking() const { return m_isForceAttacking; }
+	virtual Bool isAttackingObject() const;
+	virtual Bool isForceAttacking() const;
 #ifdef STATE_MACHINE_DEBUG
 	virtual AsciiString getName() const ;
 #endif
@@ -1008,26 +1189,46 @@ private:
 
 	Bool chooseWeapon();
 
-	AttackStateMachine*							m_attackMachine;						///< state sub-machine for attack behavior
-	AttackExitConditionsInterface*	m_attackParameters;					///< these are not owned by this, and will not be deleted on destruction
-	Team*														m_victimTeam;								///< recorded onEnter because if it changes during attack , it may no longer be a valid target.
-	Coord3D													m_originalVictimPos;				///< position of first obj/pos attacked... used for ContinueAttackRange.
-	const Weapon*						m_lockedWeaponOnEnter;
-	const Bool							m_follow;
-	const Bool							m_isAttackingObject;								// if false, attacking position
-	const Bool							m_isForceAttacking;
+	GxRow<struct GxAIAttackStateRow> m_gxAIAttackStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackStates
+	friend struct GxAIAttackStateRow;
+	inline struct GxAIAttackStateRow &gxRow() const;
 };
 
+// Web port (round 5, units are pure data): AIAttackState's per-unit state, one row per unit in TheGxAIAttackStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIAttackStateRow
+{
+	AttackStateMachine* attackMachine;
+	AttackExitConditionsInterface* attackParameters;
+	Team* victimTeam;
+	Coord3D originalVictimPos;
+	const Weapon* lockedWeaponOnEnter;
+	Bool follow;
+	Bool isAttackingObject;
+	Bool isForceAttacking;
+};
+
+
+inline GxAIAttackStateRow &AIAttackState::gxRow() const { return const_cast<GxAIAttackStateRow &>(*m_gxAIAttackStateRow); }
+inline const Coord3D* AIAttackState::getOriginalVictimPos() const
+{ return &gxRow().originalVictimPos; }
+inline Bool AIAttackState::isAttackingObject() const
+{ return gxRow().isAttackingObject; }
+inline Bool AIAttackState::isForceAttacking() const
+{ return gxRow().isForceAttacking; }
+
+
 //-----------------------------------------------------------------------------------------------------------
+struct GxAIAttackSquadStateRow;
 class AIAttackSquadState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIAttackSquadState, "AIAttackSquadState")
 public:
-	AIAttackSquadState( StateMachine *machine, AttackExitConditionsInterface *attackParameters = nullptr) :
-			State( machine , "AIAttackSquadState") {	}
+	AIAttackSquadState( StateMachine *machine, AttackExitConditionsInterface *attackParameters = nullptr);	///< web port (round 5): defined in the .cpp
+
 	//~AIAttackSquadState();
 
-	virtual Bool isAttack() const { return m_attackSquadMachine ? m_attackSquadMachine->isInAttackState() : FALSE; }
+	virtual Bool isAttack() const;
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -1044,8 +1245,23 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	StateMachine *m_attackSquadMachine;						///< state sub-machine for attack behavior
+	GxRow<struct GxAIAttackSquadStateRow> m_gxAIAttackSquadStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackSquadStates
+	friend struct GxAIAttackSquadStateRow;
+	inline struct GxAIAttackSquadStateRow &gxRow() const;
 };
+
+// Web port (round 5, units are pure data): AIAttackSquadState's per-unit state, one row per unit in TheGxAIAttackSquadStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIAttackSquadStateRow
+{
+	StateMachine* attackSquadMachine;
+};
+
+
+inline GxAIAttackSquadStateRow &AIAttackSquadState::gxRow() const { return const_cast<GxAIAttackSquadStateRow &>(*m_gxAIAttackSquadStateRow); }
+inline Bool AIAttackSquadState::isAttack() const
+{ return gxRow().attackSquadMachine ? gxRow().attackSquadMachine->isInAttackState() : FALSE; }
+
 
 //-----------------------------------------------------------------------------------------------------------
 class AIDeadState : public State
@@ -1065,13 +1281,15 @@ protected:
 EMPTY_DTOR(AIDeadState)
 
 //-----------------------------------------------------------------------------------------------------------
+struct GxAIDockStateRow;
 class AIDockState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIDockState, "AIDockState")
 public:
-	AIDockState( StateMachine *machine ) : State( machine, "AIDockState" ), m_dockMachine(nullptr), m_usingPrecisionMovement(FALSE) { }
+	AIDockState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	//~AIDockState();
-	virtual Bool isAttack() const { return m_dockMachine ? m_dockMachine->isInAttackState() : FALSE; }
+	virtual Bool isAttack() const;
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -1086,82 +1304,134 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	StateMachine *m_dockMachine;				///< state sub-machine for docking behavior
-	Bool m_usingPrecisionMovement;			///< keep a record of precision movement so we can restore the right state on exit
+	GxRow<struct GxAIDockStateRow> m_gxAIDockStateRow;	///< web port (round 5): this unit's row in TheGxAIDockStates
+	friend struct GxAIDockStateRow;
+	inline struct GxAIDockStateRow &gxRow() const;
 };
+
+// Web port (round 5, units are pure data): AIDockState's per-unit state, one row per unit in TheGxAIDockStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIDockStateRow
+{
+	StateMachine* dockMachine;
+	Bool usingPrecisionMovement;
+};
+
+
+inline GxAIDockStateRow &AIDockState::gxRow() const { return const_cast<GxAIDockStateRow &>(*m_gxAIDockStateRow); }
+inline Bool AIDockState::isAttack() const
+{ return gxRow().dockMachine ? gxRow().dockMachine->isInAttackState() : FALSE; }
+
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Move close to GoalObject and enter it.
  */
+struct GxAIEnterStateRow;
 class AIEnterState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIEnterState, "AIEnterState")
 protected:
-	ObjectID m_entryToClear;
+	GxRow<struct GxAIEnterStateRow> m_gxAIEnterStateRow;	///< web port (round 5): this unit's row in TheGxAIEnterStates
+	friend struct GxAIEnterStateRow;
+	inline struct GxAIEnterStateRow &gxRow() const;
 protected:
 	// snapshot interface
 	virtual void crc( Xfer *xfer );
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 public:
-	AIEnterState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIEnterState" ) { }
+	AIEnterState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
 };
-EMPTY_DTOR(AIEnterState)
+
+// Web port (round 5, units are pure data): AIEnterState's per-unit state, one row per unit in TheGxAIEnterStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIEnterStateRow
+{
+	ObjectID entryToClear;
+};
+
+
+inline GxAIEnterStateRow &AIEnterState::gxRow() const { return const_cast<GxAIEnterStateRow &>(*m_gxAIEnterStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
+struct GxAIExitStateRow;
 class AIExitState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIExitState, "AIExitState")
 protected:
-	ObjectID m_entryToClear;
+	GxRow<struct GxAIExitStateRow> m_gxAIExitStateRow;	///< web port (round 5): this unit's row in TheGxAIExitStates
+	friend struct GxAIExitStateRow;
+	inline struct GxAIExitStateRow &gxRow() const;
 protected:
 	// snapshot interface
 	virtual void crc( Xfer *xfer );
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 public:
-	AIExitState( StateMachine *machine ) : State( machine, "AIExitState" ) { }
+	AIExitState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
 };
-EMPTY_DTOR(AIExitState)
+
+// Web port (round 5, units are pure data): AIExitState's per-unit state, one row per unit in TheGxAIExitStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIExitStateRow
+{
+	ObjectID entryToClear;
+};
+
+
+inline GxAIExitStateRow &AIExitState::gxRow() const { return const_cast<GxAIExitStateRow &>(*m_gxAIExitStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
+struct GxAIExitInstantlyStateRow;
 class AIExitInstantlyState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIExitInstantlyState, "AIExitInstantlyState")
 protected:
-	ObjectID m_entryToClear;
+	GxRow<struct GxAIExitInstantlyStateRow> m_gxAIExitInstantlyStateRow;	///< web port (round 5): this unit's row in TheGxAIExitInstantlyStates
+	friend struct GxAIExitInstantlyStateRow;
+	inline struct GxAIExitInstantlyStateRow &gxRow() const;
 protected:
 	// snapshot interface
 	virtual void crc( Xfer *xfer );
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 public:
-	AIExitInstantlyState( StateMachine *machine ) : State( machine, "AIExitInstantlyState" ) { }
+	AIExitInstantlyState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
 };
-EMPTY_DTOR(AIExitInstantlyState)
 
+// Web port (round 5, units are pure data): AIExitInstantlyState's per-unit state, one row per unit in TheGxAIExitInstantlyStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIExitInstantlyStateRow
+{
+	ObjectID entryToClear;
+};
+
+
+inline GxAIExitInstantlyStateRow &AIExitInstantlyState::gxRow() const { return const_cast<GxAIExitInstantlyStateRow &>(*m_gxAIExitInstantlyStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Guard location
  */
+struct GxAIGuardStateRow;
 class AIGuardState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIGuardState, "AIGuardState")
 public:
-	AIGuardState( StateMachine *machine ) : State( machine, "AIGuardState" ), m_guardMachine(nullptr)
-	{
-		m_guardMachine = nullptr;
-	}
+	AIGuardState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	//~AIGuardState();
 	virtual Bool isAttack() const;
 	virtual Bool isGuardIdle() const;
@@ -1178,18 +1448,33 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	AIGuardMachine *m_guardMachine;					///< state sub-machine for guard behavior
+	GxRow<struct GxAIGuardStateRow> m_gxAIGuardStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardStates
+	friend struct GxAIGuardStateRow;
+	inline struct GxAIGuardStateRow &gxRow() const;
 };
+
+// Web port (round 5, units are pure data): AIGuardState's per-unit state, one row per unit in TheGxAIGuardStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIGuardStateRow
+{
+	AIGuardMachine* guardMachine;
+};
+
+
+inline GxAIGuardStateRow &AIGuardState::gxRow() const { return const_cast<GxAIGuardStateRow &>(*m_gxAIGuardStateRow); }
+
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Guard retaliate against object (hybrid attack / guard)
  */
+struct GxAIGuardRetaliateStateRow;
 class AIGuardRetaliateState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIGuardRetaliateState, "AIGuardRetaliateState")
 public:
-	AIGuardRetaliateState( StateMachine *machine ) : State( machine, "AIGuardRetaliateState" ), m_guardRetaliateMachine(nullptr) {}
+	AIGuardRetaliateState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	//~AIGuardRetaliateState();
 	virtual Bool isAttack() const;
 	virtual StateReturnType onEnter();
@@ -1205,21 +1490,33 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	AIGuardRetaliateMachine *m_guardRetaliateMachine;					///< state sub-machine for retaliate behavior
+	GxRow<struct GxAIGuardRetaliateStateRow> m_gxAIGuardRetaliateStateRow;	///< web port (round 5): this unit's row in TheGxAIGuardRetaliateStates
+	friend struct GxAIGuardRetaliateStateRow;
+	inline struct GxAIGuardRetaliateStateRow &gxRow() const;
 };
+
+// Web port (round 5, units are pure data): AIGuardRetaliateState's per-unit state, one row per unit in TheGxAIGuardRetaliateStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIGuardRetaliateStateRow
+{
+	AIGuardRetaliateMachine* guardRetaliateMachine;
+};
+
+
+inline GxAIGuardRetaliateStateRow &AIGuardRetaliateState::gxRow() const { return const_cast<GxAIGuardRetaliateStateRow &>(*m_gxAIGuardRetaliateStateRow); }
+
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Guard from inside a tunnel network.
  */
+struct GxAITunnelNetworkGuardStateRow;
 class AITunnelNetworkGuardState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AITunnelNetworkGuardState, "AITunnelNetworkGuardState")
 public:
-	AITunnelNetworkGuardState( StateMachine *machine ) : State( machine, "AITunnelNetworkGuardState" ), m_guardMachine(nullptr)
-	{
-		m_guardMachine = nullptr;
-	}
+	AITunnelNetworkGuardState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	//~AIGuardState();
 	virtual Bool isAttack() const;
 	virtual StateReturnType onEnter();
@@ -1235,21 +1532,33 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	AITNGuardMachine *m_guardMachine;					///< state sub-machine for guard behavior
+	GxRow<struct GxAITunnelNetworkGuardStateRow> m_gxAITunnelNetworkGuardStateRow;	///< web port (round 5): this unit's row in TheGxAITunnelNetworkGuardStates
+	friend struct GxAITunnelNetworkGuardStateRow;
+	inline struct GxAITunnelNetworkGuardStateRow &gxRow() const;
 };
+
+// Web port (round 5, units are pure data): AITunnelNetworkGuardState's per-unit state, one row per unit in TheGxAITunnelNetworkGuardStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAITunnelNetworkGuardStateRow
+{
+	AITNGuardMachine* guardMachine;
+};
+
+
+inline GxAITunnelNetworkGuardStateRow &AITunnelNetworkGuardState::gxRow() const { return const_cast<GxAITunnelNetworkGuardStateRow &>(*m_gxAITunnelNetworkGuardStateRow); }
+
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Seek and destroy behavior
  */
+struct GxAIHuntStateRow;
 class AIHuntState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIHuntState, "AIHuntState")
 public:
-	AIHuntState( StateMachine *machine ) : State( machine, "AIHuntState" ), m_huntMachine(nullptr)
-	{
-		m_nextEnemyScanTime = 0;
-	}
+	AIHuntState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	//~AIHuntState();
 	virtual Bool isAttack() const;
 	virtual StateReturnType onEnter();
@@ -1266,23 +1575,37 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	StateMachine* m_huntMachine;					///< state sub-machine for hunt behavior
-	UnsignedInt m_nextEnemyScanTime;			///< time of last enemy scan
+	GxRow<struct GxAIHuntStateRow> m_gxAIHuntStateRow;	///< web port (round 5): this unit's row in TheGxAIHuntStates
+	friend struct GxAIHuntStateRow;
+	inline struct GxAIHuntStateRow &gxRow() const;
 	enum { ENEMY_SCAN_RATE = LOGICFRAMES_PER_SECOND };
 };
+
+// Web port (round 5, units are pure data): AIHuntState's per-unit state, one row per unit in TheGxAIHuntStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIHuntStateRow
+{
+	StateMachine* huntMachine;
+	UnsignedInt nextEnemyScanTime;
+};
+
+
+inline GxAIHuntStateRow &AIHuntState::gxRow() const { return const_cast<GxAIHuntStateRow &>(*m_gxAIHuntStateRow); }
+
 
 //-----------------------------------------------------------------------------------------------------------
 /**
  * Seek and destroy in area
  */
+struct GxAIAttackAreaStateRow;
 class AIAttackAreaState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIAttackAreaState, "AIAttackAreaState")
 public:
-	AIAttackAreaState( StateMachine *machine ) : State( machine, "AIAttackAreaState" ), m_attackMachine(nullptr),
-		m_nextEnemyScanTime(0) { }
+	AIAttackAreaState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	//~AIAttackAreaState();
-	virtual Bool isAttack() const { return m_attackMachine ? m_attackMachine->isInAttackState() : FALSE; }
+	virtual Bool isAttack() const;
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -1297,19 +1620,36 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	StateMachine *m_attackMachine;					///< state sub-machine for attack behavior
-	UnsignedInt m_nextEnemyScanTime;			///< time of last enemy scan
+	GxRow<struct GxAIAttackAreaStateRow> m_gxAIAttackAreaStateRow;	///< web port (round 5): this unit's row in TheGxAIAttackAreaStates
+	friend struct GxAIAttackAreaStateRow;
+	inline struct GxAIAttackAreaStateRow &gxRow() const;
 	enum { ENEMY_SCAN_RATE = LOGICFRAMES_PER_SECOND };
 };
+
+// Web port (round 5, units are pure data): AIAttackAreaState's per-unit state, one row per unit in TheGxAIAttackAreaStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIAttackAreaStateRow
+{
+	StateMachine* attackMachine;
+	UnsignedInt nextEnemyScanTime;
+};
+
+
+inline GxAIAttackAreaStateRow &AIAttackAreaState::gxRow() const { return const_cast<GxAIAttackAreaStateRow &>(*m_gxAIAttackAreaStateRow); }
+inline Bool AIAttackAreaState::isAttack() const
+{ return gxRow().attackMachine ? gxRow().attackMachine->isInAttackState() : FALSE; }
+
 
 //-----------------------------------------------------------------------------------------------------------
 // Faces a position or an object (depending on goal)
 //-----------------------------------------------------------------------------------------------------------
+struct GxAIFaceStateRow;
 class AIFaceState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIFaceState, "AIFaceState")
 public:
-	AIFaceState( StateMachine *machine, Bool obj ) : State( machine, "AIFaceState" ), m_canTurnInPlace(false), m_obj(obj) { }
+	AIFaceState( StateMachine *machine, Bool obj );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -1320,7 +1660,19 @@ protected:
 	virtual void loadPostProcess();
 
 protected:
-	const Bool m_obj;
-	Bool m_canTurnInPlace;
+	GxRow<struct GxAIFaceStateRow> m_gxAIFaceStateRow;	///< web port (round 5): this unit's row in TheGxAIFaceStates
+	friend struct GxAIFaceStateRow;
+	inline struct GxAIFaceStateRow &gxRow() const;
 };
-EMPTY_DTOR(AIFaceState)
+
+// Web port (round 5, units are pure data): AIFaceState's per-unit state, one row per unit in TheGxAIFaceStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIFaceStateRow
+{
+	Bool obj;
+	Bool canTurnInPlace;
+};
+
+
+inline GxAIFaceStateRow &AIFaceState::gxRow() const { return const_cast<GxAIFaceStateRow &>(*m_gxAIFaceStateRow); }
+

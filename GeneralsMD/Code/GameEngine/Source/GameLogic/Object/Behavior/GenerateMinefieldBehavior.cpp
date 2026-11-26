@@ -30,6 +30,9 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxUnitStore.h"
+#include "GameLogic/GameLogic.h"
+#include "GameLogic/Module/UpdateModule.h"
 #define DEFINE_SLOWDEATHPHASE_NAMES
 
 #include "Common/GlobalData.h"
@@ -103,21 +106,115 @@ GenerateMinefieldBehaviorModuleData::GenerateMinefieldBehaviorModuleData()
 }
 
 //-------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+// Web port (round 5, units are pure data): the per-unit state is a row of the shared GxComponentPool<GxMinefieldRow>; the old
+// member names below read and write this unit's row, so the logic and xfer/CRC order are unchanged.
+// ------------------------------------------------------------------------------------------------
+#define m_target		(const_cast<GxMinefieldRow &>(*m_gxRow).target)
+#define m_hasTarget		(const_cast<GxMinefieldRow &>(*m_gxRow).hasTarget)
+#define m_generated		(const_cast<GxMinefieldRow &>(*m_gxRow).generated)
+#define m_upgraded		(const_cast<GxMinefieldRow &>(*m_gxRow).upgraded)
+#define m_mineList		(const_cast<GxMinefieldRow &>(*m_gxRow).mineList)
+
+// ------------------------------------------------------------------------------------------------
+// Web port (round 5 addendum): the minefield system as kernel + apply, on store behaviour bit 56
+// (set for upgradable minefields until they are upgraded). Under the updatePasses rule the kernel and
+// apply replace the module's per-frame poll; without it the module's update() polls as before.
+// kernel reads: store obj[], the object's completed-upgrade mask, row.generated/upgraded;
+//        writes: row.gxReplace only.
+// apply (main thread, object-ID order): replaces the mines of the flagged rows.
+// ------------------------------------------------------------------------------------------------
+static const Int GXB_AI_MINEFIELD = 56;
+static std::vector<GxMinefieldRow *> s_gxMinefieldById;	// object ID -> row (rebuilt if an ID moved)
+static const UpgradeTemplate *gxEmpMinesUpgrade();
+static const UpgradeMaskType *s_gxEmpMask = nullptr;	// set by apply on the main thread, read by the kernel
+
+static Bool gxMinefieldRule()
+{
+	extern bool gxMatchRule(unsigned int rule);
+	return gxMatchRule(131072);
+}
+void gxMinefieldNote(const Object *obj, GxMinefieldRow *row)
+{
+	const Int id = (Int)obj->getID();
+	if (id >= (Int)s_gxMinefieldById.size()) s_gxMinefieldById.resize(id + 1, nullptr);
+	s_gxMinefieldById[id] = row;
+	TheGxUnitStore.setMask(obj, GXB_BIT(GXB_AI_MINEFIELD));
+}
+void gxMinefieldForget(const Object *obj, GxMinefieldRow *row)
+{
+	const Int id = (Int)obj->getID();
+	if (id < (Int)s_gxMinefieldById.size() && s_gxMinefieldById[id] == row) s_gxMinefieldById[id] = nullptr;
+	TheGxUnitStore.setMask(obj, 0, GXB_BIT(GXB_AI_MINEFIELD));
+}
+static GxMinefieldRow *gxMinefieldRowOf(Object *obj)
+{
+	const Int id = (Int)obj->getID();
+	GxMinefieldRow *r = id < (Int)s_gxMinefieldById.size() ? s_gxMinefieldById[id] : nullptr;
+	if (r && r->facade && r->owner == obj) return r;
+	return nullptr;	// (after a load the map is refilled by apply, see below)
+}
+static void gxMinefieldKernel(const Int *slots, Int begin, Int end)
+{
+	if (!s_gxEmpMask) return;
+	for (Int k = begin; k < end; ++k)
+	{
+		Object *obj = TheGxUnitStore.obj[slots[k]];
+		if (!obj) continue;
+		GxMinefieldRow *r = gxMinefieldRowOf(obj);
+		if (!r) continue;
+		r->gxReplace = r->generated && !r->upgraded && obj->getObjectCompletedUpgradeMask().testForAny(*s_gxEmpMask);
+	}
+}
+static void gxMinefieldApply(const Int *slots, Int count)
+{
+	if (!gxMinefieldRule()) { s_gxEmpMask = nullptr; return; }
+	const UpgradeTemplate *t = gxEmpMinesUpgrade();
+	const Bool firstFrame = (s_gxEmpMask == nullptr);
+	s_gxEmpMask = t ? &t->getUpgradeMask() : nullptr;
+	if (firstFrame)
+	{
+		// the rule just came on (or a load): refill the ID map from the rows and run the kernel now
+		GxComponentPool<GxMinefieldRow> &pool = GxComponentPool<GxMinefieldRow>::the();
+		for (int i = 0; i < pool.size(); ++i)
+			if (pool.live(i) && pool[i].facade && pool[i].owner) gxMinefieldNote(pool[i].owner, &pool[i]);
+		gxMinefieldKernel(slots, 0, count);
+	}
+	for (Int k = 0; k < count; ++k)
+	{
+		Object *obj = TheGxUnitStore.obj[slots[k]];
+		if (!obj) continue;
+		GxMinefieldRow *r = gxMinefieldRowOf(obj);
+		if (r && r->gxReplace)
+		{
+			r->gxReplace = false;
+			r->facade->gxReplaceMines();
+		}
+	}
+}
+static void gxMinefieldRegister()
+{
+	static Bool done = false;
+	if (done) return;
+	done = true;
+	GameLogic::gxRegisterKernel(GXB_AI_MINEFIELD, PHASE_NORMAL, gxMinefieldKernel, gxMinefieldApply);
+}
+
 //-------------------------------------------------------------------------------------------------
 GenerateMinefieldBehavior::GenerateMinefieldBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_target.zero();
-	m_generated = false;
-	m_hasTarget = false;
-	m_upgraded = false;
-	m_mineList.clear();
+	m_gxRow->facade = this;
+	m_gxRow->owner = getObject();
+	gxMinefieldRegister();
+	if (getGenerateMinefieldBehaviorModuleData()->m_upgradable)
+		gxMinefieldNote(getObject(), &*m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 GenerateMinefieldBehavior::~GenerateMinefieldBehavior()
 {
-	m_mineList.clear();
+	gxMinefieldForget(getObject(), &*m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -452,15 +549,63 @@ void GenerateMinefieldBehavior::placeMines()
 
 // ------------------------------------------------------------------------------------------------
 
+// The minefield system: one step for one unit's row. Its only per-frame work is testing whether the
+// EMP-mines upgrade has completed; the upgrade is looked up by name once instead of every frame
+// (fourth switch word bit 6, same game: the upgrade list is fixed once the INI is loaded).
+static const UpgradeTemplate *gxEmpMinesUpgrade()
+{
+	extern int GLES3_Page_Switches4();
+	if (!(GLES3_Page_Switches4() & 64))
+		return TheUpgradeCenter->findUpgrade( "Upgrade_ChinaEMPMines" );
+	static const UpgradeCenter *s_center = nullptr;
+	static const UpgradeTemplate *s_upgrade = nullptr;
+	if (s_center != TheUpgradeCenter)
+	{
+		s_center = TheUpgradeCenter;
+		s_upgrade = TheUpgradeCenter->findUpgrade( "Upgrade_ChinaEMPMines" );
+	}
+	extern int GLES3_Page_Switches();
+	if (GLES3_Page_Switches() & 2097152)	// verify mode: the cached template is the one the lookup finds
+	{
+		extern int gx_verify_mismatch, gx_verify_checked;
+		++gx_verify_checked;
+		if (s_upgrade != TheUpgradeCenter->findUpgrade( "Upgrade_ChinaEMPMines" ))
+		{
+			++gx_verify_mismatch;
+			printf("GXVERIFY minefield upgrade cache mismatch\n");
+		}
+	}
+	return s_upgrade;
+}
+
+void GenerateMinefieldBehavior::gxReplaceMines()
+{
+	m_upgraded = TRUE;
+	gxMinefieldForget(getObject(), &*m_gxRow);	// upgraded: no longer polled
+	// Remove all old mine objects if present
+	for (std::list<ObjectID>::iterator it = m_mineList.begin(); it != m_mineList.end(); ++it)
+	{
+		Object *obj = TheGameLogic->findObjectByID(*it);
+		if (obj)
+			TheGameLogic->destroyObject(obj);
+	}
+	m_mineList.clear();
+	// Place new mines down (Replace old ones that we removed
+	m_generated = false;
+	placeMines();
+}
+
 UpdateSleepTime GenerateMinefieldBehavior::update()
 {
 	// Test to see if we need to replace the current mines with upgraded ones
 	if (!m_upgraded && getGenerateMinefieldBehaviorModuleData()->m_upgradable)
 	{
+		if (gxMinefieldRule())
+			return UPDATE_SLEEP_NONE;	// round 5: the minefield system's kernel + apply do the poll and the replacement
 		if (m_generated)
 		{
 			// Upgraded minefield to next level for China Player
-			const UpgradeTemplate *upgradeTemplate = TheUpgradeCenter->findUpgrade( "Upgrade_ChinaEMPMines" );
+			const UpgradeTemplate *upgradeTemplate = gxEmpMinesUpgrade();
 
 			if (upgradeTemplate)
 			{

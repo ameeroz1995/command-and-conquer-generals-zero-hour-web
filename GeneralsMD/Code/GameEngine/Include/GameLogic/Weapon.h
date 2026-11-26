@@ -568,6 +568,26 @@ private:
 };
 
 // ---------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+// Round 5 (units are pure data): every Weapon's state lives in these columns, one row per weapon
+// (Weapon keeps only its row). Rows are reused through a free list. The reload system
+// (gxWeaponReloadSystem, fourth switch word bit 24) walks them directly.
+struct GxWeaponRows
+{
+	std::vector<const WeaponTemplate*> tmpl;
+	std::vector<WeaponSlotType> wslot;
+	std::vector<WeaponStatus> status;
+	std::vector<UnsignedInt> ammo, whenFire, preAttack, lastReload, lastFire, suspendFX;
+	std::vector<ObjectID> projStream, owner;	///< owner: the unit whose WeaponSet holds the weapon (weaponSkip)
+	std::vector<Int> maxShot, curBarrel, numShots;
+	std::vector< std::vector<Int> > scatter;
+	std::vector<UnsignedByte> pitchLimited, leech, live;	// bytes, not vector<bool>: xfer needs addresses
+	std::vector<Int> freeRows;
+	Int alloc();
+	void release(Int r);
+};
+extern GxWeaponRows TheGxWeapons;
+
 class Weapon : public MemoryPoolObject,
 							 public Snapshot
 {
@@ -662,15 +682,15 @@ public:
 	WeaponStatus getStatus() const;
 
 	/// Some AI needs to know when the soonest I can possibly next shoot.  Bonuses have been figured into this number already.
-	UnsignedInt getPossibleNextShotFrame() const { return m_whenWeCanFireAgain; }
-	UnsignedInt getPreAttackFinishedFrame() const { return m_whenPreAttackFinished; }
-	UnsignedInt getLastReloadStartedFrame() const { return m_whenLastReloadStarted; }
+	UnsignedInt getPossibleNextShotFrame() const { return TheGxWeapons.whenFire[m_row]; }
+	UnsignedInt getPreAttackFinishedFrame() const { return TheGxWeapons.preAttack[m_row]; }
+	UnsignedInt getLastReloadStartedFrame() const { return TheGxWeapons.lastReload[m_row]; }
 	Real getPercentReadyToFire() const;
 
 	// do not ever use this unless you are weaponset.cpp
-	void setPossibleNextShotFrame( UnsignedInt frameNum ) { m_whenWeCanFireAgain = frameNum; gxTouch(); }
-	void setPreAttackFinishedFrame( UnsignedInt frameNum ) { m_whenPreAttackFinished = frameNum; gxTouch(); }
-	void setLastReloadStartedFrame( UnsignedInt frameNum ) { m_whenLastReloadStarted = frameNum; gxTouch(); }
+	void setPossibleNextShotFrame( UnsignedInt frameNum ) { TheGxWeapons.whenFire[m_row] = frameNum; gxTouch(); }
+	void setPreAttackFinishedFrame( UnsignedInt frameNum ) { TheGxWeapons.preAttack[m_row] = frameNum; gxTouch(); }
+	void setLastReloadStartedFrame( UnsignedInt frameNum ) { TheGxWeapons.lastReload[m_row] = frameNum; gxTouch(); }
 
 	//Transfer the reload times and status from the passed in weapon.
 	void transferNextShotStatsFrom( const Weapon &weapon );
@@ -686,35 +706,35 @@ public:
 
 	void newProjectileFired( const Object *sourceObj, const Object *projectile, const Object *victimObj, const Coord3D *victimPos );///<I just made this projectile and may need to keep track of it
 
-	Bool isLaser() const { return m_template->getLaserName().isNotEmpty(); }
+	Bool isLaser() const { return TheGxWeapons.tmpl[m_row]->getLaserName().isNotEmpty(); }
 	void createLaser( const Object *sourceObj, const Object *victimObj, const Coord3D *victimPos );
 
-	const WeaponTemplate* getTemplate() const { return m_template; }
-	WeaponSlotType getWeaponSlot() const { return m_wslot; }
-	AsciiString getName() const { return m_template->getName(); }
-	UnsignedInt getLastShotFrame() const { return m_lastFireFrame; }						///< frame a shot was last fired on
-	// If we are "reloading", then m_ammoInClip is a lie.  It will say full.
-	UnsignedInt getRemainingAmmo() const { return (getStatus() == RELOADING_CLIP) ? 0 : m_ammoInClip; }
-	WeaponReloadType getReloadType() const { return m_template->getReloadType(); }
-	Bool getAutoReloadsClip() const { return m_template->getAutoReloadsClip(); }
-	Real getAimDelta() const { return m_template->getAimDelta(); }
-	Real getScatterRadius() const { return m_template->getScatterRadius(); }
-	Real getScatterTargetScalar() const { return m_template->getScatterTargetScalar(); }
-	Int getAntiMask() const { return m_template->getAntiMask(); }
-	Bool isCapableOfFollowingWaypoint() const { return m_template->isCapableOfFollowingWaypoint(); }
-	Int getContinuousFireOneShotsNeeded() const { return m_template->getContinuousFireOneShotsNeeded(); }
-	Int getContinuousFireTwoShotsNeeded() const { return m_template->getContinuousFireTwoShotsNeeded(); }
-	UnsignedInt getContinuousFireCoastFrames() const { return m_template->getContinuousFireCoastFrames(); }
- 	UnsignedInt getAutoReloadWhenIdleFrames() const { return m_template->getAutoReloadWhenIdleFrames(); }
-	const AudioEventRTS& getFireSound() const { return m_template->getFireSound(); }
-	UnsignedInt getFireSoundLoopTime() const { return m_template->getFireSoundLoopTime(); }
-	DamageType getDamageType() const { return m_template->getDamageType(); }
-	DeathType getDeathType() const { return m_template->getDeathType(); }
-	Real getContinueAttackRange() const { return m_template->getContinueAttackRange(); }
-	Bool isShowsAmmoPips() const { return m_template->isShowsAmmoPips(); }
-	Int getClipSize() const { return m_template->getClipSize(); }
+	const WeaponTemplate* getTemplate() const { return TheGxWeapons.tmpl[m_row]; }
+	WeaponSlotType getWeaponSlot() const { return TheGxWeapons.wslot[m_row]; }
+	AsciiString getName() const { return TheGxWeapons.tmpl[m_row]->getName(); }
+	UnsignedInt getLastShotFrame() const { return TheGxWeapons.lastFire[m_row]; }						///< frame a shot was last fired on
+	// If we are "reloading", then TheGxWeapons.ammo[m_row] is a lie.  It will say full.
+	UnsignedInt getRemainingAmmo() const { return (getStatus() == RELOADING_CLIP) ? 0 : TheGxWeapons.ammo[m_row]; }
+	WeaponReloadType getReloadType() const { return TheGxWeapons.tmpl[m_row]->getReloadType(); }
+	Bool getAutoReloadsClip() const { return TheGxWeapons.tmpl[m_row]->getAutoReloadsClip(); }
+	Real getAimDelta() const { return TheGxWeapons.tmpl[m_row]->getAimDelta(); }
+	Real getScatterRadius() const { return TheGxWeapons.tmpl[m_row]->getScatterRadius(); }
+	Real getScatterTargetScalar() const { return TheGxWeapons.tmpl[m_row]->getScatterTargetScalar(); }
+	Int getAntiMask() const { return TheGxWeapons.tmpl[m_row]->getAntiMask(); }
+	Bool isCapableOfFollowingWaypoint() const { return TheGxWeapons.tmpl[m_row]->isCapableOfFollowingWaypoint(); }
+	Int getContinuousFireOneShotsNeeded() const { return TheGxWeapons.tmpl[m_row]->getContinuousFireOneShotsNeeded(); }
+	Int getContinuousFireTwoShotsNeeded() const { return TheGxWeapons.tmpl[m_row]->getContinuousFireTwoShotsNeeded(); }
+	UnsignedInt getContinuousFireCoastFrames() const { return TheGxWeapons.tmpl[m_row]->getContinuousFireCoastFrames(); }
+ 	UnsignedInt getAutoReloadWhenIdleFrames() const { return TheGxWeapons.tmpl[m_row]->getAutoReloadWhenIdleFrames(); }
+	const AudioEventRTS& getFireSound() const { return TheGxWeapons.tmpl[m_row]->getFireSound(); }
+	UnsignedInt getFireSoundLoopTime() const { return TheGxWeapons.tmpl[m_row]->getFireSoundLoopTime(); }
+	DamageType getDamageType() const { return TheGxWeapons.tmpl[m_row]->getDamageType(); }
+	DeathType getDeathType() const { return TheGxWeapons.tmpl[m_row]->getDeathType(); }
+	Real getContinueAttackRange() const { return TheGxWeapons.tmpl[m_row]->getContinueAttackRange(); }
+	Bool isShowsAmmoPips() const { return TheGxWeapons.tmpl[m_row]->isShowsAmmoPips(); }
+	Int getClipSize() const { return TheGxWeapons.tmpl[m_row]->getClipSize(); }
 	// Contact weapons (like car bombs) need to basically collide with their target.
-	Bool isContactWeapon() const { return m_template->isContactWeapon(); }
+	Bool isContactWeapon() const { return TheGxWeapons.tmpl[m_row]->isContactWeapon(); }
 
 	Int getClipReloadTime(const Object *source) const;
 
@@ -724,18 +744,18 @@ public:
 
 	Bool isDamageWeapon() const;
 
-	Bool isPitchLimited() const { return m_pitchLimited; }
+	Bool isPitchLimited() const { return TheGxWeapons.pitchLimited[m_row]; }
 	Bool isWithinTargetPitch(const Object *source, const Object *victim) const;
 
 	//Leech range functionality simply means this weapon has unlimited range temporarily. How it works is if the
 	//weapon template has the LeechRangeWeapon set, it means that once the unit has closed to standard weapon range
 	//it fires the weapon, and will be able to hit the target even if it moves out of range! The unit will simply
 	//stand there. This functionality is used by hack attacks.
-	void setLeechRangeActive( Bool active ) { m_leechWeaponRangeActive = active; }
-	Bool hasLeechRange() const { return m_leechWeaponRangeActive; }
+	void setLeechRangeActive( Bool active ) { TheGxWeapons.leech[m_row] = active; }
+	Bool hasLeechRange() const { return TheGxWeapons.leech[m_row]; }
 
-	void setMaxShotCount(Int maxShots) { m_maxShotCount = maxShots; }
-	Int getMaxShotCount() const { return m_maxShotCount; }
+	void setMaxShotCount(Int maxShots) { TheGxWeapons.maxShot[m_row] = maxShots; }
+	Int getMaxShotCount() const { return TheGxWeapons.maxShot[m_row]; }
 
 	Bool isClearFiringLineOfSightTerrain(const Object* source, const Object* victim) const;
 	Bool isClearFiringLineOfSightTerrain(const Object* source, const Coord3D& victimPos) const;
@@ -764,7 +784,7 @@ public:
 		with status as READY_TO_FIRE or OUT_OF_AMMO, but never RELOADING_CLIP!
 	*/
 	void setClipPercentFull(Real percent, Bool allowReduction);
-	UnsignedInt getSuspendFXFrame() const { return m_suspendFXFrame; }
+	UnsignedInt getSuspendFXFrame() const { return TheGxWeapons.suspendFX[m_row]; }
 
 protected:
 
@@ -794,30 +814,14 @@ protected:
 
 
 private:
-	const WeaponTemplate*			m_template;									///< the kind of weapon this is
-	WeaponSlotType						m_wslot;										///< are we primary, secondary, etc. weapon? (used for projectile placement on reload)
-	mutable WeaponStatus			m_status;										///< weapon status
-	UnsignedInt								m_ammoInClip;								///< how many shots left in current clip
-	UnsignedInt								m_whenWeCanFireAgain;				///< the first frame the weapon can fire again
-	UnsignedInt								m_whenPreAttackFinished;		///< the frame the pre attack will complete.
-	UnsignedInt								m_whenLastReloadStarted;		///< the frame the current reload/between-shots began. (only valid if status is RELOADING_CLIP or BETWEEN_FIRING_SHOTS)
-	UnsignedInt								m_lastFireFrame;						///< frame a shot was last fired on
-	ObjectID									m_gxOwner = INVALID_ID;				///< weaponSkip: the unit whose WeaponSet holds this weapon (0: none)
+	Int m_row;	///< this weapon's row in TheGxWeapons
 public:
-	void gxSetOwner(ObjectID id) { m_gxOwner = id; gxTouch(); }
+	void gxSetOwner(ObjectID id) { TheGxWeapons.owner[m_row] = id; gxTouch(); }
 	void gxTouch() const;		///< tell the store's weapon-status pass this unit's weapons changed
 private:
-	UnsignedInt								m_suspendFXFrame;						///< The fireFX can be suspended for any delay, in frames, then they will execute as normal
-	ObjectID									m_projectileStreamID;				///< the object that is tracking our stream if we have one.  It can't go away without us.
-	Int												m_maxShotCount;							///< used for limiting consecutive firing
-	Int												m_curBarrel;								///< current barrel used for firing
-	Int												m_numShotsForCurBarrel;			///< how many shots to fire from cur barrel before moving to next barrel
-	std::vector<Int>					m_scatterTargetsUnused;			///< A running memory of which targets I've used, so I can shoot them all at random
-	Bool											m_pitchLimited;
-	Bool											m_leechWeaponRangeActive;		///< This weapon has unlimited range until attack state is aborted!
 
 	// setter function for status that should not be used outside this class
-	void setStatus( WeaponStatus status) { m_status = status; gxTouch(); }
+	void setStatus( WeaponStatus status) { TheGxWeapons.status[m_row] = status; gxTouch(); }
 };
 
 //-------------------------------------------------------------------------------------------------

@@ -41,6 +41,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////
 #include "Common/GameMemory.h"
+#include "Common/GxComponentPool.h"	// web port (round 5)
 #include "GameLogic/AIStateMachine.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
@@ -60,31 +61,48 @@ enum
 };
 
 //--------------------------------------------------------------------------------------
+struct GxTunnelNetworkExitConditionsRow;
 class TunnelNetworkExitConditions : public AttackExitConditionsInterface
 {
 public:
+	virtual ~TunnelNetworkExitConditions();	///< web port (round 5): releases the row
 
-	UnsignedInt			m_attackGiveUpFrame;		// frame at which we give up (if using)
+public:
 
-	TunnelNetworkExitConditions() : m_attackGiveUpFrame(0)
-	{
-	}
+	GxRow<struct GxTunnelNetworkExitConditionsRow> m_gxTunnelNetworkExitConditionsRow;	///< web port (round 5): this unit's row in TheGxTunnelNetworkExitConditionss
+	friend struct GxTunnelNetworkExitConditionsRow;
+	inline struct GxTunnelNetworkExitConditionsRow &gxRow() const;
+
+	TunnelNetworkExitConditions();	///< web port (round 5): defined in the .cpp
+
 
 	virtual Bool shouldExit(const StateMachine* machine) const;
 };
+
+// Web port (round 5, units are pure data): TunnelNetworkExitConditions's per-unit state, one row per unit in TheGxTunnelNetworkExitConditionss;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxTunnelNetworkExitConditionsRow
+{
+	UnsignedInt attackGiveUpFrame;
+};
+
+
+inline GxTunnelNetworkExitConditionsRow &TunnelNetworkExitConditions::gxRow() const { return const_cast<GxTunnelNetworkExitConditionsRow &>(*m_gxTunnelNetworkExitConditionsRow); }
+
 
 
 // FORWARD DECLARATIONS ///////////////////////////////////////////////////////
 
 //--------------------------------------------------------------------------------------
+struct GxAITNGuardMachineRow;
 class AITNGuardMachine : public StateMachine
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( AITNGuardMachine, "AITNGuardMachinePool" );
 
 private:
-	Coord3D									m_positionToGuard;
-	ObjectID								m_nemesisToAttack;
-	GuardMode								m_guardMode;
+	GxRow<struct GxAITNGuardMachineRow> m_gxAITNGuardMachineRow;	///< web port (round 5): this unit's row in TheGxAITNGuardMachines
+	friend struct GxAITNGuardMachineRow;
+	inline struct GxAITNGuardMachineRow &gxRow() const;
 
 protected:
 	// snapshot interface
@@ -99,29 +117,53 @@ public:
 	 */
 	AITNGuardMachine( Object *owner );
 
-	const Coord3D *getPositionToGuard() const { return &m_positionToGuard; }
-	void setTargetPositionToGuard( const Coord3D *pos) { m_positionToGuard = *pos; }
+	const Coord3D * getPositionToGuard() const;
+	void setTargetPositionToGuard( const Coord3D *pos);
 
-	void setNemesisID(ObjectID id) { m_nemesisToAttack = id; }
-	ObjectID getNemesisID() const { return m_nemesisToAttack; }
+	void setNemesisID(ObjectID id);
+	ObjectID getNemesisID() const;
 
-	GuardMode getGuardMode() const { return m_guardMode; }
-	void setGuardMode(GuardMode guardMode) { m_guardMode = guardMode; }
+	GuardMode getGuardMode() const;
+	void setGuardMode(GuardMode guardMode);
 
 	Bool lookForInnerTarget();
 
 	static Real getStdGuardRange(const Object* obj);
 };
 
+// Web port (round 5, units are pure data): AITNGuardMachine's per-unit state, one row per unit in TheGxAITNGuardMachines;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAITNGuardMachineRow
+{
+	Coord3D positionToGuard;
+	ObjectID nemesisToAttack;
+	GuardMode guardMode;
+};
+
+
+inline GxAITNGuardMachineRow &AITNGuardMachine::gxRow() const { return const_cast<GxAITNGuardMachineRow &>(*m_gxAITNGuardMachineRow); }
+inline const Coord3D * AITNGuardMachine::getPositionToGuard() const
+{ return &gxRow().positionToGuard; }
+inline void AITNGuardMachine::setTargetPositionToGuard( const Coord3D *pos)
+{ gxRow().positionToGuard = *pos; }
+inline void AITNGuardMachine::setNemesisID(ObjectID id)
+{ gxRow().nemesisToAttack = id; }
+inline ObjectID AITNGuardMachine::getNemesisID() const
+{ return gxRow().nemesisToAttack; }
+inline GuardMode AITNGuardMachine::getGuardMode() const
+{ return gxRow().guardMode; }
+inline void AITNGuardMachine::setGuardMode(GuardMode guardMode)
+{ gxRow().guardMode = guardMode; }
+
+
 //--------------------------------------------------------------------------------------
+struct GxAITNGuardInnerStateRow;
 class AITNGuardInnerState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AITNGuardInnerState, "AITNGuardInnerState")
 public:
-	AITNGuardInnerState( StateMachine *machine ) : State( machine, "AITNGuardInner" )
-	{
-		m_attackState = nullptr;
-	}
+	AITNGuardInnerState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
@@ -133,17 +175,32 @@ protected:
 private:
 	AITNGuardMachine* getGuardMachine() { return (AITNGuardMachine*)getMachine(); }
 
-	TunnelNetworkExitConditions m_exitConditions;
-	Bool			m_scanForEnemy;
-	AIAttackState *m_attackState;
+	GxRow<struct GxAITNGuardInnerStateRow> m_gxAITNGuardInnerStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardInnerStates
+	friend struct GxAITNGuardInnerStateRow;
+	inline struct GxAITNGuardInnerStateRow &gxRow() const;
 };
 
+// Web port (round 5, units are pure data): AITNGuardInnerState's per-unit state, one row per unit in TheGxAITNGuardInnerStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAITNGuardInnerStateRow
+{
+	TunnelNetworkExitConditions exitConditions;
+	Bool scanForEnemy;
+	AIAttackState* attackState;
+};
+
+
+inline GxAITNGuardInnerStateRow &AITNGuardInnerState::gxRow() const { return const_cast<GxAITNGuardInnerStateRow &>(*m_gxAITNGuardInnerStateRow); }
+
+
 //--------------------------------------------------------------------------------------
+struct GxAITNGuardIdleStateRow;
 class AITNGuardIdleState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AITNGuardIdleState, "AITNGuardIdleState")
 public:
-	AITNGuardIdleState( StateMachine *machine ) : State( machine, "AITNGuardIdleState" ) { }
+	AITNGuardIdleState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
@@ -155,20 +212,30 @@ protected:
 private:
 	AITNGuardMachine* getGuardMachine() { return (AITNGuardMachine*)getMachine(); }
 
-	UnsignedInt m_nextEnemyScanTime;
-	Coord3D			m_guardeePos;						///< Where the object we are guarding was last.
+	GxRow<struct GxAITNGuardIdleStateRow> m_gxAITNGuardIdleStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardIdleStates
+	friend struct GxAITNGuardIdleStateRow;
+	inline struct GxAITNGuardIdleStateRow &gxRow() const;
 };
-EMPTY_DTOR(AITNGuardIdleState)
+
+// Web port (round 5, units are pure data): AITNGuardIdleState's per-unit state, one row per unit in TheGxAITNGuardIdleStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAITNGuardIdleStateRow
+{
+	UnsignedInt nextEnemyScanTime;
+	Coord3D guardeePos;
+};
+
+
+inline GxAITNGuardIdleStateRow &AITNGuardIdleState::gxRow() const { return const_cast<GxAITNGuardIdleStateRow &>(*m_gxAITNGuardIdleStateRow); }
 
 //--------------------------------------------------------------------------------------
+struct GxAITNGuardOuterStateRow;
 class AITNGuardOuterState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AITNGuardOuterState, "AITNGuardOuterState")
 public:
-	AITNGuardOuterState( StateMachine *machine ) : State( machine, "AITNGuardOuter" )
-	{
-		m_attackState = nullptr;
-	}
+	AITNGuardOuterState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
@@ -180,27 +247,41 @@ protected:
 private:
 	AITNGuardMachine* getGuardMachine() { return (AITNGuardMachine*)getMachine(); }
 
-	TunnelNetworkExitConditions m_exitConditions;
-	AIAttackState *m_attackState;
+	GxRow<struct GxAITNGuardOuterStateRow> m_gxAITNGuardOuterStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardOuterStates
+	friend struct GxAITNGuardOuterStateRow;
+	inline struct GxAITNGuardOuterStateRow &gxRow() const;
 };
 
+// Web port (round 5, units are pure data): AITNGuardOuterState's per-unit state, one row per unit in TheGxAITNGuardOuterStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAITNGuardOuterStateRow
+{
+	TunnelNetworkExitConditions exitConditions;
+	AIAttackState* attackState;
+};
+
+
+inline GxAITNGuardOuterStateRow &AITNGuardOuterState::gxRow() const { return const_cast<GxAITNGuardOuterStateRow &>(*m_gxAITNGuardOuterStateRow); }
+
+
 //--------------------------------------------------------------------------------------
+struct GxAITNGuardReturnStateRow;
 class AITNGuardReturnState : public AIEnterState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AITNGuardReturnState, "AITNGuardReturnState")
 private:
 	AITNGuardMachine* getGuardMachine() { return (AITNGuardMachine*)getMachine(); }
 public:
-	AITNGuardReturnState( StateMachine *machine ) : AIEnterState(machine )
-	{
-		m_nextReturnScanTime = 0;
-	}
+	AITNGuardReturnState( StateMachine *machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 	virtual void onExit( StateExitType status );
 
 protected:
-	UnsignedInt m_nextReturnScanTime;
+	GxRow<struct GxAITNGuardReturnStateRow> m_gxAITNGuardReturnStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardReturnStates
+	friend struct GxAITNGuardReturnStateRow;
+	inline struct GxAITNGuardReturnStateRow &gxRow() const;
 
 protected:
 	// snapshot interface
@@ -208,8 +289,16 @@ protected:
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 };
-EMPTY_DTOR(AITNGuardReturnState)
 
+// Web port (round 5, units are pure data): AITNGuardReturnState's per-unit state, one row per unit in TheGxAITNGuardReturnStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAITNGuardReturnStateRow
+{
+	UnsignedInt nextReturnScanTime;
+};
+
+
+inline GxAITNGuardReturnStateRow &AITNGuardReturnState::gxRow() const { return const_cast<GxAITNGuardReturnStateRow &>(*m_gxAITNGuardReturnStateRow); }
 
 //--------------------------------------------------------------------------------------
 class AITNGuardPickUpCrateState : public AIPickUpCrateState
@@ -224,6 +313,7 @@ public:
 EMPTY_DTOR(AITNGuardPickUpCrateState)
 
 //--------------------------------------------------------------------------------------
+struct GxAITNGuardAttackAggressorStateRow;
 class AITNGuardAttackAggressorState : public State
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AITNGuardAttackAggressorState, "AITNGuardAttackAggressorState")
@@ -239,8 +329,21 @@ protected:
 	virtual void loadPostProcess();
 private:
 	AITNGuardMachine* getGuardMachine() { return (AITNGuardMachine*)getMachine(); }
-	TunnelNetworkExitConditions m_exitConditions;
-	AIAttackState *m_attackState;
+	GxRow<struct GxAITNGuardAttackAggressorStateRow> m_gxAITNGuardAttackAggressorStateRow;	///< web port (round 5): this unit's row in TheGxAITNGuardAttackAggressorStates
+	friend struct GxAITNGuardAttackAggressorStateRow;
+	inline struct GxAITNGuardAttackAggressorStateRow &gxRow() const;
 };
+
+// Web port (round 5, units are pure data): AITNGuardAttackAggressorState's per-unit state, one row per unit in TheGxAITNGuardAttackAggressorStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAITNGuardAttackAggressorStateRow
+{
+	TunnelNetworkExitConditions exitConditions;
+	AIAttackState* attackState;
+};
+
+
+inline GxAITNGuardAttackAggressorStateRow &AITNGuardAttackAggressorState::gxRow() const { return const_cast<GxAITNGuardAttackAggressorStateRow &>(*m_gxAITNGuardAttackAggressorStateRow); }
+
 
 //--------------------------------------------------------------------------------------

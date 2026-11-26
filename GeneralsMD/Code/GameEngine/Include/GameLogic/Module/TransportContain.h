@@ -65,6 +65,8 @@ public:
 };
 
 //-------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxTransportContainRow;
 class TransportContain : public OpenContain
 {
 
@@ -88,7 +90,7 @@ public:
 
 	virtual Int getContainMax() const;
 
-	virtual Int getExtraSlotsInUse() { return m_extraSlotsInUse; }///< Transports have the ability to carry guys how take up more than spot.
+	virtual Int getExtraSlotsInUse(); ///< Transports have the ability to carry guys how take up more than spot.
 
 	virtual Bool isExitBusy() const;	///< Contain style exiters are getting the ability to space out exits, so ask this before reserveDoor as a kind of no-commitment check.
 	virtual ExitDoorType reserveDoorForExit( const ThingTemplate* objType, Object *specificObject );
@@ -105,11 +107,25 @@ protected:
 	virtual void createPayload();
 	void letRidersUpgradeWeaponSet();
 
-	Bool m_payloadCreated;
+	GxRow<struct GxTransportContainRow> m_gxTransportContainRow;	///< web port (round 5): this unit's row in TheGxTransportContains
+	friend struct GxTransportContainRow;
+	inline struct GxTransportContainRow &gxRow() const;
 
 private:
 
-	Int m_extraSlotsInUse;
-	UnsignedInt m_frameExitNotBusy;
 
 };
+
+// Web port (round 5, units are pure data): TransportContain's per-unit state, one row per unit in TheGxTransportContains;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxTransportContainRow
+{
+	Bool payloadCreated;
+	Int extraSlotsInUse;
+	UnsignedInt frameExitNotBusy;
+};
+
+
+inline GxTransportContainRow &TransportContain::gxRow() const { return const_cast<GxTransportContainRow &>(*m_gxTransportContainRow); }
+inline Int TransportContain::getExtraSlotsInUse() { return gxRow().extraSlotsInUse; }
+

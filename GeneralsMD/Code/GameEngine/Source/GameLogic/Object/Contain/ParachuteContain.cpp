@@ -46,6 +46,11 @@
 
 #include "GameClient/Drawable.h"
 
+// Web port (round 5, units are pure data): ParachuteContain's per-unit state is a row of TheGxParachuteContains;
+// GXROW_PARACHUTECONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_PARACHUTECONTAIN (const_cast<GxParachuteContainRow &>(*m_gxParachuteContainRow))
+
+
 
 const Real NO_START_Z = 1e10;
 
@@ -87,34 +92,34 @@ void ParachuteContainModuleData::buildFieldParse(MultiIniFieldParse& p)
 // PUBLIC /////////////////////////////////////////////////////////////////////////////////////////
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-ParachuteContain::ParachuteContain( Thing *thing, const ModuleData *moduleData ) :
-								 OpenContain( thing, moduleData )
+ParachuteContain::ParachuteContain( Thing *thing, const ModuleData *moduleData ) : OpenContain( thing, moduleData )
 {
-	m_opened = false;
-	m_needToUpdateParaBones = true;
-	m_needToUpdateRiderBones = true;
-	m_pitch = 0;
-	m_roll = 0;
-	m_pitchRate = 0;
-	m_rollRate = 0;
-	m_isLandingOverrideSet = FALSE;
-	m_startZ = NO_START_Z;
 
-	m_landingOverride.zero();
-	m_paraAttachBone.zero();
-	m_paraAttachOffset.zero();
-	m_paraSwayBone.zero();
-	m_paraSwayOffset.zero();
-	m_riderAttachBone.zero();
-	m_riderAttachOffset.zero();
-	m_riderSwayBone.zero();
-	m_riderSwayOffset.zero();
+	GXROW_PARACHUTECONTAIN.opened = false;
+	GXROW_PARACHUTECONTAIN.needToUpdateParaBones = true;
+	GXROW_PARACHUTECONTAIN.needToUpdateRiderBones = true;
+	GXROW_PARACHUTECONTAIN.pitch = 0;
+	GXROW_PARACHUTECONTAIN.roll = 0;
+	GXROW_PARACHUTECONTAIN.pitchRate = 0;
+	GXROW_PARACHUTECONTAIN.rollRate = 0;
+	GXROW_PARACHUTECONTAIN.isLandingOverrideSet = FALSE;
+	GXROW_PARACHUTECONTAIN.startZ = NO_START_Z;
+
+	GXROW_PARACHUTECONTAIN.landingOverride.zero();
+	GXROW_PARACHUTECONTAIN.paraAttachBone.zero();
+	GXROW_PARACHUTECONTAIN.paraAttachOffset.zero();
+	GXROW_PARACHUTECONTAIN.paraSwayBone.zero();
+	GXROW_PARACHUTECONTAIN.paraSwayOffset.zero();
+	GXROW_PARACHUTECONTAIN.riderAttachBone.zero();
+	GXROW_PARACHUTECONTAIN.riderAttachOffset.zero();
+	GXROW_PARACHUTECONTAIN.riderSwayBone.zero();
+	GXROW_PARACHUTECONTAIN.riderSwayOffset.zero();
 
 	const ParachuteContainModuleData* d = getParachuteContainModuleData();
 	if (d)
 	{
-		m_pitchRate = GameLogicRandomValueReal(-d->m_pitchRateMax, d->m_pitchRateMax);
-		m_rollRate = GameLogicRandomValueReal(-d->m_rollRateMax, d->m_rollRateMax);
+		GXROW_PARACHUTECONTAIN.pitchRate = GameLogicRandomValueReal(-d->m_pitchRateMax, d->m_pitchRateMax);
+		GXROW_PARACHUTECONTAIN.rollRate = GameLogicRandomValueReal(-d->m_rollRateMax, d->m_rollRateMax);
 	}
 
 	getObject()->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_PARACHUTING ) );
@@ -135,7 +140,7 @@ void ParachuteContain::onDrawableBoundToObject()
 {
 	Drawable* draw = getObject()->getDrawable();
 	if (draw)
-		draw->setDrawableHidden(!m_opened);
+		draw->setDrawableHidden(!GXROW_PARACHUTECONTAIN.opened);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -143,50 +148,50 @@ void ParachuteContain::calcSwayMtx(const Coord3D* offset, Matrix3D* mtx)
 {
 	mtx->Make_Identity();
 	mtx->Translate(offset->x, offset->y, offset->z);
-	mtx->In_Place_Pre_Rotate_X(m_roll);
-	mtx->In_Place_Pre_Rotate_Y(m_pitch);
+	mtx->In_Place_Pre_Rotate_X(GXROW_PARACHUTECONTAIN.roll);
+	mtx->In_Place_Pre_Rotate_Y(GXROW_PARACHUTECONTAIN.pitch);
 	mtx->Translate(-offset->x, -offset->y, -offset->z);
 }
 
 //-------------------------------------------------------------------------------------------------
 void ParachuteContain::updateBonePositions()
 {
-	if (m_needToUpdateParaBones)
+	if (GXROW_PARACHUTECONTAIN.needToUpdateParaBones)
 	{
-		m_needToUpdateParaBones = false;	// yeah, even if not found.
+		GXROW_PARACHUTECONTAIN.needToUpdateParaBones = false;	// yeah, even if not found.
 
 		Drawable* parachuteDraw = getObject()->getDrawable();
 		if (parachuteDraw)
 		{
-			if (parachuteDraw->getPristineBonePositions( "PARA_COG", 0, &m_paraSwayBone, nullptr, 1) != 1)
+			if (parachuteDraw->getPristineBonePositions( "PARA_COG", 0, &GXROW_PARACHUTECONTAIN.paraSwayBone, nullptr, 1) != 1)
 			{
 				DEBUG_CRASH(("PARA_COG not found"));
-				m_paraSwayBone.zero();
+				GXROW_PARACHUTECONTAIN.paraSwayBone.zero();
 			}
 
-			if (parachuteDraw->getPristineBonePositions( "PARA_ATTCH", 0, &m_paraAttachBone, nullptr, 1 ) != 1)
+			if (parachuteDraw->getPristineBonePositions( "PARA_ATTCH", 0, &GXROW_PARACHUTECONTAIN.paraAttachBone, nullptr, 1 ) != 1)
 			{
 				DEBUG_CRASH(("PARA_ATTCH not found"));
-				m_paraAttachBone.zero();
+				GXROW_PARACHUTECONTAIN.paraAttachBone.zero();
 			}
 		}
 		//DEBUG_LOG(("updating para bone positions %d...",TheGameLogic->getFrame()));
 	}
 
-	if (m_needToUpdateRiderBones)
+	if (GXROW_PARACHUTECONTAIN.needToUpdateRiderBones)
 	{
 
-		m_needToUpdateRiderBones = false;	// yeah, even if not found.
+		GXROW_PARACHUTECONTAIN.needToUpdateRiderBones = false;	// yeah, even if not found.
 
 		Object* rider = (getContainCount() > 0) ? getContainList().front() : nullptr;
 		Drawable* riderDraw = rider ? rider->getDrawable() : nullptr;
 		if (riderDraw)
 		{
-			if (riderDraw->getPristineBonePositions( "PARA_MAN", 0, &m_riderAttachBone, nullptr, 1) != 1)
+			if (riderDraw->getPristineBonePositions( "PARA_MAN", 0, &GXROW_PARACHUTECONTAIN.riderAttachBone, nullptr, 1) != 1)
 			{
 				//DEBUG_LOG(("*** No parachute-attach bone... using object height!"));
-				m_riderAttachBone.zero();
-				m_riderAttachBone.z += riderDraw->getDrawableGeometryInfo().getMaxHeightAbovePosition();
+				GXROW_PARACHUTECONTAIN.riderAttachBone.zero();
+				GXROW_PARACHUTECONTAIN.riderAttachBone.z += riderDraw->getDrawableGeometryInfo().getMaxHeightAbovePosition();
 			}
 		}
 
@@ -199,33 +204,33 @@ void ParachuteContain::updateOffsetsFromBones()
 {
 	const Coord3D* objPos = getObject()->getPosition();
 
-	getObject()->convertBonePosToWorldPos(&m_paraSwayBone, nullptr, &m_paraSwayOffset, nullptr);
-	m_paraSwayOffset.x -= objPos->x;
-	m_paraSwayOffset.y -= objPos->y;
-	m_paraSwayOffset.z -= objPos->z;
+	getObject()->convertBonePosToWorldPos(&GXROW_PARACHUTECONTAIN.paraSwayBone, nullptr, &GXROW_PARACHUTECONTAIN.paraSwayOffset, nullptr);
+	GXROW_PARACHUTECONTAIN.paraSwayOffset.x -= objPos->x;
+	GXROW_PARACHUTECONTAIN.paraSwayOffset.y -= objPos->y;
+	GXROW_PARACHUTECONTAIN.paraSwayOffset.z -= objPos->z;
 
-	getObject()->convertBonePosToWorldPos(&m_paraAttachBone, nullptr, &m_paraAttachOffset, nullptr);
-	m_paraAttachOffset.x -= objPos->x;
-	m_paraAttachOffset.y -= objPos->y;
-	m_paraAttachOffset.z -= objPos->z;
+	getObject()->convertBonePosToWorldPos(&GXROW_PARACHUTECONTAIN.paraAttachBone, nullptr, &GXROW_PARACHUTECONTAIN.paraAttachOffset, nullptr);
+	GXROW_PARACHUTECONTAIN.paraAttachOffset.x -= objPos->x;
+	GXROW_PARACHUTECONTAIN.paraAttachOffset.y -= objPos->y;
+	GXROW_PARACHUTECONTAIN.paraAttachOffset.z -= objPos->z;
 
 	Object* rider = (getContainCount() > 0) ? getContainList().front() : nullptr;
 	if (rider)
 	{
 		const Coord3D* riderPos = rider->getPosition();
 
-		rider->convertBonePosToWorldPos(&m_riderAttachBone, nullptr, &m_riderAttachOffset, nullptr);
-		m_riderAttachOffset.x -= riderPos->x;
-		m_riderAttachOffset.y -= riderPos->y;
-		m_riderAttachOffset.z -= riderPos->z;
+		rider->convertBonePosToWorldPos(&GXROW_PARACHUTECONTAIN.riderAttachBone, nullptr, &GXROW_PARACHUTECONTAIN.riderAttachOffset, nullptr);
+		GXROW_PARACHUTECONTAIN.riderAttachOffset.x -= riderPos->x;
+		GXROW_PARACHUTECONTAIN.riderAttachOffset.y -= riderPos->y;
+		GXROW_PARACHUTECONTAIN.riderAttachOffset.z -= riderPos->z;
 
-		m_riderAttachOffset.x = m_paraAttachOffset.x - m_riderAttachOffset.x;
-		m_riderAttachOffset.y = m_paraAttachOffset.y - m_riderAttachOffset.y;
-		m_riderAttachOffset.z = m_paraAttachOffset.z - m_riderAttachOffset.z;
+		GXROW_PARACHUTECONTAIN.riderAttachOffset.x = GXROW_PARACHUTECONTAIN.paraAttachOffset.x - GXROW_PARACHUTECONTAIN.riderAttachOffset.x;
+		GXROW_PARACHUTECONTAIN.riderAttachOffset.y = GXROW_PARACHUTECONTAIN.paraAttachOffset.y - GXROW_PARACHUTECONTAIN.riderAttachOffset.y;
+		GXROW_PARACHUTECONTAIN.riderAttachOffset.z = GXROW_PARACHUTECONTAIN.paraAttachOffset.z - GXROW_PARACHUTECONTAIN.riderAttachOffset.z;
 
-		m_riderSwayOffset.x = m_paraSwayOffset.x - m_riderAttachOffset.x;
-		m_riderSwayOffset.y = m_paraSwayOffset.y - m_riderAttachOffset.y;
-		m_riderSwayOffset.z = m_paraSwayOffset.z - m_riderAttachOffset.z;
+		GXROW_PARACHUTECONTAIN.riderSwayOffset.x = GXROW_PARACHUTECONTAIN.paraSwayOffset.x - GXROW_PARACHUTECONTAIN.riderAttachOffset.x;
+		GXROW_PARACHUTECONTAIN.riderSwayOffset.y = GXROW_PARACHUTECONTAIN.paraSwayOffset.y - GXROW_PARACHUTECONTAIN.riderAttachOffset.y;
+		GXROW_PARACHUTECONTAIN.riderSwayOffset.z = GXROW_PARACHUTECONTAIN.paraSwayOffset.z - GXROW_PARACHUTECONTAIN.riderAttachOffset.z;
 	}
 }
 
@@ -269,7 +274,7 @@ void ParachuteContain::containReactToTransformChange()
 	// should be briefly visible. put this here to ensure we stay hidden appropriately.
 	Drawable* draw = getObject()->getDrawable();
 	if (draw)
-		draw->setDrawableHidden(!m_opened);
+		draw->setDrawableHidden(!GXROW_PARACHUTECONTAIN.opened);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -290,29 +295,29 @@ UpdateSleepTime ParachuteContain::update()
 	const ParachuteContainModuleData* d = getParachuteContainModuleData();
 	Object* rider = (getContainCount() > 0) ? getContainList().front() : nullptr;
 
-	if (m_startZ == NO_START_Z)	{
-		m_startZ = parachute->getPosition()->z;
+	if (GXROW_PARACHUTECONTAIN.startZ == NO_START_Z)	{
+		GXROW_PARACHUTECONTAIN.startZ = parachute->getPosition()->z;
 		Real groundHeight = TheTerrainLogic->getGroundHeight(parachute->getPosition()->x, parachute->getPosition()->y);
-		if (m_startZ-groundHeight < 2*d->m_paraOpenDist) {
+		if (GXROW_PARACHUTECONTAIN.startZ-groundHeight < 2*d->m_paraOpenDist) {
 			// Oh dear - we ejected too close to the ground, and there isn't enough
 			// room to open the chute.  Well, since it's only a game, we'll fudge
 			// a little so that the pilot doesn't slam into the ground & stick.
-			m_startZ = groundHeight+2*d->m_paraOpenDist;
+			GXROW_PARACHUTECONTAIN.startZ = groundHeight+2*d->m_paraOpenDist;
 		}
 	}
 
-	if (!m_opened)
+	if (!GXROW_PARACHUTECONTAIN.opened)
 	{
 		// see if we need to open.
-		if (fabs(m_startZ - parachute->getPosition()->z) >= d->m_paraOpenDist)
+		if (fabs(GXROW_PARACHUTECONTAIN.startZ - parachute->getPosition()->z) >= d->m_paraOpenDist)
 		{
-			m_opened = true;
+			GXROW_PARACHUTECONTAIN.opened = true;
 			parachute->clearAndSetModelConditionState(MODELCONDITION_FREEFALL, MODELCONDITION_PARACHUTING);
-			m_needToUpdateParaBones = true;
+			GXROW_PARACHUTECONTAIN.needToUpdateParaBones = true;
 			if (rider)
 			{
 				rider->clearAndSetModelConditionState(MODELCONDITION_FREEFALL, MODELCONDITION_PARACHUTING);
-				m_needToUpdateRiderBones = true;
+				GXROW_PARACHUTECONTAIN.needToUpdateRiderBones = true;
 
 				AudioEventRTS soundToPlay = d->m_parachuteOpenSound;
 				soundToPlay.setObjectID( rider->getID() );
@@ -325,9 +330,9 @@ UpdateSleepTime ParachuteContain::update()
 			if( parachuteAI )
 			{
 				Coord3D target = *parachute->getPosition();
-				if( m_isLandingOverrideSet )
+				if( GXROW_PARACHUTECONTAIN.isLandingOverrideSet )
 				{
-					target = m_landingOverride;
+					target = GXROW_PARACHUTECONTAIN.landingOverride;
 					if( parachuteAI->getCurLocomotor() )
 						parachuteAI->getCurLocomotor()->setUltraAccurate( TRUE );
 				}
@@ -347,9 +352,9 @@ UpdateSleepTime ParachuteContain::update()
 			rider->clearAndSetModelConditionState( MODELCONDITION_PARACHUTING, MODELCONDITION_FREEFALL );
 
   }
-	draw->setDrawableHidden(!m_opened);
+	draw->setDrawableHidden(!GXROW_PARACHUTECONTAIN.opened);
 
-	if (!m_opened || getContainCount() == 0)
+	if (!GXROW_PARACHUTECONTAIN.opened || getContainCount() == 0)
 	{
 		// unopened, or empty, chutes, don't collide with anything, to simplify
 		// ejections, paradrops, landings, etc...
@@ -368,7 +373,7 @@ UpdateSleepTime ParachuteContain::update()
 	AIUpdateInterface* ai = parachute->getAIUpdateInterface();
 	if (ai && !parachute->isEffectivelyDead())
 	{
-		ai->chooseLocomotorSet(m_opened ? LOCOMOTORSET_NORMAL : LOCOMOTORSET_FREEFALL);
+		ai->chooseLocomotorSet(GXROW_PARACHUTECONTAIN.opened ? LOCOMOTORSET_NORMAL : LOCOMOTORSET_FREEFALL);
 
 		Locomotor* locomotor = ai->getCurLocomotor();
 		if (locomotor)
@@ -383,19 +388,19 @@ UpdateSleepTime ParachuteContain::update()
 					altitudeDamping = d->m_lowAltitudeDamping;
 			}
 
-			if (m_opened)
+			if (GXROW_PARACHUTECONTAIN.opened)
 			{
 				const Real PITCH_STIFFNESS = locomotor->getPitchStiffness();
 				const Real ROLL_STIFFNESS =  locomotor->getRollStiffness();
 				const Real PITCH_DAMPING = locomotor->getPitchDamping() + altitudeDamping;
 				const Real ROLL_DAMPING = locomotor->getRollDamping() + altitudeDamping;
-				m_pitchRate += ((-PITCH_STIFFNESS * m_pitch) + (-PITCH_DAMPING * m_pitchRate));		// spring/damper
-				m_rollRate += ((-ROLL_STIFFNESS * m_roll) + (-ROLL_DAMPING * m_rollRate));		// spring/damper
+				GXROW_PARACHUTECONTAIN.pitchRate += ((-PITCH_STIFFNESS * GXROW_PARACHUTECONTAIN.pitch) + (-PITCH_DAMPING * GXROW_PARACHUTECONTAIN.pitchRate));		// spring/damper
+				GXROW_PARACHUTECONTAIN.rollRate += ((-ROLL_STIFFNESS * GXROW_PARACHUTECONTAIN.roll) + (-ROLL_DAMPING * GXROW_PARACHUTECONTAIN.rollRate));		// spring/damper
 
-				m_pitch += m_pitchRate;
-				m_roll += m_rollRate;
+				GXROW_PARACHUTECONTAIN.pitch += GXROW_PARACHUTECONTAIN.pitchRate;
+				GXROW_PARACHUTECONTAIN.roll += GXROW_PARACHUTECONTAIN.rollRate;
 
-				if( m_isLandingOverrideSet )
+				if( GXROW_PARACHUTECONTAIN.isLandingOverrideSet )
 				{
 					// Need to wait until after opening to do this, or else we are sending the message to the Freefall locomotor.
 					locomotor->setCloseEnoughDist( 10.0 );
@@ -409,7 +414,7 @@ UpdateSleepTime ParachuteContain::update()
 				updateOffsetsFromBones();
 
 				Matrix3D tmp;
-				calcSwayMtx(&m_paraSwayOffset, &tmp);
+				calcSwayMtx(&GXROW_PARACHUTECONTAIN.paraSwayOffset, &tmp);
 				draw->setInstanceMatrix(&tmp);
 			}
 
@@ -454,7 +459,7 @@ void ParachuteContain::onContaining( Object *rider, Bool wasSelected )
 	rider->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_PARACHUTING ) );
 
 	rider->clearAndSetModelConditionState(MODELCONDITION_PARACHUTING, MODELCONDITION_FREEFALL);
-	m_needToUpdateRiderBones = true;
+	GXROW_PARACHUTECONTAIN.needToUpdateRiderBones = true;
 
 	// position him correctly.
 	positionRider(rider);
@@ -481,7 +486,7 @@ void ParachuteContain::onRemoving( Object *rider )
 	positionRider(rider);
 
 	rider->clearModelConditionFlags(MAKE_MODELCONDITION_MASK2(MODELCONDITION_FREEFALL, MODELCONDITION_PARACHUTING));
-	m_needToUpdateRiderBones = true;
+	GXROW_PARACHUTECONTAIN.needToUpdateRiderBones = true;
 
 	// temporarily mark the guy as being allowed to fall
 	// (overriding his locomotor's stick-to-ground attribute).
@@ -581,9 +586,9 @@ void ParachuteContain::positionRider(Object* rider)
 
 	Coord3D pos = *getObject()->getPosition();
 	///DUMPCOORD3D(&pos);
-	pos.x += m_riderAttachOffset.x;
-	pos.y += m_riderAttachOffset.y;
-	pos.z += m_riderAttachOffset.z;
+	pos.x += GXROW_PARACHUTECONTAIN.riderAttachOffset.x;
+	pos.y += GXROW_PARACHUTECONTAIN.riderAttachOffset.y;
+	pos.z += GXROW_PARACHUTECONTAIN.riderAttachOffset.z;
 	//DUMPCOORD3D(&pos);
 	rider->setPosition(&pos);
 
@@ -603,7 +608,7 @@ void ParachuteContain::positionRider(Object* rider)
 		if( rider->isDisabledByType( DISABLED_HELD ) )
 		{
 			Matrix3D tmp;
-			calcSwayMtx(&m_riderSwayOffset, &tmp);
+			calcSwayMtx(&GXROW_PARACHUTECONTAIN.riderSwayOffset, &tmp);
 			draw->setInstanceMatrix(&tmp);
 		}
 		else
@@ -626,8 +631,8 @@ void ParachuteContain::positionContainedObjectsRelativeToContainer()
 void ParachuteContain::setOverrideDestination( const Coord3D *dest )
 {
 	// Instead of trying to float straight down, I am going to nail this spot.
-	m_landingOverride = *dest;
-	m_isLandingOverrideSet = TRUE;
+	GXROW_PARACHUTECONTAIN.landingOverride = *dest;
+	GXROW_PARACHUTECONTAIN.isLandingOverrideSet = TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -716,58 +721,58 @@ void ParachuteContain::xfer( Xfer *xfer )
 	OpenContain::xfer( xfer );
 
 	// pitch
-	xfer->xferReal( &m_pitch );
+	xfer->xferReal( &GXROW_PARACHUTECONTAIN.pitch );
 
 	// roll
-	xfer->xferReal( &m_roll );
+	xfer->xferReal( &GXROW_PARACHUTECONTAIN.roll );
 
 	// pitch rage
-	xfer->xferReal( &m_pitchRate );
+	xfer->xferReal( &GXROW_PARACHUTECONTAIN.pitchRate );
 
 	// roll rate
-	xfer->xferReal( &m_rollRate );
+	xfer->xferReal( &GXROW_PARACHUTECONTAIN.rollRate );
 
 	// start Z
-	xfer->xferReal( &m_startZ );
+	xfer->xferReal( &GXROW_PARACHUTECONTAIN.startZ );
 
 	// is landing override set
-	xfer->xferBool( &m_isLandingOverrideSet );
+	xfer->xferBool( &GXROW_PARACHUTECONTAIN.isLandingOverrideSet );
 
 	// landing override
-	xfer->xferCoord3D( &m_landingOverride );
+	xfer->xferCoord3D( &GXROW_PARACHUTECONTAIN.landingOverride );
 
 	// rider attach bone
-	xfer->xferCoord3D( &m_riderAttachBone );
+	xfer->xferCoord3D( &GXROW_PARACHUTECONTAIN.riderAttachBone );
 
 	// rider sway bone
-	xfer->xferCoord3D( &m_riderSwayBone );
+	xfer->xferCoord3D( &GXROW_PARACHUTECONTAIN.riderSwayBone );
 
 	// para attach bone
-	xfer->xferCoord3D( &m_paraAttachBone );
+	xfer->xferCoord3D( &GXROW_PARACHUTECONTAIN.paraAttachBone );
 
 	// para sway bone
-	xfer->xferCoord3D( &m_paraSwayBone );
+	xfer->xferCoord3D( &GXROW_PARACHUTECONTAIN.paraSwayBone );
 
 	// rider attach offset
-	xfer->xferCoord3D( &m_riderAttachOffset );
+	xfer->xferCoord3D( &GXROW_PARACHUTECONTAIN.riderAttachOffset );
 
 	// rider sway offset
-	xfer->xferCoord3D( &m_riderSwayOffset );
+	xfer->xferCoord3D( &GXROW_PARACHUTECONTAIN.riderSwayOffset );
 
 	// para attach offset
-	xfer->xferCoord3D( &m_paraAttachOffset );
+	xfer->xferCoord3D( &GXROW_PARACHUTECONTAIN.paraAttachOffset );
 
 	// para sway offset
-	xfer->xferCoord3D( &m_paraSwayOffset );
+	xfer->xferCoord3D( &GXROW_PARACHUTECONTAIN.paraSwayOffset );
 
 	// need to update rider bones
-	xfer->xferBool( &m_needToUpdateRiderBones );
+	xfer->xferBool( &GXROW_PARACHUTECONTAIN.needToUpdateRiderBones );
 
 	// need to update para bones
-	xfer->xferBool( &m_needToUpdateParaBones );
+	xfer->xferBool( &GXROW_PARACHUTECONTAIN.needToUpdateParaBones );
 
 	// opened
-	xfer->xferBool( &m_opened );
+	xfer->xferBool( &GXROW_PARACHUTECONTAIN.opened );
 
 }
 

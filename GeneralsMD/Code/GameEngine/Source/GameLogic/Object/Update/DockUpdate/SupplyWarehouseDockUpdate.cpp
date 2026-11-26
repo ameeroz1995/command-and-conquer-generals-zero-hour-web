@@ -69,11 +69,13 @@ SupplyWarehouseDockUpdateModuleData::SupplyWarehouseDockUpdateModuleData()
 // ------------------------------------------------------------------------------------------------
 SupplyWarehouseDockUpdate::SupplyWarehouseDockUpdate( Thing *thing, const ModuleData* moduleData ) : DockUpdate( thing, moduleData )
 {
-	m_boxesStored = getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData;
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
+	R().boxesStored = getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData;
 }
 
 SupplyWarehouseDockUpdate::~SupplyWarehouseDockUpdate()
 {
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 void SupplyWarehouseDockUpdate::onObjectCreated()
@@ -81,13 +83,13 @@ void SupplyWarehouseDockUpdate::onObjectCreated()
 	Drawable *draw = getObject()->getDrawable();
 	if( draw )
 	{
-		draw->updateDrawableSupplyStatus( getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData, m_boxesStored );
+		draw->updateDrawableSupplyStatus( getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData, R().boxesStored );
 	}
 }
 
 Bool SupplyWarehouseDockUpdate::action( Object* docker, Object *drone )
 {
-	if( m_boxesStored == 0 )
+	if( R().boxesStored == 0 )
 		return FALSE;
 
 	// Make sure that the docker is at least reasonably close to the dock.
@@ -105,12 +107,12 @@ Bool SupplyWarehouseDockUpdate::action( Object* docker, Object *drone )
 		return FALSE;  //not close enough.
 	}
 
-	--m_boxesStored;// so the docker sees that I am shy by one box (or empty) from within his gainOneBox()
+	--R().boxesStored;// so the docker sees that I am shy by one box (or empty) from within his gainOneBox()
 
 	SupplyTruckAIInterface *ai = docker->getAIUpdateInterface()->getSupplyTruckAIInterface();
-	if( ai && ai->gainOneBox( m_boxesStored ) )
+	if( ai && ai->gainOneBox( R().boxesStored ) )
 	{
-		if( m_boxesStored == 0 && getSupplyWarehouseDockUpdateModuleData()->m_deleteWhenEmpty )
+		if( R().boxesStored == 0 && getSupplyWarehouseDockUpdateModuleData()->m_deleteWhenEmpty )
 		{
 			TheGameLogic->destroyObject( getObject() );
 			return FALSE; //Yer done.  And so am I.
@@ -120,14 +122,14 @@ Bool SupplyWarehouseDockUpdate::action( Object* docker, Object *drone )
 			Drawable *draw = getObject()->getDrawable();
 			if( draw )
 			{
-				draw->updateDrawableSupplyStatus( getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData, m_boxesStored );
+				draw->updateDrawableSupplyStatus( getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData, R().boxesStored );
 			}
 		}
 
 		return TRUE;
 	}
 	else
-		++m_boxesStored; //take it back, since there was noone to gain the box
+		++R().boxesStored; //take it back, since there was noone to gain the box
   									 //this is important so that I have one less boxes as perceived by the docker when he gains one
 
 
@@ -139,12 +141,12 @@ void SupplyWarehouseDockUpdate::setDockCrippled( Bool setting )
 	// At this level, Crippling means I kill any activeDocker between enter and exit.
 	if( setting )
 	{
-		if( m_activeDocker != INVALID_ID )
+		if( DockUpdate::R().activeDocker != INVALID_ID )
 		{
-			Object *victim = TheGameLogic->findObjectByID( m_activeDocker );
+			Object *victim = TheGameLogic->findObjectByID( DockUpdate::R().activeDocker );
 			if( victim )
 			{
-				if( m_dockerInside )
+				if( DockUpdate::R().dockerInside )
 				{
 					if( !victim->isUsingAirborneLocomotor() )
 						victim->kill();
@@ -170,11 +172,11 @@ void SupplyWarehouseDockUpdate::setDockCrippled( Bool setting )
 void SupplyWarehouseDockUpdate::setCashValue( Int cashValue )
 {
 	// A script can tell us our set value, and we need to figure out the boxes needed to provide that.
-	m_boxesStored = ceil(cashValue / (float)TheGlobalData->m_baseValuePerSupplyBox);
+	R().boxesStored = ceil(cashValue / (float)TheGlobalData->m_baseValuePerSupplyBox);
 	Drawable *draw = getObject()->getDrawable();
 	if( draw )
 	{
-		draw->updateDrawableSupplyStatus( getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData, m_boxesStored );
+		draw->updateDrawableSupplyStatus( getSupplyWarehouseDockUpdateModuleData()->m_startingBoxesData, R().boxesStored );
 	}
 }
 
@@ -206,7 +208,7 @@ void SupplyWarehouseDockUpdate::xfer( Xfer *xfer )
 	DockUpdate::xfer( xfer );
 
 	// boxes stored
-	xfer->xferInt( &m_boxesStored );
+	xfer->xferInt( &R().boxesStored );
 
 }
 
@@ -224,6 +226,7 @@ void SupplyWarehouseDockUpdate::loadPostProcess()
 	Object *us = getObject();
 	Drawable *draw = us->getDrawable();
 	if( draw )
-		draw->updateDrawableSupplyStatus( modData->m_startingBoxesData, m_boxesStored );
+		draw->updateDrawableSupplyStatus( modData->m_startingBoxesData, R().boxesStored );
 
 }
+

@@ -39,6 +39,7 @@
 #include "GameLogic/Module/ProneUpdate.h"
 
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 ProneUpdateModuleData::ProneUpdateModuleData() :
@@ -62,7 +63,8 @@ ProneUpdateModuleData::ProneUpdateModuleData() :
 //-------------------------------------------------------------------------------------------------
 ProneUpdate::ProneUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_proneFrames = 0;
+
+	D().m_proneFrames = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -78,10 +80,10 @@ ProneUpdate::~ProneUpdate()
 UpdateSleepTime ProneUpdate::update()
 {
 /// @todo srj use SLEEPY_UPDATE here
-	if( m_proneFrames > 0 )
+	if( D().m_proneFrames > 0 )
 	{
-		m_proneFrames--;
-		if( m_proneFrames == 0 )
+		D().m_proneFrames--;
+		if( D().m_proneFrames == 0 )
 			stopProneEffects();
 	}
 	return UPDATE_SLEEP_NONE;
@@ -92,11 +94,11 @@ UpdateSleepTime ProneUpdate::update()
 void ProneUpdate::goProne( const DamageInfo *damageInfo )
 {
 	//add to the prone time
-	Bool wasProne = (m_proneFrames > 0);
+	Bool wasProne = (D().m_proneFrames > 0);
 	Int damageTaken = damageInfo->out.m_actualDamageDealt;
-	m_proneFrames += damageTaken * getProneUpdateModuleData()->m_damageToFramesRatio;
+	D().m_proneFrames += damageTaken * getProneUpdateModuleData()->m_damageToFramesRatio;
 
-	if( !wasProne && (m_proneFrames > 0) )
+	if( !wasProne && (D().m_proneFrames > 0) )
 		startProneEffects();
 }
 
@@ -146,7 +148,7 @@ void ProneUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// prone frames
-	xfer->xferInt( &m_proneFrames );
+	xfer->xferInt( &D().m_proneFrames );
 
 }
 

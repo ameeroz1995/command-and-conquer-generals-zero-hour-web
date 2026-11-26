@@ -33,6 +33,14 @@
 // ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h" // This must go first in EVERY cpp file in the GameEngine
 #include "Common/GxMatchRules.h"
+#include "Common/GxTime.h"
+#include <unordered_map>
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches4();
+#else
+static int GLES3_Page_Switches() { return 0; }
+#endif
 #include "Common/GxUnitStore.h"
 #include <algorithm>
 #include <vector>
@@ -68,6 +76,7 @@
 #include "GameLogic/Module/AssaultTransportAIUpdate.h"
 #include "GameLogic/Module/BehaviorModule.h"
 #include "GameLogic/Module/BodyModule.h"
+#include "GameLogic/Module/ActiveBody.h"
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/LaserUpdate.h"
 #include "GameLogic/Module/SpecialPowerCompletionDie.h"
@@ -704,6 +713,45 @@ Real WeaponTemplate::estimateWeaponTemplateDamage(
   damageInfo.m_deathType = deathType;
   damageInfo.m_sourceID = sourceObj->getID();
   damageInfo.m_amount = damageAmount;
+
+  // Round 5 (fourth word bit 26, damageTable; same game): a per-frame table of weapon x armor
+  // results, keyed by weapon template, bonus state (the bonused amount it gives) and the victim's
+  // current armor template. Only for victims with an ActiveBody and damage types whose estimate is
+  // plain armor (ActiveBody::estimateDamage's special cases are subdual, KILL_GARRISONED, SNIPER).
+  if ((GLES3_Page_Switches4() & 67108864) && !IsSubdualDamage(damageType) &&
+      damageType != DAMAGE_KILL_GARRISONED && damageType != DAMAGE_SNIPER) {
+    const ActiveBody *ab = dynamic_cast<const ActiveBody *>(victimObj->getBodyModule());
+    if (ab) {
+      struct Key {
+        const WeaponTemplate *w; const ArmorTemplate *a; UnsignedInt amount;
+        bool operator==(const Key &o) const { return w == o.w && a == o.a && amount == o.amount; }
+      };
+      struct KeyHash {
+        size_t operator()(const Key &k) const {
+          return (size_t)(uintptr_t)k.w * 2654435761u ^ (size_t)(uintptr_t)k.a * 40503u ^ k.amount;
+        }
+      };
+      static std::unordered_map<Key, Real, KeyHash> table;
+      static UnsignedInt tableFrame = ~0u;
+      if (tableFrame != TheGameLogic->getFrame()) {
+        tableFrame = TheGameLogic->getFrame();
+        table.clear();
+      }
+      Key k;
+      k.w = this;
+      k.a = ab->gxArmorTemplate();
+      memcpy(&k.amount, &damageAmount, sizeof(UnsignedInt));
+      std::unordered_map<Key, Real, KeyHash>::const_iterator it = table.find(k);
+      if (it != table.end()) {
+        gxCount(GXC_TABLE_HITS);
+        return it->second;
+      }
+      gxCount(GXC_TABLE_MISSES);
+      const Real r = victimObj->estimateDamage(damageInfo);
+      table[k] = r;
+      return r;
+    }
+  }
   return victimObj->estimateDamage(damageInfo);
 }
 
@@ -1475,8 +1523,34 @@ void WeaponTemplate::dealDamageInternal(ObjectID sourceID, ObjectID victimID,
     Real primaryRadiusSqr = sqr(primaryRadius);
     Real radius = max(primaryRadius, secondaryRadius);
     if (radius > 0.0f) {
-      iter = ThePartitionManager->iterateObjectsInRange(pos, radius,
-                                                        DAMAGE_RANGE_CALC_TYPE);
+      GxTimeScope gxT(GXT_SPLASH);	// tickTiming
+      iter = (GLES3_Page_Switches4() & 33554432)	// fourth word bit 25, splashSimd
+                 ? ThePartitionManager->gxSplashSearch(pos, radius, DAMAGE_RANGE_CALC_TYPE)
+                 : nullptr;
+      if (iter && (GLES3_Page_Switches() & 2097152)) {
+        // verify mode: the plain walk must give the same units, distances and order
+        static UnsignedInt checked = 0, bad = 0;
+        SimpleObjectIterator *ref = ThePartitionManager->iterateObjectsInRange(pos, radius, DAMAGE_RANGE_CALC_TYPE);
+        Real da, db;
+        Object *a = iter->firstWithNumeric(&da), *b = ref->firstWithNumeric(&db);
+        Bool same = true;
+        for (; a && b && same; a = iter->nextWithNumeric(&da), b = ref->nextWithNumeric(&db))
+          same = a == b && memcmp(&da, &db, sizeof(Real)) == 0;
+        same = same && !a && !b;
+        ++checked;
+        if (!same) {
+          ++bad;
+          printf("GXVERIFY splash mismatch at frame %u\n", TheGameLogic->getFrame());
+        }
+        if (checked % 500 == 0)
+          printf("GXVERIFY splash searches checked %u, mismatches %u\n", checked, bad);
+        deleteInstance(ref);
+      }
+      if (!iter)
+        iter = ThePartitionManager->iterateObjectsInRange(pos, radius,
+                                                          DAMAGE_RANGE_CALC_TYPE);
+      gxCount(GXC_SPLASHES);
+      gxCount(GXC_SPLASH_VICTIMS, iter->getCount());
       curVictim = iter->firstWithNumeric(&curVictimDistSqr);
     } else {
       // DEBUG_ASSERTCRASH(primaryVictim != nullptr, ("weapons without radii
@@ -1917,82 +1991,150 @@ void WeaponStore::postProcessLoad() {
 //-------------------------------------------------------------------------------------------------
 
 //-------------------------------------------------------------------------------------------------
-Weapon::Weapon(const WeaponTemplate *tmpl, WeaponSlotType wslot) {
+Weapon::Weapon(const WeaponTemplate *tmpl, WeaponSlotType wslot) : m_row(TheGxWeapons.alloc()) {
   // Weapons start empty; you must reload before use.
   // (however, there is no delay for reloading the first time.)
-  m_template = tmpl;
-  m_wslot = wslot;
-  m_status = OUT_OF_AMMO;
-  m_ammoInClip = 0;
-  m_whenWeCanFireAgain = 0;
-  m_whenPreAttackFinished = 0;
-  m_whenLastReloadStarted = 0;
-  m_projectileStreamID = INVALID_ID;
-  m_leechWeaponRangeActive = false;
-  m_pitchLimited = (m_template->getMinTargetPitch() > -PI ||
-                    m_template->getMaxTargetPitch() < PI);
-  m_maxShotCount = NO_MAX_SHOTS_LIMIT;
-  m_curBarrel = 0;
-  m_numShotsForCurBarrel = m_template->getShotsPerBarrel();
-  m_lastFireFrame = 0;
-  m_suspendFXFrame = TheGameLogic->getFrame() + m_template->getSuspendFXDelay();
+  TheGxWeapons.tmpl[m_row] = tmpl;
+  TheGxWeapons.wslot[m_row] = wslot;
+  TheGxWeapons.status[m_row] = OUT_OF_AMMO;
+  TheGxWeapons.ammo[m_row] = 0;
+  TheGxWeapons.whenFire[m_row] = 0;
+  TheGxWeapons.preAttack[m_row] = 0;
+  TheGxWeapons.lastReload[m_row] = 0;
+  TheGxWeapons.projStream[m_row] = INVALID_ID;
+  TheGxWeapons.leech[m_row] = false;
+  TheGxWeapons.pitchLimited[m_row] = (TheGxWeapons.tmpl[m_row]->getMinTargetPitch() > -PI ||
+                    TheGxWeapons.tmpl[m_row]->getMaxTargetPitch() < PI);
+  TheGxWeapons.maxShot[m_row] = NO_MAX_SHOTS_LIMIT;
+  TheGxWeapons.curBarrel[m_row] = 0;
+  TheGxWeapons.numShots[m_row] = TheGxWeapons.tmpl[m_row]->getShotsPerBarrel();
+  TheGxWeapons.lastFire[m_row] = 0;
+  TheGxWeapons.suspendFX[m_row] = TheGameLogic->getFrame() + TheGxWeapons.tmpl[m_row]->getSuspendFXDelay();
 }
 
 //-------------------------------------------------------------------------------------------------
-Weapon::Weapon(const Weapon &that) {
+Weapon::Weapon(const Weapon &that) : m_row(TheGxWeapons.alloc()) {
   // Weapons lose all ammo when copied.
-  this->m_template = that.m_template;
-  this->m_wslot = that.m_wslot;
-  this->m_status = OUT_OF_AMMO;
-  this->m_ammoInClip = 0;
-  this->m_whenPreAttackFinished = 0;
-  this->m_whenLastReloadStarted = 0;
-  this->m_whenWeCanFireAgain = 0;
-  this->m_projectileStreamID = INVALID_ID;
-  this->m_leechWeaponRangeActive = false;
-  this->m_pitchLimited = (m_template->getMinTargetPitch() > -PI ||
-                          m_template->getMaxTargetPitch() < PI);
-  this->m_maxShotCount = NO_MAX_SHOTS_LIMIT;
-  this->m_curBarrel = 0;
-  this->m_numShotsForCurBarrel = m_template->getShotsPerBarrel();
-  this->m_lastFireFrame = 0;
-  this->m_suspendFXFrame = that.getSuspendFXFrame();
+  TheGxWeapons.tmpl[m_row] = TheGxWeapons.tmpl[that.m_row];
+  TheGxWeapons.wslot[m_row] = TheGxWeapons.wslot[that.m_row];
+  TheGxWeapons.status[m_row] = OUT_OF_AMMO;
+  TheGxWeapons.ammo[m_row] = 0;
+  TheGxWeapons.preAttack[m_row] = 0;
+  TheGxWeapons.lastReload[m_row] = 0;
+  TheGxWeapons.whenFire[m_row] = 0;
+  TheGxWeapons.projStream[m_row] = INVALID_ID;
+  TheGxWeapons.leech[m_row] = false;
+  TheGxWeapons.pitchLimited[m_row] = (TheGxWeapons.tmpl[m_row]->getMinTargetPitch() > -PI ||
+                          TheGxWeapons.tmpl[m_row]->getMaxTargetPitch() < PI);
+  TheGxWeapons.maxShot[m_row] = NO_MAX_SHOTS_LIMIT;
+  TheGxWeapons.curBarrel[m_row] = 0;
+  TheGxWeapons.numShots[m_row] = TheGxWeapons.tmpl[m_row]->getShotsPerBarrel();
+  TheGxWeapons.lastFire[m_row] = 0;
+  TheGxWeapons.suspendFX[m_row] = that.getSuspendFXFrame();
 }
 
 //-------------------------------------------------------------------------------------------------
 // weaponSkip (combat): every change to this weapon's reload, ammo, status, pre-attack or last shot
 // zeroes its unit's weaponReady in the store, so the weapon-status pass looks at that unit this frame.
 void Weapon::gxTouch() const {
-  if (m_gxOwner != INVALID_ID)
-    TheGxUnitStore.weaponTouch((int)m_gxOwner);
+  if (TheGxWeapons.owner[m_row] != INVALID_ID)
+    TheGxUnitStore.weaponTouch((int)TheGxWeapons.owner[m_row]);
 }
 
 Weapon &Weapon::operator=(const Weapon &that) {
   if (this != &that) {
     // Weapons lose all ammo when copied.
-    this->m_template = that.m_template;
-    this->m_wslot = that.m_wslot;
-    this->m_status = OUT_OF_AMMO;
-    this->m_ammoInClip = 0;
-    this->m_whenPreAttackFinished = 0;
-    this->m_whenLastReloadStarted = 0;
-    this->m_whenWeCanFireAgain = 0;
+    TheGxWeapons.tmpl[m_row] = TheGxWeapons.tmpl[that.m_row];
+    TheGxWeapons.wslot[m_row] = TheGxWeapons.wslot[that.m_row];
+    TheGxWeapons.status[m_row] = OUT_OF_AMMO;
+    TheGxWeapons.ammo[m_row] = 0;
+    TheGxWeapons.preAttack[m_row] = 0;
+    TheGxWeapons.lastReload[m_row] = 0;
+    TheGxWeapons.whenFire[m_row] = 0;
     gxTouch();
-    this->m_leechWeaponRangeActive = false;
-    this->m_pitchLimited = (m_template->getMinTargetPitch() > -PI ||
-                            m_template->getMaxTargetPitch() < PI);
-    this->m_maxShotCount = NO_MAX_SHOTS_LIMIT;
-    this->m_curBarrel = 0;
-    this->m_lastFireFrame = 0;
-    this->m_suspendFXFrame = that.getSuspendFXFrame();
-    this->m_numShotsForCurBarrel = m_template->getShotsPerBarrel();
-    this->m_projectileStreamID = INVALID_ID;
+    TheGxWeapons.leech[m_row] = false;
+    TheGxWeapons.pitchLimited[m_row] = (TheGxWeapons.tmpl[m_row]->getMinTargetPitch() > -PI ||
+                            TheGxWeapons.tmpl[m_row]->getMaxTargetPitch() < PI);
+    TheGxWeapons.maxShot[m_row] = NO_MAX_SHOTS_LIMIT;
+    TheGxWeapons.curBarrel[m_row] = 0;
+    TheGxWeapons.lastFire[m_row] = 0;
+    TheGxWeapons.suspendFX[m_row] = that.getSuspendFXFrame();
+    TheGxWeapons.numShots[m_row] = TheGxWeapons.tmpl[m_row]->getShotsPerBarrel();
+    TheGxWeapons.projStream[m_row] = INVALID_ID;
   }
   return *this;
 }
 
 //-------------------------------------------------------------------------------------------------
-Weapon::~Weapon() {}
+Weapon::~Weapon() { TheGxWeapons.release(m_row); }
+
+
+//-------------------------------------------------------------------------------------------------
+// Round 5, weapon reload system (fourth switch word bit 24; rides on match rule updatePasses,
+// because a weapon's saved status is part of the CRC). At the start of the tick every weapon whose
+// reload or between-shots wait is over takes the status getStatus() would give it when next read.
+//
+// Kernel over weapon rows [b, e): reads live, preAttack, whenFire, ammo, status, owner; writes
+// status of its own rows only; writes into out (at least e - b entries, caller-owned) the owners
+// whose weapon changed, returns how many. No allocation, events, RNG or globals.
+static Int gxWeaponReloadKernel(GxWeaponRows &w, Int b, Int e, UnsignedInt now, ObjectID *out) {
+  Int n = 0;
+  for (Int r = b; r < e; ++r) {
+    if (!w.live[r] || now < w.preAttack[r] || now < w.whenFire[r])
+      continue;
+    const WeaponStatus st = w.ammo[r] > 0 ? READY_TO_FIRE : OUT_OF_AMMO;
+    if (w.status[r] != st) {
+      w.status[r] = st;
+      if (w.owner[r] != INVALID_ID)
+        out[n++] = w.owner[r];
+    }
+  }
+  return n;
+}
+
+// Apply (main thread): the units whose weapons changed go back into the weapon-status pass.
+void gxWeaponReloadSystem() {
+  if (!(GLES3_Page_Switches4() & 16777216) || !gxMatchRule(131072))
+    return;
+  static std::vector<ObjectID> out;
+  const Int rows = (Int)TheGxWeapons.live.size();
+  if ((Int)out.size() < rows)
+    out.resize(rows);
+  GxTimeScope gxT(GXT_RELOAD);	// tickTiming
+  const Int n = gxWeaponReloadKernel(TheGxWeapons, 0, rows, TheGameLogic->getFrame(), out.data());
+  gxCount(GXC_RELOAD_ROWS, rows);
+  gxCount(GXC_RELOAD_CHANGED, n);
+  for (Int i = 0; i < n; ++i)
+    TheGxUnitStore.weaponTouch((int)out[i]);
+}
+//-------------------------------------------------------------------------------------------------
+GxWeaponRows TheGxWeapons;
+
+Int GxWeaponRows::alloc() {
+  Int r;
+  if (!freeRows.empty()) {
+    r = freeRows.back();
+    freeRows.pop_back();
+  } else {
+    r = (Int)tmpl.size();
+    const size_t n = r + 1;
+    tmpl.resize(n); wslot.resize(n); status.resize(n); ammo.resize(n); whenFire.resize(n);
+    preAttack.resize(n); lastReload.resize(n); lastFire.resize(n); suspendFX.resize(n);
+    projStream.resize(n); owner.resize(n); maxShot.resize(n); curBarrel.resize(n);
+    numShots.resize(n); scatter.resize(n); pitchLimited.resize(n); leech.resize(n); live.resize(n);
+  }
+  owner[r] = INVALID_ID;
+  scatter[r].clear();
+  live[r] = 1;
+  return r;
+}
+
+void GxWeaponRows::release(Int r) {
+  live[r] = 0;
+  owner[r] = INVALID_ID;
+  scatter[r].clear();
+  freeRows.push_back(r);
+}
 
 //-------------------------------------------------------------------------------------------------
 void Weapon::computeBonus(const Object *source,
@@ -2012,9 +2154,39 @@ void Weapon::computeBonus(const Object *source,
       flags |= theirContain->getWeaponBonusPassedToPassengers();
   }
 
+  // Round 5 (fourth word bit 26, damageTable; same game): the bonus chain depends only on the
+  // weapon template (its extra bonus set) and the condition flags, so this frame's answers are kept in
+  // a table keyed by both; target evaluation (estimateWeaponDamage per weapon per candidate) then
+  // reads the table instead of walking the bonus sets again.
+  const WeaponTemplate *tmpl = TheGxWeapons.tmpl[m_row];
+  const Bool table = (GLES3_Page_Switches4() & 67108864) != 0;
+  unsigned long long key = 0;
+  if (table) {
+    static std::unordered_map<unsigned long long, WeaponBonus> cache;
+    static UnsignedInt cacheFrame = ~0u;
+    if (cacheFrame != TheGameLogic->getFrame()) {
+      cacheFrame = TheGameLogic->getFrame();
+      cache.clear();
+    }
+    key = ((unsigned long long)(uintptr_t)tmpl << 32) | flags;
+    std::unordered_map<unsigned long long, WeaponBonus>::const_iterator it = cache.find(key);
+    if (it != cache.end()) {
+      bonus = it->second;
+      gxCount(GXC_BONUS_HITS);
+      return;
+    }
+    gxCount(GXC_BONUS_MISSES);
+    if (TheGlobalData->m_weaponBonusSet)
+      TheGlobalData->m_weaponBonusSet->appendBonuses(flags, bonus);
+    if (tmpl->getExtraBonus())
+      tmpl->getExtraBonus()->appendBonuses(flags, bonus);
+    cache[key] = bonus;
+    return;
+  }
+
   if (TheGlobalData->m_weaponBonusSet)
     TheGlobalData->m_weaponBonusSet->appendBonuses(flags, bonus);
-  const WeaponBonusSet *extra = m_template->getExtraBonus();
+  const WeaponBonusSet *extra = tmpl->getExtraBonus();
   if (extra)
     extra->appendBonuses(flags, bonus);
 }
@@ -2038,71 +2210,71 @@ void Weapon::reloadAmmo(const Object *sourceObj) {
 Int Weapon::getClipReloadTime(const Object *source) const {
   WeaponBonus bonus;
   computeBonus(source, 0, bonus);
-  return m_template->getClipReloadTime(bonus);
+  return TheGxWeapons.tmpl[m_row]->getClipReloadTime(bonus);
 }
 
 //-------------------------------------------------------------------------------------------------
 void Weapon::setClipPercentFull(Real percent, Bool allowReduction) {
-  if (m_template->getClipSize() == 0)
+  if (TheGxWeapons.tmpl[m_row]->getClipSize() == 0)
     return;
 
-  Int ammo = REAL_TO_INT_FLOOR(m_template->getClipSize() * percent);
-  if (ammo > m_ammoInClip || (allowReduction && ammo < m_ammoInClip)) {
-    m_ammoInClip = ammo;
-    m_status = m_ammoInClip ? OUT_OF_AMMO : READY_TO_FIRE;
-    // CRCDEBUG_LOG(("Weapon::setClipPercentFull() just set m_status to %d (ammo
-    // in clip is %d)", m_status, m_ammoInClip));
-    m_whenLastReloadStarted = TheGameLogic->getFrame();
-    m_whenWeCanFireAgain = m_whenLastReloadStarted;
+  Int ammo = REAL_TO_INT_FLOOR(TheGxWeapons.tmpl[m_row]->getClipSize() * percent);
+  if (ammo > TheGxWeapons.ammo[m_row] || (allowReduction && ammo < TheGxWeapons.ammo[m_row])) {
+    TheGxWeapons.ammo[m_row] = ammo;
+    TheGxWeapons.status[m_row] = TheGxWeapons.ammo[m_row] ? OUT_OF_AMMO : READY_TO_FIRE;
+    // CRCDEBUG_LOG(("Weapon::setClipPercentFull() just set TheGxWeapons.status[m_row] to %d (ammo
+    // in clip is %d)", TheGxWeapons.status[m_row], TheGxWeapons.ammo[m_row]));
+    TheGxWeapons.lastReload[m_row] = TheGameLogic->getFrame();
+    TheGxWeapons.whenFire[m_row] = TheGxWeapons.lastReload[m_row];
     gxTouch();
-    // CRCDEBUG_LOG(("Just set m_whenWeCanFireAgain to %d in
-    // Weapon::setClipPercentFull", m_whenWeCanFireAgain));
+    // CRCDEBUG_LOG(("Just set TheGxWeapons.whenFire[m_row] to %d in
+    // Weapon::setClipPercentFull", TheGxWeapons.whenFire[m_row]));
     rebuildScatterTargets();
   }
 }
 
 //-------------------------------------------------------------------------------------------------
 void Weapon::rebuildScatterTargets() {
-  m_scatterTargetsUnused.clear();
-  Int scatterTargetsCount = m_template->getScatterTargetsVector().size();
+  TheGxWeapons.scatter[m_row].clear();
+  Int scatterTargetsCount = TheGxWeapons.tmpl[m_row]->getScatterTargetsVector().size();
   if (scatterTargetsCount) {
     // When I reload, I need to rebuild the list of ScatterTargets to shoot at.
     for (Int targetIndex = 0; targetIndex < scatterTargetsCount; targetIndex++)
-      m_scatterTargetsUnused.push_back(targetIndex);
+      TheGxWeapons.scatter[m_row].push_back(targetIndex);
   }
 }
 
 //-------------------------------------------------------------------------------------------------
 void Weapon::reloadWithBonus(const Object *sourceObj, const WeaponBonus &bonus,
                              Bool loadInstantly) {
-  if (m_template->getClipSize() > 0 &&
-      m_ammoInClip == m_template->getClipSize() &&
+  if (TheGxWeapons.tmpl[m_row]->getClipSize() > 0 &&
+      TheGxWeapons.ammo[m_row] == TheGxWeapons.tmpl[m_row]->getClipSize() &&
       !sourceObj->isReloadTimeShared())
     return; // don't restart our reload delay.
 
-  m_ammoInClip = m_template->getClipSize();
-  if (m_ammoInClip <= 0)
-    m_ammoInClip = 0x7fffffff; // 0 == unlimited (or effectively so)
+  TheGxWeapons.ammo[m_row] = TheGxWeapons.tmpl[m_row]->getClipSize();
+  if (TheGxWeapons.ammo[m_row] <= 0)
+    TheGxWeapons.ammo[m_row] = 0x7fffffff; // 0 == unlimited (or effectively so)
 
-  m_status = RELOADING_CLIP;
-  Real reloadTime = loadInstantly ? 0 : m_template->getClipReloadTime(bonus);
-  m_whenLastReloadStarted = TheGameLogic->getFrame();
-  m_whenWeCanFireAgain = m_whenLastReloadStarted + reloadTime;
+  TheGxWeapons.status[m_row] = RELOADING_CLIP;
+  Real reloadTime = loadInstantly ? 0 : TheGxWeapons.tmpl[m_row]->getClipReloadTime(bonus);
+  TheGxWeapons.lastReload[m_row] = TheGameLogic->getFrame();
+  TheGxWeapons.whenFire[m_row] = TheGxWeapons.lastReload[m_row] + reloadTime;
   gxTouch();
-  // CRCDEBUG_LOG(("Just set m_whenWeCanFireAgain to %d in
-  // Weapon::reloadWithBonus 1", m_whenWeCanFireAgain));
+  // CRCDEBUG_LOG(("Just set TheGxWeapons.whenFire[m_row] to %d in
+  // Weapon::reloadWithBonus 1", TheGxWeapons.whenFire[m_row]));
 
   // if we are sharing reload times
   // go through other weapons in weapon set
-  // set their m_whenWeCanFireAgain to this guy's delay
-  // set their m_status to this guy's status
+  // set their TheGxWeapons.whenFire[m_row] to this guy's delay
+  // set their TheGxWeapons.status[m_row] to this guy's status
   if (sourceObj->isReloadTimeShared()) {
     for (Int wt = 0; wt < WEAPONSLOT_COUNT; wt++) {
       Weapon *weapon = sourceObj->getWeaponInWeaponSlot((WeaponSlotType)wt);
       if (weapon) {
-        weapon->setPossibleNextShotFrame(m_whenWeCanFireAgain);
-        // CRCDEBUG_LOG(("Just set m_whenWeCanFireAgain to %d in
-        // Weapon::reloadWithBonus 2", m_whenWeCanFireAgain));
+        weapon->setPossibleNextShotFrame(TheGxWeapons.whenFire[m_row]);
+        // CRCDEBUG_LOG(("Just set TheGxWeapons.whenFire[m_row] to %d in
+        // Weapon::reloadWithBonus 2", TheGxWeapons.whenFire[m_row]));
         weapon->setStatus(RELOADING_CLIP);
       }
     }
@@ -2141,23 +2313,23 @@ void Weapon::onWeaponBonusChange(const Object *source) {
   Bool needUpdate = FALSE;
 
   if (getStatus() == RELOADING_CLIP) {
-    newDelay = m_template->getClipReloadTime(bonus);
+    newDelay = TheGxWeapons.tmpl[m_row]->getClipReloadTime(bonus);
     needUpdate = TRUE;
   } else if (getStatus() == BETWEEN_FIRING_SHOTS) {
-    newDelay = m_template->getDelayBetweenShots(bonus);
+    newDelay = TheGxWeapons.tmpl[m_row]->getDelayBetweenShots(bonus);
     needUpdate = TRUE;
   }
 
   if (needUpdate) {
-    m_whenLastReloadStarted = TheGameLogic->getFrame();
-    m_whenWeCanFireAgain = m_whenLastReloadStarted + newDelay;
+    TheGxWeapons.lastReload[m_row] = TheGameLogic->getFrame();
+    TheGxWeapons.whenFire[m_row] = TheGxWeapons.lastReload[m_row] + newDelay;
     gxTouch();
 
     if (source->isReloadTimeShared()) {
       for (Int wt = 0; wt < WEAPONSLOT_COUNT; wt++) {
         Weapon *weapon = source->getWeaponInWeaponSlot((WeaponSlotType)wt);
         if (weapon) {
-          weapon->setPossibleNextShotFrame(m_whenWeCanFireAgain);
+          weapon->setPossibleNextShotFrame(TheGxWeapons.whenFire[m_row]);
           weapon->setStatus(RELOADING_CLIP);
         }
       }
@@ -2190,7 +2362,7 @@ Bool Weapon::computeApproachTarget(const Object *source, const Object *target,
   }
 
   Real dist = dir.length();
-  Real minAttackRange = m_template->getMinimumAttackRange();
+  Real minAttackRange = TheGxWeapons.tmpl[m_row]->getMinimumAttackRange();
   if (minAttackRange > PATHFIND_CELL_SIZE_F && dist < minAttackRange) {
     // We aret too close, so move away from the target.
     DEBUG_ASSERTCRASH((minAttackRange < 0.9f * getAttackRange(source)),
@@ -2310,7 +2482,7 @@ Bool Weapon::isSourceObjectWithGoalPositionWithinAttackRange(
     return false;
 
   Real attackRangeSqr = sqr(getAttackRange(source));
-  Real minAttackRangeSqr = sqr(m_template->getMinimumAttackRange());
+  Real minAttackRangeSqr = sqr(TheGxWeapons.tmpl[m_row]->getMinimumAttackRange());
 #ifdef RATIONALIZE_ATTACK_RANGE
   if (distSqr < minAttackRangeSqr)
 #else
@@ -2328,7 +2500,7 @@ Bool Weapon::isWithinAttackRange(const Object *source,
   Real distSqr = ThePartitionManager->getDistanceSquared(
       source, pos, ATTACK_RANGE_CALC_TYPE);
   Real attackRangeSqr = sqr(getAttackRange(source));
-  Real minAttackRangeSqr = sqr(m_template->getMinimumAttackRange());
+  Real minAttackRangeSqr = sqr(TheGxWeapons.tmpl[m_row]->getMinimumAttackRange());
 #ifdef RATIONALIZE_ATTACK_RANGE
   if (distSqr < minAttackRangeSqr)
 #else
@@ -2362,7 +2534,7 @@ Bool Weapon::isWithinAttackRange(const Object *source,
     }
   }
 
-  Real minAttackRangeSqr = sqr(m_template->getMinimumAttackRange());
+  Real minAttackRangeSqr = sqr(TheGxWeapons.tmpl[m_row]->getMinimumAttackRange());
 #ifdef RATIONALIZE_ATTACK_RANGE
   if (distSqr < minAttackRangeSqr)
 #else
@@ -2398,7 +2570,7 @@ Bool Weapon::isWithinAttackRange(const Object *source,
 
 //-------------------------------------------------------------------------------------------------
 Bool Weapon::isTooClose(const Object *source, const Object *target) const {
-  Real minAttackRange = m_template->getMinimumAttackRange();
+  Real minAttackRange = TheGxWeapons.tmpl[m_row]->getMinimumAttackRange();
   if (minAttackRange == 0.0f)
     return false;
 
@@ -2412,7 +2584,7 @@ Bool Weapon::isTooClose(const Object *source, const Object *target) const {
 
 //-------------------------------------------------------------------------------------------------
 Bool Weapon::isTooClose(const Object *source, const Coord3D *pos) const {
-  Real minAttackRange = m_template->getMinimumAttackRange();
+  Real minAttackRange = TheGxWeapons.tmpl[m_row]->getMinimumAttackRange();
   if (minAttackRange == 0.0f)
     return false;
 
@@ -2463,7 +2635,7 @@ Bool Weapon::isGoalPosWithinAttackRange(const Object *source,
   // RATIONALIZE_ATTACK_RANGE, we still need to add 1/4 of a pathfind cell,
   // otherwise if it teters on the edge, attacks can fail.  jba.
   Real minAttackRangeSqr =
-      sqr(m_template->getMinimumAttackRange() + (PATHFIND_CELL_SIZE_F * 0.25f));
+      sqr(TheGxWeapons.tmpl[m_row]->getMinimumAttackRange() + (PATHFIND_CELL_SIZE_F * 0.25f));
 #ifdef RATIONALIZE_ATTACK_RANGE
   if (distSqr < minAttackRangeSqr)
 #else
@@ -2489,14 +2661,14 @@ Real Weapon::getPercentReadyToFire() const {
   case RELOADING_CLIP: {
     UnsignedInt now = TheGameLogic->getFrame();
     UnsignedInt nextShot = getPossibleNextShotFrame();
-    DEBUG_ASSERTCRASH(now >= m_whenLastReloadStarted,
-                      ("now >= m_whenLastReloadStarted"));
+    DEBUG_ASSERTCRASH(now >= TheGxWeapons.lastReload[m_row],
+                      ("now >= TheGxWeapons.lastReload[m_row]"));
     if (now >= nextShot)
       return 1.0f;
 
-    DEBUG_ASSERTCRASH(nextShot >= m_whenLastReloadStarted,
-                      ("nextShot >= m_whenLastReloadStarted"));
-    UnsignedInt totalTime = nextShot - m_whenLastReloadStarted;
+    DEBUG_ASSERTCRASH(nextShot >= TheGxWeapons.lastReload[m_row],
+                      ("nextShot >= TheGxWeapons.lastReload[m_row]"));
+    UnsignedInt totalTime = nextShot - TheGxWeapons.lastReload[m_row];
     if (totalTime == 0) {
       return 1.0f;
     }
@@ -2519,7 +2691,7 @@ Real Weapon::getPercentReadyToFire() const {
 Real Weapon::getAttackRange(const Object *source) const {
   WeaponBonus bonus;
   computeBonus(source, 0, bonus);
-  return m_template->getAttackRange(bonus);
+  return TheGxWeapons.tmpl[m_row]->getAttackRange(bonus);
 
   // Contained objects have longer ranges.
   // const Object *container = source->getContainedBy();
@@ -2552,18 +2724,20 @@ Real Weapon::getAttackDistance(const Object *source, const Object *victimObj,
 Real Weapon::estimateWeaponDamage(const Object *sourceObj,
                                   const Object *victimObj,
                                   const Coord3D *victimPos) {
-  if (!m_template)
+  if (!TheGxWeapons.tmpl[m_row])
     return 0.0f;
 
   // if the weapon is just reloading, it's ok. if it's out of ammo
   // (and won't autoreload), then we aren't gonna do any damage.
-  if (getStatus() == OUT_OF_AMMO && !m_template->getAutoReloadsClip())
+  if (getStatus() == OUT_OF_AMMO && !TheGxWeapons.tmpl[m_row]->getAutoReloadsClip())
     return 0.0f;
 
+  GxTimeScope gxT(GXT_ESTIMATE);	// tickTiming
+  gxCount(GXC_ESTIMATES);
   WeaponBonus bonus;
   computeBonus(sourceObj, 0, bonus);
 
-  return m_template->estimateWeaponTemplateDamage(sourceObj, victimObj,
+  return TheGxWeapons.tmpl[m_row]->estimateWeaponTemplateDamage(sourceObj, victimObj,
                                                   victimPos, bonus);
 }
 
@@ -2573,20 +2747,20 @@ void Weapon::newProjectileFired(const Object *sourceObj,
                                 const Object *victimObj,
                                 const Coord3D *victimPos) {
   // If I have a stream, I need to tell it about this new guy
-  if (m_template->getProjectileStreamName().isEmpty())
+  if (TheGxWeapons.tmpl[m_row]->getProjectileStreamName().isEmpty())
     return; // nope, no streak logic to do
 
-  Object *projectileStream = TheGameLogic->findObjectByID(m_projectileStreamID);
+  Object *projectileStream = TheGameLogic->findObjectByID(TheGxWeapons.projStream[m_row]);
   if (projectileStream == nullptr) {
-    m_projectileStreamID = INVALID_ID; // reset, since it might have been
+    TheGxWeapons.projStream[m_row] = INVALID_ID; // reset, since it might have been
                                        // "valid" but deleted out from under us
     const ThingTemplate *pst =
-        TheThingFactory->findTemplate(m_template->getProjectileStreamName());
+        TheThingFactory->findTemplate(TheGxWeapons.tmpl[m_row]->getProjectileStreamName());
     projectileStream = TheThingFactory->newObject(
         pst, sourceObj->getControllingPlayer()->getDefaultTeam());
     if (projectileStream == nullptr)
       return;
-    m_projectileStreamID = projectileStream->getID();
+    TheGxWeapons.projStream[m_row] = projectileStream->getID();
   }
 
   // Check for projectile stream update
@@ -2608,12 +2782,12 @@ void Weapon::newProjectileFired(const Object *sourceObj,
 void Weapon::createLaser(const Object *sourceObj, const Object *victimObj,
                          const Coord3D *victimPos) {
   const ThingTemplate *pst =
-      TheThingFactory->findTemplate(m_template->getLaserName());
+      TheThingFactory->findTemplate(TheGxWeapons.tmpl[m_row]->getLaserName());
   if (!pst) {
     DEBUG_CRASH(
         ("Weapon::createLaser(). %s could not find template for its laser %s.",
          sourceObj->getTemplate()->getName().str(),
-         m_template->getLaserName().str()));
+         TheGxWeapons.tmpl[m_row]->getLaserName().str()));
     return;
   }
   Object *laser = TheThingFactory->newObject(
@@ -2640,7 +2814,7 @@ void Weapon::createLaser(const Object *sourceObj, const Object *victimObj,
         pos.z += 10.0f;
       }
       update->initLaser(sourceObj, victimObj, sourceObj->getPosition(), &pos,
-                        m_template->getLaserBoneName());
+                        TheGxWeapons.tmpl[m_row]->getLaserBoneName());
     }
   }
 }
@@ -2658,12 +2832,12 @@ Bool Weapon::privateFireWeapon(const Object *sourceObj, Object *victimObj,
   if (projectileID)
     *projectileID = INVALID_ID;
 
-  if (!m_template)
+  if (!TheGxWeapons.tmpl[m_row])
     return false;
 
   // If we are a networked weapon, tell everyone nearby they might want to get
   // in on this shot
-  if (m_template->getRequestAssistRange() && victimObj)
+  if (TheGxWeapons.tmpl[m_row]->getRequestAssistRange() && victimObj)
     processRequestAssistance(sourceObj, victimObj);
 
   // For weapon templates that have the leech range weapon flag set, it
@@ -2675,12 +2849,12 @@ Bool Weapon::privateFireWeapon(const Object *sourceObj, Object *victimObj,
   //  @todo srj -- this isn't a universally true assertion! eg, FireWeaponDie
   //  lets you do this easily.
   //
-  if (m_template->isLeechRangeWeapon()) {
+  if (TheGxWeapons.tmpl[m_row]->isLeechRangeWeapon()) {
     setLeechRangeActive(TRUE);
   }
 
   // Special case damage type overrides requiring special handling.
-  switch (m_template->getDamageType()) {
+  switch (TheGxWeapons.tmpl[m_row]->getDamageType()) {
   case DAMAGE_DEPLOY: {
     const AIUpdateInterface *ai = sourceObj->getAI();
     if (ai) {
@@ -2701,7 +2875,7 @@ Bool Weapon::privateFireWeapon(const Object *sourceObj, Object *victimObj,
         LandMineInterface *lmi = (*bmi)->getLandMineInterface();
         if (lmi) {
           VeterancyLevel v = sourceObj->getVeterancyLevel();
-          FXList::doFXPos(m_template->getFireFX(v), victimObj->getPosition(),
+          FXList::doFXPos(TheGxWeapons.tmpl[m_row]->getFireFX(v), victimObj->getPosition(),
                           victimObj->getTransformMatrix(), 0,
                           victimObj->getPosition(), 0);
           lmi->disarm();
@@ -2715,7 +2889,7 @@ Bool Weapon::privateFireWeapon(const Object *sourceObj, Object *victimObj,
           victimObj->isKindOf(KINDOF_BOOBY_TRAP) ||
           victimObj->isKindOf(KINDOF_DEMOTRAP)) {
         VeterancyLevel v = sourceObj->getVeterancyLevel();
-        FXList::doFXPos(m_template->getFireFX(v), victimObj->getPosition(),
+        FXList::doFXPos(TheGxWeapons.tmpl[m_row]->getFireFX(v), victimObj->getPosition(),
                         victimObj->getTransformMatrix(), 0,
                         victimObj->getPosition(), 0);
         TheGameLogic->destroyObject(
@@ -2730,10 +2904,10 @@ Bool Weapon::privateFireWeapon(const Object *sourceObj, Object *victimObj,
       }
     }
 
-    --m_maxShotCount;
-    --m_ammoInClip; // so we can use the delay between shots on the mine
+    --TheGxWeapons.maxShot[m_row];
+    --TheGxWeapons.ammo[m_row]; // so we can use the delay between shots on the mine
                     // clearing weapon
-    if (m_ammoInClip <= 0 && m_template->getAutoReloadsClip()) {
+    if (TheGxWeapons.ammo[m_row] <= 0 && TheGxWeapons.tmpl[m_row]->getAutoReloadsClip()) {
       reloadAmmo(sourceObj);
       return TRUE; // reloaded
     } else {
@@ -2756,23 +2930,23 @@ Bool Weapon::privateFireWeapon(const Object *sourceObj, Object *victimObj,
   DEBUG_ASSERTCRASH(
       getStatus() == READY_TO_FIRE,
       ("Hmm, Weapon is firing more often than should be possible"));
-  DEBUG_ASSERTCRASH(m_ammoInClip > 0, ("Hmm, firing an empty weapon"));
+  DEBUG_ASSERTCRASH(TheGxWeapons.ammo[m_row] > 0, ("Hmm, firing an empty weapon"));
 
   if (getStatus() != READY_TO_FIRE)
     return false;
 
   UnsignedInt now = TheGameLogic->getFrame();
   Bool reloaded = false;
-  if (m_ammoInClip > 0) {
+  if (TheGxWeapons.ammo[m_row] > 0) {
     // TheSuperHackers @logic-client-separation helmutbuhler 11/04/2025
     // barrelCount shouln't depend on Drawable, which belongs to client.
-    Int barrelCount = sourceObj->getDrawable()->getBarrelCount(m_wslot);
-    if (m_curBarrel >= barrelCount) {
-      m_curBarrel = 0;
-      m_numShotsForCurBarrel = m_template->getShotsPerBarrel();
+    Int barrelCount = sourceObj->getDrawable()->getBarrelCount(TheGxWeapons.wslot[m_row]);
+    if (TheGxWeapons.curBarrel[m_row] >= barrelCount) {
+      TheGxWeapons.curBarrel[m_row] = 0;
+      TheGxWeapons.numShots[m_row] = TheGxWeapons.tmpl[m_row]->getShotsPerBarrel();
     }
 
-    if (!m_scatterTargetsUnused.empty()) {
+    if (!TheGxWeapons.scatter[m_row].empty()) {
       // If I have a set scatter pattern, I need to offset the target by a
       // random pick from that pattern
       if (victimObj) {
@@ -2782,14 +2956,14 @@ Bool Weapon::privateFireWeapon(const Object *sourceObj, Object *victimObj,
       Coord3D targetPos = *victimPos; // need to copy, as this pointer is
                                       // actually inside somebody potentially
       Int randomPick =
-          GameLogicRandomValue(0, m_scatterTargetsUnused.size() - 1);
-      Int targetIndex = m_scatterTargetsUnused[randomPick];
+          GameLogicRandomValue(0, TheGxWeapons.scatter[m_row].size() - 1);
+      Int targetIndex = TheGxWeapons.scatter[m_row][randomPick];
 
       Real scatterTargetScalar =
           getScatterTargetScalar(); // essentially a radius, but operates only
                                     // on this scatterTarget table
       Coord2D scatterOffset =
-          m_template->getScatterTargetsVector().at(targetIndex);
+          TheGxWeapons.tmpl[m_row]->getScatterTargetsVector().at(targetIndex);
 
       scatterOffset.x *= scatterTargetScalar;
       scatterOffset.y *= scatterTargetScalar;
@@ -2801,61 +2975,61 @@ Bool Weapon::privateFireWeapon(const Object *sourceObj, Object *victimObj,
 
       // To erase from a vector, put the last on the one you used and pop the
       // back.
-      m_scatterTargetsUnused[randomPick] = m_scatterTargetsUnused.back();
-      m_scatterTargetsUnused.pop_back();
-      m_template->fireWeaponTemplate(sourceObj, m_wslot, m_curBarrel, victimObj,
+      TheGxWeapons.scatter[m_row][randomPick] = TheGxWeapons.scatter[m_row].back();
+      TheGxWeapons.scatter[m_row].pop_back();
+      TheGxWeapons.tmpl[m_row]->fireWeaponTemplate(sourceObj, TheGxWeapons.wslot[m_row], TheGxWeapons.curBarrel[m_row], victimObj,
                                      &targetPos, bonus, isProjectileDetonation,
                                      ignoreRanges, this, projectileID,
                                      inflictDamage);
     } else {
-      m_template->fireWeaponTemplate(sourceObj, m_wslot, m_curBarrel, victimObj,
+      TheGxWeapons.tmpl[m_row]->fireWeaponTemplate(sourceObj, TheGxWeapons.wslot[m_row], TheGxWeapons.curBarrel[m_row], victimObj,
                                      victimPos, bonus, isProjectileDetonation,
                                      ignoreRanges, this, projectileID,
                                      inflictDamage);
     }
 
-    m_lastFireFrame = now;
+    TheGxWeapons.lastFire[m_row] = now;
     gxTouch();
-    --m_ammoInClip;
-    --m_maxShotCount;
-    --m_numShotsForCurBarrel;
-    if (m_numShotsForCurBarrel <= 0) {
-      ++m_curBarrel;
-      m_numShotsForCurBarrel = m_template->getShotsPerBarrel();
+    --TheGxWeapons.ammo[m_row];
+    --TheGxWeapons.maxShot[m_row];
+    --TheGxWeapons.numShots[m_row];
+    if (TheGxWeapons.numShots[m_row] <= 0) {
+      ++TheGxWeapons.curBarrel[m_row];
+      TheGxWeapons.numShots[m_row] = TheGxWeapons.tmpl[m_row]->getShotsPerBarrel();
     }
 
-    if (m_ammoInClip <= 0) {
-      if (m_template->getAutoReloadsClip()) {
+    if (TheGxWeapons.ammo[m_row] <= 0) {
+      if (TheGxWeapons.tmpl[m_row]->getAutoReloadsClip()) {
         reloadAmmo(sourceObj);
         reloaded = true;
       } else {
-        m_status = OUT_OF_AMMO;
-        m_whenWeCanFireAgain = 0x7fffffff;
-        // CRCDEBUG_LOG(("Just set m_whenWeCanFireAgain to %d in
-        // Weapon::privateFireWeapon 1", m_whenWeCanFireAgain));
+        TheGxWeapons.status[m_row] = OUT_OF_AMMO;
+        TheGxWeapons.whenFire[m_row] = 0x7fffffff;
+        // CRCDEBUG_LOG(("Just set TheGxWeapons.whenFire[m_row] to %d in
+        // Weapon::privateFireWeapon 1", TheGxWeapons.whenFire[m_row]));
       }
     } else {
-      m_status = BETWEEN_FIRING_SHOTS;
-      // CRCDEBUG_LOG(("Weapon::privateFireWeapon() just set m_status to
+      TheGxWeapons.status[m_row] = BETWEEN_FIRING_SHOTS;
+      // CRCDEBUG_LOG(("Weapon::privateFireWeapon() just set TheGxWeapons.status[m_row] to
       // BETWEEN_FIRING_SHOTS"));
-      Int delay = m_template->getDelayBetweenShots(bonus);
-      m_whenLastReloadStarted = now;
-      m_whenWeCanFireAgain = now + delay;
-      // CRCDEBUG_LOG(("Just set m_whenWeCanFireAgain to %d (delay is %d) in
-      // Weapon::privateFireWeapon", m_whenWeCanFireAgain, delay));
+      Int delay = TheGxWeapons.tmpl[m_row]->getDelayBetweenShots(bonus);
+      TheGxWeapons.lastReload[m_row] = now;
+      TheGxWeapons.whenFire[m_row] = now + delay;
+      // CRCDEBUG_LOG(("Just set TheGxWeapons.whenFire[m_row] to %d (delay is %d) in
+      // Weapon::privateFireWeapon", TheGxWeapons.whenFire[m_row], delay));
 
       // if we are sharing reload times
       // go through other weapons in weapon set
-      // set their m_whenWeCanFireAgain to this guy's delay
-      // set their m_status to this guy's status
+      // set their TheGxWeapons.whenFire[m_row] to this guy's delay
+      // set their TheGxWeapons.status[m_row] to this guy's status
 
       if (sourceObj->isReloadTimeShared()) {
         for (Int wt = 0; wt < WEAPONSLOT_COUNT; wt++) {
           Weapon *weapon = sourceObj->getWeaponInWeaponSlot((WeaponSlotType)wt);
           if (weapon) {
-            weapon->setPossibleNextShotFrame(m_whenWeCanFireAgain);
-            // CRCDEBUG_LOG(("Just set m_whenWeCanFireAgain to %d in
-            // Weapon::privateFireWeapon 3", m_whenWeCanFireAgain));
+            weapon->setPossibleNextShotFrame(TheGxWeapons.whenFire[m_row]);
+            // CRCDEBUG_LOG(("Just set TheGxWeapons.whenFire[m_row] to %d in
+            // Weapon::privateFireWeapon 3", TheGxWeapons.whenFire[m_row]));
             weapon->setStatus(BETWEEN_FIRING_SHOTS);
           }
         }
@@ -2872,7 +3046,7 @@ void Weapon::preFireWeapon(const Object *source, const Object *victim) {
   if (delay > 0) {
     setStatus(PRE_ATTACK);
     setPreAttackFinishedFrame(TheGameLogic->getFrame() + delay);
-    if (m_template->isLeechRangeWeapon()) {
+    if (TheGxWeapons.tmpl[m_row]->isLeechRangeWeapon()) {
       setLeechRangeActive(TRUE);
     }
   }
@@ -2937,18 +3111,18 @@ Object *Weapon::forceFireWeapon(const Object *source, const Coord3D *pos) {
 //-------------------------------------------------------------------------------------------------
 WeaponStatus Weapon::getStatus() const {
   UnsignedInt now = TheGameLogic->getFrame();
-  if (now < m_whenPreAttackFinished) {
+  if (now < TheGxWeapons.preAttack[m_row]) {
     return PRE_ATTACK;
   }
-  if (now >= m_whenWeCanFireAgain) {
-    if (m_ammoInClip > 0)
-      m_status = READY_TO_FIRE;
+  if (now >= TheGxWeapons.whenFire[m_row]) {
+    if (TheGxWeapons.ammo[m_row] > 0)
+      TheGxWeapons.status[m_row] = READY_TO_FIRE;
     else
-      m_status = OUT_OF_AMMO;
-    // CRCDEBUG_LOG(("Weapon::getStatus() just set m_status to %d (ammo in clip
-    // is %d)", m_status, m_ammoInClip));
+      TheGxWeapons.status[m_row] = OUT_OF_AMMO;
+    // CRCDEBUG_LOG(("Weapon::getStatus() just set TheGxWeapons.status[m_row] to %d (ammo in clip
+    // is %d)", TheGxWeapons.status[m_row], TheGxWeapons.ammo[m_row]));
   }
-  return m_status;
+  return TheGxWeapons.status[m_row];
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2970,16 +3144,16 @@ Bool Weapon::isWithinTargetPitch(const Object *source,
 
   // if there's any intersection between the the two pitch ranges, we're good to
   // go.
-  if ((minPitch >= m_template->getMinTargetPitch() &&
-       minPitch <= m_template->getMaxTargetPitch()) ||
-      (maxPitch >= m_template->getMinTargetPitch() &&
-       maxPitch <= m_template->getMaxTargetPitch()) ||
-      (minPitch <= m_template->getMinTargetPitch() &&
-       maxPitch >= m_template->getMaxTargetPitch()))
+  if ((minPitch >= TheGxWeapons.tmpl[m_row]->getMinTargetPitch() &&
+       minPitch <= TheGxWeapons.tmpl[m_row]->getMaxTargetPitch()) ||
+      (maxPitch >= TheGxWeapons.tmpl[m_row]->getMinTargetPitch() &&
+       maxPitch <= TheGxWeapons.tmpl[m_row]->getMaxTargetPitch()) ||
+      (minPitch <= TheGxWeapons.tmpl[m_row]->getMinTargetPitch() &&
+       maxPitch >= TheGxWeapons.tmpl[m_row]->getMaxTargetPitch()))
     return true;
 
   // DEBUG_LOG(("pitch %f-%f is out of
-  // range",rad2deg(minPitch),rad2deg(maxPitch),rad2deg(m_template->getMinTargetPitch()),rad2deg(m_template->getMaxTargetPitch())));
+  // range",rad2deg(minPitch),rad2deg(maxPitch),rad2deg(TheGxWeapons.tmpl[m_row]->getMinTargetPitch()),rad2deg(TheGxWeapons.tmpl[m_row]->getMaxTargetPitch())));
   return false;
 }
 
@@ -2987,7 +3161,7 @@ Bool Weapon::isWithinTargetPitch(const Object *source,
 Real Weapon::getPrimaryDamageRadius(const Object *source) const {
   WeaponBonus bonus;
   computeBonus(source, 0, bonus);
-  return m_template->getPrimaryDamageRadius(bonus);
+  return TheGxWeapons.tmpl[m_row]->getPrimaryDamageRadius(bonus);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2995,7 +3169,7 @@ Bool Weapon::isDamageWeapon() const {
   // These damage types are special attacks that don't do damage directly, even
   // if they can indirectly. These are here to prevent the UI from allowing the
   // user to mouseover a target and think it can attack it using these types.
-  switch (m_template->getDamageType()) {
+  switch (TheGxWeapons.tmpl[m_row]->getDamageType()) {
   case DAMAGE_DEPLOY:
     // Kris @todo
     // Evaluate a better way to handle this weapon type... doesn't fit being a
@@ -3011,8 +3185,8 @@ Bool Weapon::isDamageWeapon() const {
 
   // Use no bonus
   WeaponBonus whoCares;
-  if (m_template->getPrimaryDamage(whoCares) > 0.0f ||
-      m_template->getSecondaryDamage(whoCares) > 0.0f) {
+  if (TheGxWeapons.tmpl[m_row]->getPrimaryDamage(whoCares) > 0.0f ||
+      TheGxWeapons.tmpl[m_row]->getSecondaryDamage(whoCares) > 0.0f) {
     return TRUE;
   }
 
@@ -3023,10 +3197,10 @@ Bool Weapon::isDamageWeapon() const {
 Int Weapon::getPreAttackDelay(const Object *source,
                               const Object *victim) const {
   // Look for a reason to return zero and have no delay.
-  WeaponPrefireType type = m_template->getPrefireType();
+  WeaponPrefireType type = TheGxWeapons.tmpl[m_row]->getPrefireType();
   if (type == PREFIRE_PER_CLIP) {
-    if (m_template->getClipSize() > 0 &&
-        m_ammoInClip < m_template->getClipSize())
+    if (TheGxWeapons.tmpl[m_row]->getClipSize() > 0 &&
+        TheGxWeapons.ammo[m_row] < TheGxWeapons.tmpl[m_row]->getClipSize())
       return 0; // I only delay once a clip, and this is not the first shot
   } else if (type == PREFIRE_PER_ATTACK) {
     if (source->getNumConsecutiveShotsFiredAtTarget(victim) > 0)
@@ -3036,7 +3210,7 @@ Int Weapon::getPreAttackDelay(const Object *source,
 
   WeaponBonus bonus;
   computeBonus(source, 0, bonus);
-  return m_template->getPreAttackDelay(bonus);
+  return TheGxWeapons.tmpl[m_row]->getPreAttackDelay(bonus);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3108,7 +3282,7 @@ void Weapon::processRequestAssistance(const Object *requestingObject,
   requestData.m_requestingObject = requestingObject;
   requestData.m_victimObject = victimObject;
   requestData.m_requestDistanceSquared =
-      m_template->getRequestAssistRange() * m_template->getRequestAssistRange();
+      TheGxWeapons.tmpl[m_row]->getRequestAssistRange() * TheGxWeapons.tmpl[m_row]->getRequestAssistRange();
 
   ourPlayer->iterateObjects(makeAssistanceRequest, &requestData);
 }
@@ -3251,7 +3425,7 @@ void Weapon::getFiringLineOfSightOrigin(const Object *source,
   origin.z += source->getGeometryInfo().getMaxHeightAbovePosition();
 
   /*
-          if (m_template->getProjectileTemplate() == nullptr)
+          if (TheGxWeapons.tmpl[m_row]->getProjectileTemplate() == nullptr)
           {
                   // note that we want to measure from the top of the collision
                   // shape, not the bottom! (most objects have eyes a lot closer
@@ -3265,7 +3439,7 @@ void Weapon::getFiringLineOfSightOrigin(const Object *source,
           {
                   Matrix3D tmp(true);
                   Coord3D launchPos = {0.0f, 0.0f, 0.0f};
-                  calcProjectileLaunchPosition(source, m_wslot, m_curBarrel,
+                  calcProjectileLaunchPosition(source, TheGxWeapons.wslot[m_row], TheGxWeapons.curBarrel[m_row],
      tmp, launchPos); origin.x += launchPos.x - source->getPosition()->x;
                   origin.y += launchPos.y - source->getPosition()->y;
                   origin.z += launchPos.z - source->getPosition()->z;
@@ -3347,9 +3521,9 @@ Bool Weapon::isClearGoalFiringLineOfSightTerrain(
 // from the bike for the sniper attack, so he can share the stats.
 //-------------------------------------------------------------------------------------------------
 void Weapon::transferNextShotStatsFrom(const Weapon &weapon) {
-  m_whenWeCanFireAgain = weapon.getPossibleNextShotFrame();
-  m_whenLastReloadStarted = weapon.getLastReloadStartedFrame();
-  m_status = weapon.getStatus();
+  TheGxWeapons.whenFire[m_row] = weapon.getPossibleNextShotFrame();
+  TheGxWeapons.lastReload[m_row] = weapon.getLastReloadStartedFrame();
+  TheGxWeapons.status[m_row] = weapon.getStatus();
   gxTouch();
 }
 
@@ -3361,85 +3535,85 @@ void Weapon::crc(Xfer *xfer) {
   AsciiString tmp;
   Bool doLogging = g_logObjectCRCs;
   if (doLogging) {
-    tmp.format("CRC of weapon %s: ", m_template->getName().str());
+    tmp.format("CRC of weapon %s: ", TheGxWeapons.tmpl[m_row]->getName().str());
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
 
-  AsciiString tmplName = m_template->getName();
+  AsciiString tmplName = TheGxWeapons.tmpl[m_row]->getName();
   xfer->xferAsciiString(&tmplName);
 
   // slot
-  xfer->xferUser(&m_wslot, sizeof(WeaponSlotType));
+  xfer->xferUser(&TheGxWeapons.wslot[m_row], sizeof(WeaponSlotType));
 #ifdef DEBUG_CRC
   if (doLogging) {
-    tmp.format("m_wslot %d ", m_wslot);
+    tmp.format("TheGxWeapons.wslot[m_row] %d ", TheGxWeapons.wslot[m_row]);
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
 
   // status
   /*
-  xfer->xferUser( &m_status, sizeof( WeaponStatus ) );
+  xfer->xferUser( &TheGxWeapons.status[m_row], sizeof( WeaponStatus ) );
 #ifdef DEBUG_CRC
   if (doLogging)
   {
-          tmp.format("m_status %d ", m_status);
+          tmp.format("TheGxWeapons.status[m_row] %d ", TheGxWeapons.status[m_row]);
           logString.concat(tmp);
   }
 #endif // DEBUG_CRC
   */
 
   // ammo
-  xfer->xferUnsignedInt(&m_ammoInClip);
+  xfer->xferUnsignedInt(&TheGxWeapons.ammo[m_row]);
 #ifdef DEBUG_CRC
   if (doLogging) {
-    tmp.format("m_ammoInClip %d ", m_ammoInClip);
+    tmp.format("TheGxWeapons.ammo[m_row] %d ", TheGxWeapons.ammo[m_row]);
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
 
   // when can fire again
-  xfer->xferUnsignedInt(&m_whenWeCanFireAgain);
+  xfer->xferUnsignedInt(&TheGxWeapons.whenFire[m_row]);
 #ifdef DEBUG_CRC
   if (doLogging) {
-    tmp.format("m_whenWeCanFireAgain %d ", m_whenWeCanFireAgain);
+    tmp.format("TheGxWeapons.whenFire[m_row] %d ", TheGxWeapons.whenFire[m_row]);
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
 
   // when pre attack finished
-  xfer->xferUnsignedInt(&m_whenPreAttackFinished);
+  xfer->xferUnsignedInt(&TheGxWeapons.preAttack[m_row]);
 #ifdef DEBUG_CRC
   if (doLogging) {
-    tmp.format("m_whenPreAttackFinished %d ", m_whenPreAttackFinished);
+    tmp.format("TheGxWeapons.preAttack[m_row] %d ", TheGxWeapons.preAttack[m_row]);
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
 
   // when last reload started
-  xfer->xferUnsignedInt(&m_whenLastReloadStarted);
+  xfer->xferUnsignedInt(&TheGxWeapons.lastReload[m_row]);
 #ifdef DEBUG_CRC
   if (doLogging) {
-    tmp.format("m_whenLastReloadStarted %d ", m_whenLastReloadStarted);
+    tmp.format("TheGxWeapons.lastReload[m_row] %d ", TheGxWeapons.lastReload[m_row]);
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
 
   // last fire frame
-  xfer->xferUnsignedInt(&m_lastFireFrame);
+  xfer->xferUnsignedInt(&TheGxWeapons.lastFire[m_row]);
 #ifdef DEBUG_CRC
   if (doLogging) {
-    tmp.format("m_lastFireFrame %d ", m_lastFireFrame);
+    tmp.format("TheGxWeapons.lastFire[m_row] %d ", TheGxWeapons.lastFire[m_row]);
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
 
   // projectile stream object
-  xfer->xferObjectID(&m_projectileStreamID);
+  xfer->xferObjectID(&TheGxWeapons.projStream[m_row]);
 #ifdef DEBUG_CRC
   if (doLogging) {
-    tmp.format("projectileStreamID %d ", m_projectileStreamID);
+    tmp.format("projectileStreamID %d ", TheGxWeapons.projStream[m_row]);
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
@@ -3455,34 +3629,34 @@ void Weapon::crc(Xfer *xfer) {
 #endif // DEBUG_CRC
 
   // max shot count
-  xfer->xferInt(&m_maxShotCount);
+  xfer->xferInt(&TheGxWeapons.maxShot[m_row]);
 #ifdef DEBUG_CRC
   if (doLogging) {
-    tmp.format("m_maxShotCount %d ", m_maxShotCount);
+    tmp.format("TheGxWeapons.maxShot[m_row] %d ", TheGxWeapons.maxShot[m_row]);
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
 
   // current barrel
-  xfer->xferInt(&m_curBarrel);
+  xfer->xferInt(&TheGxWeapons.curBarrel[m_row]);
 #ifdef DEBUG_CRC
   if (doLogging) {
-    tmp.format("m_curBarrel %d ", m_curBarrel);
+    tmp.format("TheGxWeapons.curBarrel[m_row] %d ", TheGxWeapons.curBarrel[m_row]);
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
 
   // num shots for current barrel
-  xfer->xferInt(&m_numShotsForCurBarrel);
+  xfer->xferInt(&TheGxWeapons.numShots[m_row]);
 #ifdef DEBUG_CRC
   if (doLogging) {
-    tmp.format("m_numShotsForCurBarrel %d ", m_numShotsForCurBarrel);
+    tmp.format("TheGxWeapons.numShots[m_row] %d ", TheGxWeapons.numShots[m_row]);
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
 
   // scatter targets unused
-  UnsignedShort scatterCount = m_scatterTargetsUnused.size();
+  UnsignedShort scatterCount = TheGxWeapons.scatter[m_row].size();
   xfer->xferUnsignedShort(&scatterCount);
 #ifdef DEBUG_CRC
   if (doLogging) {
@@ -3495,7 +3669,7 @@ void Weapon::crc(Xfer *xfer) {
 
   std::vector<Int>::const_iterator it;
 
-  for (it = m_scatterTargetsUnused.begin(); it != m_scatterTargetsUnused.end();
+  for (it = TheGxWeapons.scatter[m_row].begin(); it != TheGxWeapons.scatter[m_row].end();
        ++it) {
 
     intData = *it;
@@ -3509,19 +3683,19 @@ void Weapon::crc(Xfer *xfer) {
   }
 
   // pitch limited
-  xfer->xferBool(&m_pitchLimited);
+  { Bool b = TheGxWeapons.pitchLimited[m_row] != 0; xfer->xferBool(&b); TheGxWeapons.pitchLimited[m_row] = b; }
 #ifdef DEBUG_CRC
   if (doLogging) {
-    tmp.format("m_pitchLimited %d ", m_pitchLimited);
+    tmp.format("TheGxWeapons.pitchLimited[m_row] %d ", TheGxWeapons.pitchLimited[m_row]);
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
 
   // leech weapon range active
-  xfer->xferBool(&m_leechWeaponRangeActive);
+  { Bool b = TheGxWeapons.leech[m_row] != 0; xfer->xferBool(&b); TheGxWeapons.leech[m_row] = b; }
 #ifdef DEBUG_CRC
   if (doLogging) {
-    tmp.format("m_leechWeaponRangeActive %d ", m_leechWeaponRangeActive);
+    tmp.format("TheGxWeapons.leech[m_row] %d ", TheGxWeapons.leech[m_row]);
     logString.concat(tmp);
   }
 #endif // DEBUG_CRC
@@ -3545,67 +3719,67 @@ void Weapon::xfer(Xfer *xfer) {
   xfer->xferVersion(&version, currentVersion);
 
   if (version >= 2) {
-    AsciiString tmplName = m_template->getName();
+    AsciiString tmplName = TheGxWeapons.tmpl[m_row]->getName();
     xfer->xferAsciiString(&tmplName);
     if (xfer->getXferMode() == XFER_LOAD) {
-      m_template = TheWeaponStore->findWeaponTemplate(tmplName);
-      if (m_template == nullptr)
+      TheGxWeapons.tmpl[m_row] = TheWeaponStore->findWeaponTemplate(tmplName);
+      if (TheGxWeapons.tmpl[m_row] == nullptr)
         throw INI_INVALID_DATA;
     }
   }
 
   // slot
-  xfer->xferUser(&m_wslot, sizeof(WeaponSlotType));
+  xfer->xferUser(&TheGxWeapons.wslot[m_row], sizeof(WeaponSlotType));
 
   // status
-  xfer->xferUser(&m_status, sizeof(WeaponStatus));
+  xfer->xferUser(&TheGxWeapons.status[m_row], sizeof(WeaponStatus));
 
   // ammo
-  xfer->xferUnsignedInt(&m_ammoInClip);
+  xfer->xferUnsignedInt(&TheGxWeapons.ammo[m_row]);
 
   // when can fire again
-  xfer->xferUnsignedInt(&m_whenWeCanFireAgain);
+  xfer->xferUnsignedInt(&TheGxWeapons.whenFire[m_row]);
 
   // when pre attack finished
-  xfer->xferUnsignedInt(&m_whenPreAttackFinished);
+  xfer->xferUnsignedInt(&TheGxWeapons.preAttack[m_row]);
 
   // when last reload started
-  xfer->xferUnsignedInt(&m_whenLastReloadStarted);
+  xfer->xferUnsignedInt(&TheGxWeapons.lastReload[m_row]);
 
   // last fire frame
-  xfer->xferUnsignedInt(&m_lastFireFrame);
+  xfer->xferUnsignedInt(&TheGxWeapons.lastFire[m_row]);
 
   // suspendFXFrame, this affects client only
   if (version >= 3)
-    xfer->xferUnsignedInt(&m_suspendFXFrame);
+    xfer->xferUnsignedInt(&TheGxWeapons.suspendFX[m_row]);
   else
-    m_suspendFXFrame = 0;
+    TheGxWeapons.suspendFX[m_row] = 0;
 
   // projectile stream object
-  xfer->xferObjectID(&m_projectileStreamID);
+  xfer->xferObjectID(&TheGxWeapons.projStream[m_row]);
 
   // laser object
   ObjectID laserIDUnused = INVALID_ID;
   xfer->xferObjectID(&laserIDUnused);
 
   // max shot count
-  xfer->xferInt(&m_maxShotCount);
+  xfer->xferInt(&TheGxWeapons.maxShot[m_row]);
 
   // current barrel
-  xfer->xferInt(&m_curBarrel);
+  xfer->xferInt(&TheGxWeapons.curBarrel[m_row]);
 
   // num shots for current barrel
-  xfer->xferInt(&m_numShotsForCurBarrel);
+  xfer->xferInt(&TheGxWeapons.numShots[m_row]);
 
   // scatter targets unused
-  UnsignedShort scatterCount = m_scatterTargetsUnused.size();
+  UnsignedShort scatterCount = TheGxWeapons.scatter[m_row].size();
   xfer->xferUnsignedShort(&scatterCount);
   Int intData;
   if (xfer->getXferMode() == XFER_SAVE) {
     std::vector<Int>::const_iterator it;
 
-    for (it = m_scatterTargetsUnused.begin();
-         it != m_scatterTargetsUnused.end(); ++it) {
+    for (it = TheGxWeapons.scatter[m_row].begin();
+         it != TheGxWeapons.scatter[m_row].end(); ++it) {
 
       intData = *it;
       xfer->xferInt(&intData);
@@ -3614,31 +3788,31 @@ void Weapon::xfer(Xfer *xfer) {
   } else {
 
     // sanity, the scatter targets must be empty
-    m_scatterTargetsUnused.clear();
+    TheGxWeapons.scatter[m_row].clear();
 
     for (UnsignedShort i = 0; i < scatterCount; ++i) {
 
       xfer->xferInt(&intData);
-      m_scatterTargetsUnused.push_back(intData);
+      TheGxWeapons.scatter[m_row].push_back(intData);
     }
   }
 
   // pitch limited
-  xfer->xferBool(&m_pitchLimited);
+  { Bool b = TheGxWeapons.pitchLimited[m_row] != 0; xfer->xferBool(&b); TheGxWeapons.pitchLimited[m_row] = b; }
 
   // leech weapon range active
-  xfer->xferBool(&m_leechWeaponRangeActive);
+  { Bool b = TheGxWeapons.leech[m_row] != 0; xfer->xferBool(&b); TheGxWeapons.leech[m_row] = b; }
 }
 
 // ------------------------------------------------------------------------------------------------
 /** Load post process */
 // ------------------------------------------------------------------------------------------------
 void Weapon::loadPostProcess() {
-  if (m_projectileStreamID != INVALID_ID) {
+  if (TheGxWeapons.projStream[m_row] != INVALID_ID) {
     Object *projectileStream =
-        TheGameLogic->findObjectByID(m_projectileStreamID);
+        TheGameLogic->findObjectByID(TheGxWeapons.projStream[m_row]);
     if (projectileStream == nullptr) {
-      m_projectileStreamID = INVALID_ID;
+      TheGxWeapons.projStream[m_row] = INVALID_ID;
     }
   }
 }

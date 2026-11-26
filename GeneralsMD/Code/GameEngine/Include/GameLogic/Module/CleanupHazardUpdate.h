@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/KindOf.h"
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class ThingTemplate;
@@ -78,13 +79,21 @@ public:
 
 protected:
 
-	ObjectID m_bestTargetID;
-	Bool m_inRange;
-	Int m_nextScanFrames;
-	Int m_nextShotAvailableInFrames;
-	const WeaponTemplate *m_weaponTemplate;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		ObjectID m_bestTargetID;
+		Bool m_inRange;
+		Int m_nextScanFrames;
+		Int m_nextShotAvailableInFrames;
+		const WeaponTemplate *m_weaponTemplate;
+		Coord3D m_pos;
+		Real		m_moveRange;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 	//Cleanup area (temporary values).
-	Coord3D m_pos;
-	Real		m_moveRange;
 };

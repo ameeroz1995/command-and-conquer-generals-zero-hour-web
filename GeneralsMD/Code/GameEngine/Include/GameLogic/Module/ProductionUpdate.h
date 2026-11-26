@@ -33,6 +33,7 @@
 #include "Common/ModelState.h"
 #include "GameLogic/Module/DieModule.h"
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD REFERENCES //////////////////////////////////////////////////////////////////////////////
 class ProductionEntry;
@@ -69,45 +70,51 @@ public:
 	// virtual destructor provided by memory pool object
 
 	/// query what kind of thing is being produced by this entry
-	const ThingTemplate *getProductionObject() const { return m_objectToProduce; }
+	const ThingTemplate *getProductionObject() const { return D().m_objectToProduce; }
 
 	/// query what kind of upgrade is being produced by this entry
-	const UpgradeTemplate *getProductionUpgrade() const { return m_upgradeToResearch; }
+	const UpgradeTemplate *getProductionUpgrade() const { return D().m_upgradeToResearch; }
 
 	/// query the production type
-	ProductionType getProductionType() const { return m_type; }
+	ProductionType getProductionType() const { return D().m_type; }
 
 	/// how much progress is done on this entry
-	Real getPercentComplete() const { return m_percentComplete; }
+	Real getPercentComplete() const { return D().m_percentComplete; }
 
 	/// get the unique (to the producer object) production ID
-	ProductionID getProductionID() const { return m_productionID; }
+	ProductionID getProductionID() const { return D().m_productionID; }
 
-	Int getProductionQuantity() const { return m_productionQuantityTotal; } //How many I try to make
-	Int getProductionQuantityRemaining() const { return m_productionQuantityTotal - m_productionQuantityProduced; }//How many I have made
+	Int getProductionQuantity() const { return D().m_productionQuantityTotal; } //How many I try to make
+	Int getProductionQuantityRemaining() const { return D().m_productionQuantityTotal - D().m_productionQuantityProduced; }//How many I have made
 
-	void oneProductionSuccessful() { ++m_productionQuantityProduced; m_exitDoor = DOOR_NONE_AVAILABLE; }//increment, and mark door to re-reserve
+	void oneProductionSuccessful() { ++D().m_productionQuantityProduced; D().m_exitDoor = DOOR_NONE_AVAILABLE; }//increment, and mark door to re-reserve
 
-	ExitDoorType getExitDoor() const { return m_exitDoor; }
-	void setExitDoor(ExitDoorType exitDoor) { m_exitDoor = exitDoor; }
+	ExitDoorType getExitDoor() const { return D().m_exitDoor; }
+	void setExitDoor(ExitDoorType exitDoor) { D().m_exitDoor = exitDoor; }
 
 protected:
-
-	ProductionType m_type;														///< production type
-	union
+	// Round 5 (combat): the entry's state, one row per entry (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
 	{
-		const ThingTemplate *m_objectToProduce;					///< what we're going to produce
-		const UpgradeTemplate *m_upgradeToResearch;			///< what upgrade we're researching
-	};
-	ProductionID m_productionID;											///< our very own production ID!
-	Real m_percentComplete;														///< percent our construction is complete
-	Int m_framesUnderConstruction;										///< counter for how many frames we've been under construction (incremented once per update)
-	Int m_productionQuantityTotal;										///< it is now possible to construct multiple units simultaneously.
-	Int m_productionQuantityProduced;									///< And we need to allow pausing within an entry, so we keep track of number of sub-successes
-	ExitDoorType m_exitDoor;
+		ProductionType m_type;														///< production type
+		union
+		{
+			const ThingTemplate *m_objectToProduce;					///< what we're going to produce
+			const UpgradeTemplate *m_upgradeToResearch;			///< what upgrade we're researching
+		};
+		ProductionID m_productionID;											///< our very own production ID!
+		Real m_percentComplete;														///< percent our construction is complete
+		Int m_framesUnderConstruction;										///< counter for how many frames we've been under construction (incremented once per update)
+		Int m_productionQuantityTotal;										///< it is now possible to construct multiple units simultaneously.
+		Int m_productionQuantityProduced;									///< And we need to allow pausing within an entry, so we keep track of number of sub-successes
+		ExitDoorType m_exitDoor;
 
-	ProductionEntry *m_next;													///< next in list
-	ProductionEntry *m_prev;													///< prev in list
+		ProductionEntry *m_next;													///< next in list
+		ProductionEntry *m_prev;													///< prev in list
+	};
+	GxRow<Row> m_gx;
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
 
 };
 
@@ -206,7 +213,7 @@ public:
 	/** this method is used to request a unique ID to assign to the production of a single
 	unit.  It is unique to all units that can be created from this source object, but is
 	not unique among multiple source objects */
-	virtual ProductionID requestUniqueUnitID() { ProductionID tmp = m_uniqueID; m_uniqueID = (ProductionID)(m_uniqueID+1); return tmp; }
+	virtual ProductionID requestUniqueUnitID() { ProductionID tmp = D().m_uniqueID; D().m_uniqueID = (ProductionID)(D().m_uniqueID+1); return tmp; }
 
 	virtual Bool queueUpgrade( const UpgradeTemplate *upgrade );				///< queue upgrade "research"
 	virtual void cancelUpgrade( const UpgradeTemplate *upgrade );				///< cancel upgrade "research"
@@ -219,11 +226,11 @@ public:
 
 	virtual void cancelAndRefundAllProduction();									///< cancel and refund anything in the production queue
 
-	virtual UnsignedInt getProductionCount() const { return m_productionCount; }    ///< return # of things in the production queue
+	virtual UnsignedInt getProductionCount() const { return D().m_productionCount; }    ///< return # of things in the production queue
 
 	// walking the production list from outside
-	virtual const ProductionEntry *firstProduction() const { return m_productionQueue; }
-	virtual const ProductionEntry *nextProduction( const ProductionEntry *p ) const { return p ? p->m_next : nullptr; }
+	virtual const ProductionEntry *firstProduction() const { return D().m_productionQueue; }
+	virtual const ProductionEntry *nextProduction( const ProductionEntry *p ) const { return p ? p->D().m_next : nullptr; }
 
 	virtual void setHoldDoorOpen(ExitDoorType exitDoor, Bool holdIt);
 
@@ -231,8 +238,8 @@ public:
 
 	//These functions keep track of the special power construction of a new building via a special power instead of standard production interface.
 	//This was added for the sneak attack building functionality.
-	virtual const CommandButton* getSpecialPowerConstructionCommandButton() const { return m_specialPowerConstructionCommandButton; }
-	virtual void setSpecialPowerConstructionCommandButton( const CommandButton *commandButton ) { m_specialPowerConstructionCommandButton = commandButton; }
+	virtual const CommandButton* getSpecialPowerConstructionCommandButton() const { return D().m_specialPowerConstructionCommandButton; }
+	virtual void setSpecialPowerConstructionCommandButton( const CommandButton *commandButton ) { D().m_specialPowerConstructionCommandButton = commandButton; }
 
 	// DieModuleInterface
 	virtual void onDie( const DamageInfo *damageInfo );
@@ -253,15 +260,23 @@ protected:
 		Bool				m_holdOpen;															///< if T, don't allow door to close
 	};
 
-	const CommandButton *m_specialPowerConstructionCommandButton; ///< In a mode to construct a specific building via a special power. (NO NEED TO SAVE DATA ON THIS FIELD)
-	ProductionEntry*		m_productionQueue;							///< queue of things we want to build
-	ProductionEntry*		m_productionQueueTail;					///< tail pointer for m_productionQueue
-	ProductionID				m_uniqueID;											///< unique ID counter for producing units
-	UnsignedInt					m_productionCount;							///< # of things in the production queue
-	UnsignedInt					m_constructionCompleteFrame;		///< frame construction was complete on
-	DoorInfo						m_doors[DOOR_COUNT_MAX];
-	ModelConditionFlags m_clearFlags;										///< flags to clear from model
-	ModelConditionFlags m_setFlags;											///< flags to set in model
-	Bool								m_flagsDirty;										///< clearFlags/setFlags needs to be set into the model
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		const CommandButton *m_specialPowerConstructionCommandButton; ///< In a mode to construct a specific building via a special power. (NO NEED TO SAVE DATA ON THIS FIELD)
+		ProductionEntry*		m_productionQueue;							///< queue of things we want to build
+		ProductionEntry*		m_productionQueueTail;					///< tail pointer for m_productionQueue
+		ProductionID				m_uniqueID;											///< unique ID counter for producing units
+		UnsignedInt					m_productionCount;							///< # of things in the production queue
+		UnsignedInt					m_constructionCompleteFrame;		///< frame construction was complete on
+		DoorInfo						m_doors[DOOR_COUNT_MAX];
+		ModelConditionFlags m_clearFlags;										///< flags to clear from model
+		ModelConditionFlags m_setFlags;											///< flags to set in model
+		Bool								m_flagsDirty;										///< clearFlags/setFlags needs to be set into the model
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 };

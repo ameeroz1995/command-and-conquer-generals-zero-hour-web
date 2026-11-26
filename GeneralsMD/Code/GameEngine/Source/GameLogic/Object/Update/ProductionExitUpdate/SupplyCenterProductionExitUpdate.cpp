@@ -46,14 +46,16 @@
 //-------------------------------------------------------------------------------------------------
 SupplyCenterProductionExitUpdate::SupplyCenterProductionExitUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 	// no rally point has been set
-	m_rallyPointExists = false;
+	R().rallyPointExists = false;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
 
 //-------------------------------------------------------------------------------------------------
 SupplyCenterProductionExitUpdate::~SupplyCenterProductionExitUpdate()
 {
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -113,9 +115,9 @@ void SupplyCenterProductionExitUpdate::exitObjectViaDoor( Object *newObj, ExitDo
 		Coord3D tmp; tmp.x = p.X; tmp.y = p.Y; tmp.z = p.Z;
 		exitPath.push_back(tmp);
 
-		if (m_rallyPointExists)
+		if (R().rallyPointExists)
 		{
-			exitPath.push_back(m_rallyPoint);
+			exitPath.push_back(R().rallyPoint);
 		}
 
 		AIUpdateInterface  *ai = newObj->getAIUpdateInterface();
@@ -229,10 +231,10 @@ void SupplyCenterProductionExitUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// rally point
-	xfer->xferCoord3D( &m_rallyPoint );
+	xfer->xferCoord3D( &R().rallyPoint );
 
 	// rally point exists
-	xfer->xferBool( &m_rallyPointExists );
+	xfer->xferBool( &R().rallyPointExists );
 
 }
 
@@ -246,3 +248,4 @@ void SupplyCenterProductionExitUpdate::loadPostProcess()
 	UpdateModule::loadPostProcess();
 
 }
+

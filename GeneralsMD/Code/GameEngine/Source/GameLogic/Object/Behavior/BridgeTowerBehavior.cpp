@@ -40,13 +40,18 @@
 #include "GameLogic/Module/BridgeTowerBehavior.h"
 #include "GameLogic/TerrainLogic.h"
 
+// Web port (round 5, units are pure data): BridgeTowerBehavior's per-unit state is a row of TheGxBridgeTowerBehaviors;
+// GXROW_BRIDGETOWERBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_BRIDGETOWERBEHAVIOR (const_cast<GxBridgeTowerBehaviorRow &>(*m_gxBridgeTowerBehaviorRow))
+
+
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-BridgeTowerBehavior::BridgeTowerBehavior( Thing *thing, const ModuleData *moduleData )
-									 : BehaviorModule( thing, moduleData )
+BridgeTowerBehavior::BridgeTowerBehavior( Thing *thing, const ModuleData *moduleData ) : BehaviorModule( thing, moduleData )
 {
 
-	m_bridgeID = INVALID_ID;
+
+	GXROW_BRIDGETOWERBEHAVIOR.bridgeID = INVALID_ID;
 
 }
 
@@ -63,9 +68,9 @@ void BridgeTowerBehavior::setBridge( Object *bridge )
 {
 
 	if( bridge == nullptr )
-		m_bridgeID = INVALID_ID;
+		GXROW_BRIDGETOWERBEHAVIOR.bridgeID = INVALID_ID;
 	else
-		m_bridgeID = bridge->getID();
+		GXROW_BRIDGETOWERBEHAVIOR.bridgeID = bridge->getID();
 
 }
 
@@ -74,7 +79,7 @@ void BridgeTowerBehavior::setBridge( Object *bridge )
 ObjectID BridgeTowerBehavior::getBridgeID()
 {
 
-	return m_bridgeID;
+	return GXROW_BRIDGETOWERBEHAVIOR.bridgeID;
 
 }
 
@@ -83,7 +88,7 @@ ObjectID BridgeTowerBehavior::getBridgeID()
 void BridgeTowerBehavior::setTowerType( BridgeTowerType type )
 {
 
-	m_type = type;
+	GXROW_BRIDGETOWERBEHAVIOR.type = type;
 
 }
 
@@ -316,10 +321,10 @@ void BridgeTowerBehavior::xfer( Xfer *xfer )
 	BehaviorModule::xfer( xfer );
 
 	// xfer bridge object ID
-	xfer->xferObjectID( &m_bridgeID );
+	xfer->xferObjectID( &GXROW_BRIDGETOWERBEHAVIOR.bridgeID );
 
 	// xfer tower type
-	xfer->xferUser( &m_type, sizeof( BridgeTowerType ) );
+	xfer->xferUser( &GXROW_BRIDGETOWERBEHAVIOR.type, sizeof( BridgeTowerType ) );
 
 }
 

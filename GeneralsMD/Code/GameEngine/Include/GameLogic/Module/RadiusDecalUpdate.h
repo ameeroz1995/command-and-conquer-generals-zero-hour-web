@@ -30,6 +30,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
 #include "GameClient/RadiusDecal.h"
+#include "Common/GxComponentPool.h"
 
 //-------------------------------------------------------------------------------------------------
 class RadiusDecalUpdateModuleData : public UpdateModuleData
@@ -71,13 +72,21 @@ public:
 
 	//void createRadiusDecal( const Coord3D& pos );
 	void createRadiusDecal( const RadiusDecalTemplate& tmpl, Real radius, const Coord3D& pos );
-	void killWhenNoLongerAttacking(Bool v) { m_killWhenNoLongerAttacking = v; }
+	void killWhenNoLongerAttacking(Bool v) { D().m_killWhenNoLongerAttacking = v; }
 	void killRadiusDecal();
 
 	virtual UpdateSleepTime update();
 
 private:
 
-	RadiusDecal m_deliveryDecal;
-	Bool m_killWhenNoLongerAttacking;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		RadiusDecal m_deliveryDecal;
+		Bool m_killWhenNoLongerAttacking;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+private:
 };

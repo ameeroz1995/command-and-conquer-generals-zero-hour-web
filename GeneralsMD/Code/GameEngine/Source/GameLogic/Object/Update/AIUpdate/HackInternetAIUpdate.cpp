@@ -56,12 +56,14 @@ AIStateMachine* HackInternetAIUpdate::makeStateMachine()
 //-------------------------------------------------------------------------------------------------
 HackInternetAIUpdate::HackInternetAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_hasPendingCommand = false;
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
+	R().hasPendingCommand = false;
 }
 
 //-------------------------------------------------------------------------------------------------
 HackInternetAIUpdate::~HackInternetAIUpdate()
 {
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -69,7 +71,7 @@ Bool HackInternetAIUpdate::isIdle() const
 {
 	// we need to do this because we enter an idle state briefly between takeoff/landing in these cases,
 	// but scripting relies on us never claiming to be "idle"...
-	if (m_hasPendingCommand)
+	if (R().hasPendingCommand)
 		return false;
 
 	return AIUpdateInterface::isIdle();
@@ -98,17 +100,23 @@ Bool HackInternetAIUpdate::isHackingPackingOrUnpacking() const
 }
 
 //-------------------------------------------------------------------------------------------------
+static Bool gxPendingCommandKernel(Bool hasPendingCommand, Bool idle)
+{
+	return idle && hasPendingCommand;
+}
+
 UpdateSleepTime HackInternetAIUpdate::update()
 {
 	// have to call our parent's isIdle, because we override it to never return true
 	// when we have a pending command...
-	if( AIUpdateInterface::isIdle() )
+	// web port (round 5 addendum): kernel = run the pending command now? (idle, one pending: reads its
+	// row's hasPendingCommand); apply = rebuild and issue it
+	if( gxPendingCommandKernel( R().hasPendingCommand, AIUpdateInterface::isIdle() ) )
 	{
-		if( m_hasPendingCommand )
 		{
 			AICommandParms parms( AICMD_MOVE_TO_POSITION, CMD_FROM_AI );	// values don't matter, will be wiped by next line
-			m_pendingCommand.reconstitute( parms );
-			m_hasPendingCommand = false;
+			R().pendingCommand.reconstitute( parms );
+			R().hasPendingCommand = false;
 
  			aiDoCommand(&parms);
 		}
@@ -142,8 +150,8 @@ void HackInternetAIUpdate::aiDoCommand(const AICommandParms* parms)
 	if( currentState == HACK_INTERNET || currentState == PACKING )
 	{
 		// nuke any existing pending cmd
-		m_pendingCommand.store(*parms);
-		m_hasPendingCommand = true;
+		R().pendingCommand.store(*parms);
+		R().hasPendingCommand = true;
 
 		if( currentState == HACK_INTERNET )
 		{
@@ -154,7 +162,7 @@ void HackInternetAIUpdate::aiDoCommand(const AICommandParms* parms)
 		return;
 	}
 
-	m_hasPendingCommand = false;
+	R().hasPendingCommand = false;
 	AIUpdateInterface::aiDoCommand(parms);
 }
 
@@ -223,9 +231,9 @@ void HackInternetAIUpdate::xfer( Xfer *xfer )
 
  // extend base class
 	AIUpdateInterface::xfer(xfer);
-	xfer->xferBool(&m_hasPendingCommand);
-	if (m_hasPendingCommand) {
-		m_pendingCommand.doXfer(xfer);
+	xfer->xferBool(&R().hasPendingCommand);
+	if (R().hasPendingCommand) {
+		R().pendingCommand.doXfer(xfer);
 	}
 }
 
@@ -276,7 +284,7 @@ void UnpackingState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_framesRemaining);
+	xfer->xferUnsignedInt(&R().framesRemaining);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -306,8 +314,8 @@ StateReturnType UnpackingState::onEnter()
 
 	Real variationFactor = ai->getPackUnpackVariationFactor();
 	Real variation = GameLogicRandomValueReal( 1.0f - variationFactor, 1.0f + variationFactor );
-	m_framesRemaining = ai->getUnpackTime() * variation; //In frames
-	owner->getDrawable()->setAnimationLoopDuration( m_framesRemaining );
+	R().framesRemaining = ai->getUnpackTime() * variation; //In frames
+	owner->getDrawable()->setAnimationLoopDuration( R().framesRemaining );
 
 	return STATE_CONTINUE;
 }
@@ -323,9 +331,9 @@ StateReturnType UnpackingState::update()
 	// Why HackInterent wasn't included within specialability I can't figure out, but... too late to change now.
 	owner->setModelConditionState( MODELCONDITION_UNPACKING );
 
-	if( m_framesRemaining > 0 )
+	if( R().framesRemaining > 0 )
 	{
-		m_framesRemaining--;
+		R().framesRemaining--;
 	}
 	else
 	{
@@ -365,7 +373,7 @@ void PackingState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_framesRemaining);
+	xfer->xferUnsignedInt(&R().framesRemaining);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -394,8 +402,8 @@ StateReturnType PackingState::onEnter()
 
 	Real variationFactor = ai->getPackUnpackVariationFactor();
 	Real variation = GameLogicRandomValueReal( 1.0f - variationFactor, 1.0f + variationFactor );
-	m_framesRemaining = ai->getPackTime() * variation; //In frames
-	owner->getDrawable()->setAnimationLoopDuration( m_framesRemaining );
+	R().framesRemaining = ai->getPackTime() * variation; //In frames
+	owner->getDrawable()->setAnimationLoopDuration( R().framesRemaining );
 	return STATE_CONTINUE;
 }
 
@@ -405,9 +413,9 @@ StateReturnType PackingState::update()
 //	Object *owner = getMachineOwner();
 //	HackInternetAIUpdate *ai = (HackInternetAIUpdate*)owner->getAIUpdateInterface();
 
-	if( m_framesRemaining > 0 )
+	if( R().framesRemaining > 0 )
 	{
-		m_framesRemaining--;
+		R().framesRemaining--;
 	}
 	else
 	{
@@ -441,7 +449,7 @@ void HackInternetState::xfer( Xfer *xfer )
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
-	xfer->xferUnsignedInt(&m_framesRemaining);
+	xfer->xferUnsignedInt(&R().framesRemaining);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -465,7 +473,7 @@ StateReturnType HackInternetState::onEnter()
 	owner->clearAndSetModelConditionFlags( MAKE_MODELCONDITION_MASK( MODELCONDITION_UNPACKING ),
 																				 MAKE_MODELCONDITION_MASK( MODELCONDITION_FIRING_A ) );
 
-	m_framesRemaining = ai->getCashUpdateDelay();
+	R().framesRemaining = ai->getCashUpdateDelay();
 
 	return STATE_CONTINUE;
 }
@@ -486,10 +494,10 @@ StateReturnType HackInternetState::update()
 		return STATE_CONTINUE;
 	}
 
-	if( m_framesRemaining > 0 )
+	if( R().framesRemaining > 0 )
 	{
 		//Decrement frame counter.
-		m_framesRemaining--;
+		R().framesRemaining--;
 	}
 	else
 	{
@@ -576,7 +584,7 @@ StateReturnType HackInternetState::update()
 
 
 		//Reset timer and start a new cycle.
-		m_framesRemaining = ai->getCashUpdateDelay();
+		R().framesRemaining = ai->getCashUpdateDelay();
 
 	}
 
@@ -590,3 +598,4 @@ void HackInternetState::onExit( StateExitType status )
 	Object *owner = getMachineOwner();
 	owner->clearModelConditionState( MODELCONDITION_FIRING_A );
 }
+

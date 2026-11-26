@@ -33,6 +33,7 @@
 #include "GameLogic/Module/UpdateModule.h"
 #include "GameLogic/Module/DieModule.h"
 #include "GameLogic/Weapon.h"
+#include "Common/GxComponentPool.h"
 
 
 //-------------------------------------------------------------------------------------------------
@@ -120,20 +121,28 @@ public:
 	EMPUpdate( Thing *thing, const ModuleData* moduleData );
 	// virtual destructor prototype provided by memory pool declaration
 
-	UnsignedInt getDieFrame() { return m_dieFrame; }
+	UnsignedInt getDieFrame() { return D().m_dieFrame; }
 
 	virtual UpdateSleepTime update();
 	void doDisableAttack();
 
 protected:
 
-	UnsignedInt m_dieFrame;			///< frame we die on
-	UnsignedInt m_tintEnvFadeFrames;///< param for tint envelope
-	UnsignedInt m_tintEnvPlayFrame;///< which frame to trigger the tint envelope
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		UnsignedInt m_dieFrame;			///< frame we die on
+		UnsignedInt m_tintEnvFadeFrames;///< param for tint envelope
+		UnsignedInt m_tintEnvPlayFrame;///< which frame to trigger the tint envelope
+		Real				m_targetScale;  ///How big will I get
+		Real				m_currentScale; ///< how big I am drawing this frame
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
-	Real				m_targetScale;  ///How big will I get
 	//Real				m_spinRate;			///HowMuch To Spin each frame;
-	Real				m_currentScale; ///< how big I am drawing this frame
 
 	//static Bool s_lastInstanceSpunPositive;/// so that only every other instance spins positive direction
 
@@ -215,6 +224,14 @@ public:
 
 protected:
 
-	UnsignedInt m_startFrame;			///< frame we die on
-  Bool  m_fxFired; ///< have we done our fx yet
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		UnsignedInt m_startFrame;			///< frame we die on
+	  Bool  m_fxFired; ///< have we done our fx yet
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 };

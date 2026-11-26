@@ -36,6 +36,11 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/Module/BodyModule.h"
 
+// Web port (round 5, units are pure data): SupplyWarehouseCripplingBehavior's per-unit state is a row of TheGxSupplyWarehouseCripplingBehaviors;
+// GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR (const_cast<GxSupplyWarehouseCripplingBehaviorRow &>(*m_gxSupplyWarehouseCripplingBehaviorRow))
+
+
 //-------------------------------------------------------------------------------------------------
 SupplyWarehouseCripplingBehaviorModuleData::SupplyWarehouseCripplingBehaviorModuleData()
 {
@@ -64,8 +69,9 @@ SupplyWarehouseCripplingBehaviorModuleData::SupplyWarehouseCripplingBehaviorModu
 //-------------------------------------------------------------------------------------------------
 SupplyWarehouseCripplingBehavior::SupplyWarehouseCripplingBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_healingSupressedUntilFrame = 0;
-	m_nextHealingFrame = 0;
+
+	GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR.healingSupressedUntilFrame = 0;
+	GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR.nextHealingFrame = 0;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
 
@@ -82,7 +88,7 @@ void SupplyWarehouseCripplingBehavior::onDamage( DamageInfo *damageInfo )
 {
 	UnsignedInt now = TheGameLogic->getFrame();
 	resetSelfHealSupression();
-	setWakeFrame(getObject(), UPDATE_SLEEP(m_healingSupressedUntilFrame - now));// we got hit, time to get up for work after a quick snooze
+	setWakeFrame(getObject(), UPDATE_SLEEP(GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR.healingSupressedUntilFrame - now));// we got hit, time to get up for work after a quick snooze
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -101,7 +107,7 @@ UpdateSleepTime SupplyWarehouseCripplingBehavior::update()
 	// Suppression is handled by sleeping the module, so if I am here, I know it is time to heal.
 	const SupplyWarehouseCripplingBehaviorModuleData* md = getSupplyWarehouseCripplingBehaviorModuleData();
 	UnsignedInt now = TheGameLogic->getFrame();
-	m_nextHealingFrame = now + md->m_selfHealDelay;
+	GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR.nextHealingFrame = now + md->m_selfHealDelay;
 
 	getObject()->attemptHealing(md->m_selfHealAmount, nullptr);
 
@@ -110,7 +116,7 @@ UpdateSleepTime SupplyWarehouseCripplingBehavior::update()
 	// in the update, and sleep settings in onHealing would be overridden by my return value.
 
 	// Delay between heals is also handled by sleeping the module.  How cool is that?
-	return UPDATE_SLEEP(m_nextHealingFrame - now);
+	return UPDATE_SLEEP(GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR.nextHealingFrame - now);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -119,8 +125,8 @@ void SupplyWarehouseCripplingBehavior::resetSelfHealSupression()
 	const SupplyWarehouseCripplingBehaviorModuleData* md = getSupplyWarehouseCripplingBehaviorModuleData();
 	UnsignedInt now = TheGameLogic->getFrame();
 
-	m_healingSupressedUntilFrame = now + md->m_selfHealSupression;
-	m_nextHealingFrame = m_healingSupressedUntilFrame;
+	GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR.healingSupressedUntilFrame = now + md->m_selfHealSupression;
+	GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR.nextHealingFrame = GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR.healingSupressedUntilFrame;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -165,10 +171,10 @@ void SupplyWarehouseCripplingBehavior::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// healing suppressed until frame
-	xfer->xferUnsignedInt( &m_healingSupressedUntilFrame );
+	xfer->xferUnsignedInt( &GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR.healingSupressedUntilFrame );
 
 	// next healing frame
-	xfer->xferUnsignedInt( &m_nextHealingFrame );
+	xfer->xferUnsignedInt( &GXROW_SUPPLYWAREHOUSECRIPPLINGBEHAVIOR.nextHealingFrame );
 
 }
 

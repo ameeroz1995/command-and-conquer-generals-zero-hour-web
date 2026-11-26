@@ -178,7 +178,7 @@ void OCLSpecialPower::doSpecialPowerAtLocation( const Coord3D *loc, Real angle, 
 
 #if RETAIL_COMPATIBLE_CRC
 	// TheSuperHackers @info we need to leave early if we are in the MissileLauncherBuildingUpdate crash fix codepath
-	if (m_availableOnFrame == 0xFFFFFFFF)
+	if (PD().m_availableOnFrame == 0xFFFFFFFF)
 		return;
 #endif
 
