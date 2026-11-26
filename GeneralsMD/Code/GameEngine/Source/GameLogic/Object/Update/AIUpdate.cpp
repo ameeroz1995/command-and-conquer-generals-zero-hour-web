@@ -3355,9 +3355,26 @@ void AIUpdateInterface::privateIdle(CommandSourceType cmdSource)
 }
 
 //----------------------------------------------------------------------------------------
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches4();
 Bool AIUpdateInterface::isIdle() const
 {
 	const AIStateMachine *state = getStateMachine();
+	if (GLES3_Page_Switches4() & 64)	// dataBehaviors: the state machine keeps its current state's ID / idleness
+	{
+		const Bool idle = state->gxCachedStateID() == AI_IDLE || state->gxCachedIdle();
+		if (GLES3_Page_Switches() & 2097152)	// verify mode
+		{
+			extern int gx_verify_mismatch, gx_verify_checked;
+			const Bool old = state->getCurrentStateID() == AI_IDLE || state->isInIdleState();
+			++gx_verify_checked;
+			static int n = 0;
+			if (old != idle) ++gx_verify_mismatch;
+			if (old != idle || (++n % 200000) == 0)
+				printf("GXVERIFY idle cache: %s, checked %d, mismatches %d\n", old == idle ? "ok" : "MISMATCH", gx_verify_checked, gx_verify_mismatch);
+		}
+		return idle;
+	}
 	if( state->getCurrentStateID() == AI_IDLE )
 	{
 		return TRUE;

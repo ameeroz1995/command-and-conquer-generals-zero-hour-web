@@ -379,6 +379,11 @@ private:
 	void internalSetGoalPosition( const Coord3D *pos);
 
 
+	void gxNoteCurrentState();	///< web port: refresh the cached current-state ID / idleness (after every change)
+public:
+	inline StateID gxCachedStateID() const;	///< web port: getCurrentStateID(), kept in the row
+	inline Bool gxCachedIdle() const;	///< web port: isInIdleState(), kept in the row
+protected:
 	GxRow<struct GxStateMachineRow> m_gxStateMachineRow;	///< web port (round 5): this unit's row in TheGxStateMachines
 	friend struct GxStateMachineRow;
 	inline struct GxStateMachineRow &gxRow() const;
@@ -409,10 +414,14 @@ struct GxStateMachineRow
 	Bool debugOutput;
 	AsciiString name;
 	const char* lockedby;
+	StateID gxCurID = INVALID_STATE_ID;	///< cached currentState->getID() (switch dataBehaviors)
+	Bool gxCurIdle = true;	///< cached currentState->isIdle() (a state's isIdle() is fixed per state class)
 };
 
 
 inline GxStateMachineRow &StateMachine::gxRow() const { return const_cast<GxStateMachineRow &>(*m_gxStateMachineRow); }
+inline StateID StateMachine::gxCachedStateID() const { return gxRow().gxCurID; }
+inline Bool StateMachine::gxCachedIdle() const { return gxRow().gxCurIdle; }
 inline void StateMachine::Add_Ref() const
 { gxRow().refCount.Add_Ref(); }
 inline void StateMachine::Release_Ref() const

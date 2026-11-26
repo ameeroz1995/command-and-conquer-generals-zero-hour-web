@@ -4143,3 +4143,11 @@ Timing, battle benchmark, ai-35, tickTiming, timing.lock, load 2-3, kernelSimd o
 Checks (ai-36): single-player game recorded with both switches off (rules 3FEE6E7 in the header)
 replays to a match (rules read back 3FEE6E7); one recorded with defaults (FEE6E7) replays to a match;
 referee.rep, ai-ck.rep, ai-up5.rep match.
+
+### ai: idle check from a cached state ID / idleness (switch dataBehaviors; same game)
+- AIUpdateInterface::isIdle() (75 call sites) read the state machine's current state object and made a
+  virtual isIdle() call. A state's isIdle() is fixed per state class, so the state machine now keeps
+  the current state's ID and idleness in its row, refreshed at the 7 places that set the current state
+  (StateMachine.cpp); isIdle() reads those two fields. All call sites benefit without being touched.
+- Verify mode compares with the old computation: 40.0M checks, 0 mismatches (battle benchmark, ai-37).
+  Replays referee.rep, ai-ck.rep, ai-kon.rep, ai-koff.rep match.
