@@ -4098,5 +4098,10 @@ Level (this recording is a light game: 0.5 ms of logic per tick).
   cpopSimdSegs.
 - Battle benchmark (tickTiming, lane 3, load < 8): the scripted battle diverges between builds
   (r5k/r5l run ~780 movers/tick vs ~700 for r5before2/paths-iso), so only same-counter pairs compare.
-  cpopSimd on vs off with identical counters (simd1 vs segs2): logic 18.35 vs 21.28 ms/tick, pathfind
-  2.93 vs 3.23, loco 0.73 vs 0.84; p99 160.5 vs 118.0 ms, frames over 100 ms 99 vs 69 (load ~5, noisy).
+  cpopSimd, four runs with identical counters (3000 ticks, 705.9 movers/tick), in run order:
+  segs1 (off) 16.70, simd1 (on) 18.35, segs2 (off) 21.28, simd3 (on) 23.37 ms/tick logic; pathfind
+  2.78 / 2.93 / 3.23 / 3.77. The numbers climb with run order (load 4-9), not with the switch: no gain
+  measurable at this noise. cpopSimdSegs 16,029/tick against 269.7 cpopCalls/tick.
+  paths-iso (paths' round-5 commits reverted) vs r5l at the same work (~775 movers/tick): iso2 20.78,
+  l1 19.74, l2 21.62 ms/tick logic: no regression from paths' round 5. (iso1 14.50 ran ~696
+  movers/tick, a different battle.)
