@@ -33,13 +33,13 @@
 // ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h" // This must go first in EVERY cpp file in the GameEngine
 #include "Common/GxMatchRules.h"
+#include "Common/GxTime.h"
 #include <unordered_map>
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
 extern int GLES3_Page_Switches4();
 #else
 static int GLES3_Page_Switches() { return 0; }
-static int GLES3_Page_Switches4() { return 0; }
 #endif
 #include "Common/GxUnitStore.h"
 #include <algorithm>
@@ -742,8 +742,11 @@ Real WeaponTemplate::estimateWeaponTemplateDamage(
       k.a = ab->gxArmorTemplate();
       memcpy(&k.amount, &damageAmount, sizeof(UnsignedInt));
       std::unordered_map<Key, Real, KeyHash>::const_iterator it = table.find(k);
-      if (it != table.end())
+      if (it != table.end()) {
+        gxCount(GXC_TABLE_HITS);
         return it->second;
+      }
+      gxCount(GXC_TABLE_MISSES);
       const Real r = victimObj->estimateDamage(damageInfo);
       table[k] = r;
       return r;
@@ -1520,6 +1523,7 @@ void WeaponTemplate::dealDamageInternal(ObjectID sourceID, ObjectID victimID,
     Real primaryRadiusSqr = sqr(primaryRadius);
     Real radius = max(primaryRadius, secondaryRadius);
     if (radius > 0.0f) {
+      GxTimeScope gxT(GXT_SPLASH);	// tickTiming
       iter = (GLES3_Page_Switches4() & 33554432)	// fourth word bit 25, splashSimd
                  ? ThePartitionManager->gxSplashSearch(pos, radius, DAMAGE_RANGE_CALC_TYPE)
                  : nullptr;
@@ -1545,6 +1549,8 @@ void WeaponTemplate::dealDamageInternal(ObjectID sourceID, ObjectID victimID,
       if (!iter)
         iter = ThePartitionManager->iterateObjectsInRange(pos, radius,
                                                           DAMAGE_RANGE_CALC_TYPE);
+      gxCount(GXC_SPLASHES);
+      gxCount(GXC_SPLASH_VICTIMS, iter->getCount());
       curVictim = iter->firstWithNumeric(&curVictimDistSqr);
     } else {
       // DEBUG_ASSERTCRASH(primaryVictim != nullptr, ("weapons without radii
@@ -2094,7 +2100,10 @@ void gxWeaponReloadSystem() {
   const Int rows = (Int)TheGxWeapons.live.size();
   if ((Int)out.size() < rows)
     out.resize(rows);
+  GxTimeScope gxT(GXT_RELOAD);	// tickTiming
   const Int n = gxWeaponReloadKernel(TheGxWeapons, 0, rows, TheGameLogic->getFrame(), out.data());
+  gxCount(GXC_RELOAD_ROWS, rows);
+  gxCount(GXC_RELOAD_CHANGED, n);
   for (Int i = 0; i < n; ++i)
     TheGxUnitStore.weaponTouch((int)out[i]);
 }
@@ -2163,8 +2172,10 @@ void Weapon::computeBonus(const Object *source,
     std::unordered_map<unsigned long long, WeaponBonus>::const_iterator it = cache.find(key);
     if (it != cache.end()) {
       bonus = it->second;
+      gxCount(GXC_BONUS_HITS);
       return;
     }
+    gxCount(GXC_BONUS_MISSES);
     if (TheGlobalData->m_weaponBonusSet)
       TheGlobalData->m_weaponBonusSet->appendBonuses(flags, bonus);
     if (tmpl->getExtraBonus())
@@ -2721,6 +2732,8 @@ Real Weapon::estimateWeaponDamage(const Object *sourceObj,
   if (getStatus() == OUT_OF_AMMO && !TheGxWeapons.tmpl[m_row]->getAutoReloadsClip())
     return 0.0f;
 
+  GxTimeScope gxT(GXT_ESTIMATE);	// tickTiming
+  gxCount(GXC_ESTIMATES);
   WeaponBonus bonus;
   computeBonus(sourceObj, 0, bonus);
 

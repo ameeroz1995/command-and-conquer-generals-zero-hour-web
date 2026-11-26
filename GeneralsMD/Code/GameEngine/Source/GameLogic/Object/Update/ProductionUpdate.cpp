@@ -151,16 +151,16 @@ ProductionUpdateModuleData::ProductionUpdateModuleData()
 ProductionEntry::ProductionEntry()
 {
 
-	m_type = PRODUCTION_INVALID;
-	m_objectToProduce = nullptr;
-	m_upgradeToResearch = nullptr;
-	m_productionID = (ProductionID)1;
-	m_percentComplete = 0.0f;
-	m_framesUnderConstruction = 0;
-	m_next = nullptr;
-	m_prev = nullptr;
-	m_productionQuantityProduced = 0;
-	m_productionQuantityTotal = 0;
+	D().m_type = PRODUCTION_INVALID;
+	D().m_objectToProduce = nullptr;
+	D().m_upgradeToResearch = nullptr;
+	D().m_productionID = (ProductionID)1;
+	D().m_percentComplete = 0.0f;
+	D().m_framesUnderConstruction = 0;
+	D().m_next = nullptr;
+	D().m_prev = nullptr;
+	D().m_productionQuantityProduced = 0;
+	D().m_productionQuantityTotal = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -304,9 +304,9 @@ Bool ProductionUpdate::queueUpgrade( const UpgradeTemplate *upgrade )
 	ProductionEntry *production = newInstance(ProductionEntry);
 
 	// assign production entry data
-	production->m_type = PRODUCTION_UPGRADE;
-	production->m_upgradeToResearch = upgrade;
-	production->m_productionID = PRODUCTIONID_INVALID;  // not needed for upgrades, you can only have one of
+	production->D().m_type = PRODUCTION_UPGRADE;
+	production->D().m_upgradeToResearch = upgrade;
+	production->D().m_productionID = PRODUCTIONID_INVALID;  // not needed for upgrades, you can only have one of
 																	 // this type in the queue
 
 	// tie to the end of the production queue
@@ -343,11 +343,11 @@ void ProductionUpdate::cancelUpgrade( const UpgradeTemplate *upgrade )
 	// of this type in the queue
 	//
 	ProductionEntry *production;
-	for( production = D().m_productionQueue; production; production = production->m_next )
+	for( production = D().m_productionQueue; production; production = production->D().m_next )
 	{
 
-		if( production->m_type == PRODUCTION_UPGRADE &&
-				production->m_upgradeToResearch == upgrade )
+		if( production->D().m_type == PRODUCTION_UPGRADE &&
+				production->D().m_upgradeToResearch == upgrade )
 			break;
 
 	}
@@ -358,7 +358,7 @@ void ProductionUpdate::cancelUpgrade( const UpgradeTemplate *upgrade )
 
 	// refund money back to the player
 	Money *money = player->getMoney();
-	money->deposit( production->m_upgradeToResearch->calcCostToBuild( player ), TRUE, FALSE );
+	money->deposit( production->D().m_upgradeToResearch->calcCostToBuild( player ), TRUE, FALSE );
 
 	// remove this production from the queue
 	removeFromProductionQueue( production );
@@ -431,23 +431,23 @@ Bool ProductionUpdate::queueCreateUnit( const ThingTemplate *unitType, Productio
 	// and it has a modifier, we build that number of objects instead of just one. A good example is the Chinese
 	// barracks building redguards -- they are built 4 at a time, but the user or script only pays for one and
 	// builds four for that price!
-	production->m_productionQuantityTotal = 1;
-	production->m_productionQuantityProduced = 0;
+	production->D().m_productionQuantityTotal = 1;
+	production->D().m_productionQuantityProduced = 0;
 	for( std::vector<QuantityModifier>::const_iterator it = data->m_quantityModifiers.begin(); it != data->m_quantityModifiers.end(); ++it )
   {
 		const ThingTemplate* productionTemplate = TheThingFactory->findTemplate( it->m_templateName );
 		if( productionTemplate && productionTemplate->isEquivalentTo( unitType ) )
 		{
-			production->m_productionQuantityTotal = it->m_quantity;
+			production->D().m_productionQuantityTotal = it->m_quantity;
 			break;
 		}
 	}
 
 	// assign production entry data
-	production->m_type = PRODUCTION_UNIT;
-	production->m_objectToProduce = unitType;
-	production->m_productionID = productionID;
-	production->m_exitDoor = exitDoor;
+	production->D().m_type = PRODUCTION_UNIT;
+	production->D().m_objectToProduce = unitType;
+	production->D().m_productionID = productionID;
+	production->D().m_exitDoor = exitDoor;
 
 	// tie to the end of the production queue
 	addToProductionQueue( production );
@@ -464,17 +464,17 @@ void ProductionUpdate::cancelUnitCreate( ProductionID productionID )
 
 	// search for the production entry in our queue
 	ProductionEntry *production;
-	for( production = D().m_productionQueue; production; production = production->m_next )
+	for( production = D().m_productionQueue; production; production = production->D().m_next )
 	{
 
 		// are we at the one we want get rid of it
-		if( production->m_productionID == productionID )
+		if( production->D().m_productionID == productionID )
 		{
 
 			// give the player the cost of the object back
 			Player *player = getObject()->getControllingPlayer();
 			Money *money = player->getMoney();
-			money->deposit( production->m_objectToProduce->calcCostToBuild( player ), TRUE, FALSE );
+			money->deposit( production->D().m_objectToProduce->calcCostToBuild( player ), TRUE, FALSE );
 
 			// remove from queue list
 			removeFromProductionQueue( production );
@@ -505,7 +505,7 @@ void ProductionUpdate::cancelAllUnitsOfType( const ThingTemplate *unitType)
 		if( production->getProductionType() == PRODUCTION_UNIT &&
 		    production->getProductionObject() == unitType )
 		{
-			ProductionEntry *temp = production->m_next;
+			ProductionEntry *temp = production->D().m_next;
 
 			// cancel the production
 			cancelUnitCreate( production->getProductionID() );
@@ -518,7 +518,7 @@ void ProductionUpdate::cancelAllUnitsOfType( const ThingTemplate *unitType)
 		{
 
 			// advance
-			production = production->m_next;
+			production = production->D().m_next;
 
 		}
 
@@ -703,26 +703,26 @@ UpdateSleepTime ProductionUpdate::update()
 	}
 
 	// increase the frames we've been under production for
-	production->m_framesUnderConstruction++;
+	production->D().m_framesUnderConstruction++;
 
 	// how many total logic frames does it take to produce this unit
 	Int totalProductionFrames;
-	if( production->m_type == PRODUCTION_UNIT )
-		totalProductionFrames = production->m_objectToProduce->calcTimeToBuild( player );
+	if( production->D().m_type == PRODUCTION_UNIT )
+		totalProductionFrames = production->D().m_objectToProduce->calcTimeToBuild( player );
 	else
-		totalProductionFrames = production->m_upgradeToResearch->calcTimeToBuild( player );
+		totalProductionFrames = production->D().m_upgradeToResearch->calcTimeToBuild( player );
 
 	// figure out our percent complete
-	production->m_percentComplete = INT_TO_REAL( production->m_framesUnderConstruction ) /
+	production->D().m_percentComplete = INT_TO_REAL( production->D().m_framesUnderConstruction ) /
 																	INT_TO_REAL( totalProductionFrames ) *
 																	100.0f;
 
 	// if we've reached 100% or more we're done, tada!
-	if( production->m_percentComplete >= 100.0f )
+	if( production->D().m_percentComplete >= 100.0f )
 	{
 
 		// handle unit production items
-		if( production->m_type == PRODUCTION_UNIT )
+		if( production->D().m_type == PRODUCTION_UNIT )
 		{
 			Object *creationBuilding = us;
 
@@ -744,7 +744,7 @@ UpdateSleepTime ProductionUpdate::update()
 					ExitDoorType exitDoor = production->getExitDoor();
 					if (exitDoor == DOOR_NONE_AVAILABLE)
 					{
-						exitDoor = exitInterface->reserveDoorForExit(production->m_objectToProduce, nullptr);
+						exitDoor = exitInterface->reserveDoorForExit(production->D().m_objectToProduce, nullptr);
 						production->setExitDoor(exitDoor);
 					}
 
@@ -813,7 +813,7 @@ UpdateSleepTime ProductionUpdate::update()
 						//
 						if( d->m_numDoorAnimations == 0 || door == nullptr || door->m_doorWaitOpenFrame != 0 )
 						{
-							Object *newObj = TheThingFactory->newObject( production->m_objectToProduce,
+							Object *newObj = TheThingFactory->newObject( production->D().m_objectToProduce,
 																	creationBuilding->getControllingPlayer()->getDefaultTeam() );
 
 							newObj->setProducer(creationBuilding);
@@ -878,7 +878,7 @@ UpdateSleepTime ProductionUpdate::update()
 
 				// there is no exit interface, this is an error
 				DEBUG_CRASH( ("Cannot create '%s', there is no ExitUpdate interface defined for producer object '%s'",
-															production->m_objectToProduce->getName().str(),
+															production->D().m_objectToProduce->getName().str(),
 															creationBuilding->getTemplate()->getName().str()) );
 
 				// remove this item from the production queue
@@ -890,9 +890,9 @@ UpdateSleepTime ProductionUpdate::update()
 			}
 
 		}
-		else if( production->m_type == PRODUCTION_UPGRADE )
+		else if( production->D().m_type == PRODUCTION_UPGRADE )
 		{
-			const UpgradeTemplate *upgrade = production->m_upgradeToResearch;
+			const UpgradeTemplate *upgrade = production->D().m_upgradeToResearch;
 
 			// we finished an upgrade, lets add that money spent on it to the scorekeeper
 			player->getScoreKeeper()->addMoneySpent(upgrade->calcCostToBuild(player));
@@ -995,8 +995,8 @@ void ProductionUpdate::addToProductionQueue( ProductionEntry *production )
 	if( D().m_productionQueueTail )
 	{
 
-		D().m_productionQueueTail->m_next = production;
-		production->m_prev = D().m_productionQueueTail;
+		D().m_productionQueueTail->D().m_next = production;
+		production->D().m_prev = D().m_productionQueueTail;
 
 	}
 
@@ -1029,27 +1029,27 @@ void ProductionUpdate::addToProductionQueue( ProductionEntry *production )
 //-------------------------------------------------------------------------------------------------
 void ProductionUpdate::removeFromProductionQueue( ProductionEntry *production )
 {
-	if (production->m_type == PRODUCTION_UNIT &&
-			production->m_exitDoor != DOOR_NONE_AVAILABLE)
+	if (production->D().m_type == PRODUCTION_UNIT &&
+			production->D().m_exitDoor != DOOR_NONE_AVAILABLE)
 	{
 		ExitInterface* exitInterface = getObject()->getObjectExitInterface();
 		if (exitInterface)
 		{
-			exitInterface->unreserveDoorForExit(production->m_exitDoor);
+			exitInterface->unreserveDoorForExit(production->D().m_exitDoor);
 		}
 	}
 
 	// detach prev pointer, keep head pointer to the whole queue in tact
-	if( production->m_prev )
-		production->m_prev->m_next = production->m_next;
+	if( production->D().m_prev )
+		production->D().m_prev->D().m_next = production->D().m_next;
 	else
-		D().m_productionQueue = production->m_next;
+		D().m_productionQueue = production->D().m_next;
 
 	// detach next pointer, keep tail pointer to the whole queue in tact
-	if( production->m_next )
-		production->m_next->m_prev = production->m_prev;
+	if( production->D().m_next )
+		production->D().m_next->D().m_prev = production->D().m_prev;
 	else
-		D().m_productionQueueTail = production->m_prev;
+		D().m_productionQueueTail = production->D().m_prev;
 
 	// we now have one less production item
 	--D().m_productionCount;
@@ -1233,7 +1233,7 @@ void ProductionUpdate::xfer( Xfer *xfer )
 	// production queue count
 	ProductionEntry *production;
 	UnsignedShort productionCount = 0;
-	for( production = D().m_productionQueue; production; production = production->m_next )
+	for( production = D().m_productionQueue; production; production = production->D().m_next )
 		productionCount++;
 	xfer->xferUnsignedShort( &productionCount );
 
@@ -1243,36 +1243,36 @@ void ProductionUpdate::xfer( Xfer *xfer )
 		AsciiString name;
 
 		// write all queue data
-		for( production = D().m_productionQueue; production; production = production->m_next )
+		for( production = D().m_productionQueue; production; production = production->D().m_next )
 		{
 
 			// type
-			xfer->xferUser( &production->m_type, sizeof( ProductionType ) );
+			xfer->xferUser( &production->D().m_type, sizeof( ProductionType ) );
 
 			// thing/upgrade template name
-			if( production->m_type == PRODUCTION_UNIT )
-				name = production->m_objectToProduce->getName();
+			if( production->D().m_type == PRODUCTION_UNIT )
+				name = production->D().m_objectToProduce->getName();
 			else
-				name = production->m_upgradeToResearch->getUpgradeName();
+				name = production->D().m_upgradeToResearch->getUpgradeName();
 			xfer->xferAsciiString( &name );
 
 			// production ID
-			xfer->xferUser( &production->m_productionID, sizeof( ProductionID ) );
+			xfer->xferUser( &production->D().m_productionID, sizeof( ProductionID ) );
 
 			// percent complete
-			xfer->xferReal( &production->m_percentComplete );
+			xfer->xferReal( &production->D().m_percentComplete );
 
 			// frames under construction
-			xfer->xferInt( &production->m_framesUnderConstruction );
+			xfer->xferInt( &production->D().m_framesUnderConstruction );
 
 			// production quantity
-			xfer->xferInt( &production->m_productionQuantityTotal );
+			xfer->xferInt( &production->D().m_productionQuantityTotal );
 
 			// production quantity in progress
-			xfer->xferInt( &production->m_productionQuantityProduced );
+			xfer->xferInt( &production->D().m_productionQuantityProduced );
 
 			// exit door
-			xfer->xferInt( (Int*)&production->m_exitDoor );
+			xfer->xferInt( (Int*)&production->D().m_exitDoor );
 
 		}
 
@@ -1305,8 +1305,8 @@ void ProductionUpdate::xfer( Xfer *xfer )
 			if( D().m_productionQueueTail )
 			{
 
-				D().m_productionQueueTail->m_next = production;
-				production->m_prev = D().m_productionQueueTail;
+				D().m_productionQueueTail->D().m_next = production;
+				production->D().m_prev = D().m_productionQueueTail;
 
 			}
 
@@ -1314,15 +1314,15 @@ void ProductionUpdate::xfer( Xfer *xfer )
 			D().m_productionQueueTail = production;
 
 			// type
-			xfer->xferUser( &production->m_type, sizeof( ProductionType ) );
+			xfer->xferUser( &production->D().m_type, sizeof( ProductionType ) );
 
 			// thing/upgrade template name
 			xfer->xferAsciiString( &name );
-			if( production->m_type == PRODUCTION_UNIT )
+			if( production->D().m_type == PRODUCTION_UNIT )
 			{
 
-				production->m_objectToProduce = TheThingFactory->findTemplate( name );
-				if( production->m_objectToProduce == nullptr )
+				production->D().m_objectToProduce = TheThingFactory->findTemplate( name );
+				if( production->D().m_objectToProduce == nullptr )
 				{
 
 					DEBUG_CRASH(( "ProductionUpdate::xfer - Cannot find template '%s'", name.str() ));
@@ -1334,8 +1334,8 @@ void ProductionUpdate::xfer( Xfer *xfer )
 			else
 			{
 
-				production->m_upgradeToResearch = TheUpgradeCenter->findUpgrade( name );
-				if( production->m_upgradeToResearch == nullptr )
+				production->D().m_upgradeToResearch = TheUpgradeCenter->findUpgrade( name );
+				if( production->D().m_upgradeToResearch == nullptr )
 				{
 
 					DEBUG_CRASH(( "ProductionUpdate::xfer - Cannot find upgrade '%s'", name.str() ));
@@ -1346,22 +1346,22 @@ void ProductionUpdate::xfer( Xfer *xfer )
 			}
 
 			// production ID
-			xfer->xferUser( &production->m_productionID, sizeof( ProductionID ) );
+			xfer->xferUser( &production->D().m_productionID, sizeof( ProductionID ) );
 
 			// percent complete
-			xfer->xferReal( &production->m_percentComplete );
+			xfer->xferReal( &production->D().m_percentComplete );
 
 			// frames under construction
-			xfer->xferInt( &production->m_framesUnderConstruction );
+			xfer->xferInt( &production->D().m_framesUnderConstruction );
 
 			// production quantity
-			xfer->xferInt( &production->m_productionQuantityTotal );
+			xfer->xferInt( &production->D().m_productionQuantityTotal );
 
 			// production quantity in progress
-			xfer->xferInt( &production->m_productionQuantityProduced );
+			xfer->xferInt( &production->D().m_productionQuantityProduced );
 
 			// exit door
-			xfer->xferInt( (Int*)&production->m_exitDoor );
+			xfer->xferInt( (Int*)&production->D().m_exitDoor );
 
 		}
 

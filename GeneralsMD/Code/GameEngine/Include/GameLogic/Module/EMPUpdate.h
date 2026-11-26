@@ -224,6 +224,14 @@ public:
 
 protected:
 
-	UnsignedInt m_startFrame;			///< frame we die on
-  Bool  m_fxFired; ///< have we done our fx yet
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		UnsignedInt m_startFrame;			///< frame we die on
+	  Bool  m_fxFired; ///< have we done our fx yet
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 };

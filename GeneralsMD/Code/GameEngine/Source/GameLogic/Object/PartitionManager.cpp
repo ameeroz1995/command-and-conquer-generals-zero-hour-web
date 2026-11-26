@@ -5054,6 +5054,9 @@ SimpleObjectIterator *PartitionManager::gxSplashSearch(const Coord3D *pos, Real 
 			near.push_back(s);
 	}
 
+	gxCount(GXC_SPLASH_SCANNED, n);	// tickTiming
+	gxCount(GXC_SPLASH_NEAR, near.size());
+
 	// the walk's test and key for each near unit
 	struct Hit { long long key; Object *obj; Real distSqr; };
 	static std::vector<Hit> hits;

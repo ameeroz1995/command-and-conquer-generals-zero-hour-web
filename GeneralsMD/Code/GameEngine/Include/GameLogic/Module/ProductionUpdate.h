@@ -70,45 +70,51 @@ public:
 	// virtual destructor provided by memory pool object
 
 	/// query what kind of thing is being produced by this entry
-	const ThingTemplate *getProductionObject() const { return m_objectToProduce; }
+	const ThingTemplate *getProductionObject() const { return D().m_objectToProduce; }
 
 	/// query what kind of upgrade is being produced by this entry
-	const UpgradeTemplate *getProductionUpgrade() const { return m_upgradeToResearch; }
+	const UpgradeTemplate *getProductionUpgrade() const { return D().m_upgradeToResearch; }
 
 	/// query the production type
-	ProductionType getProductionType() const { return m_type; }
+	ProductionType getProductionType() const { return D().m_type; }
 
 	/// how much progress is done on this entry
-	Real getPercentComplete() const { return m_percentComplete; }
+	Real getPercentComplete() const { return D().m_percentComplete; }
 
 	/// get the unique (to the producer object) production ID
-	ProductionID getProductionID() const { return m_productionID; }
+	ProductionID getProductionID() const { return D().m_productionID; }
 
-	Int getProductionQuantity() const { return m_productionQuantityTotal; } //How many I try to make
-	Int getProductionQuantityRemaining() const { return m_productionQuantityTotal - m_productionQuantityProduced; }//How many I have made
+	Int getProductionQuantity() const { return D().m_productionQuantityTotal; } //How many I try to make
+	Int getProductionQuantityRemaining() const { return D().m_productionQuantityTotal - D().m_productionQuantityProduced; }//How many I have made
 
-	void oneProductionSuccessful() { ++m_productionQuantityProduced; m_exitDoor = DOOR_NONE_AVAILABLE; }//increment, and mark door to re-reserve
+	void oneProductionSuccessful() { ++D().m_productionQuantityProduced; D().m_exitDoor = DOOR_NONE_AVAILABLE; }//increment, and mark door to re-reserve
 
-	ExitDoorType getExitDoor() const { return m_exitDoor; }
-	void setExitDoor(ExitDoorType exitDoor) { m_exitDoor = exitDoor; }
+	ExitDoorType getExitDoor() const { return D().m_exitDoor; }
+	void setExitDoor(ExitDoorType exitDoor) { D().m_exitDoor = exitDoor; }
 
 protected:
-
-	ProductionType m_type;														///< production type
-	union
+	// Round 5 (combat): the entry's state, one row per entry (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
 	{
-		const ThingTemplate *m_objectToProduce;					///< what we're going to produce
-		const UpgradeTemplate *m_upgradeToResearch;			///< what upgrade we're researching
-	};
-	ProductionID m_productionID;											///< our very own production ID!
-	Real m_percentComplete;														///< percent our construction is complete
-	Int m_framesUnderConstruction;										///< counter for how many frames we've been under construction (incremented once per update)
-	Int m_productionQuantityTotal;										///< it is now possible to construct multiple units simultaneously.
-	Int m_productionQuantityProduced;									///< And we need to allow pausing within an entry, so we keep track of number of sub-successes
-	ExitDoorType m_exitDoor;
+		ProductionType m_type;														///< production type
+		union
+		{
+			const ThingTemplate *m_objectToProduce;					///< what we're going to produce
+			const UpgradeTemplate *m_upgradeToResearch;			///< what upgrade we're researching
+		};
+		ProductionID m_productionID;											///< our very own production ID!
+		Real m_percentComplete;														///< percent our construction is complete
+		Int m_framesUnderConstruction;										///< counter for how many frames we've been under construction (incremented once per update)
+		Int m_productionQuantityTotal;										///< it is now possible to construct multiple units simultaneously.
+		Int m_productionQuantityProduced;									///< And we need to allow pausing within an entry, so we keep track of number of sub-successes
+		ExitDoorType m_exitDoor;
 
-	ProductionEntry *m_next;													///< next in list
-	ProductionEntry *m_prev;													///< prev in list
+		ProductionEntry *m_next;													///< next in list
+		ProductionEntry *m_prev;													///< prev in list
+	};
+	GxRow<Row> m_gx;
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
 
 };
 
@@ -224,7 +230,7 @@ public:
 
 	// walking the production list from outside
 	virtual const ProductionEntry *firstProduction() const { return D().m_productionQueue; }
-	virtual const ProductionEntry *nextProduction( const ProductionEntry *p ) const { return p ? p->m_next : nullptr; }
+	virtual const ProductionEntry *nextProduction( const ProductionEntry *p ) const { return p ? p->D().m_next : nullptr; }
 
 	virtual void setHoldDoorOpen(ExitDoorType exitDoor, Bool holdIt);
 
