@@ -3960,3 +3960,19 @@ Stays default off.
   Verify: each snapshot compared with a fresh uncached full build, lists and radii: 6000, 0 mismatches.
 - Replays referee, query-mgr5, query-mgr6 match (query-42). Battle pair (query-42, tickTiming):
 | snapPatch off -> on | logic 18.7 -> 18.7 | search 2.99 -> 2.10 | snapshot 1.60 -> 0.58 (builds 3.1 -> 0.7 + patches 2.4) | p99 107 -> 96 ms | > 100 ms 40 -> 24 |
+
+## batchScan (query side; ai's switch: fifth word value 1, match rule GXRULE_BATCH_SCAN 67108864)
+- gxBatchFindClosestEnemy(n, me, range, qualifiers, info, out): out[i] = TheAI->findClosestEnemy(...) as of the
+  call. Each scan keeps findClosestEnemy (filters, early outs); its getClosestObject goes to gxBatchClosest:
+  an f32x4 cull over the store's live place columns (placeX/Y/R, playerBit; two chains, 8 a step), then the
+  walk's answer rebuilt from the survivors: the passing objects in the lowest ring any is in (COI cells, or with
+  scanManager the tick lists' boxes and the walk's cell-mask skips), the nearest; ties to the earlier visit
+  (same cell: slot order with the tick lists; COI lists: falls back to the walk).
+- Batches of 16+ scans (a driver call, or scanManager's prefetch pass under GXRULE_BATCH_SCAN) cull from
+  per-batch, per-enemy-mask lists sorted by place x (binary-searched window); smaller ones read the store directly.
+- Verify (bit 21, every answer vs the old walk at the same moment; local test routing getNextMoodTarget's scan
+  and the prefetch through it): scanManager on 84,000-88,000 checked, 0 mismatches; off 46,000, 0 (53 tie
+  fallbacks). Replays referee, query-mgr5, query-mgr6 match.
+- Profile (strikes, n = 1 per call, local test): search self 3.7% -> 3.4% (scanManager on), 2.7% -> 3.0% (off).
+  Battle pair under load 7-9 (rough): search 2.09 -> 2.01 ms/tick, logic 19.8 -> 18.3. The gain is in batching
+  many seekers per call (ai's wiring); re-time once wired.
