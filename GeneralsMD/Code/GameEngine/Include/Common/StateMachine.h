@@ -154,6 +154,7 @@ public:
 	virtual Bool isGuardIdle() const { return FALSE; }
 	//Definition of busy -- when explicitly in the busy state. Moving or attacking is not considered busy!
 	virtual Bool isBusy() const { return false; }
+	virtual Bool gxInnerIdle() const { return TRUE; }	///< web port (batchScan): an inner machine (attack move / follow) is idle, so update() makes the routine mood scan
 
 	StateMachine* getMachine();		///< return the machine this state is part of
 	StateID getID() const;			///< get this state's id
@@ -293,6 +294,7 @@ public:
 	StateID getCurrentStateID() const;	///< return the id of the current state of the machine
 	Bool isInIdleState() const;	// stateless things are considered 'idle'
 	Bool isInAttackState() const;	// stateless things are considered 'idle'
+	inline Bool gxInnerIdle() const;	///< web port (batchScan): the current state's gxInnerIdle()
 	Bool isInForceAttackState() const;	// stateless things are considered 'idle'
 	Bool isInGuardIdleState() const; // stateless things aren't guard idle.
 
@@ -434,6 +436,8 @@ inline StateID StateMachine::getCurrentStateID() const
 { return gxRow().currentState ? gxRow().currentState->getID() : INVALID_STATE_ID; }
 inline Bool StateMachine::isInIdleState() const
 { return gxRow().currentState ? gxRow().currentState->isIdle() : true; }
+inline Bool StateMachine::gxInnerIdle() const
+{ return gxRow().currentState ? gxRow().currentState->gxInnerIdle() : TRUE; }
 inline Bool StateMachine::isInAttackState() const
 { return gxRow().currentState ? gxRow().currentState->isAttack() : true; }
 inline Bool StateMachine::isInForceAttackState() const

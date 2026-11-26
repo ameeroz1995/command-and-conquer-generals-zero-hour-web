@@ -1207,15 +1207,6 @@ void gxRunMovementPass()
 //-------------------------------------------------------------------------------------------------
 UpdateSleepTime AIUpdateInterface::update()
 {
-	{	// batchScan: register the collect kernel for this AI kind (the module's own name key) once
-		static std::vector<NameKeyType> gxKinds;
-		const NameKeyType nk = getModuleNameKey();
-		if (std::find(gxKinds.begin(), gxKinds.end(), nk) == gxKinds.end())
-		{
-			gxKinds.push_back(nk);
-			GameLogic::gxRegisterKindKernel(nk, gxMoodScanKernel, nullptr);
-		}
-	}
 	//DEBUG_LOG(("AIUpdateInterface frame %d: %08lx",TheGameLogic->getFrame(),getObject()));
 
 	USE_PERF_TIMER(AIUpdateInterface_update)
@@ -4803,9 +4794,10 @@ Bool AIUpdateInterface::canAutoAcquireWhileStealthed() const
  * Return the next object that our mood suggests we should attack.
  */
 //-------------------------------------------------------------------------------------------------
-// batchScan (fifth word bit 1, off; rides on match rule updatePasses): the per-kind kernel of every AI
-// kind collects the units whose routine mood scan is due this tick, with the arguments getNextMoodTarget
-// would use (same code, below). The first such turn of the tick searches every collected unit of every AI
+// batchScan (fifth word bit 1; rides on match rule updatePasses): before any update of the tick, GameLogic
+// hands every AI module that runs this tick (pass lists, misc lists, heap entries due now) to
+// gxMoodScanKernel, which collects the units whose routine mood scan is due, with the arguments
+// getNextMoodTarget would use (same code, below). The first such turn of the tick searches every collected unit of every AI
 // kind in one call (query's gxBatchFindClosestEnemy, which wants 16+ seekers per call). A turn takes the
 // answer only if its own arguments match exactly; anything else searches as before.
 extern bool gxMatchRule(unsigned int rule);
@@ -4833,7 +4825,7 @@ Bool AIUpdateInterface::gxMoodScanArgs( Real &range, UnsignedInt &flags )
 	}
 	else if (st != AI_ATTACK_MOVE_TO && st != AI_ATTACKFOLLOW_WAYPOINT_PATH_AS_TEAM && st != AI_ATTACKFOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS)
 		return FALSE;
-	else if (isAttacking())	// the inner attack machine is busy: no scan until it idles
+	else if (!getStateMachine()->gxInnerIdle())	// the inner attack machine is busy: update() returns before the scan
 		return FALSE;
 	range = TheAI->getAdjustedVisionRangeForObject(obj, AI_VISIONFACTOR_OWNERTYPE | AI_VISIONFACTOR_MOOD);
 	if (range <= 0.0f)
