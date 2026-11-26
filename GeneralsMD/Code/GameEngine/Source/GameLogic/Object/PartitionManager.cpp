@@ -5453,6 +5453,13 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 		const Int ring = s_gxRingOfWalk[w];
 		if (ring > bestRing)
 			continue;	// the walk stops before its ring
+		if (snap)
+		{
+			// the tick lists' walk tests the player column (not the player bit)
+			const Int p = S.player[sl0];
+			if (!((1u << ((p >= 0 && p < MAX_PLAYER_COUNT) ? p : MAX_PLAYER_COUNT)) & gxMask))
+				continue;
+		}
 		if (snap && (gxFlags & GX_GCO_CACHE) && maxDist < HUGE_DIST)
 		{
 			// the tick lists' walk culls by the store's x, y and the snapshot radius (not the place):
@@ -5511,6 +5518,24 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 					bs < (Int)s_gxSnapR.size() ? s_gxSnapR[bs] : -1.0f, S.placeR[bs], best->getBoundingCircleRadius(),
 					4 * bs < (Int)s_gxCurBox.size() ? s_gxCurBox[4 * bs] : -9, 4 * bs < (Int)s_gxCurBox.size() ? s_gxCurBox[4 * bs + 1] : -9,
 					4 * bs < (Int)s_gxCurBox.size() ? s_gxCurBox[4 * bs + 2] : -9, 4 * bs < (Int)s_gxCurBox.size() ? s_gxCurBox[4 * bs + 3] : -9);
+			if (bs >= 0 && snap && 4 * bs < (Int)s_gxCurBox.size() && s_gxCurBox[4 * bs] >= 0)
+			{
+				// the walk's own tests for this slot, cell by cell of its box
+				const Int *b = &s_gxCurBox[4 * bs];
+				for (Int y = b[1]; y <= b[3]; ++y)
+					for (Int x = b[0]; x <= b[2]; ++x)
+					{
+						const Int ci = y * m_cellCountX + x;
+						Int inList = 0;
+						for (Int k = s_gxSnapBeg[ci]; k < s_gxSnapEnd[ci]; ++k)
+							inList += s_gxSnapSlots[k] == bs;
+						printf("GXVERIFY batchScan mismatch cell %d,%d: in list %d, cell mask %x dense %x, flags %x, mask %x\n", x, y, inList,
+							m_cells[ci].gxPlayerMask(), g_gxCellMasks ? g_gxCellMasks[ci] : 0u, gxFlags, gxMask);
+					}
+				printf("GXVERIFY batchScan mismatch slot: player %d playerBit %x stamp %u/%u pd %d snapEpoch %u/%u frame %u/%u\n", S.player[bs], S.playerBit[bs],
+					bs < (Int)s_gxSnapStamp.size() ? s_gxSnapStamp[bs] : 0u, s_gxSnapSearch, best->friend_getPartitionData() != nullptr,
+					s_gxSnapEpoch, TheGxUnitStore.epoch(), s_gxSnapFrame, TheGameLogic->getFrame());
+			}
 		}
 		if (s_gxBatchChecked % 2000 == 0)
 			printf("GXVERIFY batchScan checked %u, mismatches %u, tie fallbacks %u\n", s_gxBatchChecked, s_gxBatchBad, s_gxBatchFallbacks);
