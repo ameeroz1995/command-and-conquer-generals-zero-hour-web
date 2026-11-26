@@ -3968,8 +3968,11 @@ Stays default off.
   walk's answer rebuilt from the survivors: the passing objects in the lowest ring any is in (COI cells, or with
   scanManager the tick lists' boxes and the walk's cell-mask skips), the nearest; ties to the earlier visit
   (same cell: slot order with the tick lists; COI lists: falls back to the walk).
-- Batches of 16+ scans (a driver call, or scanManager's prefetch pass under GXRULE_BATCH_SCAN) cull from
-  per-batch, per-enemy-mask lists sorted by place x (binary-searched window); smaller ones read the store directly.
+- One direct cull a seeker at any batch size (bsCull timer, bsSeekers counter). Per-batch x-sorted lists were
+  tried and removed: build ~190 us a batch vs ~4.6 us a seeker for the direct cull (list window ~6.6 us), so
+  they never pay off (break-even ~40+ a batch; batches run 12-17 a tick). Re-entrant searches (a filter that
+  searches moves the walk's stamps) are detected by g_gxWalks and answered by the old walk.
+  Query-56 verify (scanManager on): 74,000 checked, 0 mismatches, 6 nested fallbacks.
 - Verify (bit 21, every answer vs the old walk at the same moment; local test routing getNextMoodTarget's scan
   and the prefetch through it): scanManager on 84,000-88,000 checked, 0 mismatches; off 46,000, 0 (53 tie
   fallbacks). Replays referee, query-mgr5, query-mgr6 match.
