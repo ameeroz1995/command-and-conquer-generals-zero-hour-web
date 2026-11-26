@@ -51,6 +51,7 @@ void GxUnitStore::add(Object *o)
 		radius.reserve(n); player.reserve(n); playerBit.reserve(n); cell.reserve(n); mask.reserve(n);
 		status.reserve(n); disabled.reserve(n); layer.reserve(n); geom.reserve(n); angle.reserve(n); xf.reserve(n);
 		target.reserve(n); weaponReady.reserve(n); weaponSig.reserve(n); sphere.reserve(n);	// combat block
+		placeX.reserve(n); placeY.reserve(n); placeR.reserve(n); fogPure.reserve(n); fogKeptMask.reserve(n); fogKept.reserve(n);	// query block
 	}
 	const Coord3D *p = o->getPosition();
 	const Player *pl = o->getControllingPlayer();
@@ -73,6 +74,7 @@ void GxUnitStore::add(Object *o)
 	}
 	target.push_back(0); weaponReady.push_back(0); weaponSig.push_back(~0u);	// combat block
 	sphere.push_back(o->getGeometryInfo().getBoundingSphereRadius());
+	placeX.push_back(0.0f); placeY.push_back(0.0f); placeR.push_back(1000000.0f); fogPure.push_back(0); fogKeptMask.push_back(0); fogKept.push_back(0);	// query block
 
 	if (oid >= (int)m_slotById.size())
 		m_slotById.resize(std::max<size_t>(oid + 1, m_slotById.size() * 2), -1);
@@ -179,6 +181,8 @@ void GxUnitStore::compact()
 	gxPermute(status, order); gxPermute(disabled, order); gxPermute(layer, order); gxPermute(geom, order);
 	gxPermute(angle, order); gxPermute(xf, order);
 	gxPermute(target, order); gxPermute(weaponReady, order); gxPermute(weaponSig, order); gxPermute(sphere, order);	// combat block
+	gxPermute(placeX, order); gxPermute(placeY, order); gxPermute(placeR, order);	// query block
+	gxPermute(fogPure, order); gxPermute(fogKeptMask, order); gxPermute(fogKept, order);
 
 	for (int s = 0; s < (int)obj.size(); ++s)
 	{

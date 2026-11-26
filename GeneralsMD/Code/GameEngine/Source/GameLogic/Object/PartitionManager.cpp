@@ -59,8 +59,11 @@
 #endif
 #include "Common/ActionManager.h"
 #include "Common/DiscreteCircle.h"
-#include "Common/GxTime.h"
+#include "Common/GxTime.h"	// also declares GLES3_Page_Switches4
 #include <optional>
+#ifdef __wasm_simd128__
+#include <wasm_simd128.h>
+#endif
 #include "Common/GameEngine.h"
 #include "Common/GameState.h"
 #include "Common/GameUtility.h"
@@ -1799,18 +1802,14 @@ PartitionData::PartitionData()
 	m_coiArray = nullptr;
 	m_coiInUseCount = 0;
 	m_doneFlag = 0;
-	m_gxX = m_gxY = 0.0f;
-	m_gxR = HUGE_DIST;	// no place yet: never turned away
 	m_dirtyStatus = NOT_DIRTY;
 	m_lastCell = nullptr;
 	memset(m_gxFillKey, 0, sizeof(m_gxFillKey));
 	m_gxDeferStamp = 0;
-	m_gxPure = m_gxKeptMask = 0;
 	for (int i = 0; i < MAX_PLAYER_COUNT; ++i)
 	{
 		m_everSeenByPlayer[i] = false;
 		m_shroudedness[i] = OBJECTSHROUD_INVALID;
-		m_gxKept[i] = OBJECTSHROUD_INVALID;
 		m_shroudednessPrevious[i] = OBJECTSHROUD_INVALID;
 	}
 }
@@ -1963,16 +1962,19 @@ ObjectShroudStatus PartitionData::getShroudedStatus(Int playerIndex)
 			// fogKeep: which branch decided it (the fogged one also reads relationship and kinds)
 			const UnsignedShort bit = (UnsignedShort)(1u << playerIndex);
 			const Bool fogBranch = m_coiInUseCount && shroudedCells != m_coiInUseCount && shroudedCells + foggedCells == m_coiInUseCount;
-			if (fogBranch) m_gxPure &= ~bit; else m_gxPure |= bit;
-			if (m_gxKeptMask & bit)
+			const Int gs = gxSlot();	// ghost-only: nothing kept
+			GxUnitStore &S = TheGxUnitStore;
+			if (gs >= 0) { if (fogBranch) S.fogPure[gs] &= ~bit; else S.fogPure[gs] |= bit; }
+			if (gs >= 0 && (S.fogKeptMask[gs] & bit))
 			{
 				extern int gx_verify_mismatch, gx_verify_checked;
-				m_gxKeptMask &= ~bit;
+				S.fogKeptMask[gs] &= ~bit;
 				++gx_verify_checked;
-				if (m_gxKept[playerIndex] != m_shroudedness[playerIndex])
+				const Int kept = (Int)(S.fogKept[gs] >> (4 * playerIndex) & 15);
+				if (kept != m_shroudedness[playerIndex])
 				{
 					++gx_verify_mismatch;
-					printf("GXVERIFY fogKeep mismatch: object %u player %d kept %d now %d\n", m_object ? m_object->getID() : 0, playerIndex, m_gxKept[playerIndex], m_shroudedness[playerIndex]);
+					printf("GXVERIFY fogKeep mismatch: object %u player %d kept %d now %d\n", m_object ? m_object->getID() : 0, playerIndex, kept, m_shroudedness[playerIndex]);
 				}
 				static Int s_gxKeepChecks;
 				if (++s_gxKeepChecks % 20000 == 0)
@@ -2301,6 +2303,7 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 	// collision reaction earlier in the same frame moves a unit into a pair dropped here.
 	extern bool gxMatchRule(unsigned int rule);
 	const Bool gxOffer = gxMatchRule(8192 /* GXRULE_SPATIAL_PAIRS */) && !g_gxPairOff;
+	const Real gxMx = gxX(), gxMy = gxY(), gxMr = gxR();	// our kept place (store columns; nothing here refreshes it)
 	CellAndObjectIntersection *myCoi = m_coiArray;
 	gxCount(GXC_COLLIDE_SEEKERS);	// tickTiming
 	for (Int i = m_coiInUseCount; i > 0; --i, ++myCoi)
@@ -2310,12 +2313,70 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 		if (cell->getCoiCount() < 2)
 			continue;
 
-		for (CellAndObjectIntersection *coi = cell->getFirstCoiInCell(); coi; coi = coi->getNextCoi())
+		// switch simdPairs (fourth word bit 17; same game as pairOffer alone): the clearly-apart test for 4
+		// neighbours at a time with wasm SIMD, the same f32 expression as below; a lane it keeps runs the
+		// scalar test too, so the result is the scalar one
+		UnsignedInt gxLanes = ~0u;
+		Int gxLane = 0;
+#ifdef __wasm_simd128__
+		const Bool gxSimd = gxOffer && (GLES3_Page_Switches4() & 131072);
+#endif
+		for (CellAndObjectIntersection *coi = cell->getFirstCoiInCell(); coi; coi = coi->getNextCoi(), ++gxLane)
 		{
 			gxCount(GXC_PAIR_TESTS);	// tickTiming
+#ifdef __wasm_simd128__
+			if (gxSimd && (gxLane & 7) == 0)
+			{
+				// ILP (LOGIC_AGENTS "SIMD step"): 8 neighbours per block, two independent f32x4 chains;
+				// a short tail (under 4) is all kept
+				gxLanes = ~0u;
+				CellAndObjectIntersection *q[8];
+				Int n = 0;
+				for (CellAndObjectIntersection *c = coi; c && n < 8; c = c->getNextCoi())
+					q[n++] = c;
+				const v128_t mx = wasm_f32x4_splat(gxMx), my = wasm_f32x4_splat(gxMy), mr = wasm_f32x4_splat(gxMr);
+				const v128_t k14 = wasm_f32x4_splat(1.4143f), one = wasm_f32x4_splat(1.0f);
+				#define GX_PAIR4(b) ([&]() -> UnsignedInt { \
+					const v128_t vx = wasm_f32x4_make(q[b]->gxX(), q[b + 1]->gxX(), q[b + 2]->gxX(), q[b + 3]->gxX()); \
+					const v128_t vy = wasm_f32x4_make(q[b]->gxY(), q[b + 1]->gxY(), q[b + 2]->gxY(), q[b + 3]->gxY()); \
+					const v128_t vr = wasm_f32x4_make(q[b]->gxR(), q[b + 1]->gxR(), q[b + 2]->gxR(), q[b + 3]->gxR()); \
+					const v128_t dx = wasm_f32x4_sub(vx, mx), dy = wasm_f32x4_sub(vy, my); \
+					const v128_t lim = wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_add(vr, mr), k14), one); \
+					const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)); \
+					return (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim)))); }())
+				if (n == 8)
+				{
+					const UnsignedInt a = GX_PAIR4(0), b = GX_PAIR4(4);
+					gxLanes = a | (b << 4) | ~0xffu;
+				}
+				else if (n >= 4)
+					gxLanes = GX_PAIR4(0) | ~0xfu;
+				#undef GX_PAIR4
+				gxCount(GXC_PAIRS_SIMD_CULLED, 8 - __builtin_popcount(gxLanes & 0xffu));
+			}
+			if (gxSimd && !((gxLanes >> (gxLane & 7)) & 1))
+			{
+				if (GLES3_Page_Switches() & 2097152)
+				{
+					// verify: the scalar test must turn this neighbour away too
+					static unsigned s_checked, s_bad;
+					const Real dx = coi->gxX() - gxMx, dy = coi->gxY() - gxMy, lim = (coi->gxR() + gxMr) * 1.4143f + 1.0f;
+					++s_checked;
+					if (!(dx * dx + dy * dy > lim * lim))
+					{
+						++s_bad;
+						printf("GXVERIFY simdPairs mismatch: kept by the scalar test (d2 %g lim2 %g)\n", dx * dx + dy * dy, lim * lim);
+					}
+					if (s_checked % 200000 == 0)
+						printf("GXVERIFY simdPairs dropped lanes checked %u, mismatches %u\n", s_checked, s_bad);
+				}
+				continue;
+			}
+#endif
 			if (gxOffer)
 			{
-				const Real dx = coi->gxX() - m_gxX, dy = coi->gxY() - m_gxY, lim = (coi->gxR() + m_gxR) * 1.4143f + 1.0f;
+				gxCount(GXC_PAIRS_TESTED);
+				const Real dx = coi->gxX() - gxMx, dy = coi->gxY() - gxMy, lim = (coi->gxR() + gxMr) * 1.4143f + 1.0f;
 				if (dx * dx + dy * dy > lim * lim)
 					continue;
 			}
@@ -2571,17 +2632,21 @@ void PartitionData::updateCellsTouched()
 	{
 		// switch fogKeep: same cells, so a status decided by the cells' shroud alone still holds (a cell's
 		// shroud change invalidates its objects itself); the rest are invalidated as before
+		const Int gs = gxSlot();
+		GxUnitStore &S = TheGxUnitStore;
+		const UnsignedShort gxPure = gs >= 0 ? S.fogPure[gs] : 0;
 		for (Int i = 0; i < MAX_PLAYER_COUNT; ++i)
 		{
-			if ((m_gxPure >> i & 1) && m_shroudedness[i] != OBJECTSHROUD_INVALID)
+			if ((gxPure >> i & 1) && m_shroudedness[i] != OBJECTSHROUD_INVALID)
 			{
 				gxCount(GXC_FOG_KEPT);	// tickTiming
 				if (!gxVerify)
 					continue;
 				const ObjectShroudStatus kept = m_shroudedness[i];
 				invalidateShroudedStatusForPlayer(i);
-				m_gxKept[i] = kept;	// verify: recompute and compare (unless a real invalidation comes first)
-				m_gxKeptMask |= (UnsignedShort)(1u << i);
+				// verify: recompute and compare (unless a real invalidation comes first)
+				S.fogKept[gs] = (S.fogKept[gs] & ~(15ull << (4 * i))) | ((unsigned long long)kept << (4 * i));
+				S.fogKeptMask[gs] |= (UnsignedShort)(1u << i);
 				continue;
 			}
 			invalidateShroudedStatusForPlayer(i);
@@ -2608,7 +2673,11 @@ void PartitionData::updateCellsTouched()
 //-----------------------------------------------------------------------------
 void PartitionData::invalidateShroudedStatusForPlayer(Int playerIndex)
 {
-	m_gxKeptMask &= (UnsignedShort)~(1u << playerIndex);	// fogKeep verify: a real invalidation, nothing to compare
+	{
+		const Int gs = gxSlot();	// fogKeep verify: a real invalidation, nothing to compare
+		if (gs >= 0)
+			TheGxUnitStore.fogKeptMask[gs] &= (UnsignedShort)~(1u << playerIndex);
+	}
 #ifndef DISABLE_INVALID_PREVENTION
 	if (m_shroudedness[playerIndex] != OBJECTSHROUD_INVALID && m_shroudedness[playerIndex] != OBJECTSHROUD_INVALID_BUT_PREVIOUS_VALID)
 #endif
@@ -2739,6 +2808,8 @@ void PartitionData::attachToObject(Object* object)
 
 	// remember who contains us
 	m_object = object;
+	if (object->gxStoreSlot() >= 0)
+		TheGxUnitStore.queryReset(object->gxStoreSlot());	// web port: a new PartitionData knows no place or fog bits yet
 
 	// we only snapshot things that are immobile and have something to draw.  Don't need ghostobjects for others.
 	if (object->isKindOf(KINDOF_IMMOBILE))
@@ -4316,14 +4387,6 @@ static UnsignedInt gxEnemySlots(PartitionFilter **filters)
 // - Result cache: within a tick, a search with the same searcher (or point), range, distance type,
 //   mode and filter classes reuses the first answer (units that died since are left out).
 // Changes the game (answers as of the tick's first search): a match rule, default off.
-#ifdef __wasm_simd128__
-#include <wasm_simd128.h>
-#endif
-#ifdef __EMSCRIPTEN__
-extern int GLES3_Page_Switches4();
-#else
-static int GLES3_Page_Switches4() { return 0; }
-#endif
 static unsigned long long g_gxSimdCulled = 0;	// lanes the SIMD cull dropped (verify report)
 static std::vector<Int> s_gxSnapStart, s_gxSnapSlots;	// per cell: first index into slots; one more at the end
 static std::vector<UnsignedInt> s_gxSnapStamp;			// per slot: last search that looked at it
@@ -4350,8 +4413,33 @@ void gxScanNoteRequest(const Object *me, Real range, UnsignedInt qualifiers, con
 	s_gxScanRequests[me->getID()] = r;
 }
 
+static std::vector<Int> s_gxSnapBeg, s_gxSnapEnd;	// per cell: its list in s_gxSnapSlots (the base CSR, or a patched list after it)
+static std::vector<Int> s_gxBaseBox, s_gxBaseId;	// per slot at the base build: cell box (x0, y0, x1, y1; x0 = -1 none) and object ID
+static Int s_gxBaseN = 0, s_gxBaseLen = 0;			// slots and list entries of the base build
+static std::vector<Int> s_gxPatchedCells;			// cells whose lists the last patch replaced
+
+/// one slot's cell box and snapshot radius, as the full build has always computed them
+static inline void gxSnapBox(const GxUnitStore &S, Int s, Int cellCountX, Int cellCountY, Int *box)
+{
+	Object *o = S.obj[s];
+	box[0] = -1;
+	if (!o || !o->friend_getPartitionData())
+		return;
+	const Real r = S.radius[s];
+	s_gxSnapR[s] = max(r, o->getGeometryInfo().getBoundingSphereRadius());	// tall units: the sphere is up to ~3x the circle
+	Int x0, y0, x1, y1;
+	ThePartitionManager->worldToCell(S.x[s] - r, S.y[s] - r, &x0, &y0);
+	ThePartitionManager->worldToCell(S.x[s] + r, S.y[s] + r, &x1, &y1);
+	x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, cellCountX - 1); y1 = min(y1, cellCountY - 1);
+	if (x0 > x1 || y0 > y1)
+		return;
+	box[0] = x0; box[1] = y0; box[2] = x1; box[3] = y1;
+}
+
 static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
 {
+	GxTimeScope gxT(GXT_SNAP);	// tickTiming
+	gxCount(GXC_SNAP_BUILDS);
 	GxUnitStore &S = TheGxUnitStore;
 	S.pass(GXB_SCAN);	// compacts the store now if it is going to this frame, so slots stay put after
 	const Int n = S.size(), cells = cellCountX * cellCountY;
@@ -4359,25 +4447,17 @@ static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
 	if ((Int)s_gxSnapStamp.size() < n)
 		s_gxSnapStamp.resize(n, 0);
 	s_gxSnapR.resize(n);
-	static std::vector<Int> box;	// per slot: x0, y0, x1, y1 (x0 = -1: not in the partition)
+	std::vector<Int> &box = s_gxBaseBox;	// per slot: x0, y0, x1, y1 (x0 = -1: not in the partition)
 	box.resize(4 * n);
+	s_gxBaseId.resize(n);
 	for (Int s = 0; s < n; ++s)
 	{
-		Object *o = S.obj[s];
-		box[4 * s] = -1;
-		if (!o || !o->friend_getPartitionData())
+		s_gxBaseId[s] = S.id[s];
+		gxSnapBox(S, s, cellCountX, cellCountY, &box[4 * s]);
+		if (box[4 * s] < 0)
 			continue;
-		const Real r = S.radius[s];
-		s_gxSnapR[s] = max(r, o->getGeometryInfo().getBoundingSphereRadius());	// tall units: the sphere is up to ~3x the circle
-		Int x0, y0, x1, y1;
-		ThePartitionManager->worldToCell(S.x[s] - r, S.y[s] - r, &x0, &y0);
-		ThePartitionManager->worldToCell(S.x[s] + r, S.y[s] + r, &x1, &y1);
-		x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, cellCountX - 1); y1 = min(y1, cellCountY - 1);
-		if (x0 > x1 || y0 > y1)
-			continue;
-		box[4 * s] = x0; box[4 * s + 1] = y0; box[4 * s + 2] = x1; box[4 * s + 3] = y1;
-		for (Int y = y0; y <= y1; ++y)
-			for (Int x = x0; x <= x1; ++x)
+		for (Int y = box[4 * s + 1]; y <= box[4 * s + 3]; ++y)
+			for (Int x = box[4 * s]; x <= box[4 * s + 2]; ++x)
 				++s_gxSnapStart[y * cellCountX + x + 1];
 	}
 	for (Int c = 0; c < cells; ++c)
@@ -4393,7 +4473,155 @@ static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
 			for (Int x = box[4 * s]; x <= box[4 * s + 2]; ++x)
 				s_gxSnapSlots[fill[y * cellCountX + x]++] = s;
 	}
+	s_gxSnapBeg.assign(s_gxSnapStart.begin(), s_gxSnapStart.end() - 1);
+	s_gxSnapEnd.assign(s_gxSnapStart.begin() + 1, s_gxSnapStart.end());
+	s_gxBaseN = n;
+	s_gxBaseLen = (Int)s_gxSnapSlots.size();
+	s_gxPatchedCells.clear();
 	s_gxSnapEpoch = S.epoch();
+}
+
+/// switch snapPatch (fourth word bit 31; same game): later in the same frame, instead of the full
+/// build, recompute every slot's box (as the full build would) and replace only the lists of cells
+/// that a slot whose box changed since the base build (moved across a cell edge, new, removed or left
+/// the partition) covered then or covers now. Each replaced list is what the full build would make:
+/// the cell's slots in ascending order. Returns FALSE when a full build is needed instead.
+static Bool gxPatchStoreSnapshot(Int cellCountX, Int cellCountY)
+{
+	GxTimeScope gxT(GXT_SNAP);	// tickTiming
+	GxUnitStore &S = TheGxUnitStore;
+	const Int n = S.size();
+	if (n < s_gxBaseN)
+		return FALSE;
+	if ((Int)s_gxSnapStamp.size() < n)
+		s_gxSnapStamp.resize(n, 0);
+	s_gxSnapR.resize(n);
+	static std::vector<Int> cur, changed;
+	cur.resize(4 * n);
+	changed.clear();
+	const Int limit = n / 8 + 64;	// ponytail: past this many changed slots the full build is cheaper
+	for (Int s = 0; s < n; ++s)
+	{
+		Int *c = &cur[4 * s];
+		gxSnapBox(S, s, cellCountX, cellCountY, c);
+		if (s < s_gxBaseN)
+		{
+			if (S.id[s] != s_gxBaseId[s] && S.id[s] != 0)
+				return FALSE;	// a slot holds another object (cannot happen within a frame; be safe)
+			const Int *b = &s_gxBaseBox[4 * s];
+			if (c[0] == b[0] && (c[0] < 0 || (c[1] == b[1] && c[2] == b[2] && c[3] == b[3])))
+				continue;
+		}
+		else if (c[0] < 0)
+			continue;
+		changed.push_back(s);
+		if ((Int)changed.size() > limit)
+			return FALSE;
+	}
+	gxCount(GXC_SNAP_PATCHES);
+	// back to the base lists
+	s_gxSnapSlots.resize(s_gxBaseLen);
+	for (size_t i = 0; i < s_gxPatchedCells.size(); ++i)
+	{
+		const Int c = s_gxPatchedCells[i];
+		s_gxSnapBeg[c] = s_gxSnapStart[c];
+		s_gxSnapEnd[c] = s_gxSnapStart[c + 1];
+	}
+	s_gxPatchedCells.clear();
+	// the cells to redo, each with the changed slots that cover it now (ascending, as changed is)
+	static std::vector<Int> mark, adds;	// mark: per cell, 1 + index into s_gxPatchedCells
+	static std::vector<std::vector<Int> > addLists;
+	mark.resize(cellCountX * cellCountY, 0);
+	for (int pass = 0; pass < 2; ++pass)
+		for (size_t i = 0; i < changed.size(); ++i)
+		{
+			const Int s = changed[i];
+			const Int *bx = pass == 0 ? (s < s_gxBaseN ? &s_gxBaseBox[4 * s] : nullptr) : &cur[4 * s];
+			if (!bx || bx[0] < 0)
+				continue;
+			for (Int y = bx[1]; y <= bx[3]; ++y)
+				for (Int x = bx[0]; x <= bx[2]; ++x)
+				{
+					const Int c = y * cellCountX + x;
+					if (!mark[c])
+					{
+						s_gxPatchedCells.push_back(c);
+						mark[c] = (Int)s_gxPatchedCells.size();
+						if ((Int)addLists.size() < mark[c])
+							addLists.resize(mark[c]);
+						addLists[mark[c] - 1].clear();
+					}
+					if (pass == 1)
+						addLists[mark[c] - 1].push_back(s);
+				}
+		}
+	static std::vector<char> isChanged;
+	isChanged.assign(n, 0);
+	for (size_t i = 0; i < changed.size(); ++i)
+		isChanged[changed[i]] = 1;
+	for (size_t i = 0; i < s_gxPatchedCells.size(); ++i)
+	{
+		const Int c = s_gxPatchedCells[i];
+		mark[c] = 0;
+		const std::vector<Int> &add = addLists[i];
+		// merge: the base list without changed slots, and the changed slots that cover the cell now
+		const Int beg = (Int)s_gxSnapSlots.size();
+		size_t j = 0;
+		for (Int k = s_gxSnapStart[c]; k < s_gxSnapStart[c + 1]; ++k)
+		{
+			const Int s = s_gxSnapSlots[k];
+			if (isChanged[s])
+				continue;
+			while (j < add.size() && add[j] < s)
+				s_gxSnapSlots.push_back(add[j++]);
+			s_gxSnapSlots.push_back(s);
+		}
+		while (j < add.size())
+			s_gxSnapSlots.push_back(add[j++]);
+		s_gxSnapBeg[c] = beg;
+		s_gxSnapEnd[c] = (Int)s_gxSnapSlots.size();
+	}
+	s_gxSnapEpoch = S.epoch();
+	return TRUE;
+}
+
+/// verify (snapPatch): the lists a full build would make now, compared cell by cell with the ones in use
+static void gxCheckStoreSnapshot(Int cellCountX, Int cellCountY)
+{
+	const GxUnitStore &S = TheGxUnitStore;
+	const Int n = S.size(), cells = cellCountX * cellCountY;
+	std::vector<Int> start(cells + 1, 0), box(4 * n), slots;
+	for (Int s = 0; s < n; ++s)
+	{
+		gxSnapBox(S, s, cellCountX, cellCountY, &box[4 * s]);
+		if (box[4 * s] >= 0)
+			for (Int y = box[4 * s + 1]; y <= box[4 * s + 3]; ++y)
+				for (Int x = box[4 * s]; x <= box[4 * s + 2]; ++x)
+					++start[y * cellCountX + x + 1];
+	}
+	for (Int c = 0; c < cells; ++c)
+		start[c + 1] += start[c];
+	slots.resize(start[cells]);
+	std::vector<Int> fill(start.begin(), start.end() - 1);
+	for (Int s = 0; s < n; ++s)
+		if (box[4 * s] >= 0)
+			for (Int y = box[4 * s + 1]; y <= box[4 * s + 3]; ++y)
+				for (Int x = box[4 * s]; x <= box[4 * s + 2]; ++x)
+					slots[fill[y * cellCountX + x]++] = s;
+	static unsigned s_checked, s_bad;
+	++s_checked;
+	for (Int c = 0; c < cells; ++c)
+	{
+		const Int len = start[c + 1] - start[c];
+		if (s_gxSnapEnd[c] - s_gxSnapBeg[c] != len || (len && memcmp(&slots[start[c]], &s_gxSnapSlots[s_gxSnapBeg[c]], len * sizeof(Int))))
+		{
+			++s_bad;
+			printf("GXVERIFY snapPatch mismatch: cell %d has %d slots, full build %d\n", c, s_gxSnapEnd[c] - s_gxSnapBeg[c], len);
+			break;
+		}
+	}
+	if (s_checked % 500 == 0)
+		printf("GXVERIFY snapPatch snapshots checked %u, mismatches %u\n", s_checked, s_bad);
 }
 
 static unsigned long long gxSearchKey(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,
@@ -4428,6 +4656,11 @@ enum
 	GX_GCO_SNAP = 32		// read this tick's per-cell lists of store slots (match rule scanManager)
 };
 
+Int PartitionData::gxSlot() const
+{
+	return m_object ? m_object->gxStoreSlot() : -1;
+}
+
 void PartitionData::gxRefreshPlace()
 {
 	const Object *o = m_object;
@@ -4436,9 +4669,13 @@ void PartitionData::gxRefreshPlace()
 	const Coord3D *p = o->getPosition();
 	const GeometryInfo &g = o->getGeometryInfo();
 	const Real r = max(g.getBoundingCircleRadius(), g.getBoundingSphereRadius());
-	m_gxX = p->x;
-	m_gxY = p->y;
-	m_gxR = r;
+	const Int s = o->gxStoreSlot();
+	if (s >= 0)
+	{
+		TheGxUnitStore.placeX[s] = p->x;
+		TheGxUnitStore.placeY[s] = p->y;
+		TheGxUnitStore.placeR[s] = r;
+	}
 	for (Int i = 0; i < m_coiInUseCount; ++i)
 		m_coiArray[i].gxSetPlace(p->x, p->y, r);
 }
@@ -4561,7 +4798,10 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 	// this tick's per-cell lists (again if the store moved slots, e.g. a unit was removed)
 	if (frame != s_gxSnapFrame || TheGxUnitStore.epoch() != s_gxSnapEpoch)
 	{
-		gxBuildStoreSnapshot(m_cellCountX, m_cellCountY);
+		if (frame != s_gxSnapFrame || !((UnsignedInt)GLES3_Page_Switches4() & 0x80000000u) || !gxPatchStoreSnapshot(m_cellCountX, m_cellCountY))
+			gxBuildStoreSnapshot(m_cellCountX, m_cellCountY);
+		if (verify && frame == s_gxSnapFrame && ((UnsignedInt)GLES3_Page_Switches4() & 0x80000000u))
+			gxCheckStoreSnapshot(m_cellCountX, m_cellCountY);
 		s_gxSnapFrame = frame;
 	}
 	// the scan pass: every SCAN unit's plain enemy scan from last tick, in object-ID order
@@ -4769,42 +5009,114 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 				// match rule scanManager: this tick's list of store slots for the cell, store columns first
 				const GxUnitStore &S = TheGxUnitStore;
 				const Int ci = gxY * m_cellCountX + gxX;
-				const Int kEnd = s_gxSnapStart[ci + 1];
+				const Int kBeg = s_gxSnapBeg[ci], kEnd = s_gxSnapEnd[ci];
 				// switch simdSearch (fourth word bit 13): the distance cull 4 slots at a time from the live
 				// x/y/radius columns. Same f32 ops as the scalar test below and the limit only shrinks, so
 				// a lane it drops the scalar test would drop too; kept lanes run the unchanged body.
 				const Bool gxSimd = gxCache && (GLES3_Page_Switches4() & 8192);
-				UnsignedInt gxLanes = ~0u;
-				for (Int k = s_gxSnapStart[ci]; k < kEnd; ++k)
+				// switch simdBody (fourth word bit 30): the body's enemy test and the 2D distance (centre or
+				// bounding circle) for the same blocks of 8, from the player bits, positions and radii; the
+				// scalar body then uses the lane's values (same f32 ops as distCalcProc_*_2D, no FMA)
+				const Bool gxBody = gxSimd && (dc == FROM_CENTER_2D || dc == FROM_BOUNDINGSPHERE_2D) && (GLES3_Page_Switches4() & (1 << 30));
+				UnsignedInt gxLanes = ~0u, gxEnemyLanes = ~0u, gxHaveD = 0;
+				float gxD2[8], gxVx[8], gxVy[8];
+				for (Int k = kBeg; k < kEnd; ++k)
 				{
 					const Int s = s_gxSnapSlots[k];
 					gxCount(GXC_SEARCH_ENTRIES);
 #ifdef __wasm_simd128__
-					if (gxSimd && ((k - s_gxSnapStart[ci]) & 3) == 0)
+					if (gxSimd && ((k - kBeg) & 7) == 0)
 					{
+						gxEnemyLanes = ~0u;
+						gxHaveD = 0;
+						// ILP (LOGIC_AGENTS "SIMD step"): 8 slots per block, two independent f32x4 chains at
+						// the block's limit; a short tail (under 4) is all kept
 						gxLanes = ~0u;
-						if (kEnd - k >= 4)
+						const Int *q = &s_gxSnapSlots[k];
+						const v128_t sx = wasm_f32x4_splat(px), sy = wasm_f32x4_splat(py), sl = wasm_f32x4_splat(gxLimit);
+						#define GX_SNAP4(b) ([&]() -> UnsignedInt { \
+							const v128_t vx = wasm_f32x4_make(S.x[q[b]], S.x[q[b + 1]], S.x[q[b + 2]], S.x[q[b + 3]]); \
+							const v128_t vy = wasm_f32x4_make(S.y[q[b]], S.y[q[b + 1]], S.y[q[b + 2]], S.y[q[b + 3]]); \
+							const v128_t vr = wasm_f32x4_make(s_gxSnapR[q[b]], s_gxSnapR[q[b + 1]], s_gxSnapR[q[b + 2]], s_gxSnapR[q[b + 3]]); \
+							const v128_t dx = wasm_f32x4_sub(vx, sx), dy = wasm_f32x4_sub(vy, sy); \
+							const v128_t lim = wasm_f32x4_add(sl, vr); \
+							const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)); \
+							return (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim)))); }())	/* keep unless "> lim^2", as the scalar test (NaN kept) */
+						if (kEnd - k >= 8)
 						{
-							const Int *q = &s_gxSnapSlots[k];
-							const v128_t vx = wasm_f32x4_make(S.x[q[0]], S.x[q[1]], S.x[q[2]], S.x[q[3]]);
-							const v128_t vy = wasm_f32x4_make(S.y[q[0]], S.y[q[1]], S.y[q[2]], S.y[q[3]]);
-							const v128_t vr = wasm_f32x4_make(s_gxSnapR[q[0]], s_gxSnapR[q[1]], s_gxSnapR[q[2]], s_gxSnapR[q[3]]);
-							const v128_t dx = wasm_f32x4_sub(vx, wasm_f32x4_splat(px));
-							const v128_t dy = wasm_f32x4_sub(vy, wasm_f32x4_splat(py));
-							const v128_t lim = wasm_f32x4_add(wasm_f32x4_splat(gxLimit), vr);
-							const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy));
-							gxLanes = (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim))));	// keep unless "> lim^2", as the scalar test (NaN kept)
-							g_gxSimdCulled += 4 - __builtin_popcount(gxLanes);
-							gxCount(GXC_SIMD_CULLED, 4 - __builtin_popcount(gxLanes));
+							const UnsignedInt a = GX_SNAP4(0), b = GX_SNAP4(4);
+							gxLanes = a | (b << 4) | ~0xffu;
+						}
+						else if (kEnd - k >= 4)
+							gxLanes = GX_SNAP4(0) | ~0xfu;
+						#undef GX_SNAP4
+						const Int culled = 8 - __builtin_popcount(gxLanes & 0xffu);
+						g_gxSimdCulled += culled;
+						gxCount(GXC_SIMD_CULLED, culled);
+						if (gxBody && kEnd - k >= 8)
+						{
+							// enemy lanes: the scalar test's bit is 1 << player, or bit MAX_PLAYER_COUNT for none
+							const v128_t em = wasm_i32x4_splat((Int)gxEnemyMask), none = wasm_i32x4_splat(1 << MAX_PLAYER_COUNT), z = wasm_i32x4_splat(0);
+							const Real ar = (dc == FROM_BOUNDINGSPHERE_2D && objToUse) ? objToUse->getBoundingCircleRadius() : 0.0f;
+							const v128_t sar = wasm_f32x4_splat(ar), zf = wasm_f32x4_splat(0.0f), onef = wasm_f32x4_splat(1.0f);
+							const Bool bnd = dc == FROM_BOUNDINGSPHERE_2D;
+							#define GX_BODY4(b) ([&]() -> UnsignedInt { \
+								const v128_t pb = wasm_u32x4_make(S.playerBit[q[b]], S.playerBit[q[b + 1]], S.playerBit[q[b + 2]], S.playerBit[q[b + 3]]); \
+								const v128_t bit = wasm_v128_bitselect(none, pb, wasm_i32x4_eq(pb, z)); \
+								const UnsignedInt en = (UnsignedInt)wasm_i32x4_bitmask(wasm_i32x4_ne(wasm_v128_and(bit, em), z)); \
+								const Coord3D *p0 = S.obj[q[b]] ? S.obj[q[b]]->getPosition() : objPos, *p1 = S.obj[q[b + 1]] ? S.obj[q[b + 1]]->getPosition() : objPos; \
+								const Coord3D *p2 = S.obj[q[b + 2]] ? S.obj[q[b + 2]]->getPosition() : objPos, *p3 = S.obj[q[b + 3]] ? S.obj[q[b + 3]]->getPosition() : objPos; \
+								const v128_t dx = wasm_f32x4_sub(wasm_f32x4_make(p0->x, p1->x, p2->x, p3->x), wasm_f32x4_splat(objPos->x)); \
+								const v128_t dy = wasm_f32x4_sub(wasm_f32x4_make(p0->y, p1->y, p2->y, p3->y), wasm_f32x4_splat(objPos->y)); \
+								const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)); \
+								v128_t outD = d2, f = onef; \
+								if (bnd) { \
+									/* distCalcProc_BoundaryAndBoundary_2D: totalRad > 0 -> shrink by it, clamped at 0 */ \
+									const v128_t tr = wasm_f32x4_add(sar, wasm_f32x4_make(S.radius[q[b]], S.radius[q[b + 1]], S.radius[q[b + 2]], S.radius[q[b + 3]])); \
+									const v128_t ad = wasm_f32x4_sqrt(d2), sd = wasm_f32x4_sub(ad, tr); \
+									const v128_t le = wasm_f32x4_le(sd, zf), pos = wasm_f32x4_gt(tr, zf); \
+									const v128_t fs = wasm_v128_bitselect(zf, wasm_f32x4_div(sd, ad), le); \
+									const v128_t ds = wasm_v128_bitselect(zf, wasm_f32x4_mul(sd, sd), le); \
+									f = wasm_v128_bitselect(fs, onef, pos); outD = wasm_v128_bitselect(ds, d2, pos); } \
+								wasm_v128_store(&gxD2[b], outD); \
+								wasm_v128_store(&gxVx[b], wasm_f32x4_mul(dx, f)); wasm_v128_store(&gxVy[b], wasm_f32x4_mul(dy, f)); \
+								return en; }())
+							const UnsignedInt a = GX_BODY4(0), b = GX_BODY4(4);
+							#undef GX_BODY4
+							gxEnemyLanes = a | (b << 4) | ~0xffu;
+							gxHaveD = 0xffu;
 						}
 					}
-					if (!((gxLanes >> ((k - s_gxSnapStart[ci]) & 3)) & 1))
+					if (!((gxLanes >> ((k - kBeg) & 7)) & 1))
+					{
+						if (GLES3_Page_Switches() & 2097152)
+						{
+							// verify: the scalar cull at the current limit must turn it away too
+							static unsigned s_checked, s_bad;
+							const Real dx = S.x[s] - px, dy = S.y[s] - py, lim = gxLimit + s_gxSnapR[s];
+							++s_checked;
+							if (!(dx * dx + dy * dy > lim * lim))
+							{
+								++s_bad;
+								printf("GXVERIFY simdSearch mismatch: kept by the scalar test (d2 %g lim2 %g)\n", dx * dx + dy * dy, lim * lim);
+							}
+							if (s_checked % 200000 == 0)
+								printf("GXVERIFY simdSearch dropped lanes checked %u, mismatches %u\n", s_checked, s_bad);
+						}
 						continue;
+					}
 #endif
 					Object *thisObj = S.obj[s];
 					if (!thisObj || thisObj == obj)
 						continue;
+					const Int gxL = (k - kBeg) & 7;
 					const Int p = S.player[s];
+					if (!((gxEnemyLanes >> gxL) & 1))
+					{
+						if ((GLES3_Page_Switches() & 2097152) && ((1u << ((p >= 0 && p < MAX_PLAYER_COUNT) ? p : MAX_PLAYER_COUNT)) & gxEnemyMask))
+							printf("GXVERIFY simdBody mismatch: enemy lane dropped, player %d\n", p);
+						continue;
+					}
 					if (!((1u << ((p >= 0 && p < MAX_PLAYER_COUNT) ? p : MAX_PLAYER_COUNT)) & gxEnemyMask))
 						continue;
 					if (gxCache)
@@ -4824,7 +5136,28 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 					Real thisDistSqr;
 					Coord3D distVec;
 					gxCount(GXC_SEARCH_UNITS);
-				if (!(*distProc)(objPos, objToUse, thisObj->getPosition(), thisObj, thisDistSqr, distVec, closestDistSqr))
+					if ((gxHaveD >> gxL) & 1)
+					{
+						thisDistSqr = gxD2[gxL];
+						distVec.x = gxVx[gxL]; distVec.y = gxVy[gxL]; distVec.z = 0.0f;
+						if (GLES3_Page_Switches() & 2097152)
+						{
+							static unsigned s_checked, s_bad;
+							Real rd; Coord3D rv;
+							(*distProc)(objPos, objToUse, thisObj->getPosition(), thisObj, rd, rv, closestDistSqr);
+							++s_checked;
+							if (memcmp(&rd, &thisDistSqr, 4) || memcmp(&rv.x, &distVec.x, 4) || memcmp(&rv.y, &distVec.y, 4) || memcmp(&rv.z, &distVec.z, 4))
+							{
+								++s_bad;
+								printf("GXVERIFY simdBody mismatch: dc %d d2 %.9g/%.9g vec %.9g,%.9g/%.9g,%.9g\n", (int)dc, rd, thisDistSqr, rv.x, rv.y, distVec.x, distVec.y);
+							}
+							if (s_checked % 200000 == 0)
+								printf("GXVERIFY simdBody distances checked %u, mismatches %u\n", s_checked, s_bad);
+						}
+						if (!(thisDistSqr < closestDistSqr))
+							continue;
+					}
+					else if (!(*distProc)(objPos, objToUse, thisObj->getPosition(), thisObj, thisDistSqr, distVec, closestDistSqr))
 						continue;
 					if (!filtersAllow(filters, thisObj))
 						continue;

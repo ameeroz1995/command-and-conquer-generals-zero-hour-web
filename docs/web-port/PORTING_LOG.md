@@ -4294,3 +4294,47 @@ Timing, battle benchmark, ai-35, tickTiming, timing.lock, load 2-3, kernelSimd o
 Checks (ai-36): single-player game recorded with both switches off (rules 3FEE6E7 in the header)
 replays to a match (rules read back 3FEE6E7); one recorded with defaults (FEE6E7) replays to a match;
 referee.rep, ai-ck.rep, ai-up5.rep match.
+
+## Round 5 (query) continued: PartitionData row, DynamicShroudClearingRange and Stealth kernels
+- PartitionData's own per-object web-port state (cached place x/y/r for pairPlace/pairOffer, fogKeep's pure /
+  kept bits) moved into PartitionDataGxRow on GxComponentPool (keyed by the PartitionData: ghost objects have
+  no store slot). The per-COI copies stay in the COIs (one per cell entry). Referee + query-mgr5.rep match (query-31).
+- DynamicShroudClearingRange: gxDscruStep is the kernel (reads state, countdowns, range, deadlines and copied
+  module data; writes only the row's next record; same arithmetic and types: the countdown is signed, deadlines
+  unsigned); update() is the apply step: decals first (animateGridDecals reads the pre-step range and
+  countdown), then commit, then setShroudClearingRange. A row whose inputs changed since gets the step inline.
+- Stealth: gxStealthStep precomputes the pure per-frame math (pulse opacity/phase, disguise transition
+  countdown and factor, granted-frames countdown); update() uses each piece only when its inputs are unchanged.
+  The rest (AI victim, status bits, containers, sounds) stays in the apply step.
+- Both under rowKernels (fourth word bit 12). Referee + query-mgr5.rep match (query-32).
+
+## simdPairs (fourth word bit 17, default on) and verify checks for the SIMD culls
+- addPossibleCollisions (pairOffer path): neighbour COIs are gathered 4 at a time into f32x4 and culled by the
+  same f32 distance test (drop only when > limit², NaN kept); kept lanes get the scalar test unchanged.
+- Verify: every lane the SIMD cull drops (simdPairs and simdSearch) is rechecked with the scalar test.
+  Battle verify on query-34 (300 s, pairOffer + scanManager): simdPairs 9.6M and simdSearch 9.8M dropped lanes
+  checked, 0 mismatches; fogKeep 2.54M checks, 0. Replays referee, query-mgr5, query-mgr6 match (query-33).
+- Battle counters (query-33, tickTiming): pairs tested 3942/tick, SIMD-culled 4395/tick; search entries 27446,
+  SIMD-culled 5880/tick.
+
+## PartitionData state into store columns; ILP in the SIMD culls (LOGIC_AGENTS "SIMD step")
+- PartitionDataGxRow is gone: the cached place (placeX/Y/R) and fogKeep bits (fogPure, fogKeptMask, fogKept:
+  4 bits a player) are a query block in TheGxUnitStore (added, reserved, permuted with the rest). A
+  PartitionData reaches them through its object's store slot; attachToObject resets them (a new PartitionData
+  knows no place: placeR = HUGE_DIST, never turned away). Ghost-only PartitionData has no slot: no place,
+  nothing kept (the switch-off behaviour). The per-COI place copies stay in the COIs (one per cell entry).
+- simdPairs and simdSearch: blocks of 8 with two independent f32x4 chains (was one block of 4), branchless
+  masks, same f32 ops (no FMA / relaxed SIMD); tails under 4 are kept as before.
+- query-36: referee, query-mgr5, query-mgr6 match; battle verify: simdPairs 9.6M / simdSearch 9.8M dropped
+  lanes checked, fogKeep 2.54M, all 0 mismatches.
+
+## Battle timing pairs (rule "fps is not the measure"; tickTiming on, pairOffer + scanManager, under timing.lock, load < 8)
+| switch off -> on | logic ms/tick | own ms/tick | counters/tick | p99 ms | frames > 100 ms |
+|---|---|---|---|---|---|
+| fogKeep (q33) | 17.4 -> 15.8 | search 2.28 -> 2.10 | fog recomputes 992 -> 141 (855 kept) | 108.5 -> 90.6 | 46 -> 22 |
+| fogStamps (q33) | 16.3 -> 15.5 | fogReveal 0.10 -> 0.06 | 19.8 circles, 5.4k cells | 91.2 -> 94.4 | 22 -> 21 |
+| simdPairs (q36) | 15.9 -> 15.6 | - | pairs scalar-tested 6549 -> 3335 (3214 SIMD-culled) | 89.9 -> 87.9 | 20 -> 20 |
+| simdSearch (q36) | 17.3 -> 17.3 | search 2.33 -> 2.32 | 21.9k entries, 4.6k SIMD-culled | 103.4 -> 100.4 | 34 -> 31 |
+| rowKernels (q33) | 22.1 -> 22.2 | - | same work (main thread) | 126.9 -> 127.5 | 73 -> 81 |
+- fogKeep is the one clear gain; the SIMD culls halve the scalar tests but the search cost is the per-unit
+  body after the cull (distProc, filters), so ms/tick barely moves; rowKernels on one thread is neutral.
