@@ -5532,6 +5532,8 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 						printf("GXVERIFY batchScan mismatch cell %d,%d: in list %d, cell mask %x dense %x, flags %x, mask %x\n", x, y, inList,
 							m_cells[ci].gxPlayerMask(), g_gxCellMasks ? g_gxCellMasks[ci] : 0u, gxFlags, gxMask);
 					}
+				for (PartitionFilter **f = filters; f && *f; ++f)
+					printf("GXVERIFY batchScan mismatch filter %s: allow now %d\n", typeid(**f).name(), (Int)(*f)->allow(best));
 				printf("GXVERIFY batchScan mismatch slot: player %d playerBit %x stamp %u/%u pd %d snapEpoch %u/%u frame %u/%u\n", S.player[bs], S.playerBit[bs],
 					bs < (Int)s_gxSnapStamp.size() ? s_gxSnapStamp[bs] : 0u, s_gxSnapSearch, best->friend_getPartitionData() != nullptr,
 					s_gxSnapEpoch, TheGxUnitStore.epoch(), s_gxSnapFrame, TheGameLogic->getFrame());
