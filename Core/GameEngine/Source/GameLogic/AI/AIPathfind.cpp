@@ -28,6 +28,7 @@
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #include <algorithm>
 #include "Common/GxMatchRules.h"
+#include "Common/GxTime.h"
 #include "Common/Recorder.h"
 
 #include "GameLogic/AIPathfind.h"
@@ -751,6 +752,74 @@ inline Bool isReallyClose(const Coord3D& a, const Coord3D& b)
 		fabs(a.z-b.z) <= CLOSE_ENOUGH;
 }
 
+#ifdef __EMSCRIPTEN__
+#include <wasm_simd128.h>
+#endif
+// Web port (switch cpopSimd, round 5 SIMD step): the closest segment of a route, 8 segments per loop
+// (two independent 4-lane chains), branchless. Per segment the same float operations as the walk
+// (no FMA), so each distance is bit-exact; the first segment with the smallest distance wins as in the
+// walk. Segment n-1 (the last, which clamps instead of skipping) is left to the caller.
+// Returns the best index in [0, n) with its distance in bestD, or -1 if none beats bestD.
+static Int gxCpopSimd(const Real *sx, const Real *sy, const Real *dx, const Real *dy, const Real *len,
+	Int n, Real px, Real py, Real &bestD)
+{
+	Int best = -1;
+	Int i = 0;
+#ifdef __EMSCRIPTEN__
+	const v128_t vpx = wasm_f32x4_splat(px), vpy = wasm_f32x4_splat(py);
+	const v128_t vinf = wasm_f32x4_splat(3.0e38f), vzero = wasm_f32x4_splat(0.0f);
+	v128_t bdA = wasm_f32x4_splat(bestD), bdB = bdA;
+	v128_t biA = wasm_i32x4_splat(-1), biB = biA;
+	v128_t idxA = wasm_i32x4_make(0, 1, 2, 3), idxB = wasm_i32x4_make(4, 5, 6, 7);
+	const v128_t step = wasm_i32x4_splat(8);
+#define GX_CPOP_LANE(o, bd, bi, idx) { \
+		const v128_t vsx = wasm_v128_load(sx + i + (o)), vsy = wasm_v128_load(sy + i + (o)); \
+		const v128_t vdx = wasm_v128_load(dx + i + (o)), vdy = wasm_v128_load(dy + i + (o)); \
+		const v128_t vl = wasm_v128_load(len + i + (o)); \
+		const v128_t tx = wasm_f32x4_sub(vpx, vsx), ty = wasm_f32x4_sub(vpy, vsy); \
+		const v128_t al = wasm_f32x4_add(wasm_f32x4_mul(vdx, tx), wasm_f32x4_mul(vdy, ty)); \
+		const v128_t neg = wasm_f32x4_lt(al, vzero); \
+		const v128_t over = wasm_v128_andnot(wasm_f32x4_gt(al, vl), neg); \
+		v128_t ptx = wasm_f32x4_add(vsx, wasm_f32x4_mul(al, vdx)); \
+		v128_t pty = wasm_f32x4_add(vsy, wasm_f32x4_mul(al, vdy)); \
+		ptx = wasm_v128_bitselect(vsx, ptx, neg); pty = wasm_v128_bitselect(vsy, pty, neg); \
+		const v128_t ox = wasm_f32x4_sub(vpx, ptx), oy = wasm_f32x4_sub(vpy, pty); \
+		v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(ox, ox), wasm_f32x4_mul(oy, oy)); \
+		d2 = wasm_v128_bitselect(vinf, d2, over); \
+		const v128_t up = wasm_f32x4_lt(d2, bd); \
+		bd = wasm_v128_bitselect(d2, bd, up); bi = wasm_v128_bitselect(idx, bi, up); }
+	for (; i + 8 <= n; i += 8)
+	{
+		GX_CPOP_LANE(0, bdA, biA, idxA)
+		GX_CPOP_LANE(4, bdB, biB, idxB)
+		idxA = wasm_i32x4_add(idxA, step); idxB = wasm_i32x4_add(idxB, step);
+	}
+#undef GX_CPOP_LANE
+	// lanes -> one: smallest distance, then lowest index (the walk keeps the first)
+	float d[8]; int bi[8];
+	wasm_v128_store(d, bdA); wasm_v128_store(d + 4, bdB);
+	wasm_v128_store(bi, biA); wasm_v128_store(bi + 4, biB);
+	for (Int l = 0; l < 8; ++l)
+		if (bi[l] >= 0 && (d[l] < bestD || (d[l] == bestD && best >= 0 && bi[l] < best)))
+		{
+			bestD = d[l]; best = bi[l];
+		}
+#endif
+	for (; i < n; ++i)	// the rest, one at a time (same operations)
+	{
+		const Real tx = px - sx[i], ty = py - sy[i];
+		const Real al = dx[i] * tx + dy[i] * ty;
+		Real ptx, pty;
+		if (al < 0.0f) { ptx = sx[i]; pty = sy[i]; }
+		else if (al > len[i]) continue;
+		else { ptx = sx[i] + al * dx[i]; pty = sy[i] + al * dy[i]; }
+		const Real ox = px - ptx, oy = py - pty;
+		const Real d2 = ox * ox + oy * oy;
+		if (d2 < bestD) { bestD = d2; best = i; }
+	}
+	return best;
+}
+
 /**
  * Given a location, return the closest position on the path.
  * If 'allowBacktrack' is true, the entire path is considered.
@@ -804,6 +873,7 @@ void Path::computePointOnPath(
 		return;
 	}
 	m_cpopCountdown = MAX_CPOP;
+	gxCount(GXC_CPOP_CALLS);	// web port: GXTIME work counter (closest-point searches)
 
 	// default pathPos to end of the path
 	out.posOnPath = *getLastNode()->getPosition();
@@ -820,7 +890,7 @@ void Path::computePointOnPath(
 	Coord2D segmentDirNorm;
 	Real segmentLength;
 #ifdef __EMSCRIPTEN__
-	extern int GLES3_Page_Switches(), GLES3_Page_Switches3();
+	extern int GLES3_Page_Switches(), GLES3_Page_Switches3();	// GLES3_Page_Switches4: GxTime.h
 	const Bool gxSegs = (GLES3_Page_Switches3() & 1) != 0;	// switch cpopSegments (third word bit 0)
 	const Bool gxVerifySegs = gxSegs && (GLES3_Page_Switches() & 2097152) != 0;
 #else
@@ -837,8 +907,60 @@ void Path::computePointOnPath(
 				m_gxSegs.push_back(g);
 				p = n;
 			}
+			const size_t ns = m_gxSegs.size();
+			m_gxSx.resize(ns); m_gxSy.resize(ns); m_gxDx.resize(ns); m_gxDy.resize(ns); m_gxLen.resize(ns); m_gxCum.resize(ns + 1);
+			Real cum = 0.0f;
+			for (size_t q = 0; q < ns; ++q)
+			{
+				const GxSeg &g = m_gxSegs[q];
+				m_gxSx[q] = g.prevPos.x; m_gxSy[q] = g.prevPos.y; m_gxDx[q] = g.dir.x; m_gxDy[q] = g.dir.y; m_gxLen[q] = g.len;
+				m_gxCum[q] = cum; cum += g.len;
+			}
+			m_gxCum[ns] = cum;
 			m_gxSegsValid = TRUE;
 		}
+		const Int ns = (Int)m_gxSegs.size();
+		const Bool gxSimd = (GLES3_Page_Switches4() & 262144) != 0 && ns > 0;	// switch cpopSimd (fourth word bit 18)
+		if (gxSimd)
+		{
+			gxCount(GXC_CPOP_SIMD_SEGS, (unsigned long long)ns);
+			// segments 0..n-2 in the kernel; the last (it clamps to its end) as the walk does it
+			Real bd = closeDistSqr;
+			Int k = gxCpopSimd(m_gxSx.data(), m_gxSy.data(), m_gxDx.data(), m_gxDy.data(), m_gxLen.data(), ns - 1, pos.x, pos.y, bd);
+			Real kAlong = 0.0f; Coord3D kPoint;
+			if (k >= 0)
+			{
+				const GxSeg &g = m_gxSegs[k];	// the winner's point, as the walk computes it
+				toPos.x = pos.x - g.prevPos.x; toPos.y = pos.y - g.prevPos.y;
+				kAlong = g.dir.x * toPos.x + g.dir.y * toPos.y;
+				if (kAlong < 0.0f) { kAlong = 0.0f; kPoint = g.prevPos; }
+				else { kPoint.x = g.prevPos.x + kAlong * g.dir.x; kPoint.y = g.prevPos.y + kAlong * g.dir.y; kPoint.z = 0; }
+			}
+			{
+				const GxSeg &g = m_gxSegs[ns - 1];
+				toPos.x = pos.x - g.prevPos.x; toPos.y = pos.y - g.prevPos.y;
+				Real al = g.dir.x * toPos.x + g.dir.y * toPos.y;
+				Coord3D pt;
+				if (al < 0.0f) { al = 0.0f; pt = g.prevPos; }
+				else if (al > g.len) { al = g.len; pt = g.nodePos; }
+				else { pt.x = g.prevPos.x + al * g.dir.x; pt.y = g.prevPos.y + al * g.dir.y; pt.z = 0; }
+				const Real ox = pos.x - pt.x, oy = pos.y - pt.y;
+				const Real d2 = ox*ox + oy*oy;
+				if (d2 < bd) { bd = d2; k = ns - 1; kAlong = al; kPoint = pt; }
+			}
+			if (k >= 0)
+			{
+				closeDistSqr = bd;
+				closeNode = m_gxSegs[k].prev;
+				out.posOnPath = kPoint;
+				lengthAlongPathToPos = m_gxCum[k] + kAlong;
+			}
+			totalPathLength = m_gxCum[ns];
+		}
+		const PathNode *const gxSimdNode = closeNode; const Coord3D gxSimdPos = out.posOnPath;
+		const Real gxSimdClose = closeDistSqr, gxSimdTotal = totalPathLength, gxSimdAlong = lengthAlongPathToPos;
+		if (gxSimd && gxVerifySegs) { closeNode = nullptr; closeDistSqr = 99999999.9f; totalPathLength = 0.0f; lengthAlongPathToPos = 0.0f; out.posOnPath = *getLastNode()->getPosition(); }
+		if (!gxSimd || gxVerifySegs)
 		for (const GxSeg &g : m_gxSegs)
 		{
 			toPos.x = pos.x - g.prevPos.x;
@@ -881,6 +1003,21 @@ void Path::computePointOnPath(
 				lengthAlongPathToPos = totalPathLength + alongPathDist;
 			}
 			totalPathLength += g.len;
+		}
+		if (gxSimd && gxVerifySegs) {	// verification: the SIMD kernel must give exactly what the flat walk gave
+			extern int gx_verify_mismatch, gx_verify_checked;
+			++gx_verify_checked;
+			if (gxSimdNode != closeNode || gxSimdClose != closeDistSqr || gxSimdTotal != totalPathLength || gxSimdAlong != lengthAlongPathToPos
+				|| gxSimdPos.x != out.posOnPath.x || gxSimdPos.y != out.posOnPath.y || gxSimdPos.z != out.posOnPath.z) {
+				++gx_verify_mismatch;
+				printf("GXVERIFY cpopSimd mismatch: segs %d, total %f/%f along %f/%f\n", ns, gxSimdTotal, totalPathLength, gxSimdAlong, lengthAlongPathToPos);
+			}
+			static int s_simdChecked = 0, s_simdMismatch = 0, s_simdSegs = 0;
+			++s_simdChecked; s_simdSegs += ns;
+			if (gxSimdNode != closeNode || gxSimdClose != closeDistSqr || gxSimdTotal != totalPathLength || gxSimdAlong != lengthAlongPathToPos
+				|| gxSimdPos.x != out.posOnPath.x || gxSimdPos.y != out.posOnPath.y || gxSimdPos.z != out.posOnPath.z) ++s_simdMismatch;
+			if (s_simdChecked % 20000 == 0)
+				printf("GXVERIFY cpopSimd checked %d (segments %d), mismatches %d\n", s_simdChecked, s_simdSegs, s_simdMismatch);
 		}
 		// the node walk leaves these at the last node's stored values; so do we
 		(m_gxSegs.empty() ? m_path : m_gxSegs.back().node)->getNextOptimized(&segmentDirNorm, &segmentLength);
@@ -1387,11 +1524,14 @@ inline void PathfindCell::gxSetFlags(CellFlags f)
 	}
 }
 
+UnsignedInt gxPathCellTypesGen = 0;	// web port: see AIPathfind.h
+
 /**
  * Reset the cell to default values
  */
 void PathfindCell::reset()
 {
+	++gxPathCellTypesGen;	// web port: cell types may change
 	m_type = PathfindCell::CELL_CLEAR;
 	gxSetFlags(PathfindCell::NO_UNITS);
 	m_zone = 0;
@@ -1693,6 +1833,7 @@ inline ObjectID PathfindCell::getObstacleID() const
  */
 Bool PathfindCell::setTypeAsObstacle( Object *obstacle, Bool isFence, const ICoord2D &pos )
 {
+	++gxPathCellTypesGen;	// web port: cell types may change
 	if (m_type!=PathfindCell::CELL_CLEAR && m_type != PathfindCell::CELL_IMPASSABLE) {
 		return false;
 	}
@@ -1751,6 +1892,7 @@ Bool PathfindCell::setTypeAsObstacle( Object *obstacle, Bool isFence, const ICoo
  */
 void PathfindCell::setType( CellType type )
 {
+	++gxPathCellTypesGen;	// web port: cell types may change
 #if RETAIL_COMPATIBLE_PATHFINDING_ALLOCATION
 	if (s_useFixedPathfinding) {
 		if (m_obstacleID != INVALID_ID) {
@@ -1781,6 +1923,7 @@ void PathfindCell::setType( CellType type )
  */
 Bool PathfindCell::removeObstacle( Object *obstacle )
 {
+	++gxPathCellTypesGen;	// web port: cell types may change
 	if (m_type == PathfindCell::CELL_RUBBLE) {
 		m_type = PathfindCell::CELL_CLEAR;
 	}
@@ -3540,6 +3683,7 @@ PathfindLayer::~PathfindLayer()
  */
 void PathfindLayer::reset()
 {
+	++gxPathCellTypesGen;	// web port: cell types may change
 	m_bridge = nullptr;
 	if (m_layerCells) {
 		Int i, j;
@@ -3688,6 +3832,7 @@ Bool PathfindLayer::init(Bridge *theBridge, PathfindLayerEnum layer)
  */
 void PathfindLayer::allocateCells(const IRegion2D *extent)
 {
+	++gxPathCellTypesGen;	// web port: cell types may change
 	if (m_bridge == nullptr) return;
 	Region2D bridgeBounds = *m_bridge->getBounds();
 	Int maxX, maxY;
@@ -3727,6 +3872,7 @@ void PathfindLayer::allocateCells(const IRegion2D *extent)
  */
 void PathfindLayer::allocateCellsForWallLayer(const IRegion2D *extent, ObjectID *wallPieces, Int numPieces)
 {
+	++gxPathCellTypesGen;	// web port: cell types may change
 	DEBUG_ASSERTCRASH(m_layer==LAYER_WALL, ("Wrong layer for wall."));
 	if (m_layer != LAYER_WALL) return;
 	Region2D bridgeBounds;
@@ -3934,6 +4080,7 @@ void PathfindLayer::classifyWallCells(ObjectID *wallPieces, Int numPieces)
  */
 Bool PathfindLayer::setDestroyed(Bool destroyed)
 {
+	++gxPathCellTypesGen;	// web port: cell types may change
 	if (destroyed == m_destroyed) return false;
 
 	m_destroyed = destroyed;
@@ -4189,6 +4336,7 @@ Pathfinder::~Pathfinder()
 
 void Pathfinder::reset()
 {
+	++gxPathCellTypesGen;	// web port: cell types may change
 	frameToShowObstacles = 0;
 	s_gxOverflow.clear();
 	s_gxCoarseWaiting.clear();
@@ -4878,6 +5026,7 @@ void Pathfinder::classifyMapCell( Int i, Int j , PathfindCell *cell)
  */
 void Pathfinder::newMap()
 {
+	++gxPathCellTypesGen;	// web port: cell types may change
 	m_wallHeight = TheAI->getAiData()->m_wallHeight; // may be updated by map.ini.
 	Region3D terrainExtent;
 	TheTerrainLogic->getMaximumPathfindExtent( &terrainExtent );
@@ -6309,6 +6458,7 @@ Path *Pathfinder::getAircraftPath( const Object *obj, const Coord3D *to )
 //DECLARE_PERF_TIMER(processPathfindQueue)
 void Pathfinder::processPathfindQueue()
 {
+	GxTimeScope gxTimePath(GXT_PATHFIND);	// web port: GXTIME (tickTiming)
 	//USE_PERF_TIMER(processPathfindQueue)
 	if (!m_isMapReady) {
 		return;
@@ -6592,6 +6742,7 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
 																				 Bool isHuman, Bool centerInCell, Int radius, const ICoord2D &startCellNdx,
 																				 const Object *obj, Int attackDistance)
 {
+	gxCount(GXC_PATH_CELLS);	// web port: GXTIME work counter (cell expansions)
 		Bool canPathThroughUnits = false;
 		if (obj && obj->getAIUpdateInterface()) {
 			canPathThroughUnits = obj->getAIUpdateInterface()->canPathThroughUnits();
@@ -6926,6 +7077,8 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
 													 const Coord3D *rawTo)
 {
+	GxTimeScope gxTimePath(GXT_PATHFIND);	// web port: GXTIME (tickTiming)
+	gxCount(GXC_PATH_FINDS);
 	//CRCDEBUG_LOG(("Pathfinder::findPath()"));
 #ifdef INTENSE_DEBUG
 	DEBUG_LOG(("internal find path..."));
@@ -7514,6 +7667,8 @@ struct GroundCellsStruct
 Path *Pathfinder::findGroundPath( const Coord3D *from,
 													 const Coord3D *rawTo, Int pathDiameter, Bool crusher)
 {
+	GxTimeScope gxTimePath(GXT_PATHFIND);	// web port: GXTIME (tickTiming)
+	gxCount(GXC_PATH_FINDS);
 	//CRCDEBUG_LOG(("Pathfinder::findGroundPath()"));
 #ifdef DEBUG_LOGGING
 	Int startTimeMS = ::GetTickCount();
@@ -9130,6 +9285,8 @@ Int Pathfinder::checkPathCost(Object *obj, const LocomotorSet& locomotorSet, con
 Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
 																	Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies)
 {
+	GxTimeScope gxTimePath(GXT_PATHFIND);	// web port: GXTIME (tickTiming)
+	gxCount(GXC_PATH_FINDS);
 	//CRCDEBUG_LOG(("Pathfinder::findClosestPath()"));
 #ifdef DEBUG_LOGGING
 	Int startTimeMS = ::GetTickCount();
@@ -10768,6 +10925,8 @@ if (g_UT_startTiming) return false;
 Path *Pathfinder::getMoveAwayFromPath(Object* obj, Object *otherObj,
 											Path *pathToAvoid, Object *otherObj2, Path *pathToAvoid2)
 {
+	GxTimeScope gxTimePath(GXT_PATHFIND);	// web port: GXTIME (tickTiming)
+	gxCount(GXC_PATH_FINDS);
 	if (!m_isMapReady)
 		return nullptr; // Should always be ok.
 
@@ -10961,6 +11120,8 @@ Path *Pathfinder::getMoveAwayFromPath(Object* obj, Object *otherObj,
 Path *Pathfinder::patchPath( const Object *obj, const LocomotorSet& locomotorSet,
 		Path *originalPath, Bool blocked )
 {
+	GxTimeScope gxTimePath(GXT_PATHFIND);	// web port: GXTIME (tickTiming)
+	gxCount(GXC_PATH_FINDS);
 	//CRCDEBUG_LOG(("Pathfinder::patchPath()"));
 #ifdef DEBUG_LOGGING
 	Int startTimeMS = ::GetTickCount();

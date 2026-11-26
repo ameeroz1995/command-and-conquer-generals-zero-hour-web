@@ -60,7 +60,7 @@ static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 13421
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // Fourth switch word (round 5: units as pure data). Bits by owner: collide 0-5, ai 6-11, query 12-17,
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
-static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 4096 | 8192 | 16384 | 32768;	// default-on bits of every lane (collideSimd, dataBehaviors, rowKernels, simdSearch, fogStamps, fogKeep)
+static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 4096 | 8192 | 16384 | 32768 | 262144;	// default-on bits of every lane (collideSimd, dataBehaviors, rowKernels, simdSearch, fogStamps, fogKeep, cpopSimd)
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -480,6 +480,7 @@ void GLES3_Begin_Scene() {
                  | (o.simdSearch === false ? 0 : 8192)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.fogStamps === false ? 0 : 16384)   // bit 14: sight circles from precomputed stamps, 8 cells at a time with wasm SIMD over dense shroud counters (PartitionManager.cpp; same game)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.fogKeep === false ? 0 : 32768)   // bit 15: a unit that moves within the same cells keeps fog statuses decided by the cells alone (PartitionManager.cpp; same game)
+                 | (o.cpopSimd === false ? 0 : 262144) // bit 18: with cpopSegments, the closest route segment found 8 segments per loop with wasm SIMD (AIPathfind.cpp; same game)
                  | (o.tickTiming === true ? 65536 : 0)   // bit 16 (measuring only, off): per-tick logic / system ms, work counters, frame p99 as GXTIME lines (Common/GxTime.h)
                  | (o.physSimd === true ? 1 : 0)   // bit 0: with physBulk, physics integration for all due units in one SIMD pass over the store columns (PhysicsUpdate.cpp; rides on match rule physBulk)
                  | (o.collideSimd === false ? 0 : 2);   // bit 1: with storePairs, the broad phase's distance cut 4 units per instruction over per-cell blocks (PartitionManager.cpp; same pairs as storePairs)

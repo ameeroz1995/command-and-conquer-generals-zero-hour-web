@@ -4079,3 +4079,24 @@ migration / ai-30 after):
 - run 2: logic 0.525 / 0.516 ms/tick; aiLoop 0.079 / 0.078; aiKernels 0.011 / 0.010
 - work counters identical: 33.7 module calls/tick; frames 9598, p99 17.5 / 17.4 ms, 5 frames over 100 ms
 Level (this recording is a light game: 0.5 ms of logic per tick).
+
+## 2026-11-26 — paths: route following with SIMD (cpopSimd), cell-types counter, pathfind/loco timing
+- Kept: c8dfa88, range kernels moved onto ai's per-kind hook (GameLogic::gxRegisterKindKernel, keyed by
+  module name, joined on first update). Store bits 20-27 and the per-unit join lists are gone. Replays:
+  referee with verify (90,584 checks, 0 mismatches), paths-r5c.rep, ai-up5.rep, paths-r5j.rep, and the
+  new paths-long-up.rep (27,000 frames, updatePasses + moveAfterTick) all match.
+- Kept: cpopSimd (fourth word bit 18, on; only acts with cpopSegments, third word bit 0, still off).
+  Path::computePointOnPath keeps the flat segments as columns (start, direction, length, prefix sum
+  in walk order) and finds the closest segment 8 at a time (two independent 4-lane chains, wasm SIMD,
+  separate mul/add, no FMA, ties to the lowest index). The last segment and the winner's point stay
+  scalar. Same floats as the scalar walk: battle benchmark in verify mode, 820,000 calls compared
+  (48.2 M segments), 0 mismatches.
+- Kept: Pathfinder::gxCellTypeVersion() (global gxPathCellTypesGen), goes up on every PathfindCell
+  type change (cell reset/setType/setTypeAsObstacle/removeObstacle/clearObstruction, layer
+  reset/allocate/destroy, pathfinder reset/newMap). For ai's caches.
+- Measuring: GxTime pathfind and loco timers, counters pathFinds, pathCells, locoCalls, cpopCalls,
+  cpopSimdSegs.
+- Battle benchmark (tickTiming, lane 3, load < 8): the scripted battle diverges between builds
+  (r5k/r5l run ~780 movers/tick vs ~700 for r5before2/paths-iso), so only same-counter pairs compare.
+  cpopSimd on vs off with identical counters (simd1 vs segs2): logic 18.35 vs 21.28 ms/tick, pathfind
+  2.93 vs 3.23, loco 0.73 vs 0.84; p99 160.5 vs 118.0 ms, frames over 100 ms 99 vs 69 (load ~5, noisy).
