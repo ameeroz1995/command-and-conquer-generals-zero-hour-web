@@ -35,12 +35,14 @@
 #include "GameClient/InGameUI.h"
 #include "GameClient/ParticleSys.h"
 #include "GameLogic/GameLogic.h"
+#include "Common/GxTime.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/TerrainLogic.h"
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/HeightDieUpdate.h"
 #include "GameLogic/Module/PhysicsUpdate.h"
+#include <cstring>
 
 
 
@@ -89,6 +91,12 @@ void HeightDieUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 HeightDieUpdate::HeightDieUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	static Bool gxRegistered = FALSE;
+	if (!gxRegistered)
+	{
+		gxRegistered = TRUE;
+		GameLogic::gxRegisterKindKernel(NAMEKEY("HeightDieUpdate"), gxKernel, gxApply);
+	}
 
 	D().m_hasDied = FALSE;
 	D().m_particlesDestroyed = FALSE;
@@ -110,6 +118,81 @@ HeightDieUpdate::~HeightDieUpdate()
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 UpdateSleepTime HeightDieUpdate::update()
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if (D().gxKernelFrame == now && now != 0)
+		return UPDATE_SLEEP_NONE;	// this frame's turn was taken by the kind kernel + apply
+	return gxFullUpdate();
+}
+
+//-------------------------------------------------------------------------------------------------
+// the update's frames that change nothing but this row (same tests, same order); FALSE: run the full one
+Bool HeightDieUpdate::gxQuiet( UnsignedInt now )
+{
+	Row &r = D();
+	const HeightDieUpdateModuleData *modData = getHeightDieUpdateModuleData();
+	if( r.m_earliestDeathFrame == UINT_MAX )
+		r.m_earliestDeathFrame = now + modData->m_initialDelay;	// the full update would do the same first
+	if( r.m_earliestDeathFrame > now )
+		return TRUE;
+	const Coord3D *pos = getObject()->getPosition();
+	if( getObject()->getContainedBy() != nullptr )
+	{
+		r.m_lastPosition = *pos;
+		return TRUE;
+	}
+	if( modData->m_targetHeightIncludesStructures )
+		return FALSE;	// searches the partition for structures under us: left to apply
+	Bool directionOK = TRUE;
+	if( r.m_hasDied == FALSE )
+	{
+		if( modData->m_onlyWhenMovingDown && pos->z >= r.m_lastPosition.z )
+			directionOK = FALSE;
+		const Real terrainHeightAtPos = TheTerrainLogic->getGroundHeight( pos->x, pos->y );
+		if( pos->z < terrainHeightAtPos + modData->m_targetHeightAboveTerrain && directionOK )
+			return FALSE;	// dies
+	}
+	if( r.m_particlesDestroyed == FALSE && pos->z < modData->m_destroyAttachedParticlesAtHeight && (r.m_hasDied || directionOK) )
+		return FALSE;	// destroys its particles
+	r.m_lastPosition = *pos;
+	return TRUE;
+}
+
+void HeightDieUpdate::gxKernel( UpdateModulePtr *mods, Int begin, Int end )
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	for (Int k = begin; k < end; ++k)
+	{
+		HeightDieUpdate *m = static_cast<HeightDieUpdate *>(mods[k]);
+		Row &r = m->D();
+		r.gxKernelFrame = now;
+		r.gxPrevLast = r.m_lastPosition;
+		r.gxPos = *m->getObject()->getPosition();
+		r.gxContained = m->getObject()->getContainedBy() != nullptr;
+		r.gxFull = !m->gxQuiet(now);
+	}
+}
+
+void HeightDieUpdate::gxApply( UpdateModulePtr *mods, Int count )
+{
+	for (Int k = 0; k < count; ++k)
+	{
+		HeightDieUpdate *m = static_cast<HeightDieUpdate *>(mods[k]);
+		Row &r = m->D();
+		if (!r.gxFull)
+		{	// still what the kernel saw? (an earlier unit's death can move or release this one)
+			const Coord3D *pos = m->getObject()->getPosition();
+			if (memcmp(pos, &r.gxPos, sizeof(Coord3D)) == 0 && (m->getObject()->getContainedBy() != nullptr) == r.gxContained)
+				continue;
+			r.m_lastPosition = r.gxPrevLast;	// redo this frame as the full update would have
+			gxCount(GXC_HEIGHTDIE_REDONE);
+		}
+		m->gxFullUpdate();
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+UpdateSleepTime HeightDieUpdate::gxFullUpdate()
 {
 	UnsignedInt now = TheGameLogic->getFrame();
 	if( D().m_earliestDeathFrame == UINT_MAX )

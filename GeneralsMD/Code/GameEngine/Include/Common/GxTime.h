@@ -35,7 +35,7 @@ enum GxCountId
 	// damage-table and bonus-table hits and misses; weapon rows visited / changed by the reload kernel
 	GXC_SPLASHES, GXC_SPLASH_VICTIMS, GXC_SPLASH_SCANNED, GXC_SPLASH_NEAR,
 	GXC_ESTIMATES, GXC_TABLE_HITS, GXC_TABLE_MISSES, GXC_BONUS_HITS, GXC_BONUS_MISSES,
-	GXC_RELOAD_ROWS, GXC_RELOAD_CHANGED,
+	GXC_RELOAD_ROWS, GXC_RELOAD_CHANGED, GXC_HEIGHTDIE_REDONE,
 	GXC_COUNT
 };
 
@@ -88,7 +88,7 @@ inline void gxTimeTickEnd()
 		"moveUnits", "moveKernelPoints", "moveKernelTaken", "moveApplyPoints", "hordeSearches",
 		"aiModuleCalls", "aiKernelSlots",
 		"splashes", "splashVictims", "splashScanned", "splashNear",
-		"estimates", "tableHits", "tableMisses", "bonusHits", "bonusMisses", "reloadRows", "reloadChanged" };
+		"estimates", "tableHits", "tableMisses", "bonusHits", "bonusMisses", "reloadRows", "reloadChanged", "heightDieRedone" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())

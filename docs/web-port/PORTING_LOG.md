@@ -4144,6 +4144,14 @@ kernel can later run over workers / SIMD).
   every-frame module whether it fires (its own weapon status, object status and last shot frame; writes
   only its row), apply fires in object-ID order, update() then skips that frame. Verify mode re-decides
   in apply and counts differences ("GXVERIFY kindKernels fireWeapon").
+- HeightDieUpdate on the same hook: the kernel does each module's quiet frame (not due, contained, or
+  above its death height; writes only its row: earliest death frame, last position) and leaves dying,
+  particle clean-up and structure-height units to apply, which runs the full update in object-ID
+  order. A quiet unit whose position or container changed before its turn (an earlier death) gets its
+  last position back and the full update ("heightDieRedone" counter), so the result is the plain loop's.
+  Checks (combat-r5k): referee (verify 90584, 0), ai-up5 (verify 27162, 0) and mt replays match;
+  battle: heightDieRedone 0 per tick, kind kernels 0.44 ms/tick in all. FireWeapon's kernel in the
+  battle with verify (r5j): 168000 decisions checked, 0 mismatches.
 - GxTime ids: splash, estimate, reload (ms/tick); splashes, splashVictims, splashScanned, splashNear,
   estimates, table/bonus hits and misses, reloadRows/reloadChanged.
 - Checks (combat-r5j, all four switches on): referee replay matches (verify 90584 checks, 0
