@@ -30,6 +30,7 @@ enum GxMatchRule
 	GXRULE_WEAPON_PASS    = 16384,	///< weaponPass: armed objects' weapon status kept by one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
 	GXRULE_UPDATE_PASSES  = 131072,	///< updatePasses: every-frame update modules run as flat passes per phase, by behaviour then object ID (GameLogic.cpp)
 	GXRULE_DAMAGE_QUEUE   = 524288,	///< damageQueue: weapon damage queued during the tick and applied in one pass in victim-ID order (Weapon.cpp)
+	GXRULE_LOCO_SIMD      = 134217728,	///< locoSimd: locomotor headings by a fixed polynomial atan2, 4 movers per wasm SIMD op in the movement pass (Locomotor.cpp, GxLocoAngle.h)
 };
 
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for
