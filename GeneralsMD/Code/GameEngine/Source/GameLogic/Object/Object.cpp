@@ -1839,7 +1839,10 @@ void Object::reactToTurretChange( WhichTurretType turret, Real oldRotation, Real
 void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPos, Real oldAngle)
 {
 	//USE_PERF_TIMER(Object_reactToTransformChange)
-	if(_isnan(getPosition()->x) || _isnan(getPosition()->y) || _isnan(getPosition()->z)) {
+	// web port (round 5): one position read for the checks below (with the position in the store
+	// each getPosition() copies the store's x/y/z into the row); nothing before makeDirty moves us
+	const Coord3D *gxPosNow = getPosition();
+	if(_isnan(gxPosNow->x) || _isnan(gxPosNow->y) || _isnan(gxPosNow->z)) {
 		DEBUG_CRASH(("Object pos is nan."));
 		TheGameLogic->destroyObject(this);
 	}
@@ -1849,13 +1852,13 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
 	}
 
 	if (!gxPosInStore())
-		TheGxUnitStore.setPos(this, *getPosition());	// web port (round 4): write-through without positionInStore
+		TheGxUnitStore.setPos(this, *gxPosNow);	// web port (round 4): write-through without positionInStore
 
 	// web port (switch searchCache): range searches keep a copy of where we are
 	if (m_gxObj->m_partitionData)
 		m_gxObj->m_partitionData->gxRefreshPlace();
 
-	Bool posDiff = isPosDifferent(oldPos, getPosition());
+	Bool posDiff = isPosDifferent(oldPos, gxPosNow);
 	Bool angDiff = isAngleDifferent(oldAngle, getOrientation());
 
 	if (posDiff || angDiff)
