@@ -3625,6 +3625,7 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 
 void PartitionManager::update()
 {
+	GxTimeScope gxTU(GXT_PART_UPDATE);	// tickTiming
 	//USE_PERF_TIMER(PartitionManager_update)
 #ifdef __EMSCRIPTEN__
 	// Timing mode (hidden setting gxPairTiming, normal build): frames picked by a fixed hash of the
@@ -3705,7 +3706,7 @@ void PartitionManager::update()
 
 			if (updateEm)
 			{
-				dirty->friend_updateCellsTouched();
+				{ GxTimeScope gxT(GXT_CELLS); gxCount(GXC_CELL_UPDATES); dirty->friend_updateCellsTouched(); }
 			}
 
 			if (collideEm && !dirty->getObject()->isKindOf(KINDOF_IMMOBILE))
@@ -3717,7 +3718,7 @@ void PartitionManager::update()
 				else if (gxStorePairs)
 					s_gxSeekers.push_back(dirty);	// storePairs: offered below, from the unit store
 				else
-					dirty->addPossibleCollisions(&ctList);
+					{ GxTimeScope gxT(GXT_PAIRS); dirty->addPossibleCollisions(&ctList); }
 			}
 		}
 
