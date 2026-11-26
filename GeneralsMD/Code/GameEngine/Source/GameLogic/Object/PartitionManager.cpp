@@ -5436,7 +5436,7 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 	const Coord3D *objPos = obj->getPosition();
 	const Real px = objPos->x, py = objPos->y;
 	const Real myR = max(obj->getBoundingCircleRadius(), obj->getGeometryInfo().getBoundingSphereRadius());
-	const Real lim0 = maxDist + myR + 1.0f;	// as the search cache: 2D centre distance minus both radii, a unit of slack
+	const Real lim0 = sqrtf(maxDist * maxDist) + myR + 1.0f;	// the walk's first gxLimit: 2D centre distance minus both radii, a unit of slack
 
 	// the cull. Once per batch (nothing moves within one) and enemy mask: the store's enemies
 	// (player bit in the mask; none = bit MAX_PLAYER_COUNT) with a place (placeR < 1e5), by place x.
@@ -5555,7 +5555,8 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 	bestVec.x = bestVec.y = bestVec.z = maxDist;	// as the walk's unset vector
 	for (size_t i = 0; i < s_gxBatchSurv.size(); ++i)
 	{
-		Object *t = S.obj[s_gxBatchSurv[i]];
+		const Int sl0 = s_gxBatchSurv[i];
+		Object *t = S.obj[sl0];
 		if (!t || t == obj)
 			continue;
 		PartitionData *pd = t->friend_getPartitionData();
@@ -5591,6 +5592,14 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 		const Int ring = s_gxRingOfWalk[w];
 		if (ring > bestRing)
 			continue;	// the walk stops before its ring
+		if (snap && (gxFlags & GX_GCO_CACHE) && maxDist < HUGE_DIST)
+		{
+			// the tick lists' walk culls by the store's x, y and the snapshot radius (not the place):
+			// what it turns away at its first limit it never sees
+			const Real dx = S.x[sl0] - px, dy = S.y[sl0] - py, lim = lim0 + s_gxSnapR[sl0];
+			if (dx * dx + dy * dy > lim * lim)
+				continue;
+		}
 		Real d;
 		Coord3D v;
 		if (!(*distProc)(objPos, obj, t->getPosition(), t, d, v, maxDistSqr))
@@ -5634,6 +5643,13 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 			++s_gxBatchBad;
 			printf("GXVERIFY batchScan mismatch: seeker %u got %u, old search %u (survivors %d, lists %d)\n", obj->getID(),
 				best ? best->getID() : 0, ref ? ref->getID() : 0, (Int)s_gxBatchSurv.size(), (Int)snap);
+			const Int bs = best ? best->gxStoreSlot() : -1;
+			if (bs >= 0)
+				printf("GXVERIFY batchScan mismatch detail: d2 %.9g max %.9g ring %d w %d; store %.9g,%.9g place %.9g,%.9g pos %.9g,%.9g; snapR %.9g placeR %.9g circle %.9g; box %d,%d,%d,%d\n",
+					bestD, maxDistSqr, bestRing, bestW, S.x[bs], S.y[bs], S.placeX[bs], S.placeY[bs], best->getPosition()->x, best->getPosition()->y,
+					bs < (Int)s_gxSnapR.size() ? s_gxSnapR[bs] : -1.0f, S.placeR[bs], best->getBoundingCircleRadius(),
+					4 * bs < (Int)s_gxCurBox.size() ? s_gxCurBox[4 * bs] : -9, 4 * bs < (Int)s_gxCurBox.size() ? s_gxCurBox[4 * bs + 1] : -9,
+					4 * bs < (Int)s_gxCurBox.size() ? s_gxCurBox[4 * bs + 2] : -9, 4 * bs < (Int)s_gxCurBox.size() ? s_gxCurBox[4 * bs + 3] : -9);
 		}
 		if (s_gxBatchChecked % 2000 == 0)
 			printf("GXVERIFY batchScan checked %u, mismatches %u, tie fallbacks %u\n", s_gxBatchChecked, s_gxBatchBad, s_gxBatchFallbacks);
