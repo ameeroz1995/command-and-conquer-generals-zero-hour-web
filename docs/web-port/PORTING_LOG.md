@@ -4193,3 +4193,24 @@ Timing, battle benchmark, ai-38m (same tree, skip compiled out) / ai-38, tickTim
 - 2700-tick runs: ai-38m 18.88 ms/tick logic (aiLoop 9.26) / ai-38 18.85, 19.07 (aiLoop 9.19, 9.26)
 - 3000/3300-tick runs (different work, not comparable): ai-38m 16.69, 16.52 / ai-38 14.62 (3300 ticks)
 Level within noise (the ceiling was the call's 0.4% self share).
+
+## 2026-11-26 — paths: match rule locoSimd (134217728, bit 27; Settings fifth word value 2, off)
+- Under the rule every locomotor heading atan2 (Wheels, Legs, Climb, Wings, rotateObjAroundLocoPivot,
+  maintainCurrentPositionWings) is gxLocoAtan2 (GxLocoAngle.h): Cephes atanf range reduction, only
+  + - * / and compares, so every browser gets the same floats. In the movement pass (moveAfterTick),
+  right after the route kernel, gxLocoAngleKernel computes atan2(posOnPath - pos) for every served unit,
+  4 per wasm SIMD op (gxLocoAtan2x4, same operations as the scalar form); the locomotor takes it when
+  its (dy, dx) is exactly the same, otherwise computes the scalar form. Changes the game (not libm's
+  angle), hence the rule; it travels in the replay header like ai's 24/25. Fifth word from ai's c5202bf.
+- Checks (paths-ls2): native test, max 2.8e-7 rad against libm over 20 M points. Battle in verify mode
+  with the rule on: 620,000 SIMD lanes compared with the scalar formula, 0 mismatches, max 2.72e-7 rad
+  against libm. Recording with the rule on (paths-loco.rep, 18,000 frames, header GX=8FEE6E7) replays to
+  a match with the local switch on and off. referee.rep and paths-long-up.rep match (rule off).
+- Timing, battle benchmark, tickTiming, timing.lock, load < 5 at start, alternating off/on x3. The rule
+  changes the battle: on runs 703 movers/tick and 396 loco calls/tick, off 686 / 383. Heading calls
+  587.9/tick, 295.6 taken from the SIMD pass (321.4 computed there).
+  off1 23.87 / on1 21.95 ms/tick logic (load rose to 12 and 7 during them; discard);
+  off2 18.34 / on2 18.68 logic, loco 0.748 / 0.756, pathfind 2.63 / 2.84, p99 99.8 / 97.8 ms, over 100 ms 30 / 27;
+  off3 21.18 (2700 ticks, 762 movers: a different battle) / on3 18.99, loco 0.776.
+  Per loco call: off2 1.95 us, on2 1.91, on3 1.96. Level: the heading atan2 is a small part of a loco
+  call. Left off.
