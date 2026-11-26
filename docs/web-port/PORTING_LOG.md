@@ -3942,3 +3942,21 @@ Stays default off.
 | rowKernels (q33) | 22.1 -> 22.2 | - | same work (main thread) | 126.9 -> 127.5 | 73 -> 81 |
 - fogKeep is the one clear gain; the SIMD culls halve the scalar tests but the search cost is the per-unit
   body after the cull (distProc, filters), so ms/tick barely moves; rowKernels on one thread is neutral.
+
+## SIMD step (query): simdBody (fourth word bit 30) and snapPatch (bit 31), both on, same game
+- Profile (battle, query-36): getClosestObjects 8.5% inclusive, filters only 1.2%; gxManagedSearch's own
+  3.1% was mostly gxBuildStoreSnapshot: every new object bumps the store epoch, so scanManager rebuilt its
+  per-cell lists 2.8-3.1 times a tick, 1.0-1.6 of the 2.1-3.0 ms/tick search time (GXTIME snapBuild).
+- simdBody: in the scanManager walk, the body's enemy test (player bits) and the 2D distance
+  (distCalcProc_CenterAndCenter_2D / BoundaryAndBoundary_2D: same f32 ops, sqrt, div, no FMA) for the
+  same blocks of 8 as simdSearch, in two f32x4 chains; the scalar body uses the lane's values.
+  Verify: every lane's distance and vector bit-compared with distProc: 3.6M, 0 mismatches.
+  Timing: no measurable change (search 2.18 -> 2.26, logic 16.4 -> 16.4): the body is not the cost.
+- snapPatch: after a frame's full build, a later rebuild request recomputes only slots whose id/x/y/radius
+  differ bit-wise from the base build (compared 8 per step, two i32x4 chains) or that were touched
+  (registerObject, unRegisterObject, setGeometryInfoZ), and replaces only the lists of cells such a slot
+  covered or covers (merged ascending, as the full build orders them). Partition presence and sphere radius
+  are cached per object ID (cleared by the same touches and PartitionManager::reset).
+  Verify: each snapshot compared with a fresh uncached full build, lists and radii: 6000, 0 mismatches.
+- Replays referee, query-mgr5, query-mgr6 match (query-42). Battle pair (query-42, tickTiming):
+| snapPatch off -> on | logic 18.7 -> 18.7 | search 2.99 -> 2.10 | snapshot 1.60 -> 0.58 (builds 3.1 -> 0.7 + patches 2.4) | p99 107 -> 96 ms | > 100 ms 40 -> 24 |

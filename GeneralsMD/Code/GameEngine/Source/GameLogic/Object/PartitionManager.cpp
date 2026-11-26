@@ -3476,8 +3476,11 @@ void PartitionManager::getPMStats(double& gcoTimeThisFrameTotal, double& gcoTime
 #endif
 
 //-----------------------------------------------------------------------------
+static void gxSnapReset();
+
 void PartitionManager::reset()
 {
+	gxSnapReset();	// web port (snapPatch): a new game reuses object IDs
 	g_gxCellCountsStale = false;	// web port: a new game trusts the per-cell player counts again
 #ifdef DUMP_PERF_STATS
 	s_countInClosestObjects = 0;
@@ -3800,11 +3803,14 @@ void PartitionManager::update()
 }
 
 //------------------------------------------------------------------------------
+void gxSnapTouch(const Object *o);
+
 void PartitionManager::registerObject( Object* object )
 {
 	// sanity
 	if( object == nullptr )
 		return;
+	gxSnapTouch(object);	// web port (snapPatch): its partition data / geometry may change
 
 	// if object is already part of this system get out of here
 	if( object->friend_getPartitionData() != nullptr )
@@ -3835,6 +3841,7 @@ void PartitionManager::unRegisterObject( Object* object )
 	// sanity
 	if( object == nullptr )
 		return;
+	gxSnapTouch(object);	// web port (snapPatch)
 
 	// get the partition module
 	PartitionData *mod = object->friend_getPartitionData();
@@ -4250,16 +4257,74 @@ static std::vector<Int> s_gxSnapBeg, s_gxSnapEnd;	// per cell: its list in s_gxS
 static std::vector<Int> s_gxBaseBox, s_gxBaseId;	// per slot at the base build: cell box (x0, y0, x1, y1; x0 = -1 none) and object ID
 static Int s_gxBaseN = 0, s_gxBaseLen = 0;			// slots and list entries of the base build
 static std::vector<Int> s_gxPatchedCells;			// cells whose lists the last patch replaced
+static std::vector<float> s_gxBaseX, s_gxBaseY, s_gxBaseRad;	// per slot at the base build: the store's x, y, radius
+static std::vector<char> s_gxTouched;				// per base slot: partition data or bounding sphere may have changed since
+static std::vector<Int> s_gxTouchedList;
+
+/// snapPatch: per object ID, whether it has partition data and its bounding sphere radius, as last
+/// read (0 = not known). Cleared by gxSnapTouch, the only ways either can change.
+static std::vector<signed char> s_gxIdPd;
+static std::vector<float> s_gxIdSphere;
+
+static void gxSnapReset()
+{
+	s_gxIdPd.clear();
+	s_gxIdSphere.clear();
+	s_gxBaseN = 0;
+	s_gxSnapFrame = ~0u;
+}
+
+/// snapPatch: an object's partition registration or bounding sphere changes (registerObject,
+/// unRegisterObject, Object::setGeometryInfoZ): the patch recomputes its box even if it did not move
+void gxSnapTouch(const Object *o)
+{
+	const Int id = o ? (Int)o->getID() : 0;
+	if (id > 0 && id < (Int)s_gxIdPd.size())
+		s_gxIdPd[id] = 0;
+	const Int s = o ? o->gxStoreSlot() : -1;
+	if (s >= 0 && s < s_gxBaseN && !s_gxTouched[s])
+	{
+		s_gxTouched[s] = 1;
+		s_gxTouchedList.push_back(s);
+	}
+}
+
 
 /// one slot's cell box and snapshot radius, as the full build has always computed them
-static inline void gxSnapBox(const GxUnitStore &S, Int s, Int cellCountX, Int cellCountY, Int *box)
+/// (cached: read the partition data and sphere through the per-ID cache)
+static inline void gxSnapBox(const GxUnitStore &S, Int s, Int cellCountX, Int cellCountY, Int *box, Bool cached = FALSE)
 {
 	Object *o = S.obj[s];
 	box[0] = -1;
-	if (!o || !o->friend_getPartitionData())
+	if (!o)
 		return;
+	Real sphere;
+	const Int id = S.id[s];
+	if (cached && id < (Int)s_gxIdPd.size() && s_gxIdPd[id])
+	{
+		if (s_gxIdPd[id] < 0)
+			return;
+		sphere = s_gxIdSphere[id];
+	}
+	else
+	{
+		const Bool pd = o->friend_getPartitionData() != nullptr;
+		sphere = o->getGeometryInfo().getBoundingSphereRadius();
+		if (cached)
+		{
+			if (id >= (Int)s_gxIdPd.size())
+			{
+				s_gxIdPd.resize(max<size_t>(id + 1, s_gxIdPd.size() * 2), 0);
+				s_gxIdSphere.resize(s_gxIdPd.size(), 0.0f);
+			}
+			s_gxIdPd[id] = pd ? 1 : -1;
+			s_gxIdSphere[id] = sphere;
+		}
+		if (!pd)
+			return;
+	}
 	const Real r = S.radius[s];
-	s_gxSnapR[s] = max(r, o->getGeometryInfo().getBoundingSphereRadius());	// tall units: the sphere is up to ~3x the circle
+	s_gxSnapR[s] = max(r, sphere);	// tall units: the sphere is up to ~3x the circle
 	Int x0, y0, x1, y1;
 	ThePartitionManager->worldToCell(S.x[s] - r, S.y[s] - r, &x0, &y0);
 	ThePartitionManager->worldToCell(S.x[s] + r, S.y[s] + r, &x1, &y1);
@@ -4286,7 +4351,7 @@ static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
 	for (Int s = 0; s < n; ++s)
 	{
 		s_gxBaseId[s] = S.id[s];
-		gxSnapBox(S, s, cellCountX, cellCountY, &box[4 * s]);
+		gxSnapBox(S, s, cellCountX, cellCountY, &box[4 * s], (GLES3_Page_Switches4() & 0x80000000u) != 0);
 		if (box[4 * s] < 0)
 			continue;
 		for (Int y = box[4 * s + 1]; y <= box[4 * s + 3]; ++y)
@@ -4308,6 +4373,11 @@ static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
 	}
 	s_gxSnapBeg.assign(s_gxSnapStart.begin(), s_gxSnapStart.end() - 1);
 	s_gxSnapEnd.assign(s_gxSnapStart.begin() + 1, s_gxSnapStart.end());
+	s_gxBaseX.assign(S.x.begin(), S.x.begin() + n);
+	s_gxBaseY.assign(S.y.begin(), S.y.begin() + n);
+	s_gxBaseRad.assign(S.radius.begin(), S.radius.begin() + n);
+	s_gxTouched.assign(n, 0);
+	s_gxTouchedList.clear();
 	s_gxBaseN = n;
 	s_gxBaseLen = (Int)s_gxSnapSlots.size();
 	s_gxPatchedCells.clear();
@@ -4321,7 +4391,7 @@ static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
 /// the cell's slots in ascending order. Returns FALSE when a full build is needed instead.
 static Bool gxPatchStoreSnapshot(Int cellCountX, Int cellCountY)
 {
-	GxTimeScope gxT(GXT_SNAP);	// tickTiming
+	GxTimeScope gxT(GXT_PATCH);	// tickTiming
 	GxUnitStore &S = TheGxUnitStore;
 	const Int n = S.size();
 	if (n < s_gxBaseN)
@@ -4333,23 +4403,47 @@ static Bool gxPatchStoreSnapshot(Int cellCountX, Int cellCountY)
 	cur.resize(4 * n);
 	changed.clear();
 	const Int limit = n / 8 + 64;	// ponytail: past this many changed slots the full build is cheaper
-	for (Int s = 0; s < n; ++s)
+	// a base slot whose id, x, y and radius are bit-equal to the base build's and that nobody touched
+	// (registration, sphere) has the same box and radius: only the others are recomputed. The compare
+	// runs 8 slots per step in two independent chains (LOGIC_AGENTS "SIMD step").
+	for (Int s0 = 0; s0 < n; s0 += 8)
 	{
-		Int *c = &cur[4 * s];
-		gxSnapBox(S, s, cellCountX, cellCountY, c);
-		if (s < s_gxBaseN)
+		UnsignedInt diff = 0xffu;	// lane i: slot s0 + i needs its box recomputed
+#ifdef __wasm_simd128__
+		if (s0 + 8 <= s_gxBaseN)
 		{
-			if (S.id[s] != s_gxBaseId[s] && S.id[s] != 0)
-				return FALSE;	// a slot holds another object (cannot happen within a frame; be safe)
-			const Int *b = &s_gxBaseBox[4 * s];
-			if (c[0] == b[0] && (c[0] < 0 || (c[1] == b[1] && c[2] == b[2] && c[3] == b[3])))
-				continue;
+			#define GX_SAME4(b) ([&]() -> UnsignedInt { \
+				const v128_t ex = wasm_i32x4_eq(wasm_v128_load(&S.x[s0 + b]), wasm_v128_load(&s_gxBaseX[s0 + b])); /* bit-equal, NaN too */ \
+				const v128_t ey = wasm_i32x4_eq(wasm_v128_load(&S.y[s0 + b]), wasm_v128_load(&s_gxBaseY[s0 + b])); \
+				const v128_t er = wasm_i32x4_eq(wasm_v128_load(&S.radius[s0 + b]), wasm_v128_load(&s_gxBaseRad[s0 + b])); \
+				const v128_t ei = wasm_i32x4_eq(wasm_v128_load(&S.id[s0 + b]), wasm_v128_load(&s_gxBaseId[s0 + b])); \
+				return (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_v128_and(wasm_v128_and(ex, ey), wasm_v128_and(er, ei)))); }())
+			const UnsignedInt a = GX_SAME4(0), b = GX_SAME4(4);
+			#undef GX_SAME4
+			diff = a | (b << 4);
 		}
-		else if (c[0] < 0)
-			continue;
-		changed.push_back(s);
-		if ((Int)changed.size() > limit)
-			return FALSE;
+#endif
+		const Int sEnd = min(s0 + 8, n);
+		for (Int s = s0; s < sEnd; ++s)
+		{
+			if (s < s_gxBaseN && !((diff >> (s - s0)) & 1) && !s_gxTouched[s])
+				continue;	// unchanged: box and radius as at the base build
+			Int *c = &cur[4 * s];
+			gxSnapBox(S, s, cellCountX, cellCountY, c, TRUE);
+			if (s < s_gxBaseN)
+			{
+				if (S.id[s] != s_gxBaseId[s] && S.id[s] != 0)
+					return FALSE;	// a slot holds another object (cannot happen within a frame; be safe)
+				const Int *b = &s_gxBaseBox[4 * s];
+				if (c[0] == b[0] && (c[0] < 0 || (c[1] == b[1] && c[2] == b[2] && c[3] == b[3])))
+					continue;
+			}
+			else if (c[0] < 0)
+				continue;
+			changed.push_back(s);
+			if ((Int)changed.size() > limit)
+				return FALSE;
+		}
 	}
 	gxCount(GXC_SNAP_PATCHES);
 	// back to the base lists
@@ -4424,9 +4518,12 @@ static void gxCheckStoreSnapshot(Int cellCountX, Int cellCountY)
 	const GxUnitStore &S = TheGxUnitStore;
 	const Int n = S.size(), cells = cellCountX * cellCountY;
 	std::vector<Int> start(cells + 1, 0), box(4 * n), slots;
+	const std::vector<Real> inUseR = s_gxSnapR;	// the radii in use (gxSnapBox rewrites them uncached)
 	for (Int s = 0; s < n; ++s)
 	{
 		gxSnapBox(S, s, cellCountX, cellCountY, &box[4 * s]);
+		if (box[4 * s] >= 0 && memcmp(&s_gxSnapR[s], &inUseR[s], sizeof(Real)))
+			printf("GXVERIFY snapPatch mismatch: slot %d radius %.9g, uncached %.9g\n", s, inUseR[s], s_gxSnapR[s]);
 		if (box[4 * s] >= 0)
 			for (Int y = box[4 * s + 1]; y <= box[4 * s + 3]; ++y)
 				for (Int x = box[4 * s]; x <= box[4 * s + 2]; ++x)
@@ -4453,6 +4550,7 @@ static void gxCheckStoreSnapshot(Int cellCountX, Int cellCountY)
 			break;
 		}
 	}
+	s_gxSnapR = inUseR;
 	if (s_checked % 500 == 0)
 		printf("GXVERIFY snapPatch snapshots checked %u, mismatches %u\n", s_checked, s_bad);
 }
