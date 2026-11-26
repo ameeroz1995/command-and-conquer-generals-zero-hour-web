@@ -4176,3 +4176,15 @@ benchmark ran two ways (2700 ticks at ~3570 module calls/tick, or 3000 ticks at 
   (r5k/r5l run ~780 movers/tick vs ~700 for r5before2/paths-iso), so only same-counter pairs compare.
   cpopSimd on vs off with identical counters (simd1 vs segs2): logic 18.35 vs 21.28 ms/tick, pathfind
   2.93 vs 3.23, loco 0.73 vs 0.84; p99 160.5 vs 118.0 ms, frames over 100 ms 99 vs 69 (load ~5, noisy).
+
+### ai: same-cell locomotor skip (switch dataBehaviors; same game; uses paths' Pathfinder::gxCellTypeVersion, b4f1531)
+- chooseGoodLocomotorFromCurrentSet asked Pathfinder::chooseBestLocomotorForPosition every tick for every
+  moving unit (one pathfind-cell read + findLocomotor). The AI row keeps the last answer with its key
+  (cell x/y, layer, cell-type version); same key -> same answer. Invalidated wherever the locomotor set
+  is rebuilt (4 clears + load).
+Checks (ai-38): verify mode calls the pathfinder on every cache hit and compares: 46.7M checks,
+0 mismatches; referee.rep, ai-ck.rep, ai-kon.rep, ai-koff.rep match.
+Timing, battle benchmark, ai-38m (same tree, skip compiled out) / ai-38, tickTiming, timing.lock, load 3-5:
+- 2700-tick runs: ai-38m 18.88 ms/tick logic (aiLoop 9.26) / ai-38 18.85, 19.07 (aiLoop 9.19, 9.26)
+- 3000/3300-tick runs (different work, not comparable): ai-38m 16.69, 16.52 / ai-38 14.62 (3300 ticks)
+Level within noise (the ceiling was the call's 0.4% self share).

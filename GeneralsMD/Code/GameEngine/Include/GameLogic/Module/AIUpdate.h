@@ -829,6 +829,12 @@ struct GxAIUpdateInterfaceRow
 	Bool isInUpdate;
 	Bool gxMoveOn = FALSE;
 	Bool fixLocoInPostProcess;
+	// web port (dataBehaviors): last chooseBestLocomotorForPosition answer and its key (cell, layer,
+	// pathfinder cell-type version); invalid whenever the locomotor set is rebuilt
+	Bool gxLocoValid = false;
+	UnsignedInt gxLocoVer = 0;
+	Int gxLocoLayer = 0, gxLocoX = 0, gxLocoY = 0;
+	Locomotor *gxLocoResult = nullptr;
 };
 
 

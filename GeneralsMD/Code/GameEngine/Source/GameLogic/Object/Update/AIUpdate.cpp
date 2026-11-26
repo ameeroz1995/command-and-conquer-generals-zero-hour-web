@@ -252,7 +252,7 @@ AIUpdateInterface::AIUpdateInterface( Thing *thing, const ModuleData* moduleData
 	GXROW_AIUPDATEINTERFACE.nextGoalPathIndex = -1;
 	GXROW_AIUPDATEINTERFACE.moveOutOfWay1 = INVALID_ID;
 	GXROW_AIUPDATEINTERFACE.moveOutOfWay2 = INVALID_ID;
-	GXROW_AIUPDATEINTERFACE.locomotorSet.clear();
+	GXROW_AIUPDATEINTERFACE.locomotorSet.clear(); GXROW_AIUPDATEINTERFACE.gxLocoValid = false;
 	GXROW_AIUPDATEINTERFACE.curLocomotor = nullptr;
 	GXROW_AIUPDATEINTERFACE.curLocomotorSet = LOCOMOTORSET_INVALID;
 	GXROW_AIUPDATEINTERFACE.locomotorGoalType = NONE;
@@ -686,7 +686,7 @@ void AIUpdateInterface::onObjectCreated()
 //-------------------------------------------------------------------------------------------------
 AIUpdateInterface::~AIUpdateInterface()
 {
-	GXROW_AIUPDATEINTERFACE.locomotorSet.clear();
+	GXROW_AIUPDATEINTERFACE.locomotorSet.clear(); GXROW_AIUPDATEINTERFACE.gxLocoValid = false;
 	GXROW_AIUPDATEINTERFACE.curLocomotor = nullptr;
 
 	if( GXROW_AIUPDATEINTERFACE.stateMachine ) {
@@ -885,7 +885,7 @@ Bool AIUpdateInterface::chooseLocomotorSetExplicit(LocomotorSetType wst)
 	const LocomotorTemplateVector* set = getAIUpdateModuleData()->findLocomotorTemplateVector(wst);
 	if (set)
 	{
-		GXROW_AIUPDATEINTERFACE.locomotorSet.clear();
+		GXROW_AIUPDATEINTERFACE.locomotorSet.clear(); GXROW_AIUPDATEINTERFACE.gxLocoValid = false;
 		GXROW_AIUPDATEINTERFACE.curLocomotor = nullptr;
 		for (size_t i = 0; i < set->size(); ++i)
 		{
@@ -900,11 +900,44 @@ Bool AIUpdateInterface::chooseLocomotorSetExplicit(LocomotorSetType wst)
 }
 
 //-------------------------------------------------------------------------------------------------
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches4();
 void AIUpdateInterface::chooseGoodLocomotorFromCurrentSet()
 {
 	Locomotor* prevLoco = GXROW_AIUPDATEINTERFACE.curLocomotor;
 
-	Locomotor* newLoco = TheAI->pathfinder()->chooseBestLocomotorForPosition(getObject()->getLayer(), &GXROW_AIUPDATEINTERFACE.locomotorSet, getObject()->getPosition());
+	Locomotor* newLoco;
+	if (GLES3_Page_Switches4() & 64)	// dataBehaviors: same cell, same cell types, same set -> same answer
+	{
+		GxAIUpdateInterfaceRow &r = GXROW_AIUPDATEINTERFACE;
+		const Coord3D *pos = getObject()->getPosition();
+		const Int layer = (Int)getObject()->getLayer();
+		const Int x = REAL_TO_INT_FLOOR(pos->x/PATHFIND_CELL_SIZE);
+		const Int y = REAL_TO_INT_FLOOR(pos->y/PATHFIND_CELL_SIZE);
+		const UnsignedInt ver = Pathfinder::gxCellTypeVersion();
+		if (r.gxLocoValid && r.gxLocoVer == ver && r.gxLocoLayer == layer && r.gxLocoX == x && r.gxLocoY == y)
+		{
+			newLoco = r.gxLocoResult;
+			if (GLES3_Page_Switches() & 2097152)	// verify mode
+			{
+				extern int gx_verify_mismatch, gx_verify_checked;
+				Locomotor *real = TheAI->pathfinder()->chooseBestLocomotorForPosition(getObject()->getLayer(), &r.locomotorSet, pos);
+				++gx_verify_checked;
+				static int n = 0;
+				if (real != newLoco) ++gx_verify_mismatch;
+				if (real != newLoco || (++n % 100000) == 0)
+					printf("GXVERIFY loco cache: %s, checked %d, mismatches %d\n", real == newLoco ? "ok" : "MISMATCH", gx_verify_checked, gx_verify_mismatch);
+			}
+		}
+		else
+		{
+			newLoco = TheAI->pathfinder()->chooseBestLocomotorForPosition(getObject()->getLayer(), &r.locomotorSet, pos);
+			r.gxLocoValid = true; r.gxLocoVer = ver; r.gxLocoLayer = layer; r.gxLocoX = x; r.gxLocoY = y;
+			r.gxLocoResult = newLoco;
+		}
+	}
+	else
+		newLoco = TheAI->pathfinder()->chooseBestLocomotorForPosition(getObject()->getLayer(), &GXROW_AIUPDATEINTERFACE.locomotorSet, getObject()->getPosition());
 
 	if (newLoco == nullptr)
 	{
@@ -5471,10 +5504,10 @@ void AIUpdateInterface::xfer( Xfer *xfer )
 			// to simply clear out whatever we have here and allow
 			// xferSelfAndCurLocoPtr() to continue to require a pristine,
 			// empty set. (srj)
-			GXROW_AIUPDATEINTERFACE.locomotorSet.clear();
+			GXROW_AIUPDATEINTERFACE.locomotorSet.clear(); GXROW_AIUPDATEINTERFACE.gxLocoValid = false;
 			GXROW_AIUPDATEINTERFACE.curLocomotor = nullptr;
 		}
-		GXROW_AIUPDATEINTERFACE.locomotorSet.xferSelfAndCurLocoPtr(xfer, &GXROW_AIUPDATEINTERFACE.curLocomotor);
+		GXROW_AIUPDATEINTERFACE.locomotorSet.xferSelfAndCurLocoPtr(xfer, &GXROW_AIUPDATEINTERFACE.curLocomotor); GXROW_AIUPDATEINTERFACE.gxLocoValid = false;
 		xfer->xferUser(&GXROW_AIUPDATEINTERFACE.curLocomotorSet, sizeof(GXROW_AIUPDATEINTERFACE.curLocomotorSet));
 	}
 
