@@ -480,6 +480,7 @@ void GLES3_Begin_Scene() {
                  | (o.splashIlp === true ? 134217728 : 0)  // bit 27: splashIlp, with splashSimd: the splash pass does 8 slots per step as two independent chains (PartitionManager.cpp; same game)
                  | (o.dataBehaviors === false ? 0 : 64)   // bit 6: behaviours as data: lookups made per frame by name done once (Behavior/*.cpp; same game)
                  | (o.kindKernels === false ? 0 : 128)   // bit 7: kernels follow match rule updatePasses; off here turns them off in local single player only (GameLogic.cpp)
+                 | (o.hotInStore === false ? 0 : 4)   // bit 2: objects' position, status, disabled mask, layer, geometry, angle and transform live in the unit store's columns (GxUnitStore.h, Object.h, Thing.h; same game)
                  | (o.rowKernels === false ? 0 : 4096)   // bit 12: scan countdowns of EnemyNear/AutoFindHealing/PointDefenseLaser run as one kernel per table (GxComponentTable.h; same game)
                  | (o.simdSearch === false ? 0 : 8192)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.fogStamps === false ? 0 : 16384)   // bit 14: sight circles from precomputed stamps, 8 cells at a time with wasm SIMD over dense shroud counters (PartitionManager.cpp; same game)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)

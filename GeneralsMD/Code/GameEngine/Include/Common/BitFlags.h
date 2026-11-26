@@ -55,6 +55,9 @@ public:
 	CPP_11(static constexpr size_t NumBits = NUMBITS);
 	static const char* const s_bitNameList[];
 
+	/// web port (round 5): the low 64 bits as one word, for the unit store's columns
+	unsigned long long gxBits() const { return NUMBITS <= 64 ? m_bits.to_ullong() : (m_bits & std::bitset<NUMBITS>(~0ull)).to_ullong(); }
+
 	/*
 		just a little syntactic sugar so that there is no "foo = 0" compatible constructor
 	*/
