@@ -2299,14 +2299,17 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 	extern bool gxMatchRule(unsigned int rule);
 	const Bool gxOffer = gxMatchRule(8192 /* GXRULE_SPATIAL_PAIRS */) && !g_gxPairOff;
 	CellAndObjectIntersection *myCoi = m_coiArray;
+	gxCount(GXC_COLLIDE_SEEKERS);	// tickTiming
 	for (Int i = m_coiInUseCount; i > 0; --i, ++myCoi)
 	{
 		PartitionCell *cell = myCoi->getCell();
+		gxCount(GXC_PAIR_CELLS);	// tickTiming
 		if (cell->getCoiCount() < 2)
 			continue;
 
 		for (CellAndObjectIntersection *coi = cell->getFirstCoiInCell(); coi; coi = coi->getNextCoi())
 		{
+			gxCount(GXC_PAIR_TESTS);	// tickTiming
 			if (gxOffer)
 			{
 				const Real dx = coi->gxX() - m_gxX, dy = coi->gxY() - m_gxY, lim = (coi->gxR() + m_gxR) * 1.4143f + 1.0f;
@@ -2321,6 +2324,7 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 				// Sorted by object ID (was by address, which can differ between machines)
 				if (g_gxDeferStamp && that->gxDeferStamp() == g_gxDeferStamp && gxBefore(that, this))
 					continue;
+				gxCount(GXC_PAIRS);	// tickTiming: pairs offered to the contact list
 				ctList->addToContactList(this, that);
 			}
 		}

@@ -3916,8 +3916,21 @@ Stays default off.
 - Replay soa-9 (verify), all match: switch off; on (default rep); on + storePairs (collide-sp.rep); on +
   physBulk + physSimd (collide-ps.rep); on + positionInStore. Rows untouched: 1,295,856 checks per run,
   0 mismatches.
-- Timing: locked tickTiming replay pairs queued (collideSimd off/on on collide-sp.rep, physSimd
-  off/on on collide-ps.rep, both orders); load stayed 25-70 (other lanes) so they had not started.
+- hotInStore also moves the position into the store (one data switch; positionInStore alone kept
+  for comparison). Light replay (collide-sp.rep, storePairs, soa-10, locked, both orders): logic
+  0.585/0.590 ms/tick off vs 0.619/0.632 on (+6%); without the position (soa-9) 0.568/0.612 vs
+  0.575/0.587 (no cost). Cause found: getTransformMatrix() rewrote the translation from x/y/z on
+  every read. Every setter writes the translation and x/y/z together and nothing else writes x/y/z,
+  so the refresh is gone (soa-12); verify mode now also checks each placed stored object's
+  translation = x/y/z. Rows cost (soa-6 vs soa-8, same replay): 0.580/0.571 vs 0.570 ms/tick (none).
+  That replay has almost no units (logic 0.6 ms/tick), so the real timing is the battle benchmark.
+- Counters: collideSeekers/pairCells/pairTests/pairs were only counted on the storePairs path (off by
+  default); now also in PartitionData::addPossibleCollisions (pairs = offers to the contact list).
+- Replay soa-12 (verify), all match: default; hotInStore; positionInStore; storePairs + hotInStore
+  (collide-sp.rep); collide-hot.rep (recorded with hotInStore + storePairs on soa-9, also replayed
+  with hotInStore off on soa-9: match). Store checks 2,591,712 (hot) / 1,295,856 (position only), 0
+  mismatches.
+- Timing: SIMD pairs (collideSimd, physSimd) wait until the data work is timed.
 
 ## Round 5 (query): scan-type modules and helpers hold their per-unit state in component tables
 - New GameLogic/GxComponentTable.h: rows in a deque (never move, never copied; RadiusDecal can't be),

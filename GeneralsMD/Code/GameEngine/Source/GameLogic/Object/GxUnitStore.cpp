@@ -201,7 +201,13 @@ void GxUnitStore::gxVerifyHot(unsigned int frame)
 	for (int s = 0; s < size(); ++s)
 	{
 		const Object *o = obj[s];
-		if (!o || !o->gxHotInStore())
+		if (!o || !o->gxPosInStore())
+			continue;
+		const Matrix3D *m = o->getTransformMatrix();	// once placed, the translation must equal the x/y/z columns
+		if (o->isPositioned() && (m->Get_X_Translation() != x[s] || m->Get_Y_Translation() != y[s] || m->Get_Z_Translation() != z[s]))
+			++badNow;
+		++checked;
+		if (!o->gxHotInStore())
 			continue;
 		if (!o->gxHotRowsMarked())
 			++badNow;
@@ -209,7 +215,7 @@ void GxUnitStore::gxVerifyHot(unsigned int frame)
 	}
 	bad += badNow;
 	if (badNow || frame % 300 == 0)
-		printf("GXVERIFY store hot fields (rows untouched while stored): checked %d, mismatches %d\n", checked, bad);
+		printf("GXVERIFY store hot fields (rows untouched while stored, translation = x/y/z): checked %d, mismatches %d\n", checked, bad);
 }
 
 const std::vector<int> &GxUnitStore::pass(int bit)

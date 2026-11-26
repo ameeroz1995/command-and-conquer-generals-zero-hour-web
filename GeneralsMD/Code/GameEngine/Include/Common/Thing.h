@@ -155,12 +155,8 @@ public:
 	void setTransformMatrix( const Matrix3D *mx );												///< set the world transformation matrix
 	const Matrix3D* getTransformMatrix() const		///< return the world transformation matrix
 	{
-		if (m_gxPosInStore)
-		{
-			// web port (positionInStore): the translation's truth is the unit store
-			const Coord3D p = gxPos();
-			gxXf().Set_Translation(Vector3(p.x, p.y, p.z));
-		}
+		// web port (round 5): every setter writes the translation and the store's x/y/z together, so the
+		// translation is already current (verify mode checks it); no refresh on each read
 		return &gxXf();
 	}
 
