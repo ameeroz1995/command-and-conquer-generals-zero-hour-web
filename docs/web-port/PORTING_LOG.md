@@ -4118,3 +4118,18 @@ Timing, battle benchmark, ai-34, tickTiming, timing.lock, load 4-8 (just after a
 - run 2: logic 21.36 / 18.46 ms/tick; aiLoop 10.79 / 9.27; aiKernels 0.41 / 0.34; p99 128 / 107 ms; over 100 ms 117 / 41
 - kernel slots 712-791/tick (counted also when off: the hook runs, the kernel returns at once)
 Level within noise (the run's work differs: 2700 vs 3000 ticks, 3215-3572 module calls/tick).
+
+### ai: SIMD step, slow-death kernel 4 rows per instruction (switch kernelSimd, fourth word bit 9, on; same game)
+- Profile of the battle benchmark (ai-34): no math loops in the ai lane; its own cost is branchy
+  scalar work (isIdle 0.5%, doLocomotor 0.5%, state updates ~0.4% each). The SIMD step applies to
+  the biggest ai kernel, SlowDeath (~250 rows/tick): with LOD scale 1 the step is integer compares
+  and adds, done 4 rows per wasm SIMD instruction, branchless (masks + and/or), gathered from and
+  scattered back to the pool; no FMA, no float math. Spawn / container kernels are one decrement
+  over a few dozen rows: left scalar.
+- Checks (ai-35): referee.rep and ai-ck.rep match; verify mode runs the scalar step on a copy of every
+  row: 37.25M checks, 0 mismatches (all GXVERIFY checks 0).
+Timing, battle benchmark, ai-35, tickTiming, timing.lock, load 2-3, kernelSimd off / on:
+- run 1: logic 15.28 / 15.22 ms/tick; aiLoop 7.48 / 7.44; aiKernels 0.271 / 0.270; p99 84.7 / 86.0 ms; over 100 ms 19 / 21
+- run 2: logic 15.04 / 14.92 ms/tick; aiLoop 7.35 / 7.25; aiKernels 0.266 / 0.256; p99 88.6 / 83.6 ms; over 100 ms 24 / 19
+- same work both sides: 3214.6 module calls/tick, 711.9 kernel slots/tick. Level to slightly faster
+  (aiKernels includes the apply step, which is most of it).
