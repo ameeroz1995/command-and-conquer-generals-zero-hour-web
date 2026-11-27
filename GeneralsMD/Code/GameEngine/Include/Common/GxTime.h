@@ -74,12 +74,24 @@ inline void gxTimeFrameStart()
 	s.lastFrame = now;
 }
 
+inline void gxTimePrint(const char *tag);
+
+inline void gxTimePrint(const char *tag);
+
 /// after each logic tick
 inline void gxTimeTickEnd()
 {
 	if (!gxTimingOn()) return;
 	GxTimeState &s = gxTime();
 	if (++s.ticks % 300) return;
+	gxTimePrint("GXTIME");
+}
+
+/// one "<tag> ticks N: ..." line with the averages so far (the bench prints GXTIMEEND at a replay's end)
+inline void gxTimePrint(const char *tag)
+{
+	GxTimeState &s = gxTime();
+	if (!s.ticks) return;
 	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "snapBuild", "snapPatch", "partUpdate", "cellsTouched", "pairOffers", "bsCull" };
 	static const char *cn[GXC_COUNT] = { "searches", "searchCells", "searchEntries", "searchUnits", "simdCulled",
 		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept", "pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates", "bsSeekers", "allocs", "nameLookups" };
@@ -91,7 +103,7 @@ inline void gxTimeTickEnd()
 		p99 = f[(size_t)(0.99 * (f.size() - 1))];
 		for (size_t i = 0; i < f.size(); ++i) if (f[i] > 100.0f) ++over100;
 	}
-	char buf[2048]; int k = snprintf(buf, sizeof(buf), "GXTIME ticks %llu:", s.ticks);
+	char buf[4096]; int k = snprintf(buf, sizeof(buf), "%s ticks %llu:", tag, s.ticks);
 	for (int i = 0; i < GXT_TIME_COUNT; ++i) k += snprintf(buf + k, sizeof(buf) - k, " %s %.3f ms/tick;", tn[i], s.ms[i] / s.ticks);
 	for (int i = 0; i < GXC_COUNT; ++i) k += snprintf(buf + k, sizeof(buf) - k, " %s %.1f/tick;", cn[i], (double)s.n[i] / s.ticks);
 	k += snprintf(buf + k, sizeof(buf) - k, " allocs in");
