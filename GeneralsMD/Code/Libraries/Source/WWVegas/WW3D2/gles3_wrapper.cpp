@@ -515,7 +515,7 @@ void GLES3_Begin_Scene() {
         });
         g_PageSwitches6 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
-            return 0   // sixth word: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19, ai 20-23, 24-31 spare
+            return 0   // sixth word: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19, ai 20-23, collide 24-27, ai 28-31
                  | (o.passPos === true ? 1 : 0)           // bit 0 (ai): update pass removal by stored position (GameLogic.cpp; same game)
                  | (o.passKeyArray === true ? 2 : 0)      // bit 1 (ai): pass sort keys and kinds by NameKey in arrays (GameLogic.cpp; same game)
                  | (o.supplyOnce === true ? 4 : 0)        // bit 2 (ai): AI supply search collects the warehouses once (AIPlayer.cpp; same game)
@@ -523,7 +523,7 @@ void GLES3_Begin_Scene() {
                  | (o.lightIter === true ? 2097152 : 0) // bit 21 (ai, second range): terrain vertex lighting keeps its lights iterator on the stack (BaseHeightMap.cpp; same picture)
                  | (o.audioNames === true ? 4194304 : 0) // bit 22 (ai): sound file names built once per event and sound (AudioEventRTS.cpp; same game)
                  | (o.attackReuse === true ? 8388608 : 0) // bit 23 (ai): an attack's state machine recycled for the next attack (AIStates.cpp; same game)
-                 | (o.deathDeselect === true ? 16777216 : 0) // bit 24 (ai): match rule bit 31, a dying unit leaves only selections that hold it (GameLogic.cpp)
+                 | (o.deathDeselect === true ? 268435456 : 0) // bit 28 (ai, range 28-31): match rule bit 31, a dying unit leaves only selections that hold it (GameLogic.cpp)
                  | (o.fastRemove === true ? 8 : 0);       // bit 3 (ai): unit group and radar removal by stored node / back link (AIGroup.cpp, Radar.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({

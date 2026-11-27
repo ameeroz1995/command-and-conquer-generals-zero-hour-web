@@ -1708,7 +1708,7 @@ unsigned int gxLocalMatchRules()
 		| ((GLES3_Page_Switches5() & 1) ? GXRULE_BATCH_SCAN : 0)	// fifth word bit 1: batchScan
 		| ((GLES3_Page_Switches5() & 8) ? GXRULE_SCAN_ALIGN : 0)	// fifth word value 8: scanAlign
 		| ((GLES3_Page_Switches5() & 1048576) ? GXRULE_HEAP4 : 0)	// fifth word value 1048576: heap4
-		| ((GLES3_Page_Switches6() & 16777216) ? GXRULE_DEATH_DESELECT : 0u);	// sixth word value 16777216: deathDeselect
+		| ((GLES3_Page_Switches6() & 268435456) ? GXRULE_DEATH_DESELECT : 0u);	// sixth word bit 28 (value 268435456): deathDeselect
 #else
 	return 0;
 #endif
