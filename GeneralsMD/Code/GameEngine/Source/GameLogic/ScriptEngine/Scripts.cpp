@@ -66,6 +66,8 @@
 #include "GameLogic/SidesList.h"
 #include "GameLogic/Module/ContainModule.h"
 
+UnsignedInt g_gxScriptEpoch = 1;	// web port (switch scriptNames): see Scripts.h
+
 
 
 
@@ -220,6 +222,7 @@ m_firstScript(nullptr)
 */
 ScriptList::~ScriptList()
 {
+	++g_gxScriptEpoch;	// web port (scriptNames)
 	deleteInstance(m_firstGroup);
 	m_firstGroup = nullptr;
 
@@ -413,6 +416,7 @@ ScriptList *ScriptList::duplicateAndQualify(const AsciiString& qualifier,
 */
 void ScriptList::discard()
 {
+	++g_gxScriptEpoch;	// web port (scriptNames)
 	m_firstGroup = nullptr;
 	m_firstScript = nullptr;
 	deleteInstance(this);
@@ -646,6 +650,7 @@ m_nextGroup(nullptr)
 */
 ScriptGroup::~ScriptGroup()
 {
+	++g_gxScriptEpoch;	// web port (scriptNames)
 	// Delete the first script.  m_firstScript deletes the entire list.
 	deleteInstance(m_firstScript);
 	m_firstScript = nullptr;
@@ -879,7 +884,7 @@ Bool ScriptGroup::ParseGroupDataChunk(DataChunkInput &file, DataChunkInfo *info,
 	ScriptList *pList = (ScriptList *)userData;
 	ScriptGroup *pGroup = newInstance(ScriptGroup);
 
-	pGroup->m_groupName = file.readAsciiString();
+	++g_gxScriptEpoch; pGroup->m_groupName = file.readAsciiString();
 	pGroup->m_isGroupActive = file.readByte();
 	if (info->version == K_SCRIPT_GROUP_DATA_VERSION_2) {
 		pGroup->m_isGroupSubroutine= file.readByte();
@@ -922,6 +927,7 @@ m_curTime(0.0f)
 */
 Script::~Script()
 {
+	++g_gxScriptEpoch;	// web port (scriptNames)
 	if (m_nextScript) {
 		Script *cur = m_nextScript;
 		Script *next;
@@ -1051,6 +1057,7 @@ Script *Script::duplicateAndQualify(const AsciiString& qualifier,
 */
 void Script::updateFrom(Script *pSrc)
 {
+	++g_gxScriptEpoch;	// web port (scriptNames)
 	this->m_scriptName = pSrc->m_scriptName;
 	this->m_comment = pSrc->m_comment;
 	this->m_conditionComment = pSrc->m_conditionComment;
@@ -1233,7 +1240,7 @@ Script *Script::ParseScript(DataChunkInput &file, unsigned short version)
 {
 	Script *pScript = newInstance(Script);
 
-	pScript->m_scriptName = file.readAsciiString();
+	++g_gxScriptEpoch; pScript->m_scriptName = file.readAsciiString();
 	pScript->m_comment = file.readAsciiString();
 	pScript->m_conditionComment = file.readAsciiString();
 	pScript->m_actionComment = file.readAsciiString();

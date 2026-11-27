@@ -33,6 +33,10 @@
 #include "GameNetwork/NetworkDefs.h"
 #include "Common/ObjectStatusTypes.h"
 
+// web port (switch scriptNames): bumped whenever a script list link, a script/group name or a side's
+// script list changes; ScriptEngine's name maps rebuild when it moved (ScriptEngine.cpp)
+extern UnsignedInt g_gxScriptEpoch;
+
 #define THIS_TEAM "<This Team>"
 #define ANY_TEAM "<Any Team>"
 
@@ -129,11 +133,11 @@ public:
 	ScriptGroup *duplicateAndQualify(const AsciiString& qualifier,
 			const AsciiString& playerTemplateName, const AsciiString& newPlayerName) const;		// note, duplicates just this node, not the full list.
 
-	void setName(AsciiString name) { m_groupName = name;}
+	void setName(AsciiString name) { ++g_gxScriptEpoch; m_groupName = name;}
 	void setActive(Bool active) { m_isGroupActive = active;}
 	void setSubroutine(Bool subr) { m_isGroupSubroutine = subr;}
 	void setWarnings(Bool warnings) { m_hasWarnings = warnings;}
-	void setNextGroup(ScriptGroup *pGr) {m_nextGroup = pGr;}
+	void setNextGroup(ScriptGroup *pGr) {++g_gxScriptEpoch; m_nextGroup = pGr;}
 
 	AsciiString getName() const { return m_groupName;}
 	Bool isActive() const { return m_isGroupActive;}
@@ -641,7 +645,7 @@ public:
 			const AsciiString& playerTemplateName, const AsciiString& newPlayerName) const;
 
 public:
-	void setName(AsciiString name) { m_scriptName = name;}
+	void setName(AsciiString name) { ++g_gxScriptEpoch; m_scriptName = name;}
 	void setWarnings(Bool warnings) { m_hasWarnings = warnings;}
 	void setComment(AsciiString comment) { m_comment = comment;}
 	void setActionComment(AsciiString comment) { m_actionComment = comment;}
@@ -652,7 +656,7 @@ public:
 	void setNormal(Bool normal) { m_normal = normal;}
 	void setHard(Bool hard) { m_hard = hard;}
 	void setSubroutine(Bool subr) { m_isSubroutine = subr;}
-	void setNextScript(Script *pScr) {m_nextScript = pScr;}
+	void setNextScript(Script *pScr) {++g_gxScriptEpoch; m_nextScript = pScr;}
 	void setOrCondition(OrCondition *pCond) {m_condition = pCond;}
 	void setAction(ScriptAction *pAction) {m_action = pAction;}
 	void setFalseAction(ScriptAction *pAction) {m_actionFalse = pAction;}

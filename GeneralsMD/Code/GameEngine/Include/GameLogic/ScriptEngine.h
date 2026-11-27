@@ -302,6 +302,7 @@ public:
 	virtual void adjustToppleDirection( Object *object, Coord2D *direction);
 	virtual void adjustToppleDirection( Object *object, Coord3D *direction);
 	virtual const Script *findScriptByName(const AsciiString& scriptName) {return findScript(scriptName);} ///<  Finds a script.
+	const NamedRequest *gxNamedFind(const AsciiString& unitName);	///< web port (switch scriptLookups): first named-object entry by name
 
 	const BreezeInfo& getBreezeInfo() const {return m_breezeInfo;}
 	void turnBreezeOff() {m_breezeInfo.m_intensity = 0.0f;}

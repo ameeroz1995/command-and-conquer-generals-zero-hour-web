@@ -37,6 +37,7 @@
 
 /* ********* PolygonTrigger class ****************************/
 PolygonTrigger *PolygonTrigger::ThePolygonTriggerListPtr = nullptr;
+UnsignedInt g_gxTriggerEpoch = 1;	// web port (switch scriptLookups)
 Int PolygonTrigger::s_currentID = 1;
 /**
  PolygonTrigger - Constructor.
@@ -68,6 +69,7 @@ m_riverStart(0)
 */
 PolygonTrigger::~PolygonTrigger()
 {
+	++g_gxTriggerEpoch;	// web port (scriptLookups)
 	delete [] m_points;
 	m_points = nullptr;
 
@@ -299,6 +301,7 @@ void PolygonTrigger::addPolygonTrigger(PolygonTrigger *pTrigger)
 		DEBUG_ASSERTCRASH(pTrig != pTrigger, ("Attempting to add trigger already in list."));
 		if (pTrig==pTrigger) return;
 	}
+	++g_gxTriggerEpoch;	// web port (scriptLookups)
 	pTrigger->m_nextPolygonTrigger = ThePolygonTriggerListPtr;
 	ThePolygonTriggerListPtr = pTrigger;
 }
@@ -325,6 +328,7 @@ void PolygonTrigger::removePolygonTrigger(PolygonTrigger *pTrigger)
 			ThePolygonTriggerListPtr = pTrig->m_nextPolygonTrigger;
 		}
 	}
+	++g_gxTriggerEpoch;	// web port (scriptLookups)
 	pTrigger->m_nextPolygonTrigger = nullptr;
 }
 
@@ -334,6 +338,7 @@ void PolygonTrigger::removePolygonTrigger(PolygonTrigger *pTrigger)
 void PolygonTrigger::deleteTriggers()
 {
 	PolygonTrigger *pList = ThePolygonTriggerListPtr;
+	++g_gxTriggerEpoch;	// web port (scriptLookups)
 	ThePolygonTriggerListPtr = nullptr;
 	s_currentID = 1;
 	deleteInstance(pList);

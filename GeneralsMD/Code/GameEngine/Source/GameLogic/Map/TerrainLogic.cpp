@@ -32,6 +32,7 @@
 
 
 #include "Common/DataChunk.h"
+#include "Common/GxNameMap.h"
 #include "Common/GameState.h"
 #include "Common/MapObject.h"
 #include "Common/Radar.h"
@@ -974,6 +975,7 @@ TerrainLogic::TerrainLogic()
 	}
 	m_numWaterToUpdate = 0;
 
+	++g_gxWaypointEpoch;	// web port (scriptLookups)
 	m_waypointListHead = nullptr;
 	m_bridgeListHead = nullptr;
 	m_mapData = nullptr;
@@ -1384,6 +1386,7 @@ void TerrainLogic::addWaypoint(MapObject *pMapObj)
 	Waypoint *pWay = newInstance(Waypoint)(pMapObj->getWaypointID(), pMapObj->getWaypointName(),
 																&loc, label1, label2, label3, biDirectional);
 	pWay->setNext(m_waypointListHead);
+	++g_gxWaypointEpoch;	// web port (scriptLookups)
 	m_waypointListHead = pWay;
 }
 
@@ -1439,6 +1442,7 @@ void TerrainLogic::deleteWaypoints()
 		pWay->setNext(nullptr);
 		deleteInstance(pWay);
 	}
+	++g_gxWaypointEpoch;	// web port (scriptLookups)
 	m_waypointListHead = nullptr;
 }
 
@@ -1579,13 +1583,33 @@ void TerrainLogic::addLandmarkBridgeToLogic(Object *bridgeObj)
 //-------------------------------------------------------------------------------------------------
 /** Given a name, return the associated waypoint. */
 //-------------------------------------------------------------------------------------------------
-Waypoint *TerrainLogic::getWaypointByName( AsciiString name )
+static Waypoint *gxWalkWaypoint(Waypoint *head, const AsciiString &name)
 {
-	for( Waypoint *way = m_waypointListHead; way; way = way->getNext() )
+	for( Waypoint *way = head; way; way = way->getNext() )
 		if (way->getName() == name)
 			return way;
 
 	return nullptr;
+}
+
+UnsignedInt g_gxWaypointEpoch = 1;
+static GxNameMap<Waypoint> s_gxWaypoints;	// web port (switch scriptLookups, fifth word bit 9): first match in list order
+
+Waypoint *TerrainLogic::getWaypointByName( AsciiString name )
+{
+	if (!gxNameMapOn(512))
+		return gxWalkWaypoint(m_waypointListHead, name);
+	if (s_gxWaypoints.epoch != g_gxWaypointEpoch)
+	{
+		s_gxWaypoints.clear();
+		for (Waypoint *way = m_waypointListHead; way; way = way->getNext())
+			s_gxWaypoints.addFirst(way->getName().str(), way);
+		s_gxWaypoints.epoch = g_gxWaypointEpoch;
+	}
+	Waypoint *p = s_gxWaypoints.find(name.str());
+	if (gxNameMapVerify())
+		gxNameCheck("waypoint", name.str(), p == gxWalkWaypoint(m_waypointListHead, name));
+	return p;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1655,7 +1679,7 @@ Bool TerrainLogic::isPurposeOfPath( Waypoint *pWay, AsciiString label )
 //-------------------------------------------------------------------------------------------------
 /** Given a name, return the associated trigger area, or null if one doesn't exist. */
 //-------------------------------------------------------------------------------------------------
-PolygonTrigger *TerrainLogic::getTriggerAreaByName( AsciiString name )
+static PolygonTrigger *gxWalkTrigger(const AsciiString &name)
 {
 	for (PolygonTrigger* pTrig = PolygonTrigger::getFirstPolygonTrigger(); pTrig; pTrig = pTrig->getNext()) {
 		AsciiString trigName = pTrig->getTriggerName();
@@ -1663,6 +1687,25 @@ PolygonTrigger *TerrainLogic::getTriggerAreaByName( AsciiString name )
 			return pTrig;
 	}
 	return nullptr;
+}
+
+static GxNameMap<PolygonTrigger> s_gxTriggers;	// web port (switch scriptLookups): first match in list order
+
+PolygonTrigger *TerrainLogic::getTriggerAreaByName( AsciiString name )
+{
+	if (!gxNameMapOn(512))
+		return gxWalkTrigger(name);
+	if (s_gxTriggers.epoch != g_gxTriggerEpoch)
+	{
+		s_gxTriggers.clear();
+		for (PolygonTrigger* pTrig = PolygonTrigger::getFirstPolygonTrigger(); pTrig; pTrig = pTrig->getNext())
+			s_gxTriggers.addFirst(pTrig->getTriggerName().str(), pTrig);
+		s_gxTriggers.epoch = g_gxTriggerEpoch;
+	}
+	PolygonTrigger *p = s_gxTriggers.find(name.str());
+	if (gxNameMapVerify())
+		gxNameCheck("triggerArea", name.str(), p == gxWalkTrigger(name));
+	return p;
 }
 
 

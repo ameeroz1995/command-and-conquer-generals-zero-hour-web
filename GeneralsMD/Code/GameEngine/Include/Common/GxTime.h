@@ -30,7 +30,7 @@ enum GxCountId
 {
 	GXC_SEARCHES, GXC_SEARCH_CELLS, GXC_SEARCH_ENTRIES, GXC_SEARCH_UNITS, GXC_SIMD_CULLED,
 	GXC_FOG_CIRCLES, GXC_FOG_CELLS, GXC_FOG_STATUS_CALLS, GXC_FOG_RECOMPUTES, GXC_FOG_KEPT,
-	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES, GXC_BATCH_SEEKERS, GXC_ALLOCS,
+	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES, GXC_BATCH_SEEKERS, GXC_ALLOCS, GXC_NAME_LOOKUPS,
 	GXC_COUNT
 };
 
@@ -82,7 +82,7 @@ inline void gxTimeTickEnd()
 	if (++s.ticks % 300) return;
 	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "snapBuild", "snapPatch", "partUpdate", "cellsTouched", "pairOffers", "bsCull" };
 	static const char *cn[GXC_COUNT] = { "searches", "searchCells", "searchEntries", "searchUnits", "simdCulled",
-		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept", "pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates", "bsSeekers", "allocs" };
+		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept", "pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates", "bsSeekers", "allocs", "nameLookups" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())

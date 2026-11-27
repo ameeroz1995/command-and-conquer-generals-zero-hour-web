@@ -36,6 +36,13 @@
 #include "Common/SpecialPower.h"
 #include "GameLogic/Object.h"
 #include "Common/BitFlagsIO.h"
+#include "Common/GxNameMap.h"
+#include <vector>
+
+// web port (switch powerKeys, fifth word bit 11): name / ID -> template, first match in the store's
+// vector order; rebuilt when s_gxPowerEpoch moved (every write of the vector or of a name/ID)
+static UnsignedInt s_gxPowerEpoch = 1;
+typedef std::vector<SpecialPowerTemplate *> GxPowerVec;
 
 
 // GLOBAL /////////////////////////////////////////////////////////////////////////////////////////
@@ -159,9 +166,9 @@ void SpecialPowerStore::parseSpecialPowerDefinition( INI *ini )
 			const SpecialPowerTemplate *defaultTemplate = TheSpecialPowerStore->findSpecialPowerTemplate( "DefaultSpecialPower" );
 			if( defaultTemplate )
 				*specialPower = *defaultTemplate;
-			specialPower->friend_setNameAndID(name, ++TheSpecialPowerStore->m_nextSpecialPowerID);
+			++s_gxPowerEpoch; specialPower->friend_setNameAndID(name, ++TheSpecialPowerStore->m_nextSpecialPowerID);
 			specialPower->markAsOverride();
-			TheSpecialPowerStore->m_specialPowerTemplates.push_back(specialPower);
+			++s_gxPowerEpoch; TheSpecialPowerStore->m_specialPowerTemplates.push_back(specialPower);
 		}
 	}
 	else
@@ -176,8 +183,8 @@ void SpecialPowerStore::parseSpecialPowerDefinition( INI *ini )
 			const SpecialPowerTemplate *defaultTemplate = TheSpecialPowerStore->findSpecialPowerTemplate( "DefaultSpecialPower" );
 			if( defaultTemplate )
 				*specialPower = *defaultTemplate;
-			specialPower->friend_setNameAndID(name, ++TheSpecialPowerStore->m_nextSpecialPowerID);
-			TheSpecialPowerStore->m_specialPowerTemplates.push_back(specialPower);
+			++s_gxPowerEpoch; specialPower->friend_setNameAndID(name, ++TheSpecialPowerStore->m_nextSpecialPowerID);
+			++s_gxPowerEpoch; TheSpecialPowerStore->m_specialPowerTemplates.push_back(specialPower);
 		}
 	}
 
@@ -256,6 +263,7 @@ SpecialPowerStore::~SpecialPowerStore()
 		deleteInstance(m_specialPowerTemplates[ i ]);
 
 	// erase the list
+	++s_gxPowerEpoch;	// web port (powerKeys)
 	m_specialPowerTemplates.clear();
 
 	// set our count to zero
@@ -265,8 +273,55 @@ SpecialPowerStore::~SpecialPowerStore()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+static GxNameMap<SpecialPowerTemplate> s_gxPowerNames;
+static std::vector<SpecialPowerTemplate *> s_gxPowerIds;	// by ID; first match kept
+
+static void gxPowerMapsFresh(const GxPowerVec &v)
+{
+	if (s_gxPowerNames.epoch == s_gxPowerEpoch)
+		return;
+	s_gxPowerNames.clear();
+	s_gxPowerIds.clear();
+	for (size_t i = 0; i < v.size(); ++i)
+	{
+		SpecialPowerTemplate *t = v[i];
+		s_gxPowerNames.addFirst(t->getName().str(), t);
+		const UnsignedInt id = t->getID();
+		if (id < 65536)
+		{
+			if (id >= s_gxPowerIds.size()) s_gxPowerIds.resize(id + 1, nullptr);
+			if (!s_gxPowerIds[id]) s_gxPowerIds[id] = t;
+		}
+	}
+	s_gxPowerNames.epoch = s_gxPowerEpoch;
+}
+
+static SpecialPowerTemplate *gxWalkPowerName(const GxPowerVec &v, const AsciiString &name)
+{
+	for (size_t i = 0; i < v.size(); ++i)
+		if (v[i]->getName() == name)
+			return v[i];
+	return nullptr;
+}
+
+static SpecialPowerTemplate *gxWalkPowerId(const GxPowerVec &v, UnsignedInt id)
+{
+	for (size_t i = 0; i < v.size(); ++i)
+		if (v[i]->getID() == id)
+			return v[i];
+	return nullptr;
+}
+
 SpecialPowerTemplate* SpecialPowerStore::findSpecialPowerTemplatePrivate( AsciiString name )
 {
+	if (gxNameMapOn(2048))
+	{
+		gxPowerMapsFresh(m_specialPowerTemplates);
+		SpecialPowerTemplate *p = s_gxPowerNames.find(name.str());
+		if (gxNameMapVerify())
+			gxNameCheck("powerName", name.str(), p == gxWalkPowerName(m_specialPowerTemplates, name));
+		return p;
+	}
 
 	// search the template list for matching name
 	for( size_t i = 0; i < m_specialPowerTemplates.size(); ++i )
@@ -282,6 +337,16 @@ SpecialPowerTemplate* SpecialPowerStore::findSpecialPowerTemplatePrivate( AsciiS
 //-------------------------------------------------------------------------------------------------
 const SpecialPowerTemplate *SpecialPowerStore::findSpecialPowerTemplateByID( UnsignedInt id )
 {
+	if (gxNameMapOn(2048))
+	{
+		gxPowerMapsFresh(m_specialPowerTemplates);
+		SpecialPowerTemplate *p = id < s_gxPowerIds.size() ? s_gxPowerIds[id] : nullptr;
+		if (p == nullptr && id >= 65536)
+			p = gxWalkPowerId(m_specialPowerTemplates, id);
+		if (gxNameMapVerify())
+			gxNameCheck("powerId", "(id)", p == gxWalkPowerId(m_specialPowerTemplates, id));
+		return p;
+	}
 
 	// search the template list for matching name
 	for( size_t i = 0; i < m_specialPowerTemplates.size(); ++i )
@@ -368,7 +433,7 @@ void SpecialPowerStore::reset()
 		Overridable* temp = si->deleteOverrides();
 		if (temp == nullptr)
 		{
-			it = m_specialPowerTemplates.erase(it);
+			++s_gxPowerEpoch; it = m_specialPowerTemplates.erase(it);
 		}
 		else
 		{

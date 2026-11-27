@@ -36,6 +36,14 @@
 #include "Common/Xfer.h"
 #include "GameClient/InGameUI.h"
 #include "GameClient/Image.h"
+#include "Common/GxNameMap.h"
+#include <unordered_map>
+
+UnsignedInt g_gxUpgradeEpoch = 1;
+static std::unordered_map<NameKeyType, UpgradeTemplate *> s_gxUpgrades;
+static UnsignedInt s_gxUpgradesAt = 0;
+static const UpgradeTemplate *s_gxVet[LEVEL_COUNT];
+static UnsignedInt s_gxVetAt[LEVEL_COUNT];
 
 
 const char *const TheUpgradeTypeNames[] =
@@ -223,6 +231,7 @@ void UpgradeTemplate::cacheButtonImage()
 UpgradeCenter::UpgradeCenter()
 {
 
+	++g_gxUpgradeEpoch;	// web port (upgradeKeys)
 	m_upgradeList = nullptr;
 	m_nextTemplateMaskBit = 0;
 	buttonImagesCached = FALSE;
@@ -233,6 +242,7 @@ UpgradeCenter::UpgradeCenter()
 //-------------------------------------------------------------------------------------------------
 UpgradeCenter::~UpgradeCenter()
 {
+	++g_gxUpgradeEpoch;	// web port (upgradeKeys)
 
 	// delete all the upgrades loaded from the INI database
 	UpgradeTemplate *next;
@@ -297,6 +307,15 @@ void UpgradeCenter::reset()
 //-------------------------------------------------------------------------------------------------
 const UpgradeTemplate *UpgradeCenter::findVeterancyUpgrade( VeterancyLevel level ) const
 {
+	if (gxNameMapOn(1024) && level >= 0 && level < LEVEL_COUNT && !gxNameMapVerify())
+	{
+		if (s_gxVetAt[level] != g_gxUpgradeEpoch)
+		{
+			s_gxVet[level] = findUpgrade(getVetUpgradeName(level));
+			s_gxVetAt[level] = g_gxUpgradeEpoch;
+		}
+		return s_gxVet[level];
+	}
 	AsciiString tmp = getVetUpgradeName(level);
 	return findUpgrade(tmp);
 }
@@ -304,8 +323,33 @@ const UpgradeTemplate *UpgradeCenter::findVeterancyUpgrade( VeterancyLevel level
 //-------------------------------------------------------------------------------------------------
 /** Find upgrade by name key */
 //-------------------------------------------------------------------------------------------------
+// web port (switch upgradeKeys, fifth word bit 10): name key -> upgrade, first match in list order;
+// rebuilt when g_gxUpgradeEpoch moved. Veterancy upgrades cached per level the same way.
+
+static UpgradeTemplate *gxUpgradeByKey(UpgradeTemplate *list, NameKeyType key)
+{
+	if (s_gxUpgradesAt != g_gxUpgradeEpoch)
+	{
+		s_gxUpgrades.clear();
+		for (UpgradeTemplate *u = list; u; u = u->friend_getNext())
+			s_gxUpgrades.try_emplace(u->getUpgradeNameKey(), u);
+		s_gxUpgradesAt = g_gxUpgradeEpoch;
+	}
+	auto it = s_gxUpgrades.find(key);
+	UpgradeTemplate *p = it == s_gxUpgrades.end() ? nullptr : it->second;
+	if (gxNameMapVerify())
+	{
+		UpgradeTemplate *ref = list;
+		while (ref && ref->getUpgradeNameKey() != key) ref = ref->friend_getNext();
+		gxNameCheck("upgradeKeys", "(key)", p == ref);
+	}
+	return p;
+}
+
 UpgradeTemplate *UpgradeCenter::findNonConstUpgradeByKey( NameKeyType key )
 {
+	if (gxNameMapOn(1024))
+		return gxUpgradeByKey(m_upgradeList, key);
 	UpgradeTemplate *upgrade;
 
 	// search list
@@ -333,6 +377,8 @@ UpgradeTemplate *UpgradeCenter::firstUpgradeTemplate()
 //-------------------------------------------------------------------------------------------------
 const UpgradeTemplate *UpgradeCenter::findUpgradeByKey( NameKeyType key ) const
 {
+	if (gxNameMapOn(1024))
+		return gxUpgradeByKey(m_upgradeList, key);
 	const UpgradeTemplate *upgrade;
 
 	// search list
@@ -428,6 +474,7 @@ void UpgradeCenter::unlinkUpgrade( UpgradeTemplate *upgrade )
 		upgrade->friend_getPrev()->friend_setNext( upgrade->friend_getNext() );
 	else
 		m_upgradeList = upgrade->friend_getNext();
+	++g_gxUpgradeEpoch;	// web port (upgradeKeys)
 
 }
 

@@ -62,6 +62,8 @@ int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
 static int g_PageSwitches4 = 0;
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
+static int g_PageSwitches5 = 0 | 256 | 512 | 1024 | 2048 | 268435456 | 536870912;	// fifth word, default-on bits of every lane (query 8-11, 28-29)
+int GLES3_Page_Switches5() { return g_PageSwitches5; }	// non-web builds: callers use a local stub returning 0
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
@@ -483,6 +485,17 @@ void GLES3_Begin_Scene() {
                  | (o.simdPairs === false ? 0 : 131072)    // bit 17: with pairOffer, the clearly-apart neighbour test 4 at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.simdBody === false ? 0 : 1073741824)  // bit 30 (query): with simdSearch, the search body's enemy test and 2D distance 8 at a time with wasm SIMD (same game)
                  | (o.snapPatch === false ? 0 : -2147483648); // bit 31 (query): scanManager's per-cell lists patched where units crossed a cell edge, not rebuilt, later in a tick (same game)
+        });
+        g_PageSwitches5 = EM_ASM_INT({
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+                 | (o.scriptNames === false ? 0 : 256)   // bit 8 (query): scripts and script groups found by name through a map, first match kept (ScriptEngine.cpp; same game)
+                 | (o.scriptLookups === false ? 0 : 512)   // bit 9 (query): named units, object type lists, trigger areas and waypoints found by name through maps (ScriptEngine.cpp, TerrainLogic.cpp; same game)
+                 | (o.upgradeKeys === false ? 0 : 1024)   // bit 10 (query): upgrades found by name key through a map, veterancy upgrades cached (Upgrade.cpp; same game)
+                 | (o.powerKeys === false ? 0 : 2048)   // bit 11 (query): special powers found by name or ID through maps (SpecialPower.cpp; same game)
+                 | (o.iterPool === false ? 0 : 536870912)   // bit 29 (query): search result lists reuse their entries instead of allocating one per unit found (SimpleObjectIterator.cpp; same game)
+                 | (o.scienceKeys === false ? 0 : 268435456)   // bit 28 (query): sciences found through a map (Science.cpp; same game)
+                 | (o.batchScan === true ? 1 : 0);   // bit 0 (value 1): batchScan, due mood scans of AI units collected per phase and searched in one pass over the unit store (AIUpdate.cpp, PartitionManager.cpp; off until timed)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

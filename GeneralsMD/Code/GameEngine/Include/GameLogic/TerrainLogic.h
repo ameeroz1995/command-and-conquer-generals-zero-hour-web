@@ -34,6 +34,8 @@
 #include "Common/STLTypedefs.h"
 #include "GameClient/TerrainRoads.h"
 
+extern UnsignedInt g_gxWaypointEpoch;	// web port (switch scriptLookups): bumped when the waypoint list links change
+
 typedef std::vector<ICoord2D> VecICoord2D;
 
 class DataChunkInput;
@@ -84,7 +86,7 @@ protected:
 
 public:
 	// should be protected, but friendly access needed (srj)
-	void setNext(Waypoint *pNext) {m_pNext = pNext; }
+	void setNext(Waypoint *pNext) {++g_gxWaypointEpoch; m_pNext = pNext; }
 	//void setLink(Int ndx, Waypoint *pLink)
 	//{
 	//	if (ndx>=0 && ndx <=MAX_LINKS) m_links[ndx] = pLink;

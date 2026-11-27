@@ -91,6 +91,7 @@ void SidesInfo::init(const Dict* d)
 	m_dict.clear();
 
 	deleteInstance(m_scripts);
+	++g_gxScriptEpoch;	// web port (scriptNames)
 	m_scripts = nullptr;
 
 	if (d)
@@ -120,6 +121,7 @@ SidesInfo& SidesInfo::operator=(const SidesInfo& that)
 			thisBLTail = thisBL;
 		}
 
+		++g_gxScriptEpoch;	// web port (scriptNames)
 		if (that.m_scripts)
 			this->m_scripts = that.m_scripts->duplicate();
 		else
