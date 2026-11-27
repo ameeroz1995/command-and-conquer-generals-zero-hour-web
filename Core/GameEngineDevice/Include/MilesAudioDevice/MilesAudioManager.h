@@ -67,6 +67,7 @@ struct PlayingAudio
 	Bool m_requestStop;
 	Bool m_cleanupAudioEventRTS;
 	Int m_framesFaded;
+	Bool m_gxOff = false;	// lightSounds: the unit was off screen at the last full update
 
 	PlayingAudio() :
 		m_type(PAT_INVALID),

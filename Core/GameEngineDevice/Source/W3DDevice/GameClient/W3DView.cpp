@@ -740,7 +740,7 @@ static void drawDrawable( Drawable *draw, void *userData )
 }
 
 // lightOffscreen: the tactical camera of the current frame, for on-screen tests outside this file
-// (particle systems). Null while the switch is off.
+// (particle systems, drawable updates, sounds). Null before the first frame is drawn.
 static const CameraClass *s_gxOffscreenCamera = nullptr;
 bool gxOffscreen(const Coord3D *pos, float radius)
 {
@@ -1451,8 +1451,8 @@ void W3DView::update()
 	// render all of the visible Drawables
 	/// @todo this needs to use a real region partition or something
 	extern int GLES3_Page_Switches3();
-	s_gxOffscreenCamera = (GLES3_Page_Switches3() & 33554432) ? m_3DCamera : nullptr;
-	TheGameClient->iterateDrawablesInRegion( &axisAlignedRegion, drawDrawable, (void *)s_gxOffscreenCamera );
+	s_gxOffscreenCamera = m_3DCamera;
+	TheGameClient->iterateDrawablesInRegion( &axisAlignedRegion, drawDrawable, (GLES3_Page_Switches3() & 33554432) ? (void *)m_3DCamera : nullptr );
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -2177,7 +2177,8 @@ Bool ParticleSystem::update( Int localPlayerIndex  )
 	Int gxSteps = 1;
 	extern bool gxOffscreen(const Coord3D *pos, float radius);
 	Coord3D gxAt; { const Vector3 t = m_transform.Get_Translation(); gxAt.x = t.X; gxAt.y = t.Y; gxAt.z = t.Z; }
-	if (!m_isIdentity && gxOffscreen(&gxAt, 150.0f))	// lightOffscreen: systems off screen move their particles 4 steps every 4th frame
+	extern int GLES3_Page_Switches3();
+	if (!m_isIdentity && (GLES3_Page_Switches3() & 33554432) && gxOffscreen(&gxAt, 150.0f))	// lightOffscreen: systems off screen move their particles 4 steps every 4th frame
 		gxSteps = ((TheGameLogic->getFrame() + (UnsignedInt)m_systemID) & 3) ? 0 : 4;
 	else if (GLES3_Page_Switches2() & 1073741824)
 		gxSteps = ((TheGameLogic->getFrame() + (UnsignedInt)m_systemID) & 1) ? 0 : 2;

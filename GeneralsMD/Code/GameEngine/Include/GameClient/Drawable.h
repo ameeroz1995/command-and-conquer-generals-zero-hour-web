@@ -417,6 +417,7 @@ public:
 
 	void draw();													///< render the drawable to the given view
 	void updateDrawable();														///< update the drawable
+	Bool gxQuietForSkip() const;	///< lightDrawableUpdate: nothing with a visible end is under way (fade, flash, decal fade, tint change, expiry, beacon)
 
 	void drawIconUI();													///< draw "icon"(s) needed on drawable (health bars, veterency, etc)
 

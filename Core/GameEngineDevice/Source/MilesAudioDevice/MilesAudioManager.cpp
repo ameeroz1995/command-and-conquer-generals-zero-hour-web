@@ -2327,6 +2327,9 @@ void MilesAudioManager::processPlayingList()
 	extern int GLES3_Page_Switches2();
 	static unsigned s_gxSoundTick = 0;
 	const Bool gxStagger = (GLES3_Page_Switches2() & 33554432) != 0 && !m_volumeHasChanged;
+	extern int GLES3_Page_Switches3();
+	extern bool gxOffscreen(const Coord3D *pos, float radius);
+	const Bool gxLightSounds = (GLES3_Page_Switches3() & 2048) != 0 && !m_volumeHasChanged;
 	unsigned gxSlot = ++s_gxSoundTick;
 	for (it = m_playing3DSounds.begin(); it != m_playing3DSounds.end(); )
 	{
@@ -2345,7 +2348,19 @@ void MilesAudioManager::processPlayingList()
 		}
 		else
 		{
-			if (gxStagger && (gxSlot++ % 3) != 0)
+			if (gxLightSounds && playing->m_gxOff)
+			{
+				// lightSounds (third switch word bit 11): sounds of units off screen follow them on every 6th
+				// call; a unit's death still stops its sound on the frame it happens.
+				if ((gxSlot++ % 6) != 0)
+				{
+					if (playing->m_audioEventRTS->isDead())
+						stopAudioEvent( playing->m_audioEventRTS->getPlayingHandle() );
+					++it;
+					continue;
+				}
+			}
+			else if (gxStagger && (gxSlot++ % 3) != 0)
 			{
 				++it;
 				continue;
@@ -2384,6 +2399,7 @@ void MilesAudioManager::processPlayingList()
 						Real y = pos->y;
 						Real z = pos->z;
 						AIL_set_3D_position( playing->m_3DSample, x, y, z );
+						playing->m_gxOff = gxLightSounds && gxOffscreen(pos, 100.0f);
 					}
 				}
 			}

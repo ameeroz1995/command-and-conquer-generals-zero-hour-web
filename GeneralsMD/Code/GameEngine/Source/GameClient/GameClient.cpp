@@ -671,6 +671,10 @@ void GameClient::update()
 
 
 		// call the update for all client drawables
+		extern int GLES3_Page_Switches3();
+		extern bool gxOffscreen(const Coord3D *pos, float radius);
+		const Bool gxLightUpdate = (GLES3_Page_Switches3() & 1024) != 0;
+		const UnsignedInt gxFrame = getFrame();
 		Drawable* draw = firstDrawable();
 		while (draw)
 		{	// update() could free the Drawable, so go ahead and grab 'next'
@@ -717,6 +721,12 @@ void GameClient::update()
 					}
 					draw->setFullyObscuredByShroud(ss >= OBJECTSHROUD_FOGGED);
 				}
+			}
+			if (gxLightUpdate && ((gxFrame + draw->getID()) & 3) && draw->gxQuietForSkip()
+				&& gxOffscreen(draw->getPosition(), draw->getDrawableGeometryInfo().getBoundingSphereRadius() + 30.0f))
+			{
+				draw = next;	// lightDrawableUpdate: off screen and nothing with a visible end under way
+				continue;
 			}
 			draw->updateDrawable();
 			draw = next;

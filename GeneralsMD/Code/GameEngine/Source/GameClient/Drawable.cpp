@@ -70,6 +70,7 @@
 #include "GameClient/Display.h"
 #include "GameClient/DisplayStringManager.h"
 #include "GameClient/Drawable.h"
+#include "GameClient/Module/BeaconClientUpdate.h"
 #include "GameClient/DrawGroupInfo.h"
 #include "GameClient/GameClient.h"
 #include "GameClient/GlobalLanguage.h"
@@ -1150,6 +1151,22 @@ void Drawable::imitateStealthLook( Drawable& otherDraw )
 /** update is called once per frame */
 //-------------------------------------------------------------------------------------------------
 //DECLARE_PERF_TIMER(updateDrawable)
+// lightDrawableUpdate (switch word 3 bit 10): an off-screen drawable may skip updateDrawable on 3 frames
+// of 4 only when nothing with a visible end is under way; those always run every frame.
+Bool Drawable::gxQuietForSkip() const
+{
+	if (m_fadeMode != FADING_NONE || m_flashCount > 0 || m_decalOpacityFadeRate != 0 || m_prevTintStatus != m_tintStatus)
+		return false;
+	if (m_expirationDate != 0 && TheGameLogic->getFrame() >= m_expirationDate)
+		return false;
+	if ((m_colorTintEnvelope && m_colorTintEnvelope->isEffective()) || (m_selectionFlashEnvelope && m_selectionFlashEnvelope->isEffective()))
+		return false;
+	for (ClientUpdateModule* const* cu = const_cast<Drawable *>(this)->getClientUpdateModules(); cu && *cu; ++cu)
+		if (dynamic_cast<BeaconClientUpdate *>(*cu))	// radar pulses show off screen too
+			return false;
+	return true;
+}
+
 void Drawable::updateDrawable()
 {
 	//USE_PERF_TIMER(updateDrawable)
