@@ -524,6 +524,7 @@ void GLES3_Begin_Scene() {
                  | (o.audioNames === true ? 4194304 : 0) // bit 22 (ai): sound file names built once per event and sound (AudioEventRTS.cpp; same game)
                  | (o.attackReuse === true ? 8388608 : 0) // bit 23 (ai): an attack's state machine recycled for the next attack (AIStates.cpp; same game)
                  | (o.deathDeselect === true ? 268435456 : 0) // bit 28 (ai, range 28-31): match rule bit 31, a dying unit leaves only selections that hold it (GameLogic.cpp)
+                 | (o.scanLean === true ? 536870912 : 0) // bit 29 (ai): batchScan collects only modules due this tick, mood frame tested first (GameLogic.cpp, AIUpdate.cpp; same game)
                  | (o.fastRemove === true ? 8 : 0);       // bit 3 (ai): unit group and radar removal by stored node / back link (AIGroup.cpp, Radar.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({

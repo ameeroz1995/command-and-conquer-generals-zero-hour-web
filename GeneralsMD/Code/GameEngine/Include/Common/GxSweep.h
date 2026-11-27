@@ -22,6 +22,7 @@ enum GxSweepSwitch
 	GXSW_FAST_REMOVE  = 0x200 | 3,	///< #55 fastRemove (sixth word bit 3): unit group and radar removal in O(1) (AIGroup.cpp, Radar.cpp)
 	GXSW_TEAM_ONE_WALK = 0x200 | 20,	///< #3 teamOneWalk (sixth word bit 20): one factory walk per unit type (AIPlayer.cpp)
 	GXSW_LIGHT_ITER   = 0x200 | 21,	///< lightIter (sixth word bit 21): terrain vertex lighting uses a lights iterator on the stack (BaseHeightMap.cpp)
+	GXSW_SCAN_LEAN    = 0x200 | 29,	///< scanLean (sixth word bit 29): batchScan collects only modules due this tick and tests the mood frame first (GameLogic.cpp, AIUpdate.cpp)
 	GXSW_AUDIO_NAMES  = 0x200 | 22,	///< audioNames (sixth word bit 22): sound file names built once per event and sound (AudioEventRTS.cpp)
 	GXSW_ATTACK_REUSE = 0x200 | 23,	///< attackReuse (sixth word bit 23): AIAttackState keeps its attack state machine between attacks (AIStates.cpp)
 	GXSW_SUPPLY_ONCE  = 0x200 | 2,	///< #54 supplyOnce (sixth word bit 2): AI supply search collects warehouses once (AIPlayer.cpp)

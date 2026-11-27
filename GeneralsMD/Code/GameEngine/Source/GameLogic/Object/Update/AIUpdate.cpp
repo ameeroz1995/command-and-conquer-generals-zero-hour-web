@@ -75,6 +75,7 @@
 #include "GameLogic/TurretAI.h"
 #include "GameLogic/Weapon.h"
 #include "Common/Radar.h"									// For TheRadar
+#include "Common/GxSweep.h"
 
 // Web port (round 5, units are pure data): AIUpdateInterface's per-unit state is a row of TheGxAIUpdateInterfaces;
 // GXROW_AIUPDATEINTERFACE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
@@ -4856,6 +4857,7 @@ void AIUpdateInterface::gxMoodScanKernel( UpdateModulePtr *mods, Int begin, Int 
 	if (!GameLogic::gxKernelSwitch(GXRULE_KIND_KERNELS_OFF) || !gxMatchRule(GXRULE_BATCH_SCAN))	// match rules
 		return;
 	const UnsignedInt now = TheGameLogic->getFrame();
+	const Bool gxLean = gxSweepOn(GXSW_SCAN_LEAN);
 	if (s_gxScanWhoFrame != now) { s_gxScanWho.clear(); s_gxScanWhoFrame = now; s_gxScanDoneFrame = ~0u; }
 	for (Int k = begin; k < end; ++k)
 	{
@@ -4867,7 +4869,11 @@ void AIUpdateInterface::gxMoodScanKernel( UpdateModulePtr *mods, Int begin, Int 
 			r.gxScanMiss = TRUE;
 		if (r.gxScanMiss)
 			continue;
-		if (r.gxScanQueued == now || !ai->gxMoodScanArgs(r.gxScanRange, r.gxScanFlags))
+		if (r.gxScanQueued == now)
+			continue;
+		if (gxLean && now < r.nextMoodCheckTime)	// scanLean: gxMoodScanArgs's own frame test, before its virtual calls
+			continue;
+		if (!ai->gxMoodScanArgs(r.gxScanRange, r.gxScanFlags))
 			continue;
 		r.gxScanQueued = now; r.gxScanInfo = ai->getAttackInfo();
 		s_gxScanWho.push_back(ai);

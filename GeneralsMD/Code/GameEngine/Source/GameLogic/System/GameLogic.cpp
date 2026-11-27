@@ -4328,6 +4328,8 @@ void GameLogic::update()
 			// batchScan: before any update of the tick, collect every AI module that runs this tick
 			// (each phase's AI pass lists and the heap's entries due now) so one search serves them all
 			static std::vector<UpdateModulePtr> km; km.clear();
+			// scanLean (sixth word bit 29): only modules due this tick go to the sort (the kernel skips the rest anyway)
+			const Bool gxLean = gxSweepOn(GXSW_SCAN_LEAN);
 			for (size_t oi = 0; oi < m_gxKindOrder.size(); ++oi)
 			{
 				GxKind &kd = m_gxKinds[m_gxKindOrder[oi]];
@@ -4338,7 +4340,7 @@ void GameLogic::update()
 					const int sl = ks[q];
 					if (!TheGxUnitStore.obj[sl]) continue;
 					const int id = TheGxUnitStore.id[sl];
-					if (id < (int)kd.modById.size() && kd.modById[id]) km.push_back(kd.modById[id]);
+					if (id < (int)kd.modById.size() && kd.modById[id] && (!gxLean || kd.modById[id]->friend_getNextCallFrame() == now)) km.push_back(kd.modById[id]);
 				}
 			}
 			for (Int ph = 0; ph < 4; ++ph)	// AI kinds without a bit of their own run from the misc lists
@@ -4351,7 +4353,7 @@ void GameLogic::update()
 					const int id = TheGxUnitStore.id[sl];
 					if (id >= (int)m_gxMiscById[ph].size()) continue;
 					for (UpdateModulePtr u : m_gxMiscById[ph][id])
-						if (u->getAIUpdateInterface()) km.push_back(u);
+						if ((!gxLean || u->friend_getNextCallFrame() == now) && u->getAIUpdateInterface()) km.push_back(u);
 				}
 			}
 			const UnsignedInt lim = (now << 2) | 3;
@@ -4361,7 +4363,7 @@ void GameLogic::update()
 			{
 				const size_t i = st.back(); st.pop_back();
 				if (i >= m_sleepyUpdates.size() || m_gxSleepyKey[i] > lim) continue;
-				if (m_sleepyUpdates[i]->getAIUpdateInterface()) km.push_back(m_sleepyUpdates[i]);
+				if ((!gxLean || m_sleepyUpdates[i]->friend_getNextCallFrame() == now) && m_sleepyUpdates[i]->getAIUpdateInterface()) km.push_back(m_sleepyUpdates[i]);
 				st.push_back(2 * i + 2); st.push_back(2 * i + 1);
 			}
 			std::sort(km.begin(), km.end(), [](UpdateModulePtr a, UpdateModulePtr b) { return a->friend_getObject()->getID() < b->friend_getObject()->getID(); });
@@ -6189,3 +6191,4 @@ void GameLogic::loadPostProcess()
 	remakeSleepyUpdate();
 
 }
+
