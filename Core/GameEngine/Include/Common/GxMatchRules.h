@@ -37,7 +37,15 @@ enum GxMatchRule
 	GXRULE_LOCO_SIMD      = 134217728,	///< locoSimd: locomotor headings by a fixed polynomial atan2, 4 movers per wasm SIMD op in the movement pass (Locomotor.cpp, GxLocoAngle.h)
 };
 
+// Rule word 2 ("GX2=" in the options string), same handling as word 1; bits by owner as main assigns.
+enum GxMatchRule2
+{
+	GXRULE2_FAIL_CACHE    = 1,	///< failCache (paths): a terrain-only route search that ran its full flood and found nothing is answered "no route" again for the same exact inputs until an obstacle, cell type or zone changes, charging the same cells to the queue's budget; not exact because such floods end where the cell-info pool runs out, which depends on the units (AIPathfind.cpp)
+};
+
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for
+unsigned int gxLocalMatchRules2();		///< rule word 2: the rules the local Settings switches ask for
+bool gxMatchRule2(unsigned int rule);	///< rule word 2: is this rule on in the game being played?
 void gxStartMatchRules();				///< at the start of every game: fix the rules for a network game or replay
 bool gxMatchRule(unsigned int rule);	///< is this rule on in the game being played?
 unsigned int gxCurrentMatchRules();	///< all rules in force now (for logs)

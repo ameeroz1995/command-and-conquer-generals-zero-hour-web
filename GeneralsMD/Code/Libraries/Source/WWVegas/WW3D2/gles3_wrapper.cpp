@@ -64,7 +64,7 @@ int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
 static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 512 | 4096 | 8192 | 16384 | 32768 | 131072 | 33554432 | 1073741824 | 262144 | (int)0x80000000;	// default-on bits of every lane (collideSimd, dataBehaviors, kindKernels, containKernels, kernelSimd, rowKernels, simdSearch, fogStamps, fogKeep, simdPairs, cpopSimd, splashSimd, simdBody, snapPatch)
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
-static int g_PageSwitches5 = 0 | 2 | 65536 | 131072 | 262144;	// fifth word, default-on bits of every lane (locoSimd, orderQueue, pathTail, nodePool)
+static int g_PageSwitches5 = 0 | 2 | 65536 | 131072 | 262144 | 524288;	// fifth word, default-on bits of every lane (locoSimd, orderQueue, pathTail, nodePool, failCache)
 int GLES3_Page_Switches5() { return g_PageSwitches5; }	// non-web builds: callers use a local stub returning 0
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -513,7 +513,7 @@ void GLES3_Begin_Scene() {
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
-                 | (o.failCache === true ? 524288 : 0)   // bit 19: a terrain-only route search that failed is answered again from a list until an obstacle or cell type changes (AIPathfind.cpp; same game)
+                 | (o.failCache === false ? 0 : 524288)   // bit 19: match rule failCache (rule word 2 bit 0), a terrain-only route search that failed is answered again from a list until an obstacle, cell type or zone changes (AIPathfind.cpp)
                  | (o.nodePool === false ? 0 : 262144)   // bit 18: freed route points and routes reused from a stack before the pool's blobs (GameMemory.cpp; same game)
                  | (o.pathTail === false ? 0 : 131072)   // bit 17: a route point is linked after the kept tail instead of walking the route to its end (AIPathfind.cpp; same game)
                  | (o.orderQueue === false ? 0 : 65536)   // bit 16: match rule orderQueue, a group order does no route search on its tick; the kinds' routes are searched in the route queue (AIGroup.cpp)

@@ -861,6 +861,7 @@ void LanGameOptionsMenuInit( WindowLayout *layout, void *userData )
     game->setStartingCash( pref.getStartingCash() );
     game->setSuperweaponRestriction( pref.getSuperweaponRestricted() ? 1 : 0 );
 		game->setGxMatchRules( gxLocalMatchRules() );	// web port: the host's Settings decide the match rules
+		game->setGxMatchRules2( gxLocalMatchRules2() );
 		AsciiString lowerMap = pref.getPreferredMap();
 		lowerMap.toLower();
 		std::map<AsciiString, MapMetaData>::iterator it = TheMapCache->find(lowerMap);

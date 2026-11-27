@@ -4541,3 +4541,26 @@ Level within noise (the ceiling was the call's 0.4% self share).
 - Timing, ai-long.rep (timing slot), off/on x2, load 2.8-4.9: route search 0.922 / 0.790, 0.906 / 0.785
   ms/tick (-14%); A* 12.8 / 9.9 s; logic 4.05 / 3.94, 4.02 / 3.94; p99 28.7 / 22.8, 28.4 / 21.6 ms.
   Battle (no-draw): pair 1 logic 31.78 / 32.95, pair 2 off run discarded (load 23); level there.
+
+## 2026-11-27 — paths: failCache becomes match rule word 2 bit 0 (new rule word "GX2="), ON
+- Why it can't be exact: verify (expansion counter added) shows the failed terrain-only floods on
+  ai-long.rep expand ~27,000-32,000 cells: they end where the 30,000-entry cell-info pool runs out
+  (CELL_INFOS_TO_ALLOCATE), and cells held by units' info decide exactly where. A zone generation
+  (calculateZones / updateZonesForModify) now also clears the list, but the pool limit remains, so
+  "no route" there is not a property of the inputs. Hence a match rule.
+- Rule word 2, same handling as word 1: GameInfo m_gxMatchRules2, "GX2=%X;" in the options string only
+  when non-zero (so games without word-2 rules send the old string), parsed back, fixed by the host or
+  the replay in gxStartMatchRules; gxLocalMatchRules2() / gxMatchRule2(). Set wherever word 1 is set
+  (LAN and WOL setup, both recorder paths). GXRULES now prints both words. Bit 0 = failCache, local
+  switch fifth word bit 19.
+- Checks (paths-fc7 main tree; paths-fc7a = + a650518 for AI games): referee.rep (rules 0), long-up
+  (FEE6E7), loco (8FEE6E7), oq (20FEE6E7), def (28FEE6E7) all match with the local switch on (word 2 = 0
+  from their headers). New AI-game recordings, 27,000 frames: paths-ail-fcon.rep (header
+  GX=28FEE6E7;GX2=1;) replays to a match with the local switch on and off; paths-ail-fcoff.rep (no GX2)
+  matches with the switch on.
+- Timing: bench_record's 3-AI game is too light to show it (0.40 ms/tick logic, 0.017 pathfind, no
+  failing floods; both recordings level). Battle no-draw: logic 28.78 / 29.82, 29.69 / 28.99 ms/tick
+  (off/on): level, no hits. The gain is the AI game measured above (ai-long.rep, switch forced:
+  route search -14%, p99 28.5 -> 22 ms). ON by default.
+- ai-long.rep divergence on this branch: leaves the recording at frame 20,902 (recorded on collide's
+  soa-24), with or without this branch's new switches; main traces it at merge8.

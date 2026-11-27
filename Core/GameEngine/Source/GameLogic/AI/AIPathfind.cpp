@@ -3064,8 +3064,12 @@ void PathfindZoneManager::markZonesDirty()  ///< Called when the zones need to b
  * If you are a multiple terrain vehicle, like amphibious transport, the lookup is a little more
  * complicated.
  */
+UnsignedInt gxZoneGen = 0;
+// web port (switch failCache): goes up whenever zones are recalculated or patched
+unsigned gxExpansions = 0;	// web port (failCache verify): cell expansions so far
 void PathfindZoneManager::calculateZones( PathfindCell **map, PathfindLayer layers[], const IRegion2D &globalBounds )
 {
+	++gxZoneGen;
 #ifdef DEBUG_QPF
 #if defined(DEBUG_LOGGING)
 	__int64 startTime64;
@@ -3412,6 +3416,7 @@ void PathfindZoneManager::calculateZones( PathfindCell **map, PathfindLayer laye
  */
 void PathfindZoneManager::updateZonesForModify(PathfindCell **map, PathfindLayer layers[], const IRegion2D &structureBounds, const IRegion2D &globalBounds )
 {
+	++gxZoneGen;
 
 #ifdef DEBUG_QPF
 #if defined(DEBUG_LOGGING)
@@ -6923,6 +6928,7 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
 {
 	gxCount(GXC_PATH_CELLS);	// web port: GXTIME work counter (cell expansions)
 	gxPkCell();
+	++gxExpansions;	// web port (failCache verify)
 		Bool canPathThroughUnits = false;
 		if (obj && obj->getAIUpdateInterface()) {
 			canPathThroughUnits = obj->getAIUpdateInterface()->canPathThroughUnits();
@@ -7169,8 +7175,10 @@ unsigned gxObstacleSerial();	// below (flow fields' obstacle serial)
 struct GxFailKey { Real fx, fy, fz, tx, ty, tz; Int layer, destLayer, surfaces, crusher, radius, center, human; ObjectID ignore; };
 static inline Bool operator==(const GxFailKey &a, const GxFailKey &b) { return memcmp(&a, &b, sizeof(GxFailKey)) == 0; }
 struct GxFailHash { size_t operator()(const GxFailKey &k) const { const unsigned *w = (const unsigned *)&k; size_t h = 2166136261u; for (size_t i = 0; i < sizeof(GxFailKey) / 4; ++i) h = (h ^ w[i]) * 16777619u; return h; } };
-static std::unordered_map<GxFailKey, Int, GxFailHash> s_gxFails;
-static unsigned s_gxFailSerial = 0; static UnsignedInt s_gxFailTypes = 0;
+static std::unordered_map<GxFailKey, std::pair<Int, unsigned>, GxFailHash> s_gxFails;	// cells charged, cells expanded
+static unsigned s_gxFailSerial = 0; static UnsignedInt s_gxFailTypes = 0, s_gxFailZones = 0;
+extern UnsignedInt gxZoneGen; extern unsigned gxExpansions;
+static unsigned s_gxFailExp = 0;	// verify: expansions of the stored search
 static Bool s_gxFullSearch = FALSE;	// set by internalFindPath when it runs the A* flood
 static void gxFailKeyOf(const Object *obj, const LocomotorSet &ls, const Coord3D *from, const Coord3D *rawTo, ObjectID ignore, Int radius, Bool center, GxFailKey &k)
 {
@@ -7184,22 +7192,22 @@ static void gxFailKeyOf(const Object *obj, const LocomotorSet &ls, const Coord3D
 }
 static Bool gxFailCached(const GxFailKey &k, Int &cells)
 {
-	if (s_gxFailSerial != gxObstacleSerial() || s_gxFailTypes != Pathfinder::gxCellTypeVersion()) {
-		s_gxFails.clear(); s_gxFailSerial = gxObstacleSerial(); s_gxFailTypes = Pathfinder::gxCellTypeVersion();
+	if (s_gxFailSerial != gxObstacleSerial() || s_gxFailTypes != Pathfinder::gxCellTypeVersion() || s_gxFailZones != gxZoneGen) {
+		s_gxFails.clear(); s_gxFailSerial = gxObstacleSerial(); s_gxFailTypes = Pathfinder::gxCellTypeVersion(); s_gxFailZones = gxZoneGen;
 		return FALSE;
 	}
 	auto it = s_gxFails.find(k);
 	if (it == s_gxFails.end()) return FALSE;
-	cells = it->second;
+	cells = it->second.first; s_gxFailExp = it->second.second;
 	return TRUE;
 }
-static void gxFailStore(const GxFailKey &k, Int cells)
+static void gxFailStore(const GxFailKey &k, Int cells, unsigned exp)
 {
-	if (s_gxFailSerial != gxObstacleSerial() || s_gxFailTypes != Pathfinder::gxCellTypeVersion()) {
-		s_gxFails.clear(); s_gxFailSerial = gxObstacleSerial(); s_gxFailTypes = Pathfinder::gxCellTypeVersion();
+	if (s_gxFailSerial != gxObstacleSerial() || s_gxFailTypes != Pathfinder::gxCellTypeVersion() || s_gxFailZones != gxZoneGen) {
+		s_gxFails.clear(); s_gxFailSerial = gxObstacleSerial(); s_gxFailTypes = Pathfinder::gxCellTypeVersion(); s_gxFailZones = gxZoneGen;
 	}
 	if (s_gxFails.size() > 50000) s_gxFails.clear();	// ponytail: a hard cap, not LRU
-	s_gxFails[k] = cells;	// the cells that search charged to the queue's per-frame budget
+	s_gxFails[k] = std::make_pair(cells, exp);	// the cells that search charged to the queue's per-frame budget
 }
 #endif
 Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
@@ -7279,11 +7287,10 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 	const Bool wasIgnoring = s_gxPlanIgnoringUnits;
 	const Bool gxIgnoring = gxIgnoreUnitsFor(obj);
 	if (gxIgnoring) s_gxPlanIgnoringUnits = true;
-	// switch failCache (fifth word bit 19): a search that plans around terrain and buildings only and
+	// match rule failCache (rule word 2 bit 0): a search that plans around terrain and buildings only and
 	// found nothing gives the same answer again while its inputs are the same (start and goal cell,
 	// layers, surfaces, crusher, size, side, ignored obstacle) and no obstacle or cell type changed
-	extern int GLES3_Page_Switches5();
-	const Bool gxFc = gxIgnoring && (GLES3_Page_Switches5() & 524288) != 0;
+	const Bool gxFc = gxIgnoring && gxMatchRule2(GXRULE2_FAIL_CACHE);	// match rule failCache (rule word 2 bit 0; switch: fifth word bit 19)
 	GxFailKey gxFk;
 	if (gxFc) {
 		Int fr = 0; Bool fcen = true;
@@ -7293,12 +7300,12 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 		if (gxFailCached(gxFk, gxCells)) {
 			gxCount(GXC_FAIL_CACHED);
 			if (GLES3_Page_Switches() & 2097152) {	// verify mode: the search must fail again
-				const Int before = m_cumulativeCellsAllocated;
+				const Int before = m_cumulativeCellsAllocated; const unsigned expBefore = gxExpansions, expCached = s_gxFailExp;
 				Path *chk = internalFindPath(obj, locomotorSet, from, rawTo);
 				static int s_checked = 0, s_bad = 0;
 				if (chk) { if (++s_bad <= 20) printf("GXVERIFY failCache mismatch: the search found a route\n"); deleteInstance(chk); }
-				else if (m_cumulativeCellsAllocated - before != gxCells) { if (++s_bad <= 20) printf("GXVERIFY failCache mismatch: cells %d, cached %d\n", m_cumulativeCellsAllocated - before, gxCells); }
-				if (++s_checked % 2000 == 0) printf("GXVERIFY failCache checked %d, mismatches %d\n", s_checked, s_bad);
+				else if (m_cumulativeCellsAllocated - before != gxCells) { if (++s_bad <= 20) printf("GXVERIFY failCache mismatch: cells %d, cached %d; expanded %u, cached %u\n", m_cumulativeCellsAllocated - before, gxCells, gxExpansions - expBefore, expCached); }
+				if (++s_checked % 100 == 0) printf("GXVERIFY failCache checked %d, mismatches %d\n", s_checked, s_bad);
 			}
 			else
 				m_cumulativeCellsAllocated += gxCells;	// the same budget the search would have used (it is in the CRC)
@@ -7307,9 +7314,9 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 		}
 	}
 	s_gxFullSearch = FALSE;
-	const Int gxCellsBefore = m_cumulativeCellsAllocated;
+	const Int gxCellsBefore = m_cumulativeCellsAllocated; const unsigned gxExpBefore = gxExpansions;
 	Path *pat = internalFindPath(obj, locomotorSet, from, rawTo);
-	if (gxFc && !pat && s_gxFullSearch) gxFailStore(gxFk, m_cumulativeCellsAllocated - gxCellsBefore);	// only failures of the full flood: the quick refusals (goal taken, zones) can change with units
+	if (gxFc && !pat && s_gxFullSearch) gxFailStore(gxFk, m_cumulativeCellsAllocated - gxCellsBefore, gxExpansions - gxExpBefore);	// only failures of the full flood: the quick refusals (goal taken, zones) can change with units
 	s_gxPlanIgnoringUnits = wasIgnoring;
 #else
 	Path *pat = internalFindPath(obj, locomotorSet, from, rawTo);

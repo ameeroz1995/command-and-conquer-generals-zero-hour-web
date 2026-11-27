@@ -647,6 +647,7 @@ void RecorderClass::startRecording(GameDifficulty diff, Int originalGameMode, In
     {
 			TheSkirmishGameInfo->setCRCInterval(REPLAY_CRC_INTERVAL);
 			TheSkirmishGameInfo->setGxMatchRules(gxLocalMatchRules());	// web port: the replay plays back with these
+			TheSkirmishGameInfo->setGxMatchRules2(gxLocalMatchRules2());
       theSlotList = GameInfoToAsciiString(TheSkirmishGameInfo);
       DEBUG_LOG(("GameInfo String: %s",theSlotList.str()));
 			localIndex = 0;
@@ -656,6 +657,7 @@ void RecorderClass::startRecording(GameDifficulty diff, Int originalGameMode, In
 		  // single player.  format the generic (empty) slotlist
 			m_gameInfo.setCRCInterval(REPLAY_CRC_INTERVAL);
 			m_gameInfo.setGxMatchRules(gxLocalMatchRules());	// web port: the replay plays back with these
+			m_gameInfo.setGxMatchRules2(gxLocalMatchRules2());
 		  theSlotList = GameInfoToAsciiString(&m_gameInfo);
     }
 	}
