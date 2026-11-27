@@ -62,8 +62,10 @@ int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
 static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 512 | 4096 | 8192 | 16384 | 32768 | 262144;	// default-on bits of every lane (collideSimd, dataBehaviors, kindKernels, containKernels, kernelSimd, rowKernels, simdSearch, fogStamps, fogKeep, cpopSimd)
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
-static int g_PageSwitches5 = 0;	// fifth word, default-on bits of every lane (none yet)
-int GLES3_Page_Switches5() { return g_PageSwitches5; }	// non-web builds: callers use a local stub returning 0
+static int g_PageSwitches5 = 0 | 16 | 32 | 64 | 128;	// fifth word, default-on bits of every lane (geomColumns, recruitIndex, aiWorldIndex, playerKindCounts)
+int GLES3_Page_Switches5() { return g_PageSwitches5; }
+static int g_PageSwitches6 = 0;	// sixth word, default-on bits of every lane (none yet); ranges: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19
+int GLES3_Page_Switches6() { return g_PageSwitches6; }	// non-web builds: callers use a local stub returning 0
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
@@ -490,13 +492,18 @@ void GLES3_Begin_Scene() {
                  | (o.cpopSimd === false ? 0 : 262144) // bit 18: with cpopSegments, the closest route segment found 8 segments per loop with wasm SIMD (AIPathfind.cpp; same game)
                  | (o.tickTiming === true ? 65536 : 0);   // bit 16 (measuring only, off): per-tick logic / system ms, work counters, frame p99 as GXTIME lines (Common/GxTime.h)
         });
+        g_PageSwitches6 = EM_ASM_INT({
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            return 0   // sixth word: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19, 20-31 spare
+                 | (o.circleReuse === true ? 16777216 : 0);   // bit 24 (collide): shroud-cover / threat / value affects regenerate one scratch DiscreteCircle per call site instead of a new edge vector per call (PartitionManager.cpp, DiscreteCircle.cpp; same game)
+        });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
-                 | (o.recruitIndex === true ? 32 : 0)   // bit 5 (value 32): team recruiting looks at the player's objects from the unit store, in object-list order, not the whole world (Team.cpp; same game)
-                 | (o.aiWorldIndex === true ? 64 : 0)   // bit 6 (value 64): AI dozer search over the player's objects from the unit store, rebuild holes by spawner index (AIPlayer.cpp, RebuildHoleBehavior.cpp; same game)
-                 | (o.playerKindCounts === true ? 128 : 0)   // bit 7 (value 128): per-player black-market / drone counts skip the player walks when there are none (GxUnitStore, StealthUpdate.cpp, AIDock.cpp; same game)
-                 | (o.geomColumns === true ? 16 : 0)   // bit 4 (value 16): with hotInStore, geometry and transform also as plain store columns read by the partition fill, collision z test and direction (GxUnitStore.h; same game)
+                 | (o.recruitIndex === false ? 0 : 32)   // bit 5 (value 32): team recruiting looks at the player's objects from the unit store, in object-list order, not the whole world (Team.cpp; same game)
+                 | (o.aiWorldIndex === false ? 0 : 64)   // bit 6 (value 64): AI dozer search over the player's objects from the unit store, rebuild holes by spawner index (AIPlayer.cpp, RebuildHoleBehavior.cpp; same game)
+                 | (o.playerKindCounts === false ? 0 : 128)   // bit 7 (value 128): per-player black-market / drone counts skip the player walks when there are none (GxUnitStore, StealthUpdate.cpp, AIDock.cpp; same game)
+                 | (o.geomColumns === false ? 0 : 16)   // bit 4 (value 16): with hotInStore, geometry and transform also as plain store columns read by the partition fill, collision z test and direction (GxUnitStore.h; same game)
                  | (o.batchScan === true ? 1 : 0);   // bit 0 (value 1): batchScan, due mood scans of AI units collected per phase and searched in one pass over the unit store (AIUpdate.cpp, PartitionManager.cpp; off until timed)
         });
         g_PageSwitches3 = EM_ASM_INT({

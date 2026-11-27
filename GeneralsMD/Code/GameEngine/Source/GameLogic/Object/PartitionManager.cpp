@@ -5538,6 +5538,16 @@ Bool PartitionManager::findPositionAround( const Coord3D *center,
 
 }
 
+// Web port (switch circleReuse, sixth word bit 24): the shroud-cover / threat / value affects ran
+// once per unit cell change and each built a DiscreteCircle (a new edge vector). One scratch circle
+// per call site is regenerated in place instead; same edges, so the same cells in the same order.
+static inline Bool gxCircleReuseOn() { return (GLES3_Page_Switches6() & 16777216) != 0; }
+static inline DiscreteCircle &gxCircle(DiscreteCircle &scratch, Int x, Int y, Int r)
+{
+	scratch.reset(x, y, r, gxCircleReuseOn());
+	return scratch;
+}
+
 //-----------------------------------------------------------------------------
 // Web port (switch fogStamps, fourth word bit 14; same game): sight circles from precomputed stamps.
 // A stamp is DiscreteCircle's span list for one cell radius, recorded once at centre (0, 0) in
@@ -5781,7 +5791,8 @@ void PartitionManager::doShroudCover(Real centerX, Real centerY, Real radius, Pl
 	if (cellRadius < 1)
 		cellRadius = 1;
 
-	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
+	static DiscreteCircle s_circle(0, 0, 0);
+	DiscreteCircle &circle = gxCircle(s_circle, cellCenterX, cellCenterY, cellRadius);	// switch circleReuse
 
 	for( Int currentIndex = ThePlayerList->getPlayerCount() - 1; currentIndex >=0; currentIndex-- )
 	{
@@ -5805,7 +5816,8 @@ void PartitionManager::undoShroudCover(Real centerX, Real centerY, Real radius, 
 	if (cellRadius < 1)
 		cellRadius = 1;
 
-	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
+	static DiscreteCircle s_circle(0, 0, 0);
+	DiscreteCircle &circle = gxCircle(s_circle, cellCenterX, cellCenterY, cellRadius);	// switch circleReuse
 
 	for( Int currentIndex = ThePlayerList->getPlayerCount() - 1; currentIndex >=0; currentIndex-- )
 	{
@@ -5831,7 +5843,8 @@ void PartitionManager::doThreatAffect( Real centerX, Real centerY, Real radius, 
 
 	Real fCellRadius = INT_TO_REAL(cellRadius + 1);
 
-	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
+	static DiscreteCircle s_circle(0, 0, 0);
+	DiscreteCircle &circle = gxCircle(s_circle, cellCenterX, cellCenterY, cellRadius);	// switch circleReuse
 
 	ThreatValueParms parms;
 	parms.radius = fCellRadius;
@@ -5864,7 +5877,8 @@ void PartitionManager::undoThreatAffect( Real centerX, Real centerY, Real radius
 
 	Real fCellRadius = INT_TO_REAL(cellRadius + 1);
 
-	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
+	static DiscreteCircle s_circle(0, 0, 0);
+	DiscreteCircle &circle = gxCircle(s_circle, cellCenterX, cellCenterY, cellRadius);	// switch circleReuse
 
 	ThreatValueParms parms;
 	parms.radius = fCellRadius;
@@ -5897,7 +5911,8 @@ void PartitionManager::doValueAffect( Real centerX, Real centerY, Real radius, U
 
 	Real fCellRadius = INT_TO_REAL(cellRadius + 1);
 
-	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
+	static DiscreteCircle s_circle(0, 0, 0);
+	DiscreteCircle &circle = gxCircle(s_circle, cellCenterX, cellCenterY, cellRadius);	// switch circleReuse
 
 	ThreatValueParms parms;
 	parms.radius = fCellRadius;
@@ -5930,7 +5945,8 @@ void PartitionManager::undoValueAffect( Real centerX, Real centerY, Real radius,
 
 	Real fCellRadius = INT_TO_REAL(cellRadius + 1);
 
-	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
+	static DiscreteCircle s_circle(0, 0, 0);
+	DiscreteCircle &circle = gxCircle(s_circle, cellCenterX, cellCenterY, cellRadius);	// switch circleReuse
 
 	ThreatValueParms parms;
 	parms.radius = fCellRadius;
