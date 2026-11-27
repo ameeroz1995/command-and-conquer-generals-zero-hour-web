@@ -4511,3 +4511,33 @@ Level within noise (the ceiling was the call's 0.4% self share).
 - Checks with it on: referee.rep, paths-long-up.rep, paths-loco.rep, paths-oq.rep, paths-def.rep match;
   battle verify: cpopSimd 760,000 searches (44.1 M segments) against the node walk, 0 mismatches.
   ON by default (third word bit 0).
+
+## 2026-11-27 — paths: pathfinding on the AI game (ai-long.rep): profile, and failCache (fifth word bit 19, OFF)
+- New measuring-only counters (tickTiming): a GXPATHK line every 900 frames with, per search kind,
+  calls, exclusive ms (a nested search's time goes to the nested kind), cells expanded, and repeats
+  (same unit, same goal cell within 60 frames); plus failed A* searches (through findPath), their cells
+  and ms, and repeats of a goal that failed last time.
+- ai-long.rep (collide's 7 brutal AIs) needs the AI-script fix (a650518), which breaks the old
+  recordings, so it was played on a scratch build (this branch + a650518). On this branch it leaves the
+  recording at frame 20,902 with or without today's switches (cpopSegments, nodePool, pathTail off too),
+  so every number here is the first 20,900 frames. Pathfinding there: ~0.9-1.0 of ~4.0-4.8 ms/tick logic
+  (pinned slot), not the 15-18 of 24 ms quoted (that figure is from another build/setup).
+- Where it goes (20,900 frames): A* 33,540 calls, 12.3-13.1 s, 9.9 M cells; 24,628 of the calls (73%)
+  repeat a unit's goal cell within 60 frames. 1,350 failed A* searches take 8.6 M of the 9.9 M cells
+  (87%) and ~10 s of the A* time (82%): ~6,400 cells, ~7.5 ms each; 1,307 of them plan around terrain
+  and buildings only (ignoreUnitsInPaths); 526 repeat a goal that failed last time. Then flow-field
+  routes 2.1-2.3 s, attack approach 2.0 s (3,602 calls, 1,094 cells each), the queue itself 1.7 s.
+- failCache: a terrain-only search that ran its full flood and found nothing is answered "no route"
+  again for the same exact start, goal, layers, surfaces, crusher, size, side and ignored obstacle while
+  the obstacle serial and cell-type generation are unchanged. Two lessons on the way: the quick refusals
+  (goal taken, zones) must not be cached (first build: a cached "no" that would have been a route,
+  mismatch at frame 1,802), and a hit must charge the queue's per-frame cell budget the cells the search
+  would have released (m_cumulativeCellsAllocated, in the CRC; without it: mismatch at frame 11,602).
+- Checks: ai-long.rep (20,900 frames) matches with it on, with and without verify; referee, long-up,
+  loco, oq, def match (main-tree build paths-fc4). Verify found 2 hits where the real search charged one
+  cell more than the cache (17,424 vs 17,423): both failed, but the budget differs by one cell, so it is
+  not proven the same game. Likely cause: A* also reads the zone passable flags left by the hierarchical
+  search, which the key does not cover. Hence OFF until it has a match rule (or the key is fixed).
+- Timing, ai-long.rep (timing slot), off/on x2, load 2.8-4.9: route search 0.922 / 0.790, 0.906 / 0.785
+  ms/tick (-14%); A* 12.8 / 9.9 s; logic 4.05 / 3.94, 4.02 / 3.94; p99 28.7 / 22.8, 28.4 / 21.6 ms.
+  Battle (no-draw): pair 1 logic 31.78 / 32.95, pair 2 off run discarded (load 23); level there.

@@ -76,6 +76,80 @@
 //------------------------------------------------------------------------------ Performance Timers
 #include "Common/PerfMetrics.h"
 #include <unordered_set>
+#include <unordered_map>
+// web port (measuring only, tickTiming): route work by search kind. Exclusive ms (a nested search's time
+// goes to the nested kind), calls, cells expanded, and repeats: the same unit asking for the same goal
+// cell within 60 frames. One "GXPATHK" line
+// every 900 logic frames with totals since the start.
+enum GxPk { GXPK_ASTAR, GXPK_GROUND, GXPK_CLOSEST, GXPK_ATTACK, GXPK_SAFE, GXPK_AWAY, GXPK_PATCH, GXPK_COST,
+	GXPK_HIER, GXPK_QUICK, GXPK_ADJUST, GXPK_FLOW, GXPK_COARSE, GXPK_QUEUE, GXPK_COUNT };
+static const char *s_gxPkName[GXPK_COUNT] = { "astar", "ground", "closest", "attack", "safe", "away", "patch", "cost",
+	"hier", "quick", "adjust", "flow", "coarse", "queue" };
+struct GxPkStats { double ms; unsigned long long calls, cells, repeats; };
+// A* through findPath: failed searches, their cells and ms, and repeats of a goal that failed last time
+static unsigned long long s_gxPkFailsUnits = 0, s_gxPkFailCellsUnits = 0, s_gxPkFails = 0, s_gxPkFailCells = 0, s_gxPkFailRepeats = 0, s_gxPkLastKey = 0, s_gxPkCallCells = 0;
+static double s_gxPkFailMs = 0.0, s_gxPkCallMs = 0.0; static Bool s_gxPkPrevFailed = FALSE;
+static GxPkStats s_gxPk[GXPK_COUNT];
+static int s_gxPkStack[64]; static int s_gxPkDepth = 0; static double s_gxPkT = 0.0;
+struct GxPkLast { UnsignedInt frame; Bool failed; };
+static std::unordered_map<unsigned long long, GxPkLast> s_gxPkLast;
+static void gxPkPrint()
+{
+	char buf[2048]; int k = snprintf(buf, sizeof(buf), "GXPATHK f%u:", TheGameLogic ? TheGameLogic->getFrame() : 0);
+	for (int i = 0; i < GXPK_COUNT; ++i)
+		if (s_gxPk[i].calls)
+			k += snprintf(buf + k, sizeof(buf) - k, " %s %llu calls %.0f ms %llu cells %llu rep;", s_gxPkName[i],
+				s_gxPk[i].calls, s_gxPk[i].ms, s_gxPk[i].cells, s_gxPk[i].repeats);
+	k += snprintf(buf + k, sizeof(buf) - k, " astarFails %llu, fail cells %llu, fail ms %.0f, fail repeats %llu; planning with units: fails %llu, cells %llu", s_gxPkFails, s_gxPkFailCells, s_gxPkFailMs, s_gxPkFailRepeats, s_gxPkFailsUnits, s_gxPkFailCellsUnits);
+	printf("%s\n", buf);
+}
+// findPath: the A* just run (internalFindPath) found nothing
+static void gxPkAstarFailed(Bool withUnits)
+{
+	if (!gxTimingOn() || !s_gxPkLastKey) return;
+	s_gxPkFails++;
+	s_gxPkFailCells += s_gxPk[GXPK_ASTAR].cells - s_gxPkCallCells;
+	if (withUnits) { s_gxPkFailsUnits++; s_gxPkFailCellsUnits += s_gxPk[GXPK_ASTAR].cells - s_gxPkCallCells; }
+	s_gxPkFailMs += s_gxPk[GXPK_ASTAR].ms - s_gxPkCallMs;
+	auto it = s_gxPkLast.find(s_gxPkLastKey);
+	if (s_gxPkPrevFailed) s_gxPkFailRepeats++;
+	if (it != s_gxPkLast.end()) it->second.failed = TRUE;
+	s_gxPkLastKey = 0;
+}
+struct GxPkScope
+{
+	int kind; bool on; unsigned long long key;
+	GxPkScope(int k, const Object *obj = nullptr, const Coord3D *goal = nullptr) : kind(k), on(gxTimingOn()), key(0)
+	{
+		if (!on) return;
+		const double now = emscripten_get_now();
+		if (s_gxPkDepth > 0) s_gxPk[s_gxPkStack[s_gxPkDepth - 1]].ms += now - s_gxPkT;
+		if (s_gxPkDepth < 64) s_gxPkStack[s_gxPkDepth] = k;
+		++s_gxPkDepth; s_gxPkT = now;
+		s_gxPk[k].calls++;
+		if (obj && goal)
+		{
+			const unsigned long long gx = (unsigned)(Int)floorf(goal->x / PATHFIND_CELL_SIZE_F) & 0xffff, gy = (unsigned)(Int)floorf(goal->y / PATHFIND_CELL_SIZE_F) & 0xffff;
+			key = ((unsigned long long)k << 56) | ((unsigned long long)obj->getID() << 32) | (gx << 16) | gy;
+			const UnsignedInt f = TheGameLogic->getFrame();
+			auto it = s_gxPkLast.find(key);
+			Bool prevFailed = FALSE;
+			if (it != s_gxPkLast.end() && f - it->second.frame <= 60) { s_gxPk[k].repeats++; prevFailed = it->second.failed; }
+			s_gxPkLast[key] = GxPkLast{ f, FALSE };
+			if (k == GXPK_ASTAR) { s_gxPkPrevFailed = prevFailed; s_gxPkLastKey = key; s_gxPkCallCells = s_gxPk[k].cells; s_gxPkCallMs = s_gxPk[k].ms; }
+			if (s_gxPkLast.size() > 200000) s_gxPkLast.clear();
+		}
+	}
+	~GxPkScope()
+	{
+		if (!on) return;
+		const double now = emscripten_get_now();
+		s_gxPk[kind].ms += now - s_gxPkT; s_gxPkT = now;
+		if (s_gxPkDepth > 0) --s_gxPkDepth;
+	}
+};
+static inline void gxPkCell() { if (gxTimingOn() && s_gxPkDepth > 0) s_gxPk[s_gxPkStack[(s_gxPkDepth > 64 ? 64 : s_gxPkDepth) - 1]].cells++; }
+
 
 //-------------------------------------------------------------------------------------------------
 
@@ -6022,6 +6096,7 @@ Bool Pathfinder::gxGroupSpot(Object *obj, const LocomotorSet& locomotorSet, cons
 
 Bool Pathfinder::adjustDestination(Object *obj, const LocomotorSet& locomotorSet, Coord3D *dest, const Coord3D *groupDest)
 {
+	GxPkScope gxPk(GXPK_ADJUST);	// web port: GXPATHK (tickTiming)
 	if( obj->isKindOf(KINDOF_PROJECTILE) )
 	{
 		return true; // missiles can go wherever they want to. jba.
@@ -6560,6 +6635,8 @@ Path *Pathfinder::getAircraftPath( const Object *obj, const Coord3D *to )
 //DECLARE_PERF_TIMER(processPathfindQueue)
 void Pathfinder::processPathfindQueue()
 {
+	GxPkScope gxPk(GXPK_QUEUE);	// web port: GXPATHK (tickTiming)
+	if (gxTimingOn() && TheGameLogic->getFrame() % 900 == 0) gxPkPrint();
 	GxTimeScope gxTimePath(GXT_PATHFIND);	// web port: GXTIME (tickTiming)
 	//USE_PERF_TIMER(processPathfindQueue)
 	if (!m_isMapReady) {
@@ -6845,6 +6922,7 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
 																				 const Object *obj, Int attackDistance)
 {
 	gxCount(GXC_PATH_CELLS);	// web port: GXTIME work counter (cell expansions)
+	gxPkCell();
 		Bool canPathThroughUnits = false;
 		if (obj && obj->getAIUpdateInterface()) {
 			canPathThroughUnits = obj->getAIUpdateInterface()->canPathThroughUnits();
@@ -7084,6 +7162,46 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
  */
 static void gxRouteCacheStore( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to, Int radius, Bool center, Path *path );
 
+#ifdef __EMSCRIPTEN__
+// web port (switch failCache): failed terrain-only searches by their inputs, valid while the obstacle
+// serial and the cell-type generation are unchanged
+unsigned gxObstacleSerial();	// below (flow fields' obstacle serial)
+struct GxFailKey { Real fx, fy, fz, tx, ty, tz; Int layer, destLayer, surfaces, crusher, radius, center, human; ObjectID ignore; };
+static inline Bool operator==(const GxFailKey &a, const GxFailKey &b) { return memcmp(&a, &b, sizeof(GxFailKey)) == 0; }
+struct GxFailHash { size_t operator()(const GxFailKey &k) const { const unsigned *w = (const unsigned *)&k; size_t h = 2166136261u; for (size_t i = 0; i < sizeof(GxFailKey) / 4; ++i) h = (h ^ w[i]) * 16777619u; return h; } };
+static std::unordered_map<GxFailKey, Int, GxFailHash> s_gxFails;
+static unsigned s_gxFailSerial = 0; static UnsignedInt s_gxFailTypes = 0;
+static Bool s_gxFullSearch = FALSE;	// set by internalFindPath when it runs the A* flood
+static void gxFailKeyOf(const Object *obj, const LocomotorSet &ls, const Coord3D *from, const Coord3D *rawTo, ObjectID ignore, Int radius, Bool center, GxFailKey &k)
+{
+	memset(&k, 0, sizeof(k));
+	k.human = !(obj && obj->getControllingPlayer() && obj->getControllingPlayer()->getPlayerType() == PLAYER_COMPUTER);
+	k.radius = radius; k.center = center;
+	k.fx = from->x; k.fy = from->y; k.fz = from->z; k.tx = rawTo->x; k.ty = rawTo->y; k.tz = rawTo->z;	// exact positions
+	k.layer = obj ? obj->getLayer() : LAYER_GROUND;
+	k.destLayer = TheTerrainLogic->getLayerForDestination(rawTo);
+	k.surfaces = ls.getValidSurfaces(); k.crusher = obj ? obj->getCrusherLevel() : 0; k.ignore = ignore;
+}
+static Bool gxFailCached(const GxFailKey &k, Int &cells)
+{
+	if (s_gxFailSerial != gxObstacleSerial() || s_gxFailTypes != Pathfinder::gxCellTypeVersion()) {
+		s_gxFails.clear(); s_gxFailSerial = gxObstacleSerial(); s_gxFailTypes = Pathfinder::gxCellTypeVersion();
+		return FALSE;
+	}
+	auto it = s_gxFails.find(k);
+	if (it == s_gxFails.end()) return FALSE;
+	cells = it->second;
+	return TRUE;
+}
+static void gxFailStore(const GxFailKey &k, Int cells)
+{
+	if (s_gxFailSerial != gxObstacleSerial() || s_gxFailTypes != Pathfinder::gxCellTypeVersion()) {
+		s_gxFails.clear(); s_gxFailSerial = gxObstacleSerial(); s_gxFailTypes = Pathfinder::gxCellTypeVersion();
+	}
+	if (s_gxFails.size() > 50000) s_gxFails.clear();	// ponytail: a hard cap, not LRU
+	s_gxFails[k] = cells;	// the cells that search charged to the queue's per-frame budget
+}
+#endif
 Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
 													 const Coord3D *rawTo)
 {
@@ -7159,8 +7277,39 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 	// units are left to the movement code (collisions, allies stepping aside). A unit that is
 	// already blocked plans with units again so it can get around whatever stops it.
 	const Bool wasIgnoring = s_gxPlanIgnoringUnits;
-	if (gxIgnoreUnitsFor(obj)) s_gxPlanIgnoringUnits = true;
+	const Bool gxIgnoring = gxIgnoreUnitsFor(obj);
+	if (gxIgnoring) s_gxPlanIgnoringUnits = true;
+	// switch failCache (fifth word bit 19): a search that plans around terrain and buildings only and
+	// found nothing gives the same answer again while its inputs are the same (start and goal cell,
+	// layers, surfaces, crusher, size, side, ignored obstacle) and no obstacle or cell type changed
+	extern int GLES3_Page_Switches5();
+	const Bool gxFc = gxIgnoring && (GLES3_Page_Switches5() & 524288) != 0;
+	GxFailKey gxFk;
+	if (gxFc) {
+		Int fr = 0; Bool fcen = true;
+		if (obj) getRadiusAndCenter(obj, fr, fcen);
+		gxFailKeyOf(obj, locomotorSet, from, rawTo, m_ignoreObstacleID, fr, fcen, gxFk);
+		Int gxCells = 0;
+		if (gxFailCached(gxFk, gxCells)) {
+			gxCount(GXC_FAIL_CACHED);
+			if (GLES3_Page_Switches() & 2097152) {	// verify mode: the search must fail again
+				const Int before = m_cumulativeCellsAllocated;
+				Path *chk = internalFindPath(obj, locomotorSet, from, rawTo);
+				static int s_checked = 0, s_bad = 0;
+				if (chk) { if (++s_bad <= 20) printf("GXVERIFY failCache mismatch: the search found a route\n"); deleteInstance(chk); }
+				else if (m_cumulativeCellsAllocated - before != gxCells) { if (++s_bad <= 20) printf("GXVERIFY failCache mismatch: cells %d, cached %d\n", m_cumulativeCellsAllocated - before, gxCells); }
+				if (++s_checked % 2000 == 0) printf("GXVERIFY failCache checked %d, mismatches %d\n", s_checked, s_bad);
+			}
+			else
+				m_cumulativeCellsAllocated += gxCells;	// the same budget the search would have used (it is in the CRC)
+			s_gxPlanIgnoringUnits = wasIgnoring;
+			return nullptr;
+		}
+	}
+	s_gxFullSearch = FALSE;
+	const Int gxCellsBefore = m_cumulativeCellsAllocated;
 	Path *pat = internalFindPath(obj, locomotorSet, from, rawTo);
+	if (gxFc && !pat && s_gxFullSearch) gxFailStore(gxFk, m_cumulativeCellsAllocated - gxCellsBefore);	// only failures of the full flood: the quick refusals (goal taken, zones) can change with units
 	s_gxPlanIgnoringUnits = wasIgnoring;
 #else
 	Path *pat = internalFindPath(obj, locomotorSet, from, rawTo);
@@ -7169,6 +7318,9 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 		if (gxCache && !pat->m_gxRefine) gxRouteCacheStore(obj, locomotorSet, from, rawTo, gxRadius, gxCenter, pat);
 		return pat;
 	}
+#ifdef __EMSCRIPTEN__
+	gxPkAstarFailed(!gxIgnoreUnitsFor(obj));	// web port: GXPATHK (tickTiming)
+#endif
 
 	return nullptr;
 }
@@ -7179,6 +7331,7 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
 													 const Coord3D *rawTo)
 {
+	GxPkScope gxPk(GXPK_ASTAR, obj, rawTo);	// web port: GXPATHK (tickTiming)
 	GxTimeScope gxTimePath(GXT_PATHFIND);	// web port: GXTIME (tickTiming)
 	gxCount(GXC_PATH_FINDS);
 	//CRCDEBUG_LOG(("Pathfinder::findPath()"));
@@ -7321,6 +7474,7 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 	}
 #endif
 
+	s_gxFullSearch = TRUE;	// web port (switch failCache): this call runs the A* flood
 	parentCell->startPathfind(goalCell);
 
 	// initialize "open" list to contain start cell
@@ -7769,6 +7923,7 @@ struct GroundCellsStruct
 Path *Pathfinder::findGroundPath( const Coord3D *from,
 													 const Coord3D *rawTo, Int pathDiameter, Bool crusher)
 {
+	GxPkScope gxPk(GXPK_GROUND);	// web port: GXPATHK (tickTiming)
 	GxTimeScope gxTimePath(GXT_PATHFIND);	// web port: GXTIME (tickTiming)
 	gxCount(GXC_PATH_FINDS);
 	//CRCDEBUG_LOG(("Pathfinder::findGroundPath()"));
@@ -8290,6 +8445,7 @@ Path *Pathfinder::findClosestHierarchicalPath( Bool isHuman, const LocomotorSet&
 Path *Pathfinder::internal_findHierarchicalPath( Bool isHuman, const LocomotorSurfaceTypeMask locomotorSurface, const Coord3D *from,
 													 const Coord3D *rawTo, Bool crusher, Bool closestOK)
 {
+	GxPkScope gxPk(GXPK_HIER);	// web port: GXPATHK (tickTiming)
 	//CRCDEBUG_LOG(("Pathfinder::findGroundPath()"));
 #ifdef DEBUG_LOGGING
 	Int startTimeMS = ::GetTickCount();
@@ -8913,6 +9069,7 @@ Bool Pathfinder::clientSafeQuickDoesPathExist( const LocomotorSet& locomotorSet,
 																const Coord3D *from,
 																const Coord3D *to )
 {
+	GxPkScope gxPk(GXPK_QUICK);	// web port: GXPATHK (tickTiming)
 	// See if terrain or building is blocking the destination.
 	PathfindLayerEnum destinationLayer = TheTerrainLogic->getLayerForDestination(to);
 	if (!validMovementPosition(false, destinationLayer, locomotorSet, to)) {
@@ -9134,6 +9291,7 @@ void Pathfinder::tightenPath(Object *obj, const LocomotorSet& locomotorSet, Coor
 Int Pathfinder::checkPathCost(Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
 		const Coord3D *rawTo)
 {
+	GxPkScope gxPk(GXPK_COST);	// web port: GXPATHK (tickTiming)
 	//CRCDEBUG_LOG(("Pathfinder::checkPathCost()"));
 	if (m_isMapReady == false) return 0;
 	enum {MAX_COST = 0x7fff0000};
@@ -9387,6 +9545,7 @@ Int Pathfinder::checkPathCost(Object *obj, const LocomotorSet& locomotorSet, con
 Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
 																	Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies)
 {
+	GxPkScope gxPk(GXPK_CLOSEST, obj, rawTo);	// web port: GXPATHK (tickTiming)
 	GxTimeScope gxTimePath(GXT_PATHFIND);	// web port: GXTIME (tickTiming)
 	gxCount(GXC_PATH_FINDS);
 	//CRCDEBUG_LOG(("Pathfinder::findClosestPath()"));
@@ -11027,6 +11186,7 @@ if (g_UT_startTiming) return false;
 Path *Pathfinder::getMoveAwayFromPath(Object* obj, Object *otherObj,
 											Path *pathToAvoid, Object *otherObj2, Path *pathToAvoid2)
 {
+	GxPkScope gxPk(GXPK_AWAY);	// web port: GXPATHK (tickTiming)
 	GxTimeScope gxTimePath(GXT_PATHFIND);	// web port: GXTIME (tickTiming)
 	gxCount(GXC_PATH_FINDS);
 	if (!m_isMapReady)
@@ -11222,6 +11382,7 @@ Path *Pathfinder::getMoveAwayFromPath(Object* obj, Object *otherObj,
 Path *Pathfinder::patchPath( const Object *obj, const LocomotorSet& locomotorSet,
 		Path *originalPath, Bool blocked )
 {
+	GxPkScope gxPk(GXPK_PATCH);	// web port: GXPATHK (tickTiming)
 	GxTimeScope gxTimePath(GXT_PATHFIND);	// web port: GXTIME (tickTiming)
 	gxCount(GXC_PATH_FINDS);
 	//CRCDEBUG_LOG(("Pathfinder::patchPath()"));
@@ -11453,6 +11614,7 @@ Path *Pathfinder::patchPath( const Object *obj, const LocomotorSet& locomotorSet
 Path *Pathfinder::findAttackPath( const Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from,
 		const Object *victim, const Coord3D* victimPos, const Weapon *weapon )
 {
+	GxPkScope gxPk(GXPK_ATTACK, obj, victimPos);	// web port: GXPATHK (tickTiming)
 	if (!m_isMapReady)
 		return nullptr; // Should always be ok.
 
@@ -11808,6 +11970,7 @@ Path *Pathfinder::findAttackPath( const Object *obj, const LocomotorSet& locomot
 Path *Pathfinder::findSafePath( const Object *obj, const LocomotorSet& locomotorSet,
 		const Coord3D *from, const Coord3D* repulsorPos1, const Coord3D* repulsorPos2, Real repulsorRadius)
 {
+	GxPkScope gxPk(GXPK_SAFE);	// web port: GXPATHK (tickTiming)
 	//CRCDEBUG_LOG(("Pathfinder::findSafePath()"));
 	if (m_isMapReady == false) return nullptr; // Should always be ok.
 #if defined(RTS_DEBUG)
@@ -12094,11 +12257,13 @@ const int DX[8] = { 1, 0, -1, 0, 1, -1, -1, 1 }, DY[8] = { 0, 1, 0, -1, 1, 1, -1
 }
 
 void Pathfinder::gxObstaclesChanged() { s_obstacleSerial++; }
+unsigned gxObstacleSerial() { return s_obstacleSerial; }
 
 // Match rule coarseStart: the zone-level route (what findPath computes first), straightened, for a
 // unit to follow while its full route waits in the queue.
 Path *Pathfinder::gxCoarsePath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *to )
 {
+	GxPkScope gxPk(GXPK_COARSE);	// web port: GXPATHK (tickTiming)
 	const Coord3D *from = obj->getPosition();
 	Bool isHuman = !(obj->getControllingPlayer() && obj->getControllingPlayer()->getPlayerType() == PLAYER_COMPUTER);
 	m_zoneManager.clearPassableFlags();
@@ -12111,6 +12276,7 @@ Path *Pathfinder::gxCoarsePath( Object *obj, const LocomotorSet& locomotorSet, c
 Path *Pathfinder::gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo,
 	PathfindCell *startCell, PathfindCell *goalCell, Bool isCrusher, Bool centerInCell )
 {
+	GxPkScope gxPk(GXPK_FLOW);	// web port: GXPATHK (tickTiming)
 #ifdef __EMSCRIPTEN__
 	if (!gxMatchRule(GXRULE_FLOW_FIELDS) || s_inFieldPath || !TheGameLogic) return nullptr;
 	const int sx = startCell->getXIndex(), sy = startCell->getYIndex(), gx = goalCell->getXIndex(), gy = goalCell->getYIndex();

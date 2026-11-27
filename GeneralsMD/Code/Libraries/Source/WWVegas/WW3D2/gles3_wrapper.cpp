@@ -513,6 +513,7 @@ void GLES3_Begin_Scene() {
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+                 | (o.failCache === true ? 524288 : 0)   // bit 19: a terrain-only route search that failed is answered again from a list until an obstacle or cell type changes (AIPathfind.cpp; same game)
                  | (o.nodePool === false ? 0 : 262144)   // bit 18: freed route points and routes reused from a stack before the pool's blobs (GameMemory.cpp; same game)
                  | (o.pathTail === false ? 0 : 131072)   // bit 17: a route point is linked after the kept tail instead of walking the route to its end (AIPathfind.cpp; same game)
                  | (o.orderQueue === false ? 0 : 65536)   // bit 16: match rule orderQueue, a group order does no route search on its tick; the kinds' routes are searched in the route queue (AIGroup.cpp)
