@@ -4044,6 +4044,31 @@ Stays default off.
 - Hash switches (recruitIndex, aiWorldIndex, playerKindCounts) on ai-long.rep, bench_replay timing,
   GXTIMEEND logic ms/tick: off 0.536 / 0.788, on 0.591 / 0.557 (aiLoop 0.331 / 0.480 vs 0.366 / 0.344).
   Within noise at this load; no gain or loss measurable. Defaults stay on.
+- aiScripts switch (2f2a009): seventh switch word GLES3_Page_Switches7, bit 0, on (1-31 spare). Off =
+  the boot loader skips the loose scripts, as before 2c7e213 (they enter the exe CRC and the AI, so
+  every older replay mismatched at frame 0). The bench replay driver (server.py AI_SCRIPT_REPLAYS)
+  plays recordings made before the fix with it off. soa-24: referee, collide-sp, collide-hot match
+  with it off; collide-fix and ai-long match with it on; 0 mismatches each.
+- Heavier AI recording (aec0d5f, WebBenchmark.cpp): bench_record settings recordMap / recordAIs (up to
+  numPlayers-1 brutal AIs, factions in turn, two teams alternating; default unchanged). ai-long.rep
+  re-recorded: Twilight Flame, 7 brutal AIs, 36000 frames, hash switches off. Logic averages ~24
+  ms/tick (pathfind 15-18, aiLoop ~5, search ~2.3), 151 physUnits on average, over 50 ms/tick in the
+  last minutes. Hash switches off 22.35 / 25.52, on 25.50 / 23.45 (aiLoop off 4.65 / 5.32, on 5.28 /
+  4.99): no measurable effect at this load either; they stay on.
+- Allocation sample (soa-23d, GXDIAG stacks every 97th allocation inside physics / collide scopes,
+  battle, no draw): allocs per tick physics 326, collideBuild 18.7, collideProcess 144 (aiLoop 3203,
+  search 958, pathfind 672). Collide's own are small and cheap: collideBuild 84% queueUndoShroudReveal
+  (a pool block per unlook, O(1)); collideProcess 48% pathfinding called from collisions (paths),
+  10% Object::onCollide's collide-module list, built once per unit. Physics scope: 58% the death
+  deselect group (ai's deathDeselect), 14% audio file names (ai's audioNames). No new collide switch.
+- Pinned no-draw re-measure (soa-24, battle, GXTIMEEND, two pairs back to back):
+  - geomColumns off 33.47 / 31.03 vs on 33.64 / 32.66 logic (collideBuild 2.07 / 1.91 vs 2.12 / 2.01):
+    no gain now (the earlier 20.1 vs 21.5 was the old timing). Flagged to main.
+  - storePairs on 43.53 / 42.51 vs off 36.47 / 35.50 (collideBuild 4.08 / 3.99 vs 2.29 / 2.21): slower,
+    stays off.
+  - collideList off 34.84 / 42.18 vs on 38.56 / 36.21 logic (noisy); collideProcess off 3.02 / 3.59 vs
+    on 2.71 / 2.59: stays on.
+  - physBulk on 36.04 / 42.21 vs off 34.90 / 39.20 (physics 4.02 / 4.66 vs 3.99 / 4.46): stays off.
 
 ## 2026-11-25 — Round 5 (units are pure data), paths families: state in component rows; movement kernel
 - Per-unit state moved out of the module objects into rows of collide's GxComponentPool (one pool per
