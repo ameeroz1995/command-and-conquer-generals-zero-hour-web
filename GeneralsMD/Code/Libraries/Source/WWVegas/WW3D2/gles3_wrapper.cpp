@@ -58,7 +58,7 @@ static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
-static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 134217728;	// collide 4-5, ai 8, particleWorker 24 on
+static int g_PageSwitches3 = 0 | 1 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 134217728;	// cpopSegments 0, collide 4-5, ai 8, particleWorker 24 on
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // Fourth switch word (round 5: units as pure data). Bits by owner: collide 0-5, ai 6-11, query 12-17,
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
@@ -519,7 +519,10 @@ void GLES3_Begin_Scene() {
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // seventh word: bit 0 collide, 1-31 spare
                  | (o.aiScripts === false ? 0 : 1)   // bit 0 (collide): the skirmish / multiplayer AI scripts (Data/Scripts/*.scb, loose files) are loaded at boot (EmscriptenMain.cpp, which reads the same setting at boot; changes the game: off for recordings made before 2c7e213)
-                 | (o.splashFlat === true ? 256 : 0);   // bit 8 (combat, straight-line kernels): splash near-slot pass over restrict column pointers with branchless compaction into a sized buffer (PartitionManager.cpp; same game)
+                 | (o.splashFlat === true ? 256 : 0)   // bit 8 (combat, straight-line kernels): splash near-slot pass over restrict column pointers with branchless compaction into a sized buffer (PartitionManager.cpp; same game)
+                 | (o.searchKernel === false ? 0 : 16)   // bit 4 (paths): route-search line walk without per-step virtual calls; terrain-only movement checks answered from the footprint bounds (AIPathfind.cpp; same game)
+                 | (o.lineKernel === false ? 0 : 32)   // bit 5 (paths): with searchKernel, the route search's line walk calls its step directly and makes the terrain-only check inline (AIPathfind.cpp; same game)
+                 | (o.passKernel === true ? 64 : 0);   // bit 6 (paths): isLinePassable (route following, every moving unit) walks with its step called directly and the crusher test once (AIPathfind.cpp; same game)
         });
         g_PageSwitches6 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
@@ -558,7 +561,12 @@ void GLES3_Begin_Scene() {
                  | (o.recruitIndex === false ? 0 : 32)   // bit 5 (value 32): team recruiting looks at the player's objects from the unit store, in object-list order, not the whole world (Team.cpp; same game)
                  | (o.aiWorldIndex === false ? 0 : 64)   // bit 6 (value 64): AI dozer search over the player's objects from the unit store, rebuild holes by spawner index (AIPlayer.cpp, RebuildHoleBehavior.cpp; same game)
                  | (o.playerKindCounts === false ? 0 : 128)   // bit 7 (value 128): per-player black-market / drone counts skip the player walks when there are none (GxUnitStore, StealthUpdate.cpp, AIDock.cpp; same game)
-                 | (o.geomColumns === false ? 0 : 16);   // bit 4 (value 16): with hotInStore, geometry and transform also as plain store columns read by the partition fill, collision z test and direction (GxUnitStore.h; same game)
+                 | (o.geomColumns === false ? 0 : 16)   // bit 4 (value 16): with hotInStore, geometry and transform also as plain store columns read by the partition fill, collision z test and direction (GxUnitStore.h; same game)
+                 | (o.failCache === false ? 0 : 524288)   // bit 19: match rule failCache (rule word 2 bit 0), a terrain-only route search that failed is answered again from a list until an obstacle, cell type or zone changes (AIPathfind.cpp)
+                 | (o.nodePool === false ? 0 : 262144)   // bit 18: freed route points and routes reused from a stack before the pool's blobs (GameMemory.cpp; same game)
+                 | (o.pathTail === false ? 0 : 131072)   // bit 17: a route point is linked after the kept tail instead of walking the route to its end (AIPathfind.cpp; same game)
+                 | (o.orderQueue === false ? 0 : 65536)   // bit 16: match rule orderQueue, a group order does no route search on its tick; the kinds' routes are searched in the route queue (AIGroup.cpp)
+                 | (o.locoSimd === false ? 0 : 2);   // bit 1 (value 2): match rule locoSimd, locomotor headings by a fixed polynomial atan2, 4 movers per wasm SIMD op (Locomotor.cpp, GxLocoAngle.h)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
@@ -567,7 +575,7 @@ void GLES3_Begin_Scene() {
                  | (o.multiLights === true ? 536870912 : 0)   // bit 29: ... each with its own lights, so parts in different light join too
                  | (o.uiMerge === false ? 0 : 268435456)       // bit 28: consecutive interface pictures with one texture drawn together (render2d.cpp)
                  | (o.sortMaterials === false ? 0 : 67108864)   // bit 26: see-through draws with equal materials merge (sortingrenderer.cpp)
-                 | (o.cpopSegments === true ? 1 : 0)   // bit 0: route-following reads each route's segments from one flat array (AIPathfind.cpp; same game)
+                 | (o.cpopSegments === false ? 0 : 1)   // bit 0: route-following reads each route's segments from one flat array (AIPathfind.cpp; same game)
                  | (o.moveAfterTick === true ? 2 : 0)   // bit 1: match rule moveAfterTick, every unit's locomotion in one pass at the end of the tick (AIUpdate.cpp)
                  | (o.groupRoute === true ? 4 : 0)      // bit 2: match rule groupRoute, one route search per group order (AIGroup.cpp)
                  | (o.routeQueue === true ? 8 : 0)      // bit 3: match rule routeQueue, no dropped route requests (AIPathfind.cpp)

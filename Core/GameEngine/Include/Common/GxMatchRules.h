@@ -37,9 +37,19 @@ enum GxMatchRule
 	GXRULE_SCAN_ALIGN          = 268435456,	///< scanAlign (fifth word value 8): routine mood checks land on every 4th frame so batchScan searches more units at once (AIUpdate.cpp)
 	GXRULE_DEATH_DESELECT      = 0x80000000u,	///< deathDeselect (sixth word bit 28, value 268435456): a dying unit is taken out of a player's selection only when that selection holds it, without a temporary group (fewer group IDs used) (GameLogic.cpp)
 	GXRULE_BATCH_SCAN          = 67108864,	///< batchScan (fifth word bit 1): due mood scans searched in one batch per AI kind before the turns (AIUpdate.cpp, PartitionManager.cpp)	///< containKernels off: containers / rebuild holes count down in their own turns (OpenContain.cpp, RebuildHoleBehavior.cpp)	///< damageQueue: weapon damage queued during the tick and applied in one pass in victim-ID order (Weapon.cpp)
+	GXRULE_ORDER_QUEUE    = 536870912,	///< orderQueue: a group order does no route search on its tick: each kind's route is searched when its first member is served by the route queue, members take it shifted there; the original column ground path is skipped (AIGroup.cpp)
+	GXRULE_LOCO_SIMD      = 134217728,	///< locoSimd: locomotor headings by a fixed polynomial atan2, 4 movers per wasm SIMD op in the movement pass (Locomotor.cpp, GxLocoAngle.h)
+};
+
+// Rule word 2 ("GX2=" in the options string), same handling as word 1; bits by owner as main assigns.
+enum GxMatchRule2
+{
+	GXRULE2_FAIL_CACHE    = 1,	///< failCache (paths): a terrain-only route search that ran its full flood and found nothing is answered "no route" again for the same exact inputs until an obstacle, cell type or zone changes, charging the same cells to the queue's budget; not exact because such floods end where the cell-info pool runs out, which depends on the units (AIPathfind.cpp)
 };
 
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for
+unsigned int gxLocalMatchRules2();		///< rule word 2: the rules the local Settings switches ask for
+bool gxMatchRule2(unsigned int rule);	///< rule word 2: is this rule on in the game being played?
 void gxStartMatchRules();				///< at the start of every game: fix the rules for a network game or replay
 bool gxMatchRule(unsigned int rule);	///< is this rule on in the game being played?
 unsigned int gxCurrentMatchRules();	///< all rules in force now (for logs)

@@ -1379,6 +1379,7 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 		Int isUsingStats = TheGameSpyGame->getUseStats();
 		game->setStartingCash( isUsingStats? TheMultiplayerSettings->getDefaultStartingMoney() : customPref.getStartingCash() );
 		game->setGxMatchRules( gxLocalMatchRules() );	// web port: the host's Settings decide the match rules
+		game->setGxMatchRules2( gxLocalMatchRules2() );
 		game->setSuperweaponRestriction( isUsingStats? 0 : customPref.getSuperweaponRestricted() ? 1 : 0 );
 		if (isUsingStats)
 			game->setOldFactionsOnly( 0 );

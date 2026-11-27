@@ -700,6 +700,7 @@ public:
 	Bool slowDoesPathExist( Object *obj, const Coord3D *from,
 		const Coord3D *to, ObjectID ignoreObject=INVALID_ID );  ///< Can we build any path at all between the locations	(terrain, buildings & units check - slower)
 	Path *gxCoarsePath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *to );
+	Bool gxGroupSpot( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *groupDest, Coord3D *dest );	///< web port (match rule orderQueue): a group member's destination spot
 	Path *gxFindPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *to ) { return findPath(obj, locomotorSet, from, to); }	///< web port (match rule groupRoute): findPath for AIGroup	///< web port (match rule coarseStart): straightened zone-level route
 
 	Bool queueForPath(ObjectID id);	 ///< The object wants to request a pathfind, so put it on the list to process.

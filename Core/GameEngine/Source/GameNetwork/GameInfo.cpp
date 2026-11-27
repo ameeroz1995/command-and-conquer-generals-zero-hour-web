@@ -311,6 +311,7 @@ void GameInfo::reset()
 	m_surrendered = FALSE;
   m_oldFactionsOnly = FALSE;
 	m_gxMatchRules = 0;
+	m_gxMatchRules2 = 0;
 //	m_localIP = 0; // BGC - actually we don't want this to be reset since the m_localIP is
 										// set properly in the constructor of LANGameInfo which uses this as a base class.
 	m_mapCRC = 0;
@@ -937,6 +938,12 @@ AsciiString GameInfoToAsciiString( const GameInfo *game )
 		rules.format("GX=%X;", game->getGxMatchRules());
 		optionsString.concat(rules);
 	}
+	if (game->getGxMatchRules2())	// web port: rule word 2, only when any of its rules is on
+	{
+		AsciiString rules;
+		rules.format("GX2=%X;", game->getGxMatchRules2());
+		optionsString.concat(rules);
+	}
 
 	//add player info for each slot
 	optionsString.concat(slotListID);
@@ -1026,7 +1033,7 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
 	Int crc = 100;
 	Bool sawCRC = FALSE;
   Bool oldFactionsOnly = FALSE;
-	UnsignedInt gxMatchRules = 0;
+	UnsignedInt gxMatchRules = 0, gxMatchRules2 = 0;
 	Int useStats = TRUE;
   Money startingCash = TheGlobalData->m_defaultStartingCash;
   UnsignedShort restriction = 0; // Always the default
@@ -1147,6 +1154,10 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
     else if (key.compare("GX") == 0 )
     {
       gxMatchRules = strtoul( val.str(), nullptr, 16 );
+    }
+    else if (key.compare("GX2") == 0 )
+    {
+      gxMatchRules2 = strtoul( val.str(), nullptr, 16 );
     }
     else if (key.compare("O") == 0 )
     {
@@ -1522,6 +1533,7 @@ Bool ParseAsciiStringToGameInfo(GameInfo *game, AsciiString options)
 		game->setStartingCash(startingCash);
 		game->setOldFactionsOnly(oldFactionsOnly);
 		game->setGxMatchRules(gxMatchRules);
+		game->setGxMatchRules2(gxMatchRules2);
 
 		return true;
 	}
@@ -1674,7 +1686,7 @@ extern int GLES3_Page_Switches4();
 extern int GLES3_Page_Switches5();
 extern int GLES3_Page_Switches6();
 #endif
-static UnsignedInt s_gxMatchRules = 0;
+static UnsignedInt s_gxMatchRules = 0, s_gxMatchRules2 = 0;
 static Bool s_gxMatchRulesFixed = FALSE;
 
 unsigned int gxLocalMatchRules()
@@ -1708,7 +1720,9 @@ unsigned int gxLocalMatchRules()
 		| ((GLES3_Page_Switches5() & 1) ? GXRULE_BATCH_SCAN : 0)	// fifth word bit 1: batchScan
 		| ((GLES3_Page_Switches5() & 8) ? GXRULE_SCAN_ALIGN : 0)	// fifth word value 8: scanAlign
 		| ((GLES3_Page_Switches5() & 1048576) ? GXRULE_HEAP4 : 0)	// fifth word value 1048576: heap4
-		| ((GLES3_Page_Switches6() & 268435456) ? GXRULE_DEATH_DESELECT : 0u);	// sixth word bit 28 (value 268435456): deathDeselect
+		| ((GLES3_Page_Switches6() & 268435456) ? GXRULE_DEATH_DESELECT : 0u)	// sixth word bit 28 (value 268435456): deathDeselect
+		| ((GLES3_Page_Switches5() & 2) ? GXRULE_LOCO_SIMD : 0)	// fifth word bit 1 (value 2): locoSimd
+		| ((GLES3_Page_Switches5() & 65536) ? GXRULE_ORDER_QUEUE : 0);	// fifth word bit 16: orderQueue
 #else
 	return 0;
 #endif
@@ -1719,13 +1733,29 @@ void gxStartMatchRules()
 	const Bool playback = TheRecorder && TheRecorder->isPlaybackMode();
 	s_gxMatchRulesFixed = TheNetwork != nullptr || playback;
 	s_gxMatchRules = s_gxMatchRulesFixed ? (TheGameInfo ? TheGameInfo->getGxMatchRules() : 0) : 0;
-	printf("GXRULES match rules %s: %X\n", s_gxMatchRulesFixed ? (playback ? "from the replay" : "from the host") : "local switches",
-		s_gxMatchRulesFixed ? s_gxMatchRules : gxLocalMatchRules());
+	s_gxMatchRules2 = s_gxMatchRulesFixed ? (TheGameInfo ? TheGameInfo->getGxMatchRules2() : 0) : 0;
+	printf("GXRULES match rules %s: %X, word 2: %X\n", s_gxMatchRulesFixed ? (playback ? "from the replay" : "from the host") : "local switches",
+		s_gxMatchRulesFixed ? s_gxMatchRules : gxLocalMatchRules(), s_gxMatchRulesFixed ? s_gxMatchRules2 : gxLocalMatchRules2());
 }
 
 bool gxMatchRule(unsigned int rule)
 {
 	return ((s_gxMatchRulesFixed ? s_gxMatchRules : gxLocalMatchRules()) & rule) != 0;
+}
+
+unsigned int gxLocalMatchRules2()
+{
+#ifdef __EMSCRIPTEN__
+	return 0
+		| ((GLES3_Page_Switches5() & 524288) ? GXRULE2_FAIL_CACHE : 0);	// fifth word bit 19: failCache
+#else
+	return 0;
+#endif
+}
+
+bool gxMatchRule2(unsigned int rule)
+{
+	return ((s_gxMatchRulesFixed ? s_gxMatchRules2 : gxLocalMatchRules2()) & rule) != 0;
 }
 
 unsigned int gxCurrentMatchRules()

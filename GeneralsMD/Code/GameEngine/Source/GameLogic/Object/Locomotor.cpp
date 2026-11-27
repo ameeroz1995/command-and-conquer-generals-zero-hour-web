@@ -46,6 +46,23 @@
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Module/BodyModule.h"
 #include "GameLogic/Module/AIUpdate.h"
+#include "GameLogic/GxLocoAngle.h"
+#include "Common/GxMatchRules.h"
+
+// web port (match rule locoSimd): every heading atan2 of the locomotor. Under the rule the fixed
+// polynomial gxLocoAtan2; the movement pass has usually computed it already (4 movers per SIMD op)
+// for this unit's (goal - position), so take that when the inputs are exactly the same.
+Bool gxTakeLocoAngle(const Object *obj, Real dy, Real dx, Real &angle);	// AIUpdate.cpp
+static inline Real gxLocoHeading(const Object *obj, Real dy, Real dx)
+{
+	if (!gxMatchRule(GXRULE_LOCO_SIMD))
+		return atan2(dy, dx);
+	gxCount(GXC_LOCO_ANGLES);
+	Real a;
+	if (gxTakeLocoAngle(obj, dy, dx, a))
+		return a;
+	return gxLocoAtan2(dy, dx);
+}
 
 
 static const Real DONUT_TIME_DELAY_SECONDS=2.5f;
@@ -1296,7 +1313,7 @@ void Locomotor::moveTowardsPositionWheels(Object* obj, PhysicsBehavior *physics,
 	Real angle = obj->getOrientation();
 //	Real relAngle = ThePartitionManager->getRelativeAngle2D( obj, &goalPos );
 //	Real desiredAngle = angle + relAngle;
-	Real desiredAngle = atan2(goalPos.y - obj->getPosition()->y, goalPos.x - obj->getPosition()->x);
+	Real desiredAngle = gxLocoHeading(obj, goalPos.y - obj->getPosition()->y, goalPos.x - obj->getPosition()->x);
 	Real relAngle = stdAngleDiff(desiredAngle, angle);
 
 	Bool moveBackwards = false;
@@ -1635,7 +1652,7 @@ void Locomotor::moveTowardsPositionLegs(Object* obj, PhysicsBehavior *physics, c
 	Real angle = obj->getOrientation();
 //	Real relAngle = ThePartitionManager->getRelativeAngle2D( obj, &goalPos );
 //	Real desiredAngle = angle + relAngle;
-	Real desiredAngle = atan2(goalPos.y - obj->getPosition()->y, goalPos.x - obj->getPosition()->x);
+	Real desiredAngle = gxLocoHeading(obj, goalPos.y - obj->getPosition()->y, goalPos.x - obj->getPosition()->x);
 
 	if (m_template->m_wanderWidthFactor != 0.0f) {
 		Real angleLimit = PI/8 * m_template->m_wanderWidthFactor;
@@ -1768,7 +1785,7 @@ void Locomotor::moveTowardsPositionClimb(Object* obj, PhysicsBehavior *physics, 
 	Real angle = obj->getOrientation();
 //	Real relAngle = ThePartitionManager->getRelativeAngle2D( obj, &goalPos );
 //	Real desiredAngle = angle + relAngle;
-	Real desiredAngle = atan2(goalPos.y - obj->getPosition()->y, goalPos.x - obj->getPosition()->x);
+	Real desiredAngle = gxLocoHeading(obj, goalPos.y - obj->getPosition()->y, goalPos.x - obj->getPosition()->x);
 	Real relAngle = stdAngleDiff(desiredAngle, angle);
 
 	if (moveBackwards) {
@@ -1859,7 +1876,7 @@ void Locomotor::moveTowardsPositionWings(Object* obj, PhysicsBehavior *physics, 
 			Real angleTowardPos =
 					(isNearlyZero(dx) && isNearlyZero(dy)) ?
 					obj->getOrientation() :
-					atan2(dy, dx);
+					gxLocoHeading(obj, dy, dx);
 
 			Real aimDir = (PI - PI/8);
 			angleTowardPos += aimDir;
@@ -2155,7 +2172,7 @@ PhysicsTurningType Locomotor::rotateObjAroundLocoPivot(Object* obj, const Coord3
 		Real dy = goalPos.y - turnPos.y;
 		// If we are very close to the goal, we twitch due to rounding error.  So just return. jba.
 		if (fabs(dx)<0.1f && fabs(dy)<0.1f) return TURN_NONE;
-		Real desiredAngle = atan2(dy, dx);
+		Real desiredAngle = gxLocoHeading(obj, dy, dx);
 		Real amount = stdAngleDiff(desiredAngle, angle);
 		if (relAngle) *relAngle = amount;
 		if (amount>maxTurnRate) {
@@ -2177,7 +2194,7 @@ PhysicsTurningType Locomotor::rotateObjAroundLocoPivot(Object* obj, const Coord3
 		// so, the thing is, we want to rotate ourselves so that our *center* is rotated
 		// by the given amount, but the rotation must be around turnPos. so do a little
 		// back-calculation.
-		Real angleDesiredForTurnPos = atan2(desiredPos.y - turnPos.y, desiredPos.x - turnPos.x);
+		Real angleDesiredForTurnPos = gxLocoHeading(obj, desiredPos.y - turnPos.y, desiredPos.x - turnPos.x);
 		amount = angleDesiredForTurnPos - angle;
 #endif
 		/// @todo srj -- there's probably a more efficient & more direct way to do this. find it.
@@ -2193,7 +2210,7 @@ PhysicsTurningType Locomotor::rotateObjAroundLocoPivot(Object* obj, const Coord3
 	}
 	else
 	{
-		Real desiredAngle = atan2(goalPos.y - obj->getPosition()->y, goalPos.x - obj->getPosition()->x);
+		Real desiredAngle = gxLocoHeading(obj, goalPos.y - obj->getPosition()->y, goalPos.x - obj->getPosition()->x);
 		Real amount = stdAngleDiff(desiredAngle, angle);
 		if (relAngle) *relAngle = amount;
 		if (amount>maxTurnRate) {
@@ -2527,7 +2544,7 @@ void Locomotor::maintainCurrentPositionWings(Object* obj, PhysicsBehavior *physi
 		Real angleTowardMaintainPos =
 				(isNearlyZero(dx) && isNearlyZero(dy)) ?
 				obj->getOrientation() :
-				atan2(dy, dx);
+				gxLocoHeading(obj, dy, dx);
 
 		Real aimDir = (PI - PI/8);
 		if (turnRadius < 0)

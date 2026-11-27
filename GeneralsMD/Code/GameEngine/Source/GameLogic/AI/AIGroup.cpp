@@ -56,6 +56,9 @@
 #include "GameLogic/Module/StealthUpdate.h"
 #include "GameLogic/Module/SpecialPowerUpdateModule.h"
 #include "GameLogic/ObjectIter.h"
+#include "Common/GxMatchRules.h"
+#include "Common/GxTime.h"
+#include <unordered_map>
 
 
 /**
@@ -554,6 +557,8 @@ void AIGroup::computeIndividualDestination( Coord3D *dest, const Coord3D *groupD
 	if (ai && ai->isDoingGroundMovement()) {
 		if (isFormation) {
 			TheAI->pathfinder()->adjustDestination(obj, ai->getLocomotorSet(), dest, nullptr);
+		}	else if (gxMatchRule(GXRULE_ORDER_QUEUE)) {
+			TheAI->pathfinder()->gxGroupSpot(obj, ai->getLocomotorSet(), groupDest, dest);	// one outward search per kind
 		}	else {
 			TheAI->pathfinder()->adjustDestination(obj, ai->getLocomotorSet(), dest, groupDest);
 		}
@@ -1626,7 +1631,9 @@ void AIGroup::groupMoveToPosition( const Coord3D *p_posIn, Bool addWaypoint, Com
 		gxShareGroupRoute(m_memberList, pos);	// web port (match rule groupRoute)
 
 
-	if (!addWaypoint && !isFormation) {
+	// match rule orderQueue: no column ground path (a route search on the order tick); the kinds'
+	// shared routes funnel the members instead
+	if (!addWaypoint && !isFormation && !gxMatchRule(GXRULE_ORDER_QUEUE)) {
 		friend_computeGroundPath(pos, cmdSource);
 		didInfantry = friend_moveInfantryToPos(pos, cmdSource);
 		didVehicles = friend_moveVehicleToPos(pos, cmdSource);
@@ -2351,9 +2358,43 @@ static Bool gxGroupMover( Object *obj )
 	return ai && ai->isDoingGroundMovement() && !obj->isKindOf(KINDOF_IMMOBILE) && !obj->isDisabledByType(DISABLED_HELD);
 }
 
-static void gxShareClassRoute( const std::vector<Object *> &members, const Coord3D *pos )
+// the route's inner points shifted by (ox, oy) for one member; FALSE if they cross a blocked cell.
+// Where the shifted point is blocked, close in on the route (half the offset, then the route itself):
+// members funnel through gaps like a column instead of planning alone
+static Bool gxShiftRoute( const std::vector<Coord3D> &pts, Real ox, Real oy, Bool crush, const LocomotorSet &lset, std::vector<Coord3D> &mine )
 {
-	if (members.size() < 2) return;
+	mine.clear();
+	for (size_t k = 1; k + 1 < pts.size(); ++k) {	// inner points, shifted; start and end are the member's own
+		Coord3D p = pts[k]; p.x += ox; p.y += oy;
+		if (!TheAI->pathfinder()->validMovementPosition(crush, LAYER_GROUND, lset, &p)) {
+			p = pts[k]; p.x += ox * 0.5f; p.y += oy * 0.5f;
+			if (!TheAI->pathfinder()->validMovementPosition(crush, LAYER_GROUND, lset, &p)) {
+				p = pts[k];
+				if (!TheAI->pathfinder()->validMovementPosition(crush, LAYER_GROUND, lset, &p)) return FALSE;
+			}
+		}
+		mine.push_back(p);
+	}
+	return TRUE;
+}
+
+// the kind's route from its leader; empty if none, short or over a bridge (everyone plans as before)
+static void gxSearchShareRoute( Object *leader, const Coord3D *from, const Coord3D *pos, std::vector<Coord3D> &pts )
+{
+	pts.clear();
+	Path *route = TheAI->pathfinder()->gxFindPath(leader, leader->getAIUpdateInterface()->getLocomotorSet(), from, pos);
+	if (!route) return;
+	Bool ground = TRUE;
+	for (PathNode *node = route->getFirstNode(); node; node = node->getNextOptimized()) {
+		if (node->getLayer() != LAYER_GROUND) ground = FALSE;
+		pts.push_back(*node->getPosition());
+	}
+	deleteInstance(route);
+	if (!ground || pts.size() < 3) pts.clear();
+}
+
+static Object *gxShareLeader( const std::vector<Object *> &members )
+{
 	Coord3D center; center.zero();
 	for (Object *obj : members) { center.x += obj->getPosition()->x; center.y += obj->getPosition()->y; }
 	center.x /= members.size(); center.y /= members.size();
@@ -2362,40 +2403,78 @@ static void gxShareClassRoute( const std::vector<Object *> &members, const Coord
 		const Real dx = obj->getPosition()->x - center.x, dy = obj->getPosition()->y - center.y;
 		if (!leader || dx * dx + dy * dy < best) { leader = obj; best = dx * dx + dy * dy; }
 	}
-	const LocomotorSet &lset = leader->getAIUpdateInterface()->getLocomotorSet();
-	Path *route = TheAI->pathfinder()->gxFindPath(leader, lset, leader->getPosition(), pos);
-	if (!route) return;
-	std::vector<Coord3D> pts;
-	Bool ground = TRUE;
-	for (PathNode *node = route->getFirstNode(); node; node = node->getNextOptimized()) {
-		if (node->getLayer() != LAYER_GROUND) ground = FALSE;
-		pts.push_back(*node->getPosition());
-	}
-	deleteInstance(route);
-	if (!ground || pts.size() < 3) return;	// short or bridge routes: everyone plans as before
-	const Coord3D from = *leader->getPosition();
+	return leader;
+}
+
+// Match rule orderQueue: the order tick only notes, per kind, the leader, its start, the goal and each
+// member's offset. The kind's route is searched when its first member is served by the route queue
+// (inside the queue's per-frame budget); every member served then takes the shifted route there.
+struct GxShareKind { ObjectID leader; Coord3D from, to; UnsignedInt frame; Bool searched; std::vector<Coord3D> pts; };
+struct GxShareMember { Int kind; Real ox, oy; Coord3D to; UnsignedInt frame; };
+static std::vector<GxShareKind> s_gxShareKinds;
+static std::unordered_map<ObjectID, GxShareMember> s_gxShareMembers;
+static const UnsignedInt GX_SHARE_FRAMES = 300;	// a note older than 10 s is dropped
+
+static void gxNoteShareKind( const std::vector<Object *> &members, const Coord3D *pos )
+{
 	const UnsignedInt now = TheGameLogic->getFrame();
+	if (!s_gxShareKinds.empty() && (s_gxShareKinds.back().frame > now || now - s_gxShareKinds.back().frame > GX_SHARE_FRAMES)) {
+		s_gxShareKinds.clear(); s_gxShareMembers.clear();	// all stale (or a new game)
+	}
+	Object *leader = gxShareLeader(members);
+	GxShareKind k; k.leader = leader->getID(); k.from = *leader->getPosition(); k.to = *pos; k.frame = now; k.searched = FALSE;
+	const Int idx = (Int)s_gxShareKinds.size();
+	s_gxShareKinds.push_back(k);
+	for (Object *obj : members) {
+		const Real ox = obj->getPosition()->x - k.from.x, oy = obj->getPosition()->y - k.from.y;
+		if (ox * ox + oy * oy > 250.0f * 250.0f) { s_gxShareMembers.erase(obj->getID()); continue; }
+		GxShareMember m; m.kind = idx; m.ox = ox; m.oy = oy; m.to = *pos; m.frame = now;
+		s_gxShareMembers[obj->getID()] = m;
+	}
+	gxCount(GXC_SHARE_NOTED, members.size());
+}
+
+// called by AIUpdateInterface::doPathfind for a plain request: the shifted kind route, if this unit
+// was noted by a group order to this destination
+Bool gxTakeSharedRoute( Object *obj, const Coord3D *dest, std::vector<Coord3D> &mine )
+{
+	auto it = s_gxShareMembers.find(obj->getID());
+	if (it == s_gxShareMembers.end()) return FALSE;
+	const GxShareMember m = it->second;
+	s_gxShareMembers.erase(it);
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if (m.frame > now || now - m.frame > GX_SHARE_FRAMES || m.kind >= (Int)s_gxShareKinds.size()) return FALSE;
+	GxShareKind &k = s_gxShareKinds[m.kind];
+	if (k.frame != m.frame || m.to.x != dest->x || m.to.y != dest->y) return FALSE;	// another order since
+	if (!k.searched) {
+		k.searched = TRUE;
+		Object *leader = TheGameLogic->findObjectByID(k.leader);
+		AIUpdateInterface *lai = leader ? leader->getAIUpdateInterface() : nullptr;
+		gxSearchShareRoute(lai && lai->isDoingGroundMovement() ? leader : obj, &k.from, &k.to, k.pts);
+		gxCount(GXC_SHARE_SEARCHES);
+	}
+	if (k.pts.empty()) return FALSE;
+	if (!gxShiftRoute(k.pts, m.ox, m.oy, obj->getCrusherLevel() > 0, obj->getAIUpdateInterface()->getLocomotorSet(), mine)) return FALSE;
+	gxCount(GXC_SHARE_TAKEN);
+	return TRUE;
+}
+
+static void gxShareClassRoute( const std::vector<Object *> &members, const Coord3D *pos )
+{
+	if (members.size() < 2) return;
+	if (gxMatchRule(GXRULE_ORDER_QUEUE)) { gxNoteShareKind(members, pos); return; }
+	Object *leader = gxShareLeader(members);
+	const Coord3D from = *leader->getPosition();
+	std::vector<Coord3D> pts;
+	gxSearchShareRoute(leader, &from, pos, pts);
+	if (pts.empty()) return;
+	const UnsignedInt now = TheGameLogic->getFrame();
+	std::vector<Coord3D> mine;
 	for (Object *obj : members) {
 		AIUpdateInterface *ai = obj->getAIUpdateInterface();
 		const Real ox = obj->getPosition()->x - from.x, oy = obj->getPosition()->y - from.y;
 		if (ox * ox + oy * oy > 250.0f * 250.0f) continue;
-		std::vector<Coord3D> mine;
-		Bool ok = TRUE;
-		const Bool crush = obj->getCrusherLevel() > 0;
-		for (size_t k = 1; k + 1 < pts.size(); ++k) {	// inner points, shifted; start and end are the member's own
-			// where the shifted point is blocked, close in on the route (half the offset, then the
-			// route itself): members funnel through gaps like a column instead of planning alone
-			Coord3D p = pts[k]; p.x += ox; p.y += oy;
-			if (!TheAI->pathfinder()->validMovementPosition(crush, LAYER_GROUND, ai->getLocomotorSet(), &p)) {
-				p = pts[k]; p.x += ox * 0.5f; p.y += oy * 0.5f;
-				if (!TheAI->pathfinder()->validMovementPosition(crush, LAYER_GROUND, ai->getLocomotorSet(), &p)) {
-					p = pts[k];
-					if (!TheAI->pathfinder()->validMovementPosition(crush, LAYER_GROUND, ai->getLocomotorSet(), &p)) { ok = FALSE; break; }
-				}
-			}
-			mine.push_back(p);
-		}
-		if (!ok) continue;
+		if (!gxShiftRoute(pts, ox, oy, obj->getCrusherLevel() > 0, ai->getLocomotorSet(), mine)) continue;
 		ai->gxSetRouteHint(mine, now);
 	}
 }

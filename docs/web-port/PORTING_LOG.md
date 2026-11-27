@@ -4517,8 +4517,13 @@ benchmark ran two ways (2700 ticks at ~3570 module calls/tick, or 3000 ticks at 
   cpopSimdSegs.
 - Battle benchmark (tickTiming, lane 3, load < 8): the scripted battle diverges between builds
   (r5k/r5l run ~780 movers/tick vs ~700 for r5before2/paths-iso), so only same-counter pairs compare.
-  cpopSimd on vs off with identical counters (simd1 vs segs2): logic 18.35 vs 21.28 ms/tick, pathfind
-  2.93 vs 3.23, loco 0.73 vs 0.84; p99 160.5 vs 118.0 ms, frames over 100 ms 99 vs 69 (load ~5, noisy).
+  cpopSimd, four runs with identical counters (3000 ticks, 705.9 movers/tick), in run order:
+  segs1 (off) 16.70, simd1 (on) 18.35, segs2 (off) 21.28, simd3 (on) 23.37 ms/tick logic; pathfind
+  2.78 / 2.93 / 3.23 / 3.77. The numbers climb with run order (load 4-9), not with the switch: no gain
+  measurable at this noise. cpopSimdSegs 16,029/tick against 269.7 cpopCalls/tick.
+  paths-iso (paths' round-5 commits reverted) vs r5l at the same work (~775 movers/tick): iso2 20.78,
+  l1 19.74, l2 21.62 ms/tick logic: no regression from paths' round 5. (iso1 14.50 ran ~696
+  movers/tick, a different battle.)
 
 ### ai: same-cell locomotor skip (switch dataBehaviors; same game; uses paths' Pathfinder::gxCellTypeVersion, b4f1531)
 - chooseGoodLocomotorFromCurrentSet asked Pathfinder::chooseBestLocomotorForPosition every tick for every
@@ -4552,6 +4557,86 @@ Timing, battle benchmark, ai-38 / ai-40 (batchScan off), tickTiming, timing.lock
 - ai-40 2700-tick runs 24.99, 25.39; ai-38 3000-tick runs 21.87, 22.23 (not comparable)
 Level within noise. batchScan on is timed once query's pass lands.
 
+## 2026-11-26 — paths: match rule locoSimd (134217728, bit 27; Settings fifth word value 2, off)
+- Under the rule every locomotor heading atan2 (Wheels, Legs, Climb, Wings, rotateObjAroundLocoPivot,
+  maintainCurrentPositionWings) is gxLocoAtan2 (GxLocoAngle.h): Cephes atanf range reduction, only
+  + - * / and compares, so every browser gets the same floats. In the movement pass (moveAfterTick),
+  right after the route kernel, gxLocoAngleKernel computes atan2(posOnPath - pos) for every served unit,
+  4 per wasm SIMD op (gxLocoAtan2x4, same operations as the scalar form); the locomotor takes it when
+  its (dy, dx) is exactly the same, otherwise computes the scalar form. Changes the game (not libm's
+  angle), hence the rule; it travels in the replay header like ai's 24/25. Fifth word from ai's c5202bf.
+- Checks (paths-ls2): native test, max 2.8e-7 rad against libm over 20 M points. Battle in verify mode
+  with the rule on: 620,000 SIMD lanes compared with the scalar formula, 0 mismatches, max 2.72e-7 rad
+  against libm. Recording with the rule on (paths-loco.rep, 18,000 frames, header GX=8FEE6E7) replays to
+  a match with the local switch on and off. referee.rep and paths-long-up.rep match (rule off).
+- Timing, battle benchmark, tickTiming, timing.lock, load < 5 at start, alternating off/on x3. The rule
+  changes the battle: on runs 703 movers/tick and 396 loco calls/tick, off 686 / 383. Heading calls
+  587.9/tick, 295.6 taken from the SIMD pass (321.4 computed there).
+  off1 23.87 / on1 21.95 ms/tick logic (load rose to 12 and 7 during them; discard);
+  off2 18.34 / on2 18.68 logic, loco 0.748 / 0.756, pathfind 2.63 / 2.84, p99 99.8 / 97.8 ms, over 100 ms 30 / 27;
+  off3 21.18 (2700 ticks, 762 movers: a different battle) / on3 18.99, loco 0.776.
+  Per loco call: off2 1.95 us, on2 1.91, on3 1.96. Level: the heading atan2 is a small part of a loco
+  call. Left off.
+
+## 2026-11-27 — paths: match rule orderQueue (536870912, bit 29; Settings fifth word bit 16, ON)
+- The group-order spike is old (merge6 has it: N=100 order tick 54-66 ms logic; merge7 63-88). Breakdown
+  at N=1000 (current build, off): group order 94 ms = shared route search 40, the original column ground
+  path 31, adjustDestination spirals 18, rest 6. Scaling is about linear past N=100; the searches dominate.
+- Under the rule a group order does no route search on its tick: (a) groupRoute only notes each mover
+  kind (leader, members within 250 of it); the kind's route is searched when the first member is served
+  by the route queue (AIUpdate doPathfind -> gxTakeSharedRoute), the others take it shifted and checked;
+  (b) the original friend_computeGroundPath / infantry / vehicle column moves are skipped; (c) each
+  member's spot is the next free cell of one breadth-first walk from the goal per frame and group kind
+  (Pathfinder::gxGroupSpot), instead of a 400-cell adjustDestination spiral each. All three parts are
+  faster on their own, so one switch.
+- Order probe (battle map, fresh clump of 2000, orders 15 s apart; probe build m10, alternating on/off x2),
+  order-tick logic ms off -> on:
+  N=20 34.8 -> 17.0; N=50 26-30 -> 18-20; N=100 63-68 -> 18; N=250 52-55 -> 21-24; N=500 37-40 -> 22;
+  N=1000 88-98 -> 22 (group part 75-82 -> 4-5 ms). The 5 s after each order: same ms/tick
+  (N=1000 17.8-18.1 off / 14.9-15.9 on), route work moves into the queue as intended.
+- Checks (paths-oq1, rule on by default): referee.rep, paths-long-up.rep, paths-loco.rep match (rule off
+  from their headers). New recording paths-oq.rep (18,000 frames, header GX=20FEE6E7) replays to a match
+  with the local switch on and off. Battle in verify mode: all GXVERIFY checks 0 mismatches.
+- Timing, battle benchmark, paths-oq1, tickTiming, timing.lock, load 1.9-3.4 before/after every run,
+  alternating off/on x2. The rule changes the battle (on: 2700 ticks, 765 movers/tick, 3525 AI module
+  calls/tick; off: 3000 ticks, 686, 3184), so whole-tick numbers aren't like for like:
+  logic off 16.39 / 16.18, on 17.42 / 16.85 ms/tick; per AI module call off 5.15 / 5.08 us, on 4.95 / 4.77;
+  p99 off 94.9 / 87.3, on 94.7 / 89.4 ms; over 100 ms off 13 / 7, on 10 / 10; fps off 16.7 / 17.4, on 17.9 / 18.5.
+  The battle's AI mostly issues attack moves (no shared route: shareNoted 1.0/tick, shareTaken < 0.05/tick),
+  so the battle is level; the gain is the order tick above. ON by default.
+- Note (later runs, 11-27): the battle benchmark itself comes in two runs even with the same settings
+  (2700 ticks / ~766 movers, or 3000 ticks / ~690: lsoff1, bitsoff1 below, rule on), so the off/on
+  difference above in ticks and movers is not only the rule.
+
+## 2026-11-27 — paths: heap churn in route searches, counted (not built: already pooled)
+- New GXTIME counters pathAllocs / pathBigAllocs: game-allocator blocks (pool / too big for a pool)
+  taken while a route search runs (GXT_PATHFIND scope; GameMemory.cpp). Battle benchmark, paths-hc0:
+  405 pool blocks and 2.3 big blocks per tick, at 8.8 route searches per tick (about 46 per search:
+  Path / PathNode / cell info, all MemoryPool objects already; GameMemory is on in the web build).
+- Ceiling: ~400 pool takes and frees a tick is tens of microseconds of a 17.5 ms tick, under 0.3%.
+  No pooling to add; nothing built. Counters kept (only with tickTiming).
+
+## 2026-11-27 — paths: #53 exact route-search speed-ups re-measured (openHeap, cellBits: both stay ON)
+- Both #53 parts were built 11-24 (openHeap: heap open list instead of the insertion sort; cellBits:
+  occupied-cell bits instead of reading every cell). Battle benchmark, paths-hc0, tickTiming,
+  timing.lock, load 2.1-3.6 except where noted, alternating off/on x2:
+  openHeap off 2.814 / 2.798 pathfind ms/tick, on 2.612 / 2.834 (on2: whole tick 19.3 ms, a slow run);
+  per search cell off 5.57 / 5.54 us, on 5.18. cellBits off 2.561 (3000-tick run, 455 cells/tick) /
+  3.026 (slow run), on 2.601; per search cell off 5.62 / 6.00 us, on 5.16; bitson2 discarded (load 7.4
+  -> 14). Both are about 7-8% of route-search time; same game, so they stay on.
+- Big orders (order probe, 2000-unit clump, orderQueue on, probe build m10, both off / both on, x2,
+  load 2.4-7.5): the order tick has no route search left, so it is level (N=100 17.1 / 22.8 off,
+  20.1 / 16.4 on; N=1000 32.3 / 23.0 off, 21.7 / 24.7 on). Route-search time in the 5 s after an order,
+  where the searches now run: N=100 944 / 1021 ms off, 837 / 798 on; N=1000 758 / 779 off, 720 / 716 on.
+
+## 2026-11-27 — paths: locoSimd re-timed, now ON by default
+- Battle benchmark, paths-oq1 (orderQueue on), tickTiming, timing.lock, alternating off/on x3:
+  pair 1 discarded (load rose to 10.7 during off1). Pair 2 (load 1.7-2.7): logic off 17.57 / on 17.36
+  ms/tick with more movers on (790 vs 766); per loco call off 1.76 us / on 1.68; p99 94.5 / 85.2 ms;
+  over 100 ms 23 / 16; fps 17.4 / 18.3. Pair 3 (load 5-7, inside the < 8 gate): logic 22.69 / 20.05;
+  per loco call 2.19 / 1.91 us; p99 138.6 / 122.2; over 100 ms 128 / 78; fps 12.7 / 14.6.
+- On wins in both clean pairs, so ON by default (rule 27 stays; fifth word value 2 now default-on).
+  Its checks are in the 11-26 entry (paths-loco.rep replays to a match; 0 SIMD-lane mismatches).
 ## Round 5 (query) continued: PartitionData row, DynamicShroudClearingRange and Stealth kernels
 - PartitionData's own per-object web-port state (cached place x/y/r for pairPlace/pairOffer, fogKeep's pure /
   kept bits) moved into PartitionDataGxRow on GxComponentPool (keyed by the PartitionData: ghost objects have
@@ -4695,3 +4780,161 @@ Level within noise. batchScan on is timed once query's pass lands.
   - fps (footnote): strikes 13.7-19.4 across runs.
 - Defaults: splashSimd on (faster, same game). splashIlp, damageTable, weaponReload stay off (not
   faster).
+## 2026-11-27 — paths: pathTail (fifth word bit 17, ON; same game) + checks of today's defaults
+- From ai's heap-churn report (Path::appendNode in the profile): the cost was not the allocation
+  (PathNode is a pool object) but PathNode::appendToList walking the whole route to its tail on every
+  append, so building a route was O(nodes^2). Path already keeps m_pathTail (only getAircraftPath
+  inserts nodes, always before an existing next node, so the tail stays right); appendNode now links
+  after it. Verify mode walks the list and compares: 600,000 appends, 0 mismatches.
+- Checks (paths-pt2: merge of perf/low-end 9488239; locoSimd, orderQueue, pathTail on): referee.rep,
+  paths-long-up.rep, paths-loco.rep, paths-oq.rep match; new recording with today's defaults
+  paths-def.rep (GX=28FEE6E7: locoSimd + orderQueue) replays to a match with pathTail on and off.
+  Battle verify (draw=False): every GXVERIFY 0 mismatches, locoSimd 840,000 lanes, max 2.72e-7 rad.
+- Timing, new regime (bench_run draw=False, pinned slot, same game every run: 1189.9 movers, 14.6
+  searches, 679.8 cells per tick in all four), alternating off/on x2, load 4.2-8.6:
+  logic off 42.12 / on 37.88, off 38.43 / on 41.70 ms/tick; pathfind off 5.05 / on 4.64, off 4.76 / on 4.95.
+  Level within the run-to-run spread (routes here are a few nodes long). Exact, so kept on.
+
+## 2026-11-27 — paths: nodePool (fifth word bit 18, ON; same game): reuse stack for route points
+- Main/ai: the no-draw battle's second-biggest allocation source is route points (Path::appendNode /
+  prependNode from flow fields, the route cache, prependCells, computeQuickPath) plus Path objects.
+  Both are MemoryPool objects already; under the switch the two pools (PathNodePool, PathPool) push
+  freed blocks on a LIFO stack (up to 8192 each) and hand them out again zeroed, as the pool does,
+  skipping the blob bookkeeping. A reset or destroyed pool drops its stack. The pools are registered
+  on the first route point (they are made on first use; the first build registered them too early and
+  never fired: allocations unchanged at 4641/tick, logged as found).
+- Checks (paths-np2, switch on): referee.rep, paths-long-up.rep, paths-loco.rep, paths-oq.rep,
+  paths-def.rep match; battle verify (draw=False) every GXVERIFY 0 mismatches.
+- Battle no-draw, same game every run: game-allocator blocks per tick 4641 -> 4091 (route-search ones
+  628 -> 168). Timing (pinned slot), alternating off/on: pair 1 discarded (load 12); pair 2 (load 6-7)
+  logic 36.03 / 32.40 ms/tick, pathfind 4.47 / 4.17; pair 3 (load 4-5) logic 32.30 / 32.15, pathfind
+  4.13 / 4.18. Lower in both clean pairs (pair 3 within noise), so ON by default.
+
+## 2026-11-27 — paths: straight-line route following re-timed: cpopSegments now ON (same game)
+- The path kernel's straight-line form already existed: cpopSegments (flat segment columns per route)
+  plus cpopSimd (closest segment 8 per step, two 4-lane chains, selects, no FMA, ties to the lowest
+  index; the loop is call-free). It was left off on 11-25 after one A/B at load 12-17 in the old regime.
+- Re-timed no-draw (paths-np2, nodePool on, pinned slot, waiting for load < 8 at each start), off/on x2:
+  movement kernel 1.857 / 1.198, 1.855 / 1.301 ms/tick (-30 to -35%); movement pass 4.67 / 3.64,
+  4.70 / 3.89; logic 41.54 / 35.43, 42.51 / 38.33 ms/tick; p99 109.4 / 96.5, 112.0 / 108.0 ms.
+  Routes average 58 segments per closest-point search (25,180 SIMD segments over 434.7 searches a tick).
+  An earlier pair at load 14-17 gave the same kernel drop (2.18 / 1.61, 1.89 / 1.49).
+- Checks with it on: referee.rep, paths-long-up.rep, paths-loco.rep, paths-oq.rep, paths-def.rep match;
+  battle verify: cpopSimd 760,000 searches (44.1 M segments) against the node walk, 0 mismatches.
+  ON by default (third word bit 0).
+
+## 2026-11-27 — paths: pathfinding on the AI game (ai-long.rep): profile, and failCache (fifth word bit 19, OFF)
+- New measuring-only counters (tickTiming): a GXPATHK line every 900 frames with, per search kind,
+  calls, exclusive ms (a nested search's time goes to the nested kind), cells expanded, and repeats
+  (same unit, same goal cell within 60 frames); plus failed A* searches (through findPath), their cells
+  and ms, and repeats of a goal that failed last time.
+- ai-long.rep (collide's 7 brutal AIs) needs the AI-script fix (a650518), which breaks the old
+  recordings, so it was played on a scratch build (this branch + a650518). On this branch it leaves the
+  recording at frame 20,902 with or without today's switches (cpopSegments, nodePool, pathTail off too),
+  so every number here is the first 20,900 frames. Pathfinding there: ~0.9-1.0 of ~4.0-4.8 ms/tick logic
+  (pinned slot), not the 15-18 of 24 ms quoted (that figure is from another build/setup).
+- Where it goes (20,900 frames): A* 33,540 calls, 12.3-13.1 s, 9.9 M cells; 24,628 of the calls (73%)
+  repeat a unit's goal cell within 60 frames. 1,350 failed A* searches take 8.6 M of the 9.9 M cells
+  (87%) and ~10 s of the A* time (82%): ~6,400 cells, ~7.5 ms each; 1,307 of them plan around terrain
+  and buildings only (ignoreUnitsInPaths); 526 repeat a goal that failed last time. Then flow-field
+  routes 2.1-2.3 s, attack approach 2.0 s (3,602 calls, 1,094 cells each), the queue itself 1.7 s.
+- failCache: a terrain-only search that ran its full flood and found nothing is answered "no route"
+  again for the same exact start, goal, layers, surfaces, crusher, size, side and ignored obstacle while
+  the obstacle serial and cell-type generation are unchanged. Two lessons on the way: the quick refusals
+  (goal taken, zones) must not be cached (first build: a cached "no" that would have been a route,
+  mismatch at frame 1,802), and a hit must charge the queue's per-frame cell budget the cells the search
+  would have released (m_cumulativeCellsAllocated, in the CRC; without it: mismatch at frame 11,602).
+- Checks: ai-long.rep (20,900 frames) matches with it on, with and without verify; referee, long-up,
+  loco, oq, def match (main-tree build paths-fc4). Verify found 2 hits where the real search charged one
+  cell more than the cache (17,424 vs 17,423): both failed, but the budget differs by one cell, so it is
+  not proven the same game. Likely cause: A* also reads the zone passable flags left by the hierarchical
+  search, which the key does not cover. Hence OFF until it has a match rule (or the key is fixed).
+- Timing, ai-long.rep (timing slot), off/on x2, load 2.8-4.9: route search 0.922 / 0.790, 0.906 / 0.785
+  ms/tick (-14%); A* 12.8 / 9.9 s; logic 4.05 / 3.94, 4.02 / 3.94; p99 28.7 / 22.8, 28.4 / 21.6 ms.
+  Battle (no-draw): pair 1 logic 31.78 / 32.95, pair 2 off run discarded (load 23); level there.
+
+## 2026-11-27 — paths: failCache becomes match rule word 2 bit 0 (new rule word "GX2="), ON
+- Why it can't be exact: verify (expansion counter added) shows the failed terrain-only floods on
+  ai-long.rep expand ~27,000-32,000 cells: they end where the 30,000-entry cell-info pool runs out
+  (CELL_INFOS_TO_ALLOCATE), and cells held by units' info decide exactly where. A zone generation
+  (calculateZones / updateZonesForModify) now also clears the list, but the pool limit remains, so
+  "no route" there is not a property of the inputs. Hence a match rule.
+- Rule word 2, same handling as word 1: GameInfo m_gxMatchRules2, "GX2=%X;" in the options string only
+  when non-zero (so games without word-2 rules send the old string), parsed back, fixed by the host or
+  the replay in gxStartMatchRules; gxLocalMatchRules2() / gxMatchRule2(). Set wherever word 1 is set
+  (LAN and WOL setup, both recorder paths). GXRULES now prints both words. Bit 0 = failCache, local
+  switch fifth word bit 19.
+- Checks (paths-fc7 main tree; paths-fc7a = + a650518 for AI games): referee.rep (rules 0), long-up
+  (FEE6E7), loco (8FEE6E7), oq (20FEE6E7), def (28FEE6E7) all match with the local switch on (word 2 = 0
+  from their headers). New AI-game recordings, 27,000 frames: paths-ail-fcon.rep (header
+  GX=28FEE6E7;GX2=1;) replays to a match with the local switch on and off; paths-ail-fcoff.rep (no GX2)
+  matches with the switch on.
+- Timing: bench_record's 3-AI game is too light to show it (0.40 ms/tick logic, 0.017 pathfind, no
+  failing floods; both recordings level). Battle no-draw: logic 28.78 / 29.82, 29.69 / 28.99 ms/tick
+  (off/on): level, no hits. The gain is the AI game measured above (ai-long.rep, switch forced:
+  route search -14%, p99 28.5 -> 22 ms). ON by default.
+- ai-long.rep divergence on this branch: leaves the recording at frame 20,902 (recorded on collide's
+  soa-24), with or without this branch's new switches; main traces it at merge8.
+- Heavy AI timing (main's ask): scratch build paths-fc8a = this branch + a650518 (AI scripts) + collide's
+  aec0d5f (bench_record settings recordMap / recordAIs). Two recordings, 7 brutal AIs on Twilight Flame,
+  36,000 frames: paths-heavy-fcon.rep (GX=28FEE6E7;GX2=1;) and paths-heavy-fcoff.rep (GX=28FEE6E7;).
+  Both replay to a match. Different games once the rule acts, so compare like for like:
+  route search off 7.213 / 7.806, on 5.946 / 5.844 ms/tick (-18 to -25%); logic off 11.50 / 12.50,
+  on 10.16 / 10.40; frames over 100 ms off 407 / 642, on 369 / 356; p99 104.1 / 119.8, 100.8 / 99.8 ms.
+  Failed A* searches: off 8,196 using 161 M of 167 M cells (228-247 s), on 6,683 using 127 M (177-182 s).
+  Kept ON.
+- Verify fix: on a hit, verify runs the real search, which charged its own (pool-dependent) cells and so
+  played a different game (verify replay of the rule-on recording left it at frame 20,402). The budget is
+  now reset to the cached charge after the check; the verify replay matches all 36,000 frames: 1,500 hits
+  checked, 0 where the search would have found a route, 1,493 where only the cells spent differ.
+
+## 2026-11-27 — paths: straight-line route search, step 1: searchKernel (seventh word bit 4, ON; same game)
+- Seventh switch word GLES3_Page_Switches7 added with collide's lines (bit 0 aiScripts; it does nothing
+  on this branch until the AI-script fix merges). Ranges: collide 0-3, paths 4-7, combat 8-11, ai 12-15,
+  query 16-19.
+- Where the route search spends (new GXTIME counters, heavy 7-AI recording, per tick): 4,199 cell
+  expansions, 33,365 neighbours tried, 2,875 full movement checks, 4,636 open-list inserts, and 88,361
+  steps of the straight-line walk toward the goal that every expansion starts with (examineCellsCallback,
+  ~21 steps per expansion; the failing floods are long). So the line walk is the hot loop.
+- searchKernel: (a) the walk's crusher test comes once per expansion (was a virtual call per step);
+  (b) while planning around terrain and buildings only, a ground movement check whose whole block is on
+  the map answers "yes" from the bounds (every cell's visit returns "go on" there, so the walk can only
+  say yes), skipping the virtual ignored-obstacle lookup and the block walk.
+- Verify (runs the walk with the kernel off and compares answer and flags): heavy recording ~2.97
+  billion checks, battle 22 M, 0 mismatches. Replays referee, long-up, loco, oq, def, and the heavy
+  recording paths-heavy-fcon.rep match.
+- Timing, heavy recording (same game both ways, timing slot), off/on x2, load 4.5-8: route search
+  7.446 / 5.712, 7.084 / 5.148 ms/tick (-23 to -27%); logic 12.89 / 11.41, 12.74 / 10.10; frames over
+  100 ms 1,022 / 375, 769 / 261; p99 127.9 / 101.1, 119.8 / 87.3 ms. Battle no-draw: route search
+  4.556 / 4.551, 4.795 / 4.364; logic 33.94 / 34.19, 35.24 / 33.18 (level to slightly better). ON.
+
+## 2026-11-27 — paths: straight-line route search, step 2: lineKernel (seventh word bit 5, ON; same game)
+- With searchKernel on: the route search's line walk (examineNeighboringCells -> iterateCellsAlongLine
+  -> examineCellsCallback through a function pointer) runs as a templated copy of the same Bresenham
+  loop that calls the step directly (same cells, same order), and the step makes the terrain-only
+  movement check inline: whole block on the map while planning around terrain and buildings only ->
+  no call, no flags (the answer searchKernel's verify confirmed over ~3 billion checks). Verify mode
+  keeps the call.
+- Checks (non-verify replays, so the inline path runs): paths-heavy-fcon.rep (36,000 frames), referee,
+  long-up, loco, oq, def match; battle verify 0 mismatches.
+- Timing, heavy recording (same game both ways; off = searchKernel only), load 3.0-5.4: route search
+  4.836 / 3.970, 5.011 / 4.057 ms/tick (-18%); logic 9.57 / 8.34, 9.63 / 8.72; frames over 100 ms
+  249 / 78, 240 / 92; p99 83.4 / 66.2, 83.1 / 67.4 ms. (The machine was quieter than for the
+  searchKernel runs, so compare within this pair only.)
+- Battle no-draw, 4 pairs: route search off 4.363 / 4.552 / 4.348 / 4.526, on 4.875 / 5.032 / 4.678 /
+  4.283 (two of the on runs started at load 6.6-7.3): not resolvable; the battle's line walk is only
+  3,518 steps a tick (heavy game: 88,361). ON for the AI game.
+
+## 2026-11-28 — paths: move/locomotor kernels: passKernel (seventh word bit 6, OFF: no gain), and where the time is
+- The movement kernel (1.05-1.2 ms/tick in the battle, 525 route points served, 435 closest-point
+  searches) was expected to sit in Path::computePointOnPath's isLinePassable checks. passKernel runs
+  that line walk as the templated loop with its step called directly and the crusher test once per
+  call. Exact by construction: heavy recording, referee, long-up, loco, oq, def match; battle verify 0.
+- But the checks are short: battle 876.5 calls, 4,597 steps a tick (~5 each); heavy AI game 119 calls,
+  1,520 steps. Timing: battle movement kernel off 1.058 / 1.045, on 1.052 / 1.183 ms/tick; heavy route
+  search 4.274 / 4.085 off, 3.952 / 4.168 on; level. OFF.
+- Other counters: segment-list rebuilds 10 a tick (336 segments): negligible. So the movement kernel
+  (~0.9 us per moving unit) and the locomotor (1.23 ms/tick, ~1.9 us per call, 645.6 calls) have no hot
+  loop left; the cost is spread over each unit's virtual calls and branches (state checks, physics,
+  the locomotor's per-type steering). Straight-lining them means rewriting the locomotor per type as
+  data, which is a round of its own; in the AI game they are ~0.6 of ~8.5 ms/tick, in the battle ~4.4 of 31.

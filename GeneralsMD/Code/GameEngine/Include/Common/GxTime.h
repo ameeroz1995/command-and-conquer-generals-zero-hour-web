@@ -50,6 +50,7 @@ enum GxCountId
 	GXC_PATH_FINDS, GXC_PATH_CELLS, GXC_LOCO_CALLS, GXC_CPOP_CALLS, GXC_CPOP_SIMD_SEGS,
 	GXC_MOOD_SCANS, GXC_BATCH_SCANNED, GXC_BATCH_USED, GXC_BATCH_CALLS, GXC_AI_ALLOCS, GXC_HEAP_PUSHES, GXC_HEAP_STEPS,
 	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES, GXC_BATCH_SEEKERS,
+	GXC_LOCO_SIMD_ANGLES, GXC_LOCO_ANGLE_HITS, GXC_LOCO_ANGLES, GXC_SHARE_NOTED, GXC_SHARE_SEARCHES, GXC_SHARE_TAKEN, GXC_GROUP_SPOTS, GXC_PATH_ALLOCS, GXC_PATH_BIG_ALLOCS, GXC_FAIL_CACHED, GXC_LINE_STEPS, GXC_NBR_TRIED, GXC_NBR_MOVECHECK, GXC_OPEN_INSERTS, GXC_CPOP_REBUILDS, GXC_CPOP_REBUILD_SEGS, GXC_PASS_CALLS, GXC_PASS_STEPS,	// paths
 	GXC_COUNT
 };
 
@@ -68,6 +69,8 @@ extern unsigned long long g_gxAllocs;	// GameMemory.cpp: every pool block and la
 inline GxTimeState &gxTime() { static GxTimeState s; return s; }
 inline bool gxTimingOn() { return (GLES3_Page_Switches4() & 65536) != 0; }
 inline void gxCount(GxCountId id, unsigned long long k = 1) { if (gxTimingOn()) gxTime().n[id] += k; }
+/// game allocator: counts a heap block taken inside a route search (GXT_PATHFIND scope)
+inline void gxCountPathAlloc(GxCountId id) { if (gxTimingOn() && gxTime().depth[GXT_PATHFIND] > 0) gxTime().n[id]++; }
 
 struct GxTimeScope
 {
@@ -124,18 +127,16 @@ inline void gxTimePrint(const char *tag)
 	GxTimeState &s = gxTime();
 	if (!s.ticks) return;
 	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "move", "moveKernel", "aiLoop", "aiKernels", "splash", "estimate", "reload", "physics", "collideBuild", "collideProcess", "client", "controlBar", "pathfind", "loco", "snapBuild", "snapPatch", "partUpdate", "cellsTouched", "pairOffers", "bsCull" };
-	static const char *cn[GXC_COUNT] = { "searches", "searchCells", "searchEntries", "searchUnits", "simdCulled",
-		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept",
-		"physUnits", "collideSeekers", "pairCells", "pairTests", "pairs", "allocs",
-		"moveUnits", "moveKernelPoints", "moveKernelTaken", "moveApplyPoints", "hordeSearches",
-		"aiModuleCalls", "aiKernelSlots",
-		"splashes", "splashVictims", "splashScanned", "splashNear",
-		"estimates", "tableHits", "tableMisses", "bonusHits", "bonusMisses", "reloadRows", "reloadChanged", "heightDieRedone",
-		"physUnits", "collideSeekers", "pairCells", "pairTests", "pairs", "allocs",
-		"allocFire", "allocDamage", "allocEstimate", "allocProjectile", "allocFx", "allocSpawn", "eventWalkObjects", "assistAsks", "buildMoreChecks",
-		"pathFinds", "pathCells", "locoCalls", "cpopCalls", "cpopSimdSegs",
-		"moodScans", "batchScanned", "batchUsed", "batches", "aiAllocs", "heapOps", "heapSteps",
-		"pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates", "bsSeekers" };
+	static const char *cn[GXC_COUNT] = { "searches", "searchCells", "searchEntries", "searchUnits", "simdCulled", "fogCircles", "fogCells", "fogStatusCalls",
+		"fogRecomputes", "fogKept", "moveUnits", "moveKernelPoints", "moveKernelTaken", "moveApplyPoints", "hordeSearches", "aiModuleCalls",
+		"aiKernelSlots", "splashes", "splashVictims", "splashScanned", "splashNear", "estimates", "tableHits", "tableMisses",
+		"bonusHits", "bonusMisses", "reloadRows", "reloadChanged", "heightDieRedone", "physUnits", "collideSeekers", "pairCells",
+		"pairTests", "pairs", "allocs", "allocFire", "allocDamage", "allocEstimate", "allocProjectile", "allocFx",
+		"allocSpawn", "eventWalkObjects", "assistAsks", "buildMoreChecks", "pathFinds", "pathCells", "locoCalls", "cpopCalls",
+		"cpopSimdSegs", "moodScans", "batchScanned", "batchUsed", "batches", "aiAllocs", "heapOps", "heapSteps",
+		"pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates", "bsSeekers", "locoSimdAngles", "locoAngleHits",
+		"locoAngles", "shareNoted", "shareSearches", "shareTaken", "groupSpots", "pathAllocs", "pathBigAllocs", "failCached",
+		"lineSteps", "nbrTried", "nbrMoveChecks", "openInserts", "cpopRebuilds", "cpopRebuildSegs", "passCalls", "passSteps" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())

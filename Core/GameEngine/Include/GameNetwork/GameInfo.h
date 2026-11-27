@@ -232,6 +232,8 @@ public:
 
 	UnsignedInt getGxMatchRules() const { return m_gxMatchRules; }	///< web port: match rules (Common/GxMatchRules.h)
 	void setGxMatchRules( UnsignedInt rules ) { m_gxMatchRules = rules; }
+	UnsignedInt getGxMatchRules2() const { return m_gxMatchRules2; }	///< web port: rule word 2 ("GX2=")
+	void setGxMatchRules2( UnsignedInt rules ) { m_gxMatchRules2 = rules; }
 
 protected:
 	Int m_preorderMask;
@@ -255,6 +257,7 @@ protected:
   UnsignedShort m_superweaponRestriction;
   Bool m_oldFactionsOnly; // Only USA, China, GLA -- not USA Air Force General, GLA Toxic General, et al
 	UnsignedInt m_gxMatchRules;	///< web port: match rules chosen by the host ("GX=" in the options string)
+	UnsignedInt m_gxMatchRules2 = 0;	///< web port: rule word 2 chosen by the host ("GX2=")
 };
 
 extern GameInfo *TheGameInfo;

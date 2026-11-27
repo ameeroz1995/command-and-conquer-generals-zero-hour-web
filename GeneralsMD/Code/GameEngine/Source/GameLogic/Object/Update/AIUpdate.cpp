@@ -30,6 +30,8 @@
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #include "Common/GxUnitStore.h"
 #include "Common/GxTime.h"
+#include "Common/GxMatchRules.h"
+#include "GameLogic/GxLocoAngle.h"
 
 #define DEFINE_LOCOMOTORSET_NAMES					// for TheLocomotorSetNames[]
 #define DEFINE_AUTOACQUIRE_NAMES
@@ -466,6 +468,24 @@ void AIUpdateInterface::doPathfind( PathfindServicesInterface *pathfinder )
 			ignoreObstacle(victim);
 		}
 	}
+	// match rule orderQueue: a member of a group order takes its kind's shared route, shifted
+	if (gxMatchRule(GXRULE_ORDER_QUEUE) && isDoingGroundMovement() && !GXROW_AIUPDATEINTERFACE.isAttackPath && !GXROW_AIUPDATEINTERFACE.isBlockedAndStuck && !canComputeQuickPath()) {
+		extern Bool gxTakeSharedRoute(Object *obj, const Coord3D *dest, std::vector<Coord3D> &mine);
+		static std::vector<Coord3D> s_pts;
+		if (gxTakeSharedRoute(getObject(), &GXROW_AIUPDATEINTERFACE.requestedDestination, s_pts)) {
+			destroyPath();	// as computePath
+			gxSetPathFromPoints(s_pts, &GXROW_AIUPDATEINTERFACE.requestedDestination);
+			GXROW_AIUPDATEINTERFACE.pathTimestamp = TheGameLogic->getFrame();
+			GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+			if (GXROW_AIUPDATEINTERFACE.queueForPathFrame > TheGameLogic->getFrame())
+				GXROW_AIUPDATEINTERFACE.waitingForPath = TRUE;
+#ifdef SLEEPY_AI
+			if (!GXROW_AIUPDATEINTERFACE.waitingForPath)
+				wakeUpNow();
+#endif
+			return;
+		}
+	}
 	computePath(pathfinder, &GXROW_AIUPDATEINTERFACE.requestedDestination);
 	if (GXROW_AIUPDATEINTERFACE.isFinalGoal && isDoingGroundMovement() && getPath()) {
 		TheAI->pathfinder()->updateGoal(getObject(), getPath()->getLastNode()->getPosition(),
@@ -511,17 +531,8 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 		std::vector<Coord3D> pts; pts.swap(GXROW_AIUPDATEINTERFACE.gxHintPts);
 		extern bool gxMatchRule(unsigned int rule);
 		if (gxMatchRule(1024 /* GXRULE_GROUP_ROUTE */) && TheGameLogic->getFrame() - GXROW_AIUPDATEINTERFACE.gxHintFrame <= 2 && isDoingGroundMovement()) {
-			Path *path = newInstance(Path);
-			path->appendNode(getObject()->getPosition(), LAYER_GROUND);
-			for (const Coord3D &p : pts) path->appendNode(&p, LAYER_GROUND);
-			path->appendNode(destination, LAYER_GROUND);
-			for (PathNode *node = path->getFirstNode(); node && node->getNext(); node = node->getNext())
-				node->setNextOptimized(node->getNext());
-			path->markOptimized();
 			destroyPath();	// also: no request outstanding
-			GXROW_AIUPDATEINTERFACE.path = path;
-			if (GXROW_AIUPDATEINTERFACE.isFinalGoal)
-				TheAI->pathfinder()->updateGoal(getObject(), GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition(), LAYER_GROUND);
+			gxSetPathFromPoints(pts, destination);
 			return;
 		}
 	}
@@ -552,6 +563,22 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 			gxStartCoarse(destination);
 	}
 
+}
+
+// web port (groupRoute / orderQueue): our path = our position, the shifted route points, the destination
+void AIUpdateInterface::gxSetPathFromPoints( const std::vector<Coord3D> &pts, const Coord3D *destination )
+{
+	Path *path = newInstance(Path);
+	path->appendNode(getObject()->getPosition(), LAYER_GROUND);
+	for (const Coord3D &p : pts) path->appendNode(&p, LAYER_GROUND);
+	path->appendNode(destination, LAYER_GROUND);
+	for (PathNode *node = path->getFirstNode(); node && node->getNext(); node = node->getNext())
+		node->setNextOptimized(node->getNext());
+	path->markOptimized();
+	deleteInstance(GXROW_AIUPDATEINTERFACE.path);
+	GXROW_AIUPDATEINTERFACE.path = path;
+	if (GXROW_AIUPDATEINTERFACE.isFinalGoal)
+		TheAI->pathfinder()->updateGoal(getObject(), GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition(), LAYER_GROUND);
 }
 
 // Match rule coarseStart: while the full route waits in the queue, follow the zone-level route.
@@ -1124,6 +1151,8 @@ struct GxCpopRow
 	const Path *path;
 	Coord3D pos;
 	ClosestPointOnPathInfo info;
+	UnsignedInt angleFrame;	// match rule locoSimd: heading of (posOnPath - pos), valid this frame
+	Real angleDy, angleDx, angle;
 };
 static std::vector<GxCpopRow> s_gxCpop;	// by store slot
 
@@ -1174,6 +1203,73 @@ Bool AIUpdateInterface::gxTakeKernelPoint(const Coord3D &pos, ClosestPointOnPath
 	return TRUE;
 }
 
+// match rule locoSimd: the locomotor's heading atan2(goal - position) of every unit the route kernel
+// just served, 4 per wasm SIMD op (gxLocoAtan2x4, the same floats as the scalar gxLocoAtan2)
+static void gxLocoAngleKernel(const int *list, int n, UnsignedInt frame)
+{
+	static std::vector<int> s_rows;
+	static std::vector<Real> s_dy, s_dx, s_a;
+	s_rows.clear(); s_dy.clear(); s_dx.clear();
+	for (int i = 0; i < n; ++i)
+	{
+		GxCpopRow &row = s_gxCpop[list[i]];
+		if (row.frame != frame)
+			continue;
+		s_rows.push_back(list[i]);
+		s_dy.push_back(row.info.posOnPath.y - row.pos.y);	// as the locomotor computes it
+		s_dx.push_back(row.info.posOnPath.x - row.pos.x);
+	}
+	const int m = (int)s_rows.size();
+	s_a.resize(m);
+	int k = 0;
+#ifdef __EMSCRIPTEN__
+	for (; k + 4 <= m; k += 4)
+		wasm_v128_store(&s_a[k], gxLocoAtan2x4(wasm_v128_load(&s_dy[k]), wasm_v128_load(&s_dx[k])));
+	gxCount(GXC_LOCO_SIMD_ANGLES, k);
+#endif
+	for (; k < m; ++k)
+		s_a[k] = gxLocoAtan2(s_dy[k], s_dx[k]);
+	for (int j = 0; j < m; ++j)
+	{
+		GxCpopRow &row = s_gxCpop[s_rows[j]];
+		row.angleFrame = frame; row.angleDy = s_dy[j]; row.angleDx = s_dx[j]; row.angle = s_a[j];
+	}
+}
+
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#endif
+Bool gxTakeLocoAngle(const Object *obj, Real dy, Real dx, Real &angle)
+{
+	const int s = obj->gxStoreSlot();
+	if (s < 0 || s >= (int)s_gxCpop.size())
+		return FALSE;
+	const GxCpopRow &row = s_gxCpop[s];
+	if (row.angleFrame != TheGameLogic->getFrame() || row.angleDy != dy || row.angleDx != dx)
+		return FALSE;
+	angle = row.angle;
+	gxCount(GXC_LOCO_ANGLE_HITS);
+#ifdef __EMSCRIPTEN__
+	if (GLES3_Page_Switches() & 2097152)	// verify mode: the SIMD lane against the scalar formula
+	{
+		static int s_checked = 0, s_bad = 0;
+		const Real ref = gxLocoAtan2(dy, dx);
+		if (memcmp(&ref, &angle, sizeof(Real)) != 0)
+		{
+			if (++s_bad <= 20)
+				printf("GXVERIFY locoSimd mismatch dy %.9g dx %.9g simd %.9g scalar %.9g\n", dy, dx, angle, ref);
+		}
+		const double libm = atan2((double)dy, (double)dx);
+		static double s_maxErr = 0.0;
+		double e = fabs(libm - angle); if (e > 3.14159265358979) e = fabs(e - 2 * 3.14159265358979);
+		if (e > s_maxErr) s_maxErr = e;
+		if (++s_checked % 20000 == 0)
+			printf("GXVERIFY locoSimd checked %d, mismatches %d, max error vs libm %.3g rad\n", s_checked, s_bad, s_maxErr);
+	}
+#endif
+	return TRUE;
+}
+
 void gxRunMovementPass()
 {
 	static std::vector<int> s_list;	// copy: a step may change masks (the store rebuilds its list)
@@ -1185,11 +1281,13 @@ void gxRunMovementPass()
 	{
 		if ((int)s_gxCpop.size() < TheGxUnitStore.size())
 		{
-			GxCpopRow none; none.frame = ~0u; none.path = nullptr; none.pos.zero();
+			GxCpopRow none; none.frame = ~0u; none.angleFrame = ~0u; none.path = nullptr; none.pos.zero();
 			s_gxCpop.resize(TheGxUnitStore.size() + 256, none);
 		}
 		GxTimeScope gxTimeKernel(GXT_MOVE_KERNEL);
 		gxMoveKernel(s_list.data(), 0, (int)s_list.size(), TheGameLogic->getFrame());
+		if (gxMatchRule(GXRULE_LOCO_SIMD))
+			gxLocoAngleKernel(s_list.data(), (int)s_list.size(), TheGameLogic->getFrame());
 	}
 	// apply, in object-ID order: locomotion, physics forces, positions, grid marks
 	for (size_t i = 0; i < s_list.size(); ++i)

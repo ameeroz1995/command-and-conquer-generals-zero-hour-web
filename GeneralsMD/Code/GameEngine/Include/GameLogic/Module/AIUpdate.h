@@ -478,6 +478,7 @@ public:
 	const Coord3D * gxRequestedDest() const;	///< web port: the destination of the waiting request
 	Bool gxPlainRequest() const;	///< web port: a plain move request is waiting	///< web port (match rule routeQueue): the queued search is a closest-spot one
 	void gxStartCoarseDeferred();	///< web port (match rule routeQueue): coarse start spread over frames
+	void gxSetPathFromPoints( const std::vector<Coord3D> &pts, const Coord3D *destination );	///< web port (groupRoute / orderQueue)
 	void gxSetRouteHint( const std::vector<Coord3D> &pts, UnsignedInt frame );	///< web port (match rule groupRoute)	///< web port (match rule moveAfterTick): this unit's locomotion, from the movement pass
 	Bool gxOnCoarsePath() const;	///< web port (match rule coarseStart): following the zone-level route while the full one is queued
 	Bool isAttackPath() const; ///< True if we have a path to an attack location.
