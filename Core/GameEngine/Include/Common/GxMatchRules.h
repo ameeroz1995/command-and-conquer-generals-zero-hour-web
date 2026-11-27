@@ -33,6 +33,7 @@ enum GxMatchRule
 	// "off" rules (an old recording without them plays as before, kernels on):
 	GXRULE_KIND_KERNELS_OFF    = 16777216,	///< kindKernels off: no per-kind kernels under updatePasses (GameLogic.cpp)
 	GXRULE_CONTAIN_KERNELS_OFF = 33554432,	///< containKernels off: containers / rebuild holes count down in their own turns (OpenContain.cpp, RebuildHoleBehavior.cpp)	///< damageQueue: weapon damage queued during the tick and applied in one pass in victim-ID order (Weapon.cpp)
+	GXRULE_ORDER_QUEUE    = 536870912,	///< orderQueue: a group order does no route search on its tick: each kind's route is searched when its first member is served by the route queue, members take it shifted there; the original column ground path is skipped (AIGroup.cpp)
 	GXRULE_LOCO_SIMD      = 134217728,	///< locoSimd: locomotor headings by a fixed polynomial atan2, 4 movers per wasm SIMD op in the movement pass (Locomotor.cpp, GxLocoAngle.h)
 };
 

@@ -62,7 +62,7 @@ int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
 static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 512 | 4096 | 8192 | 16384 | 32768 | 262144;	// default-on bits of every lane (collideSimd, dataBehaviors, kindKernels, containKernels, kernelSimd, rowKernels, simdSearch, fogStamps, fogKeep, cpopSimd)
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
-static int g_PageSwitches5 = 0;	// fifth word, default-on bits of every lane (none yet)
+static int g_PageSwitches5 = 0 | 65536;	// fifth word, default-on bits of every lane (orderQueue)
 int GLES3_Page_Switches5() { return g_PageSwitches5; }	// non-web builds: callers use a local stub returning 0
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -492,6 +492,7 @@ void GLES3_Begin_Scene() {
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+                 | (o.orderQueue === false ? 0 : 65536)   // bit 16: match rule orderQueue, a group order does no route search on its tick; the kinds' routes are searched in the route queue (AIGroup.cpp)
                  | (o.locoSimd === true ? 2 : 0)   // bit 1 (value 2): match rule locoSimd, locomotor headings by a fixed polynomial atan2, 4 movers per wasm SIMD op (Locomotor.cpp, GxLocoAngle.h)
                  | (o.batchScan === true ? 1 : 0);   // bit 0 (value 1): batchScan, due mood scans of AI units collected per phase and searched in one pass over the unit store (AIUpdate.cpp, PartitionManager.cpp; off until timed)
         });

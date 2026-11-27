@@ -1704,7 +1704,8 @@ unsigned int gxLocalMatchRules()
 		| ((GLES3_Page_Switches3() & 64) ? GXRULE_STORE_PAIRS : 0)	// third word bit 6: storePairs
 		| ((GLES3_Page_Switches4() & 128) ? 0 : GXRULE_KIND_KERNELS_OFF)	// fourth word bit 7: kindKernels
 		| ((GLES3_Page_Switches4() & 256) ? 0 : GXRULE_CONTAIN_KERNELS_OFF)	// fourth word bit 8: containKernels
-		| ((GLES3_Page_Switches5() & 2) ? GXRULE_LOCO_SIMD : 0);	// fifth word bit 1 (value 2): locoSimd
+		| ((GLES3_Page_Switches5() & 2) ? GXRULE_LOCO_SIMD : 0)	// fifth word bit 1 (value 2): locoSimd
+		| ((GLES3_Page_Switches5() & 65536) ? GXRULE_ORDER_QUEUE : 0);	// fifth word bit 16: orderQueue
 #else
 	return 0;
 #endif

@@ -465,6 +465,24 @@ void AIUpdateInterface::doPathfind( PathfindServicesInterface *pathfinder )
 			ignoreObstacle(victim);
 		}
 	}
+	// match rule orderQueue: a member of a group order takes its kind's shared route, shifted
+	if (gxMatchRule(GXRULE_ORDER_QUEUE) && isDoingGroundMovement() && !GXROW_AIUPDATEINTERFACE.isAttackPath && !GXROW_AIUPDATEINTERFACE.isBlockedAndStuck && !canComputeQuickPath()) {
+		extern Bool gxTakeSharedRoute(Object *obj, const Coord3D *dest, std::vector<Coord3D> &mine);
+		static std::vector<Coord3D> s_pts;
+		if (gxTakeSharedRoute(getObject(), &GXROW_AIUPDATEINTERFACE.requestedDestination, s_pts)) {
+			destroyPath();	// as computePath
+			gxSetPathFromPoints(s_pts, &GXROW_AIUPDATEINTERFACE.requestedDestination);
+			GXROW_AIUPDATEINTERFACE.pathTimestamp = TheGameLogic->getFrame();
+			GXROW_AIUPDATEINTERFACE.blockedFrames = 0;
+			if (GXROW_AIUPDATEINTERFACE.queueForPathFrame > TheGameLogic->getFrame())
+				GXROW_AIUPDATEINTERFACE.waitingForPath = TRUE;
+#ifdef SLEEPY_AI
+			if (!GXROW_AIUPDATEINTERFACE.waitingForPath)
+				wakeUpNow();
+#endif
+			return;
+		}
+	}
 	computePath(pathfinder, &GXROW_AIUPDATEINTERFACE.requestedDestination);
 	if (GXROW_AIUPDATEINTERFACE.isFinalGoal && isDoingGroundMovement() && getPath()) {
 		TheAI->pathfinder()->updateGoal(getObject(), getPath()->getLastNode()->getPosition(),
@@ -510,17 +528,8 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 		std::vector<Coord3D> pts; pts.swap(GXROW_AIUPDATEINTERFACE.gxHintPts);
 		extern bool gxMatchRule(unsigned int rule);
 		if (gxMatchRule(1024 /* GXRULE_GROUP_ROUTE */) && TheGameLogic->getFrame() - GXROW_AIUPDATEINTERFACE.gxHintFrame <= 2 && isDoingGroundMovement()) {
-			Path *path = newInstance(Path);
-			path->appendNode(getObject()->getPosition(), LAYER_GROUND);
-			for (const Coord3D &p : pts) path->appendNode(&p, LAYER_GROUND);
-			path->appendNode(destination, LAYER_GROUND);
-			for (PathNode *node = path->getFirstNode(); node && node->getNext(); node = node->getNext())
-				node->setNextOptimized(node->getNext());
-			path->markOptimized();
 			destroyPath();	// also: no request outstanding
-			GXROW_AIUPDATEINTERFACE.path = path;
-			if (GXROW_AIUPDATEINTERFACE.isFinalGoal)
-				TheAI->pathfinder()->updateGoal(getObject(), GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition(), LAYER_GROUND);
+			gxSetPathFromPoints(pts, destination);
 			return;
 		}
 	}
@@ -551,6 +560,22 @@ void AIUpdateInterface::requestPath( Coord3D *destination, Bool isFinalGoal )
 			gxStartCoarse(destination);
 	}
 
+}
+
+// web port (groupRoute / orderQueue): our path = our position, the shifted route points, the destination
+void AIUpdateInterface::gxSetPathFromPoints( const std::vector<Coord3D> &pts, const Coord3D *destination )
+{
+	Path *path = newInstance(Path);
+	path->appendNode(getObject()->getPosition(), LAYER_GROUND);
+	for (const Coord3D &p : pts) path->appendNode(&p, LAYER_GROUND);
+	path->appendNode(destination, LAYER_GROUND);
+	for (PathNode *node = path->getFirstNode(); node && node->getNext(); node = node->getNext())
+		node->setNextOptimized(node->getNext());
+	path->markOptimized();
+	deleteInstance(GXROW_AIUPDATEINTERFACE.path);
+	GXROW_AIUPDATEINTERFACE.path = path;
+	if (GXROW_AIUPDATEINTERFACE.isFinalGoal)
+		TheAI->pathfinder()->updateGoal(getObject(), GXROW_AIUPDATEINTERFACE.path->getLastNode()->getPosition(), LAYER_GROUND);
 }
 
 // Match rule coarseStart: while the full route waits in the queue, follow the zone-level route.

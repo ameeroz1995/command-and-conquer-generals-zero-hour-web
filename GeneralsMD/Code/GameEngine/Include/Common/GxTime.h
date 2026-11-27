@@ -30,6 +30,7 @@ enum GxCountId
 	GXC_MOVE_UNITS, GXC_MOVE_KERNEL_POINTS, GXC_MOVE_KERNEL_TAKEN, GXC_MOVE_APPLY_POINTS, GXC_HORDE_SEARCHES,
 	GXC_AI_MODULE_CALLS, GXC_AI_KERNEL_SLOTS,
 	GXC_PATH_FINDS, GXC_PATH_CELLS, GXC_LOCO_CALLS, GXC_CPOP_CALLS, GXC_CPOP_SIMD_SEGS, GXC_LOCO_SIMD_ANGLES, GXC_LOCO_ANGLE_HITS, GXC_LOCO_ANGLES,
+	GXC_SHARE_NOTED, GXC_SHARE_SEARCHES, GXC_SHARE_TAKEN, GXC_GROUP_SPOTS,
 	GXC_COUNT
 };
 
@@ -81,7 +82,8 @@ inline void gxTimeTickEnd()
 		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept",
 		"moveUnits", "moveKernelPoints", "moveKernelTaken", "moveApplyPoints", "hordeSearches",
 		"aiModuleCalls", "aiKernelSlots",
-		"pathFinds", "pathCells", "locoCalls", "cpopCalls", "cpopSimdSegs", "locoSimdAngles", "locoAngleHits", "locoAngles" };
+		"pathFinds", "pathCells", "locoCalls", "cpopCalls", "cpopSimdSegs", "locoSimdAngles", "locoAngleHits", "locoAngles",
+		"shareNoted", "shareSearches", "shareTaken", "groupSpots" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())

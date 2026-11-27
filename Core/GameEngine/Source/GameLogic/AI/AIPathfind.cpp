@@ -75,6 +75,7 @@
 
 //------------------------------------------------------------------------------ Performance Timers
 #include "Common/PerfMetrics.h"
+#include <unordered_set>
 
 //-------------------------------------------------------------------------------------------------
 
@@ -5918,6 +5919,77 @@ Bool Pathfinder::adjustToLandingDestination(Object *obj, Coord3D *dest)
  * Find an unoccupied spot for a unit to move to.
  * Returns false if there are no spots available within a reasonable radius.
  */
+// web port (match rule orderQueue): destination spots for a group order from one outward search from
+// the group's goal per kind of footprint (surfaces, crusher, radius, centring, layer, goal), handed out
+// in search order: a member skips the spots the members before it took instead of spiralling past
+// them and pricing each candidate with a route-cost search (adjustDestination + checkPathCost).
+// Spots are reached from the goal over cells this kind can move on. Valid for one frame.
+struct GxSpotSearch
+{
+	LocomotorSurfaceTypeMask surf; Bool crush, center; Int radius; PathfindLayerEnum layer; ICoord2D goal; UnsignedInt frame;
+	std::vector<ICoord2D> order;	// visit order (breadth first); also the queue
+	size_t head, next;				// next cell to expand / to offer
+	std::unordered_set<Int> seen;
+};
+static std::vector<GxSpotSearch> s_gxSpots;
+static const size_t GX_SPOT_CELLS = 40000;	// then the member adjusts as before
+
+Bool Pathfinder::gxGroupSpot(Object *obj, const LocomotorSet& locomotorSet, const Coord3D *groupDest, Coord3D *dest)
+{
+	if (obj->isKindOf(KINDOF_PROJECTILE))
+		return true;
+	const Bool isHuman = !(obj->getControllingPlayer() && obj->getControllingPlayer()->getPlayerType() == PLAYER_COMPUTER);
+	Int iRadius; Bool center;
+	getRadiusAndCenter(obj, iRadius, center);
+	Coord3D g = *groupDest;
+	if (!center) { g.x += PATHFIND_CELL_SIZE_F/2; g.y += PATHFIND_CELL_SIZE_F/2; }
+	ICoord2D gc;
+	worldToCell(&g, &gc);
+	const PathfindLayerEnum layer = TheTerrainLogic->getLayerForDestination(groupDest);
+	const UnsignedInt now = TheGameLogic->getFrame();
+	const LocomotorSurfaceTypeMask surf = locomotorSet.getValidSurfaces();
+	const Bool crush = obj->getCrusherLevel() > 0;
+	if (!s_gxSpots.empty() && s_gxSpots.back().frame != now)
+		s_gxSpots.clear();
+	GxSpotSearch *s = nullptr;
+	for (GxSpotSearch &e : s_gxSpots)
+		if (e.surf == surf && e.crush == crush && e.radius == iRadius && e.center == center && e.layer == layer && e.goal.x == gc.x && e.goal.y == gc.y) { s = &e; break; }
+	if (!s) {
+		GxSpotSearch e;
+		e.surf = surf; e.crush = crush; e.center = center; e.radius = iRadius; e.layer = layer; e.goal = gc; e.frame = now;
+		e.head = e.next = 0;
+		e.order.push_back(gc); e.seen.insert(gc.x + gc.y * 65536);
+		s_gxSpots.push_back(std::move(e));
+		s = &s_gxSpots.back();
+	}
+	for (;;) {
+		while (s->next < s->order.size()) {
+			const ICoord2D c = s->order[s->next++];
+			PathfindCell *cell = getCell(layer, c.x, c.y);
+			if (!cell || cell->getType() == PathfindCell::CELL_CLIFF) continue;
+			if (isHuman && (c.x < m_logicalExtent.lo.x || c.y < m_logicalExtent.lo.y || c.x > m_logicalExtent.hi.x || c.y > m_logicalExtent.hi.y)) continue;
+			if (checkDestination(obj, c.x, c.y, layer, iRadius, center)) {
+				adjustCoordToCell(c.x, c.y, center, *dest, cell->getLayer());
+				gxCount(GXC_GROUP_SPOTS);
+				return true;
+			}
+		}
+		if (s->head >= s->order.size() || s->order.size() > GX_SPOT_CELLS)
+			break;
+		const ICoord2D c = s->order[s->head++];
+		PathfindCell *from = getCell(layer, c.x, c.y);
+		static const Int dx[8] = { 1, 0, -1, 0, 1, -1, -1, 1 }, dy[8] = { 0, 1, 0, -1, 1, 1, -1, -1 };
+		for (Int d = 0; d < 8; ++d) {
+			ICoord2D n; n.x = c.x + dx[d]; n.y = c.y + dy[d];
+			if (!s->seen.insert(n.x + n.y * 65536).second) continue;
+			PathfindCell *to = getCell(layer, n.x, n.y);
+			if (!to || !validMovementPosition(crush, surf, to, from)) continue;
+			s->order.push_back(n);
+		}
+	}
+	return adjustDestination(obj, locomotorSet, dest, groupDest);	// nothing near: as before
+}
+
 Bool Pathfinder::adjustDestination(Object *obj, const LocomotorSet& locomotorSet, Coord3D *dest, const Coord3D *groupDest)
 {
 	if( obj->isKindOf(KINDOF_PROJECTILE) )

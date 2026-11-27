@@ -4214,3 +4214,30 @@ Level within noise (the ceiling was the call's 0.4% self share).
   off3 21.18 (2700 ticks, 762 movers: a different battle) / on3 18.99, loco 0.776.
   Per loco call: off2 1.95 us, on2 1.91, on3 1.96. Level: the heading atan2 is a small part of a loco
   call. Left off.
+
+## 2026-11-27 — paths: match rule orderQueue (536870912, bit 29; Settings fifth word bit 16, ON)
+- The group-order spike is old (merge6 has it: N=100 order tick 54-66 ms logic; merge7 63-88). Breakdown
+  at N=1000 (current build, off): group order 94 ms = shared route search 40, the original column ground
+  path 31, adjustDestination spirals 18, rest 6. Scaling is about linear past N=100; the searches dominate.
+- Under the rule a group order does no route search on its tick: (a) groupRoute only notes each mover
+  kind (leader, members within 250 of it); the kind's route is searched when the first member is served
+  by the route queue (AIUpdate doPathfind -> gxTakeSharedRoute), the others take it shifted and checked;
+  (b) the original friend_computeGroundPath / infantry / vehicle column moves are skipped; (c) each
+  member's spot is the next free cell of one breadth-first walk from the goal per frame and group kind
+  (Pathfinder::gxGroupSpot), instead of a 400-cell adjustDestination spiral each. All three parts are
+  faster on their own, so one switch.
+- Order probe (battle map, fresh clump of 2000, orders 15 s apart; probe build m10, alternating on/off x2),
+  order-tick logic ms off -> on:
+  N=20 34.8 -> 17.0; N=50 26-30 -> 18-20; N=100 63-68 -> 18; N=250 52-55 -> 21-24; N=500 37-40 -> 22;
+  N=1000 88-98 -> 22 (group part 75-82 -> 4-5 ms). The 5 s after each order: same ms/tick
+  (N=1000 17.8-18.1 off / 14.9-15.9 on), route work moves into the queue as intended.
+- Checks (paths-oq1, rule on by default): referee.rep, paths-long-up.rep, paths-loco.rep match (rule off
+  from their headers). New recording paths-oq.rep (18,000 frames, header GX=20FEE6E7) replays to a match
+  with the local switch on and off. Battle in verify mode: all GXVERIFY checks 0 mismatches.
+- Timing, battle benchmark, paths-oq1, tickTiming, timing.lock, load 1.9-3.4 before/after every run,
+  alternating off/on x2. The rule changes the battle (on: 2700 ticks, 765 movers/tick, 3525 AI module
+  calls/tick; off: 3000 ticks, 686, 3184), so whole-tick numbers aren't like for like:
+  logic off 16.39 / 16.18, on 17.42 / 16.85 ms/tick; per AI module call off 5.15 / 5.08 us, on 4.95 / 4.77;
+  p99 off 94.9 / 87.3, on 94.7 / 89.4 ms; over 100 ms off 13 / 7, on 10 / 10; fps off 16.7 / 17.4, on 17.9 / 18.5.
+  The battle's AI mostly issues attack moves (no shared route: shareNoted 1.0/tick, shareTaken < 0.05/tick),
+  so the battle is level; the gain is the order tick above. ON by default.
