@@ -4613,3 +4613,17 @@ Level within noise (the ceiling was the call's 0.4% self share).
 - Battle no-draw, 4 pairs: route search off 4.363 / 4.552 / 4.348 / 4.526, on 4.875 / 5.032 / 4.678 /
   4.283 (two of the on runs started at load 6.6-7.3): not resolvable; the battle's line walk is only
   3,518 steps a tick (heavy game: 88,361). ON for the AI game.
+
+## 2026-11-28 — paths: move/locomotor kernels: passKernel (seventh word bit 6, OFF: no gain), and where the time is
+- The movement kernel (1.05-1.2 ms/tick in the battle, 525 route points served, 435 closest-point
+  searches) was expected to sit in Path::computePointOnPath's isLinePassable checks. passKernel runs
+  that line walk as the templated loop with its step called directly and the crusher test once per
+  call. Exact by construction: heavy recording, referee, long-up, loco, oq, def match; battle verify 0.
+- But the checks are short: battle 876.5 calls, 4,597 steps a tick (~5 each); heavy AI game 119 calls,
+  1,520 steps. Timing: battle movement kernel off 1.058 / 1.045, on 1.052 / 1.183 ms/tick; heavy route
+  search 4.274 / 4.085 off, 3.952 / 4.168 on; level. OFF.
+- Other counters: segment-list rebuilds 10 a tick (336 segments): negligible. So the movement kernel
+  (~0.9 us per moving unit) and the locomotor (1.23 ms/tick, ~1.9 us per call, 645.6 calls) have no hot
+  loop left; the cost is spread over each unit's virtual calls and branches (state checks, physics,
+  the locomotor's per-type steering). Straight-lining them means rewriting the locomotor per type as
+  data, which is a round of its own; in the AI game they are ~0.6 of ~8.5 ms/tick, in the battle ~4.4 of 31.

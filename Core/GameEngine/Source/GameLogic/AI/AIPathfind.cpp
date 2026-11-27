@@ -1023,6 +1023,7 @@ void Path::computePointOnPath(
 			}
 			m_gxCum[ns] = cum;
 			m_gxSegsValid = TRUE;
+			gxCount(GXC_CPOP_REBUILDS); gxCount(GXC_CPOP_REBUILD_SEGS, ns);	// web port: GXTIME
 		}
 		const Int ns = (Int)m_gxSegs.size();
 		const Bool gxSimd = (GLES3_Page_Switches4() & 262144) != 0 && ns > 0;	// switch cpopSimd (fourth word bit 18)
@@ -5559,6 +5560,7 @@ extern int GLES3_Page_Switches();
 static Bool s_gxPlanIgnoringUnits = false;
 static Bool s_gxSearchKernel = false;	// web port: switch searchKernel, read at each expansion
 static Bool s_gxLineKernel = false;	// web port: switch lineKernel, read at each expansion
+static Bool s_gxPassKernel = false;	// web port: switch passKernel, read at each isLinePassable
 static int s_gxIgnorePlans = 0, s_gxIgnoreSkippedBlocked = 0;
 // switch ignoreUnitsInPaths (page switch bit 27): single player only, never network games or replays
 static Bool gxIgnoreUnitsFor(const Object *obj)
@@ -10625,6 +10627,7 @@ Bool Pathfinder::circleClipsTallBuilding(	const Coord3D *from, const Coord3D *to
 
 struct LinePassableStruct
 {
+	Bool isCrusher;	///< web port (switch passKernel): the mover's crusher test, once per call
 	const Object *obj;
 	LocomotorSurfaceTypeMask acceptableSurfaces;
 	Int radius;
@@ -10636,8 +10639,9 @@ struct LinePassableStruct
 /*static*/ Int Pathfinder::linePassableCallback(Pathfinder* pathfinder, PathfindCell* from, PathfindCell* to, Int to_x, Int to_y, void* userData)
 {
 	const LinePassableStruct* d = (const LinePassableStruct*)userData;
+	gxCount(GXC_PASS_STEPS);	// web port: GXTIME
 
-	Bool isCrusher = d->obj ? d->obj->getCrusherLevel() > 0 : false;
+	const Bool isCrusher = s_gxPassKernel ? d->isCrusher : (d->obj ? d->obj->getCrusherLevel() > 0 : false);
 	TCheckMovementInfo info;
 	info.cell.x = to_x;
 	info.cell.y = to_y;
@@ -10714,7 +10718,19 @@ Bool Pathfinder::isLinePassable( const Object *obj, LocomotorSurfaceTypeMask acc
 	getRadiusAndCenter(obj, info.radius, info.centerInCell);
 	info.blocked = blocked;
 	info.allowPinched = allowPinched;
+	gxCount(GXC_PASS_CALLS);	// web port: GXTIME
 
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches7();
+	s_gxPassKernel = (GLES3_Page_Switches7() & 64) != 0;	// switch passKernel (seventh word bit 6)
+	if (s_gxPassKernel) {	// the same walk, the step called directly, the crusher test once
+		info.isCrusher = obj ? obj->getCrusherLevel() > 0 : false;
+		ICoord2D start, end;
+		worldToCell(&startWorld, &start);
+		worldToCell(&endWorld, &end);
+		return gxWalkLine(this, start, end, layer, [&](PathfindCell *f, PathfindCell *t, Int x, Int y) { return linePassableCallback(this, f, t, x, y, (void *)&info); }) == 0;
+	}
+#endif
 	Int ret = iterateCellsAlongLine(startWorld, endWorld, layer, linePassableCallback, (void*)&info);
 	return ret == 0;
 }

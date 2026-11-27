@@ -517,7 +517,8 @@ void GLES3_Begin_Scene() {
             return 0   // seventh word: bit 0 collide, 1-31 spare
                  | (o.aiScripts === false ? 0 : 1)   // bit 0 (collide): the skirmish / multiplayer AI scripts (Data/Scripts/*.scb, loose files) are loaded at boot (EmscriptenMain.cpp, which reads the same setting at boot; changes the game: off for recordings made before 2c7e213)
                  | (o.searchKernel === false ? 0 : 16)   // bit 4 (paths): route-search line walk without per-step virtual calls; terrain-only movement checks answered from the footprint bounds (AIPathfind.cpp; same game)
-                 | (o.lineKernel === false ? 0 : 32);   // bit 5 (paths): with searchKernel, the route search's line walk calls its step directly and makes the terrain-only check inline (AIPathfind.cpp; same game)
+                 | (o.lineKernel === false ? 0 : 32)   // bit 5 (paths): with searchKernel, the route search's line walk calls its step directly and makes the terrain-only check inline (AIPathfind.cpp; same game)
+                 | (o.passKernel === true ? 64 : 0);   // bit 6 (paths): isLinePassable (route following, every moving unit) walks with its step called directly and the crusher test once (AIPathfind.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
