@@ -4596,3 +4596,20 @@ Level within noise (the ceiling was the call's 0.4% self share).
   7.446 / 5.712, 7.084 / 5.148 ms/tick (-23 to -27%); logic 12.89 / 11.41, 12.74 / 10.10; frames over
   100 ms 1,022 / 375, 769 / 261; p99 127.9 / 101.1, 119.8 / 87.3 ms. Battle no-draw: route search
   4.556 / 4.551, 4.795 / 4.364; logic 33.94 / 34.19, 35.24 / 33.18 (level to slightly better). ON.
+
+## 2026-11-27 — paths: straight-line route search, step 2: lineKernel (seventh word bit 5, ON; same game)
+- With searchKernel on: the route search's line walk (examineNeighboringCells -> iterateCellsAlongLine
+  -> examineCellsCallback through a function pointer) runs as a templated copy of the same Bresenham
+  loop that calls the step directly (same cells, same order), and the step makes the terrain-only
+  movement check inline: whole block on the map while planning around terrain and buildings only ->
+  no call, no flags (the answer searchKernel's verify confirmed over ~3 billion checks). Verify mode
+  keeps the call.
+- Checks (non-verify replays, so the inline path runs): paths-heavy-fcon.rep (36,000 frames), referee,
+  long-up, loco, oq, def match; battle verify 0 mismatches.
+- Timing, heavy recording (same game both ways; off = searchKernel only), load 3.0-5.4: route search
+  4.836 / 3.970, 5.011 / 4.057 ms/tick (-18%); logic 9.57 / 8.34, 9.63 / 8.72; frames over 100 ms
+  249 / 78, 240 / 92; p99 83.4 / 66.2, 83.1 / 67.4 ms. (The machine was quieter than for the
+  searchKernel runs, so compare within this pair only.)
+- Battle no-draw, 4 pairs: route search off 4.363 / 4.552 / 4.348 / 4.526, on 4.875 / 5.032 / 4.678 /
+  4.283 (two of the on runs started at load 6.6-7.3): not resolvable; the battle's line walk is only
+  3,518 steps a tick (heavy game: 88,361). ON for the AI game.

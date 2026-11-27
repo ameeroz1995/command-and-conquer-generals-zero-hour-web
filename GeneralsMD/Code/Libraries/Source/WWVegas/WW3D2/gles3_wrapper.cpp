@@ -66,7 +66,7 @@ static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 512 | 4096 | 8192 | 16384 
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static int g_PageSwitches5 = 0 | 2 | 65536 | 131072 | 262144 | 524288;	// fifth word, default-on bits of every lane (locoSimd, orderQueue, pathTail, nodePool, failCache)
 int GLES3_Page_Switches5() { return g_PageSwitches5; }	// non-web builds: callers use a local stub returning 0
-static int g_PageSwitches7 = 0 | 1 | 16;	// seventh word, default-on bits (aiScripts, searchKernel); bit 0 collide (aiScripts), 1-31 spare
+static int g_PageSwitches7 = 0 | 1 | 16 | 32;	// seventh word, default-on bits (aiScripts, searchKernel, lineKernel); bit 0 collide (aiScripts), 1-31 spare
 int GLES3_Page_Switches7() { return g_PageSwitches7; }	// non-web builds: callers use a local stub returning 0
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -516,7 +516,8 @@ void GLES3_Begin_Scene() {
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // seventh word: bit 0 collide, 1-31 spare
                  | (o.aiScripts === false ? 0 : 1)   // bit 0 (collide): the skirmish / multiplayer AI scripts (Data/Scripts/*.scb, loose files) are loaded at boot (EmscriptenMain.cpp, which reads the same setting at boot; changes the game: off for recordings made before 2c7e213)
-                 | (o.searchKernel === false ? 0 : 16);   // bit 4 (paths): route-search line walk without per-step virtual calls; terrain-only movement checks answered from the footprint bounds (AIPathfind.cpp; same game)
+                 | (o.searchKernel === false ? 0 : 16)   // bit 4 (paths): route-search line walk without per-step virtual calls; terrain-only movement checks answered from the footprint bounds (AIPathfind.cpp; same game)
+                 | (o.lineKernel === false ? 0 : 32);   // bit 5 (paths): with searchKernel, the route search's line walk calls its step directly and makes the terrain-only check inline (AIPathfind.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

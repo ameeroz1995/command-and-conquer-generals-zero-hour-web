@@ -5558,6 +5558,7 @@ Bool Pathfinder::checkDestination(const Object *obj, Int cellX, Int cellY, Pathf
 extern int GLES3_Page_Switches();
 static Bool s_gxPlanIgnoringUnits = false;
 static Bool s_gxSearchKernel = false;	// web port: switch searchKernel, read at each expansion
+static Bool s_gxLineKernel = false;	// web port: switch lineKernel, read at each expansion
 static int s_gxIgnorePlans = 0, s_gxIgnoreSkippedBlocked = 0;
 // switch ignoreUnitsInPaths (page switch bit 27): single player only, never network games or replays
 static Bool gxIgnoreUnitsFor(const Object *obj)
@@ -6855,6 +6856,39 @@ struct ExamineCellsStruct
 	PathfindCell				*goalCell;
 };
 
+// web port (switch lineKernel): iterateCellsAlongLine with the step called directly (inlined), the same
+// cells in the same order
+template <class F>
+static inline Int gxWalkLine(Pathfinder *pf, const ICoord2D &start, const ICoord2D &end, PathfindLayerEnum layer, F &&step)
+{
+	const Int delta_x = abs(end.x - start.x), delta_y = abs(end.y - start.y);
+	Int x = start.x, y = start.y;
+	Int xinc1 = end.x >= start.x ? 1 : -1, xinc2 = xinc1;
+	Int yinc1 = end.y >= start.y ? 1 : -1, yinc2 = yinc1;
+	Int den, num, numadd, numpixels;
+	if (delta_x >= delta_y) { xinc1 = 0; yinc2 = 0; den = delta_x; num = delta_x / 2; numadd = delta_y; numpixels = delta_x; }
+	else { xinc2 = 0; yinc1 = 0; den = delta_y; num = delta_y / 2; numadd = delta_x; numpixels = delta_y; }
+	PathfindCell *from = nullptr;
+	for (Int curpixel = 0; curpixel <= numpixels; curpixel++) {
+		PathfindCell *to = pf->getCell(layer, x, y);
+		if (to == nullptr) return 0;
+		Int ret = step(from, to, x, y);
+		if (ret != 0) return ret;
+		num += numadd;
+		if (num >= den) {
+			num -= den; x += xinc1; y += yinc1;
+			from = to;
+			to = pf->getCell(layer, x, y);
+			if (to == nullptr) return 0;
+			ret = step(from, to, x, y);
+			if (ret != 0) return ret;
+		}
+		x += xinc2; y += yinc2;
+		from = to;
+	}
+	return 0;
+}
+
 /*static*/ Int Pathfinder::examineCellsCallback(Pathfinder* pathfinder, PathfindCell* from, PathfindCell* to, Int to_x, Int to_y, void* userData)
 {
 	gxCount(GXC_LINE_STEPS);	// web port: GXTIME
@@ -6887,6 +6921,14 @@ struct ExamineCellsStruct
 			info.radius = d->radius;
 			info.considerTransient = false;
 			info.acceptableSurfaces = d->theLoco->getValidSurfaces();
+			// switch lineKernel: the terrain-only check searchKernel answers from the block bounds is
+			// made here without the call (same answer, no ally or enemy flags); verify mode calls it
+			const Int above = d->centerInCell ? d->radius + 1 : d->radius;
+			const IRegion2D &ext = d->thePathfinder->m_extent;
+			if (s_gxLineKernel && s_gxPlanIgnoringUnits && d->obj && info.layer == LAYER_GROUND && !(GLES3_Page_Switches() & 2097152)
+					&& to_x - d->radius >= ext.lo.x && to_x + above - 1 <= ext.hi.x && to_y - d->radius >= ext.lo.y && to_y + above - 1 <= ext.hi.y) {
+				info.allyFixedCount = 0; info.allyMoving = false; info.allyGoal = false; info.enemyFixed = false;
+			} else
 			if (!d->thePathfinder->checkForMovement(d->obj, info)) {
 				return 1; //abort.
 			}
@@ -6955,7 +6997,7 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
 	gxPkCell();
 	++gxExpansions;	// web port (failCache verify)
 #ifdef __EMSCRIPTEN__
-	{ extern int GLES3_Page_Switches7(); s_gxSearchKernel = (GLES3_Page_Switches7() & 16) != 0; }	// switch searchKernel (seventh word bit 4)
+	{ extern int GLES3_Page_Switches7(); const int w7 = GLES3_Page_Switches7(); s_gxSearchKernel = (w7 & 16) != 0; s_gxLineKernel = s_gxSearchKernel && (w7 & 32) != 0; }	// switches searchKernel, lineKernel (seventh word bits 4, 5)
 #endif
 		Bool canPathThroughUnits = false;
 		if (obj && obj->getAIUpdateInterface()) {
@@ -6977,7 +7019,10 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
 			start.y = parentCell->getYIndex();
 			end.x = goalCell->getXIndex();
 			end.y = goalCell->getYIndex();
-			iterateCellsAlongLine(start, end, parentCell->getLayer(), examineCellsCallback, &info);
+			if (s_gxLineKernel)
+				gxWalkLine(this, start, end, parentCell->getLayer(), [&](PathfindCell *f, PathfindCell *t, Int x, Int y) { return examineCellsCallback(this, f, t, x, y, &info); });
+			else
+				iterateCellsAlongLine(start, end, parentCell->getLayer(), examineCellsCallback, &info);
 		}
 
 		Int cellCount = 0;
