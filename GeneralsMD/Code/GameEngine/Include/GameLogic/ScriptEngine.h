@@ -152,6 +152,11 @@ protected:
 	AsciiString m_name;
 	Int	m_defaultPriority;
 	AttackPriorityMap *m_priorityMap;
+	// web port (switch attackPrioArray): the map's priorities by template ID of a final override,
+	// rebuilt from the map after any change (INT_MIN = not in the map)
+	mutable std::vector<Int> m_gxByTemplate;
+	mutable Bool m_gxByTemplateDirty = TRUE;
+	void gxRebuildByTemplate() const;
 
 };
 

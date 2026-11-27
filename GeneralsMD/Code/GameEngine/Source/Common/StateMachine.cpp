@@ -27,6 +27,7 @@
 // Author: Michael S. Booth, January 2002
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxSweep.h"
 
 #include "Common/Errors.h"
 #include "Common/StateMachine.h"
@@ -502,6 +503,12 @@ void StateMachine::defineState( StateID id, State *state, StateID successID, Sta
 
 	// map the ID to the state
 	GXROW_STATEMACHINE.stateMap.insert( std::map<StateID, State *>::value_type( id, state ) );
+	if ((UnsignedInt)id < 1024)	// stateArray: IDs are small enums; a larger one is only in the map
+	{
+		std::vector<State *> &v = GXROW_STATEMACHINE.stateById;
+		if (v.size() <= (size_t)id) v.resize((size_t)id + 1, nullptr);
+		if (!v[id]) v[id] = state;	// insert keeps the first state of an ID, so does the array
+	}
 
 	// store the ID in the state itself, as well
 	state->friend_setID( id );
@@ -525,6 +532,13 @@ void StateMachine::defineState( StateID id, State *state, StateID successID, Sta
  */
 State *StateMachine::internalGetState( StateID id )
 {
+	if (gxSweepOn(GXSW_STATE_ARRAY))
+	{
+		// stateArray: the state by ID from the array (same state as the map's); anything else as before
+		const std::vector<State *> &v = GXROW_STATEMACHINE.stateById;
+		if ((UnsignedInt)id < v.size() && v[id])
+			return v[id];
+	}
 	// locate the actual state associated with the given ID
 	std::map<StateID, State *>::iterator i;
 	i = GXROW_STATEMACHINE.stateMap.find( id );

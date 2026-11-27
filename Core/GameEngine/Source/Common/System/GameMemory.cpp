@@ -1758,7 +1758,9 @@ MemoryPool::allocateBlockDoNotZeroImplementation(DECLARE_LITERALSTRING_ARG1) {
         of the block. if unable to allocate, throw ERROR_OUT_OF_MEMORY. this
         function will never return null.
 */
+unsigned long long g_gxAllocs = 0;	// web port (tickTiming): every pool block and dynamic allocation, for per-tick churn counts
 void *MemoryPool::allocateBlockImplementation(DECLARE_LITERALSTRING_ARG1) {
+  ++g_gxAllocs;
   void *p = allocateBlockDoNotZeroImplementation(
       PASS_LITERALSTRING_ARG1); // throws on failure
   memset(p, 0, getAllocationSize());
@@ -2185,6 +2187,7 @@ void DynamicMemoryAllocator::debugIgnoreLeaksForThisBlock(void *pBlockPtr) {
 */
 void *DynamicMemoryAllocator::allocateBytesDoNotZeroImplementation(
     Int numBytes DECLARE_LITERALSTRING_ARG2) {
+  ++g_gxAllocs;
   ScopedCriticalSection scopedCriticalSection(TheDmaCriticalSection);
 
   void *result = nullptr;

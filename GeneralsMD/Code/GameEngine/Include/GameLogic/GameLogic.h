@@ -309,6 +309,9 @@ private:
 	Int rebalanceParentSleepyUpdate(Int i);
 	Int rebalanceChildSleepyUpdate(Int i);
 	void remakeSleepyUpdate();
+	Int gx4UpSleepyUpdate(Int i);	///< web port (match rule heap4): 4-ary sift up by stored key
+	Int gx4DownSleepyUpdate(Int i);	///< web port (match rule heap4): 4-ary sift down by stored key
+	void gx4VerifySleepyUpdate();	///< verify mode: the 4-ary queue's order and indexes
 	void validateSleepyUpdate() const;
 
 	static void createOptimizedTree(const ThingTemplate *thingTemplate, Coord3D *pos, Real angle);
@@ -382,6 +385,7 @@ private:
 	struct GxKind { NameKeyType nk; unsigned long long order; Int bit; Int phase; Bool isAI; std::vector<UpdateModulePtr> modById; };
 	std::vector<GxKind> m_gxKinds;
 	std::vector<Int> m_gxKindOrder;	///< m_gxKinds indexes in dispatch order (AI kinds first, then name hash)
+	std::vector<Int> m_gxKindByNk;	///< web port (switch passKeyArray): kind index by NameKey, -1 none
 	Int gxKindOf(UpdateModulePtr u, Bool create);
 	/// per phase, per object ID: the unit's every-frame modules without a kind bit of their own
 	/// (kinds past the 28th, or a second module of one kind); behaviour bit 60 + phase. Index -5.
@@ -394,6 +398,7 @@ private:
 	UnsignedInt m_gxListSeqNext = 0;
 	Bool m_gxDisabledListValid = false;
 	void gxCheckDisabledObjects();
+	Bool m_gxHeap4 = FALSE;	///< web port (match rule heap4): the update queue is a 4-ary heap (switched by a rebuild before the first update of a game)
 	std::vector<UnsignedInt> m_gxSleepyKey;	///< web port (switch sleepyKeys): each entry's priority, kept beside m_sleepyUpdates so the heap compares without touching the modules
 
 #ifdef ALLOW_NONSLEEPY_UPDATES

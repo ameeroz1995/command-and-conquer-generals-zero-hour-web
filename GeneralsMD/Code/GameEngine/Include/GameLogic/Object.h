@@ -600,6 +600,7 @@ public:
 	// (higher = nearer the head) and whether the object is in GameLogic's list of disabled objects.
 	UnsignedInt m_gxListSeq = 0;
 	Bool m_gxDisabledListed = false;
+	Int m_gxDisabledIdx = -1;	///< web port (switch disabledPop): position in GameLogic's disabled list (kept on push, compaction, removal)
 	Bool clearDisabled( DisabledType type );
 
 	void setDisabled( DisabledType type );

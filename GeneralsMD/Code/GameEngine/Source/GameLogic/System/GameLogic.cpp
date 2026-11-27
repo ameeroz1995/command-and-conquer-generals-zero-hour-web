@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxSweep.h"
 #include "Common/GxTime.h"	// web port: per-tick timers and work counters (tickTiming switch)
 #include <algorithm>
 #include <map>
@@ -468,6 +469,7 @@ void GameLogic::reset()
 	gxKindsClear(FALSE);	// a new game numbers its kinds afresh (the same on every machine)
 	m_sleepyUpdates.clear();
 	m_gxSleepyKey.clear();
+	m_gxHeap4 = FALSE;	// every game starts with the binary queue (heap4 switches it before the first update)
 	m_curUpdateModule = nullptr;
 
 	m_isScoringEnabled = TRUE;
@@ -2635,9 +2637,21 @@ void GameLogic::processDestroyList()
 		currentObject->m_gxListSeq = 0;	// web port: out of the list (switch disabledList)
 		if (currentObject->m_gxDisabledListed)	// web port: and from the list of disabled objects
 		{
-			std::vector<Object *>::iterator it = std::find(m_gxDisabledObjs.begin(), m_gxDisabledObjs.end(), currentObject);
-			if (it != m_gxDisabledObjs.end()) m_gxDisabledObjs.erase(it);
+			const Int di = currentObject->m_gxDisabledIdx;
+			if (gxSweepOn(GXSW_DISABLED_POP) && di >= 0 && di < (Int)m_gxDisabledObjs.size() && m_gxDisabledObjs[di] == currentObject)
+			{
+				// disabledPop: swap-and-pop by the stored index (the list is sorted by m_gxListSeq every frame)
+				m_gxDisabledObjs[di] = m_gxDisabledObjs.back();
+				m_gxDisabledObjs[di]->m_gxDisabledIdx = di;
+				m_gxDisabledObjs.pop_back();
+			}
+			else
+			{
+				std::vector<Object *>::iterator it = std::find(m_gxDisabledObjs.begin(), m_gxDisabledObjs.end(), currentObject);
+				if (it != m_gxDisabledObjs.end()) m_gxDisabledObjs.erase(it);
+			}
 			currentObject->m_gxDisabledListed = false;
+			currentObject->m_gxDisabledIdx = -1;
 		}
 
 		// remove object from lookup table
@@ -2657,10 +2671,28 @@ void GameLogic::processDestroyList()
 // (a hash of its module name, so the same on every machine), then the object ID; equal keys keep
 // the order they joined in (stable merge), which is the heap's order that frame.
 // ------------------------------------------------------------------------------------------------
+static unsigned long long gxPassKeyOf(NameKeyType nk)
+{
+	const AsciiString name = KEYNAME(nk);
+	unsigned h = 2166136261u;
+	for (const char *c = name.str(); *c; ++c) h = (h ^ (unsigned char)*c) * 16777619u;
+	const unsigned long long rank = strstr(name.str(), "AIUpdate") ? 0ull : 1ull;
+	return (rank << 62) | ((unsigned long long)(h & 0x3fffffffu) << 32);
+}
+
 static unsigned long long gxPassKey(UpdateModulePtr u)
 {
-	static std::map<NameKeyType, unsigned long long> kinds;
 	const NameKeyType nk = u->getModuleNameKey();
+	if (gxSweepOn(GXSW_PASS_KEY) && nk >= 0)
+	{
+		// passKeyArray: the kind part of the key by NameKey in an array (~0 = not computed yet)
+		static std::vector<unsigned long long> byNk;
+		if ((size_t)nk >= byNk.size()) byNk.resize((size_t)nk + 64, ~0ull);
+		unsigned long long &k = byNk[nk];
+		if (k == ~0ull) k = gxPassKeyOf(nk);
+		return k | (unsigned long long)u->friend_getObject()->getID();
+	}
+	static std::map<NameKeyType, unsigned long long> kinds;
 	std::map<NameKeyType, unsigned long long>::iterator it = kinds.find(nk);
 	if (it == kinds.end())
 	{
@@ -2675,15 +2707,21 @@ static unsigned long long gxPassKey(UpdateModulePtr u)
 
 void GameLogic::gxPassMerge()
 {
+	Bool changed = !m_gxPassJoin.empty();
 	for (Int ph = 0; ph < 4; ++ph)
 	{
 		std::vector<GxPassEntry> &list = m_gxPass[ph];
 		size_t w = 0;
 		for (size_t k = 0; k < list.size(); ++k)
 			if (list[k].u) list[w++] = list[k];
+		if (w != list.size()) changed = TRUE;
 		list.resize(w);
 	}
 	gxPassMergeJoin();
+	if (changed && gxSweepOn(GXSW_PASS_POS))
+		for (Int ph = 0; ph < 4; ++ph)	// passPos: each entry's position, for gxPassRemove
+			for (size_t k = 0; k < m_gxPass[ph].size(); ++k)
+				m_gxPass[ph][k].u->friend_setPassPos((Int)k);
 }
 
 static const Int GX_KIND_BIT0 = 32, GX_KIND_MAX = 24;	// GxUnitStore behaviour bits 32-55 (ai); 56-59 ai kernels; 60-63 misc per phase
@@ -2692,8 +2730,19 @@ static const Int GX_MISC_BIT0 = 60;
 Int GameLogic::gxKindOf(UpdateModulePtr u, Bool create)
 {
 	const NameKeyType nk = u->getModuleNameKey();
+	if (gxSweepOn(GXSW_PASS_KEY) && nk >= 0)
+	{
+		// passKeyArray: the kind index by NameKey (-1 none yet); kept by the same pushes and clears
+		if ((size_t)nk < m_gxKindByNk.size() && m_gxKindByNk[nk] >= 0 && m_gxKindByNk[nk] < (Int)m_gxKinds.size()
+				&& m_gxKinds[m_gxKindByNk[nk]].nk == nk)
+			return m_gxKindByNk[nk];
+	}
 	for (size_t i = 0; i < m_gxKinds.size(); ++i)
-		if (m_gxKinds[i].nk == nk) return (Int)i;
+		if (m_gxKinds[i].nk == nk)
+		{
+			if (nk >= 0) { if ((size_t)nk >= m_gxKindByNk.size()) m_gxKindByNk.resize((size_t)nk + 64, -1); m_gxKindByNk[nk] = (Int)i; }
+			return (Int)i;
+		}
 	if (!create || (Int)m_gxKinds.size() >= GX_KIND_MAX)
 		return -1;
 	GxKind k;
@@ -2703,6 +2752,7 @@ Int GameLogic::gxKindOf(UpdateModulePtr u, Bool create)
 	k.phase = u->friend_getNextCallPhase() & 3;
 	k.isAI = (k.order >> 62) == 0;
 	m_gxKinds.push_back(k);
+	if (nk >= 0) { if ((size_t)nk >= m_gxKindByNk.size()) m_gxKindByNk.resize((size_t)nk + 64, -1); m_gxKindByNk[nk] = (Int)m_gxKinds.size() - 1; }
 	m_gxKindOrder.push_back((Int)m_gxKinds.size() - 1);
 	std::stable_sort(m_gxKindOrder.begin(), m_gxKindOrder.end(),
 		[this](Int a, Int b) { return m_gxKinds[a].order < m_gxKinds[b].order; });
@@ -2728,6 +2778,7 @@ void GameLogic::gxKindsClear(Bool toHeap)
 	}
 	m_gxKinds.clear();
 	m_gxKindOrder.clear();
+	m_gxKindByNk.assign(m_gxKindByNk.size(), -1);
 	for (Int ph = 0; ph < 4; ++ph)
 	{
 		for (size_t id = 0; id < m_gxMiscById[ph].size(); ++id)
@@ -2823,6 +2874,13 @@ void GameLogic::gxPassRemove(UpdateModulePtr u)
 		return;
 	}
 	std::vector<GxPassEntry> &list = m_gxPass[u->friend_getNextCallPhase() & 3];
+	if (gxSweepOn(GXSW_PASS_POS))
+	{
+		// passPos: the stored position, if it still holds this module (else the scans below)
+		const Int p = u->friend_getPassPos();
+		if (p >= 0 && p < (Int)list.size() && list[p].u == u) { list[p].u = nullptr; u->friend_setIndexInLogic(-1); return; }
+		if (p >= 0 && p < (Int)m_gxPassJoin.size() && m_gxPassJoin[p].u == u) { m_gxPassJoin[p].u = nullptr; u->friend_setIndexInLogic(-1); return; }
+	}
 	for (size_t k = 0; k < list.size(); ++k)
 		if (list[k].u == u) { list[k].u = nullptr; u->friend_setIndexInLogic(-1); return; }
 	for (size_t k = 0; k < m_gxPassJoin.size(); ++k)
@@ -3132,9 +3190,75 @@ inline Bool isLowerPriority(const UpdateModulePtr a, const UpdateModulePtr b)
 }
 
 // ------------------------------------------------------------------------------------------------
+// heap4 (match rule; fifth word value 1048576): the update queue as a 4-ary heap on the stored keys,
+// half as deep as the binary one. The moving entry is held aside while the others slide into the hole.
+// Entries due on the same frame and phase come off in a different (still fixed) order than with the
+// binary heap, so it is a match rule.
+Int GameLogic::gx4UpSleepyUpdate(Int i)
+{
+	UpdateModulePtr *h = m_sleepyUpdates.data();
+	UnsignedInt *key = m_gxSleepyKey.data();
+	UpdateModulePtr u = h[i];
+	const UnsignedInt k = key[i];
+	while (i > 0)
+	{
+		const Int p = (i - 1) >> 2;
+		if (!(key[p] > k))
+			break;
+		h[i] = h[p]; key[i] = key[p]; h[i]->friend_setIndexInLogic(i);
+		i = p;
+		gxCount(GXC_HEAP_STEPS);
+	}
+	h[i] = u; key[i] = k; u->friend_setIndexInLogic(i);
+	return i;
+}
+
+Int GameLogic::gx4DownSleepyUpdate(Int i)
+{
+	UpdateModulePtr *h = m_sleepyUpdates.data();
+	UnsignedInt *key = m_gxSleepyKey.data();
+	const Int n = (Int)m_sleepyUpdates.size();
+	UpdateModulePtr u = h[i];
+	const UnsignedInt k = key[i];
+	for (;;)
+	{
+		const Int c = (i << 2) + 1;
+		if (c >= n)
+			break;
+		Int best = c;
+		UnsignedInt bk = key[c];
+		const Int e = c + 4 < n ? c + 4 : n;
+		for (Int j = c + 1; j < e; ++j)
+			if (key[j] < bk) { bk = key[j]; best = j; }
+		if (!(k > bk))
+			break;
+		h[i] = h[best]; key[i] = bk; h[i]->friend_setIndexInLogic(i);
+		i = best;
+		gxCount(GXC_HEAP_STEPS);
+	}
+	h[i] = u; key[i] = k; u->friend_setIndexInLogic(i);
+	return i;
+}
+
+void GameLogic::gx4VerifySleepyUpdate()
+{
+	extern int gx_verify_mismatch, gx_verify_checked;
+	static int bad = 0, checked = 0;
+	for (size_t i = 0; i < m_sleepyUpdates.size(); ++i, ++checked, ++gx_verify_checked)
+	{
+		const bool ok = m_sleepyUpdates[i]->friend_getIndexInLogic() == (Int)i
+			&& m_gxSleepyKey[i] == m_sleepyUpdates[i]->friend_getPriority()
+			&& (i == 0 || !(m_gxSleepyKey[(i - 1) >> 2] > m_gxSleepyKey[i]));
+		if (!ok) { ++bad; ++gx_verify_mismatch; }
+	}
+	printf("GXVERIFY heap4 entries checked %d, mismatches %d (order, index, key)\n", checked, bad);
+}
+
 Int GameLogic::rebalanceParentSleepyUpdate(Int i)
 {
 	USE_PERF_TIMER(SleepyMaintenance)
+	if (m_gxHeap4)
+		return gx4UpSleepyUpdate(i);
 
 	DEBUG_ASSERTCRASH(i >= 0 && i < m_sleepyUpdates.size(), ("bad sleepy idx"));
 
@@ -3155,6 +3279,7 @@ Int GameLogic::rebalanceParentSleepyUpdate(Int i)
 
 		i = parent;
 		parent = ((parent+1)>>1)-1;
+		gxCount(GXC_HEAP_STEPS);
 	}
 
 	return i;
@@ -3164,6 +3289,8 @@ Int GameLogic::rebalanceParentSleepyUpdate(Int i)
 Int GameLogic::rebalanceChildSleepyUpdate(Int i)
 {
 	USE_PERF_TIMER(SleepyMaintenance)
+	if (m_gxHeap4)
+		return gx4DownSleepyUpdate(i);
 
 	DEBUG_ASSERTCRASH(i >= 0 && i < m_sleepyUpdates.size(), ("bad sleepy idx"));
 
@@ -3212,6 +3339,7 @@ Int GameLogic::rebalanceChildSleepyUpdate(Int i)
 
 		child = ((i)<<1)+1;
 		pChild = &m_sleepyUpdates[0] + child;
+		gxCount(GXC_HEAP_STEPS);
   }
 #else
 	// our children are i*2 and i*2+1
@@ -3252,6 +3380,7 @@ void GameLogic::rebalanceSleepyUpdate(Int i)
 
 	// every change of a queued module's priority is followed by this call at its index
 	m_gxSleepyKey[i] = m_sleepyUpdates[i]->friend_getPriority();
+	gxCount(GXC_HEAP_PUSHES);
 #ifdef __EMSCRIPTEN__
 	if (GLES3_Page_Switches() & 2097152)	// verify mode: now and then, every stored key against its module
 	{
@@ -3301,6 +3430,7 @@ void GameLogic::pushSleepyUpdate(UpdateModulePtr u)
 	m_sleepyUpdates.push_back(u);
 	m_gxSleepyKey.push_back(u->friend_getPriority());
 	u->friend_setIndexInLogic(m_sleepyUpdates.size() - 1);
+	gxCount(GXC_HEAP_PUSHES);
 
 	rebalanceParentSleepyUpdate(m_sleepyUpdates.size()-1);
 }
@@ -4122,7 +4252,18 @@ void GameLogic::update()
 	}
 #endif
 
+	if (!m_gxHeap4 && gxMatchRule(GXRULE_HEAP4))
+	{
+		m_gxHeap4 = TRUE;	// heap4: the queue becomes 4-ary once, before the first update of the game
+		if (!m_sleepyUpdates.empty())
+			remakeSleepyUpdate();
+	}
+#ifdef __EMSCRIPTEN__
+	if (m_gxHeap4 && (GLES3_Page_Switches() & 2097152) && getFrame() % 150 == 0)
+		gx4VerifySleepyUpdate();
+#endif
 	{ GxTimeScope gxLoopScope(GXT_AI_LOOP);	// tickTiming: the update loop (queue, passes, kernels)
+	GxAllocScope gxLoopAllocs(GXC_AI_ALLOCS);
 	extern bool gxMatchRule(unsigned int rule);
 	if (gxMatchRule(131072))
 	{
@@ -4158,6 +4299,7 @@ void GameLogic::update()
 					u->friend_setNextCallFrame(now + 1);
 					u->friend_setIndexInLogic(-2);
 					GxPassEntry e = { 0, u };
+					u->friend_setPassPos((Int)m_gxPassJoin.size());
 					m_gxPassJoin.push_back(e);
 				}
 				else
@@ -4578,6 +4720,7 @@ void GameLogic::gxNoteDisabled( Object *obj )
 	if (obj->m_gxListSeq != 0 && !obj->m_gxDisabledListed)
 	{
 		obj->m_gxDisabledListed = true;
+		obj->m_gxDisabledIdx = (Int)m_gxDisabledObjs.size();
 		m_gxDisabledObjs.push_back(obj);
 	}
 }
@@ -4656,8 +4799,8 @@ void GameLogic::gxCheckDisabledObjects()
 	for (size_t k = 0; k < m_gxDisabledObjs.size(); ++k)
 	{
 		Object *obj = m_gxDisabledObjs[k];
-		if (obj->isDisabled()) m_gxDisabledObjs[w++] = obj;
-		else obj->m_gxDisabledListed = false;
+		if (obj->isDisabled()) { obj->m_gxDisabledIdx = (Int)w; m_gxDisabledObjs[w++] = obj; }
+		else { obj->m_gxDisabledListed = false; obj->m_gxDisabledIdx = -1; }
 	}
 	m_gxDisabledObjs.resize(w);
 }

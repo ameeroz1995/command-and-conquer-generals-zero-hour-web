@@ -63,7 +63,9 @@ int GLES3_Page_Switches3() { return g_PageSwitches3; }
 static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 512 | 4096 | 8192 | 16384 | 32768 | 262144;	// default-on bits of every lane (collideSimd, dataBehaviors, kindKernels, containKernels, kernelSimd, rowKernels, simdSearch, fogStamps, fogKeep, cpopSimd)
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static int g_PageSwitches5 = 0;	// fifth word, default-on bits of every lane (none yet)
-int GLES3_Page_Switches5() { return g_PageSwitches5; }	// non-web builds: callers use a local stub returning 0
+int GLES3_Page_Switches5() { return g_PageSwitches5; }
+static int g_PageSwitches6 = 0;	// sixth word, default-on bits of every lane (none yet); ranges: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19
+int GLES3_Page_Switches6() { return g_PageSwitches6; }	// non-web builds: callers use a local stub returning 0
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
@@ -492,10 +494,20 @@ void GLES3_Begin_Scene() {
                  | (o.simdBody === false ? 0 : 1073741824)  // bit 30 (query): with simdSearch, the search body's enemy test and 2D distance 8 at a time with wasm SIMD (same game)
                  | (o.snapPatch === false ? 0 : -2147483648); // bit 31 (query): scanManager's per-cell lists patched where units crossed a cell edge, not rebuilt, later in a tick (same game)
         });
+        g_PageSwitches6 = EM_ASM_INT({
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            return 0   // sixth word: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19, 20-31 spare
+                 | (o.passPos === true ? 1 : 0)           // bit 0 (ai): update pass removal by stored position (GameLogic.cpp; same game)
+                 | (o.passKeyArray === true ? 2 : 0);     // bit 1 (ai): pass sort keys and kinds by NameKey in arrays (GameLogic.cpp; same game)
+        });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
                  | (o.batchScan === true ? 1 : 0)   // bit 0 (value 1): batchScan, due mood scans of AI units collected per phase and searched in one pass over the unit store (AIUpdate.cpp, PartitionManager.cpp; off until timed)
+                 | (o.attackPrioArray === true ? 2097152 : 0)   // bit 21: attack priority by template ID in an array (ScriptEngine.cpp; same game)
+                 | (o.stateArray === true ? 4194304 : 0)        // bit 22: state machine states by ID in an array (StateMachine.cpp; same game)
+                 | (o.disabledPop === true ? 8388608 : 0)       // bit 23: disabled list removal by stored index (GameLogic.cpp; same game)
+                 | (o.heap4 === true ? 1048576 : 0)   // value 1048576: heap4, the update queue as a 4-ary heap (match rule; GameLogic.cpp; off until timed)
                  | (o.scanAlign === true ? 8 : 0);   // value 8: scanAlign, routine mood checks on every 4th frame so batchScan batches more (match rule; AIUpdate.cpp; off until timed)
         });
         g_PageSwitches3 = EM_ASM_INT({

@@ -1146,6 +1146,7 @@ void GameEngine::update() {
       TheGameClient->step();
       {
         GxTimeScope gxT(GXT_LOGIC);	// web port: tickTiming (Common/GxTime.h)
+        GxAllocScope gxA(GXC_ALLOCS);
         TheGameLogic->UPDATE();
       }
       gxTimeTickEnd();

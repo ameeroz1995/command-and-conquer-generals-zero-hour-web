@@ -405,6 +405,7 @@ protected:
 struct GxStateMachineRow
 {
 	std::map<StateID, State *> stateMap;
+	std::vector<State *> stateById;	///< web port (switch stateArray): the same states by ID (null where none), for O(1) lookup
 	Object* owner;
 	UnsignedInt sleepTill;
 	StateID defaultStateID;
