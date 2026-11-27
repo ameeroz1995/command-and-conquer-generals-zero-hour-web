@@ -480,7 +480,7 @@ void GLES3_Begin_Scene() {
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
                  | (o.rowKernels === false ? 0 : 4096)   // bit 12: scan countdowns of EnemyNear/AutoFindHealing/PointDefenseLaser run as one kernel per table (GxComponentTable.h; same game)
-                 | (o.simdSearch === false ? 0 : 8192)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
+                 | (o.simdSearch === true ? 8192 : 0)    // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game; off: 0.2 ms/tick slower on pinned no-draw)
                  | (o.fogStamps === false ? 0 : 16384)   // bit 14: sight circles from precomputed stamps, 8 cells at a time with wasm SIMD over dense shroud counters (PartitionManager.cpp; same game)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.fogKeep === false ? 0 : 32768)   // bit 15: a unit that moves within the same cells keeps fog statuses decided by the cells alone (PartitionManager.cpp; same game)
                  | (o.tickTiming === true ? 65536 : 0)   // bit 16 (measuring only, off): per-tick logic / system ms, work counters, frame p99 as GXTIME lines (Common/GxTime.h)

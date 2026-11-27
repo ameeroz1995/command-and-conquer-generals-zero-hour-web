@@ -4028,3 +4028,17 @@ Stays default off.
   switch, the unordered_map kept behind it. Pinned no-draw battle on query-66, off -> on: allocations in search
   193.6 -> 117.8 a tick (whole tick 3946 -> 3871), logic 30.85 -> 31.01 ms/tick (noise), search 3.30 -> 3.26.
   Replays referee, query-mgr5, query-mgr6 match.
+- Phase 5 re-measures, pinned no-draw battle on query-66 (pairOffer on, one switch off vs all defaults). Load drifted
+  (logic 27-41 ms/tick over the run), so scope timers count more than whole-tick logic; the two doubtful items were
+  re-run with the order alternated (3 pairs):
+  - snapPatch: kept on. snapBuild 2.33 / 1.72 off -> 0.70 + 0.28 patch on (about 1 ms/tick less).
+  - blockMask: kept on. logic 35.76 -> 32.58, 32.14 -> 30.81; search 3.74 -> 3.47, 3.41 -> 3.26.
+  - simdBody: kept on. logic 37.36 -> 33.24, 34.90 -> 34.81.
+  - denseCellMask: kept on. cells checked 15647 -> 4897 a tick, time even (logic 30.27 -> 30.06, 28.92 -> 29.74).
+  - scanManager: kept on. Alternated pairs, logic off 31.13 / 30.73 / 26.30 vs on 28.55 / 28.21 / 29.35 (means
+    29.39 vs 28.70). The search scope grows (2.0 -> 3.1 ms/tick plus 0.85 snapshot) because it now holds the work
+    the per-module scans did outside it.
+  - simdSearch: now OFF by default (which also leaves simdBody inert, as it needs simdSearch). Search scope slower in
+    all 5 pairs: 3.35 -> 4.06, 3.36 -> 3.82, then alternated 2.88 -> 3.11, 2.86 -> 3.12, 2.86 -> 3.01 (logic means
+    28.47 off vs 28.88 on). With the scalar cull already branchless and call-free, the SIMD block setup costs more
+    than it saves at this density.
