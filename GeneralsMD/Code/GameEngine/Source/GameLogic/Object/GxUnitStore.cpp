@@ -5,6 +5,7 @@
 #include "Common/Player.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
+#include "GameLogic/PartitionManager.h"
 
 #include <algorithm>
 #include <cstring>
@@ -65,6 +66,10 @@ void GxUnitStore::add(Object *o)
 	player.push_back((signed char)pi);
 	playerBit.push_back(pi >= 0 ? (1u << pi) : 0u);
 	cell.push_back(-1);
+	{
+		PartitionData *pd = o->friend_getPartitionData();	// re-added after an ID change: already in its cells
+		inCells.push_back(pd && pd->friend_getCoiInUseCount() > 0 ? 1 : 0);
+	}
 	mask.push_back(0);
 	{
 		static const GeometryInfo g0(GEOMETRY_SPHERE, FALSE, 1.0f, 1.0f, 1.0f);
@@ -148,36 +153,47 @@ void GxUnitStore::setTarget(const Object *o, int victimId)
 // ---- end combat block ----
 
 //-------------------------------------------------------------------------------------------------
-template <class T> static void gxPermute(std::vector<T> &v, const std::vector<int> &order)
+// order is ascending (order[i] >= i) unless re-sorting after a load: then copy, else move rows down in
+// place (heap churn rule: no allocation when units die, the capacity stays)
+template <class V> static void gxPermute(V &v, const std::vector<int> &order, bool sorted)
 {
-	std::vector<T> out;
-	out.reserve(v.capacity());	// keep the reserve, so pointers stay put between compactions
+	if (!sorted)
+	{
+		V out;
+		out.reserve(v.capacity());
+		for (size_t i = 0; i < order.size(); ++i)
+			out.push_back(v[order[i]]);
+		v.swap(out);
+		return;
+	}
 	for (size_t i = 0; i < order.size(); ++i)
-		out.push_back(v[order[i]]);
-	v.swap(out);
+		if ((size_t)order[i] != i)
+			v[i] = v[order[i]];
+	v.erase(v.begin() + order.size(), v.end());
 }
 
 void GxUnitStore::compact()
 {
 	if (m_holes == 0 && !m_unsorted)
 		return;
-	std::vector<int> order;
-	order.reserve(obj.size() - m_holes);
+	std::vector<int> &order = m_order;
+	order.clear();
 	for (int s = 0; s < (int)obj.size(); ++s)
 		if (obj[s])
 			order.push_back(s);
 	if (m_unsorted)
 		std::sort(order.begin(), order.end(), [this](int a, int b) { return id[a] < id[b]; });
 
-	gxPermute(id, order); gxPermute(obj, order);
-	gxPermute(x, order); gxPermute(y, order); gxPermute(z, order);
-	gxPermute(vx, order); gxPermute(vy, order); gxPermute(vz, order);
-	gxPermute(ax, order); gxPermute(ay, order); gxPermute(az, order);
-	gxPermute(radius, order); gxPermute(player, order); gxPermute(playerBit, order);
-	gxPermute(cell, order); gxPermute(mask, order);
-	gxPermute(status, order); gxPermute(disabled, order); gxPermute(layer, order); gxPermute(geom, order);
-	gxPermute(angle, order); gxPermute(xf, order);
-	gxPermute(target, order); gxPermute(weaponReady, order); gxPermute(weaponSig, order);	// combat block
+	const bool so = !m_unsorted;
+	gxPermute(id, order, so); gxPermute(obj, order, so);
+	gxPermute(x, order, so); gxPermute(y, order, so); gxPermute(z, order, so);
+	gxPermute(vx, order, so); gxPermute(vy, order, so); gxPermute(vz, order, so);
+	gxPermute(ax, order, so); gxPermute(ay, order, so); gxPermute(az, order, so);
+	gxPermute(radius, order, so); gxPermute(player, order, so); gxPermute(playerBit, order, so);
+	gxPermute(cell, order, so); gxPermute(inCells, order, so); gxPermute(mask, order, so);
+	gxPermute(status, order, so); gxPermute(disabled, order, so); gxPermute(layer, order, so); gxPermute(geom, order, so);
+	gxPermute(angle, order, so); gxPermute(xf, order, so);
+	gxPermute(target, order, so); gxPermute(weaponReady, order, so); gxPermute(weaponSig, order, so);	// combat block
 
 	for (int s = 0; s < (int)obj.size(); ++s)
 	{

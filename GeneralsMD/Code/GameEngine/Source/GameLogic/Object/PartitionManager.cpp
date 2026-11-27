@@ -2035,6 +2035,8 @@ void PartitionData::removeAllTouchedCells()
 		}
 	}
 	DEBUG_ASSERTCRASH(m_coiInUseCount == 0, ("hmm, coi count mismatch"));
+	if (getObject())
+		TheGxUnitStore.setInCells(getObject(), false);	// web port: the store's inCells column
 }
 
 // -----------------------------------------------------------------------------
@@ -2547,6 +2549,8 @@ void PartitionData::updateCellsTouched()
 	}
 	key[0] = m_coiInUseCount;
 	memcpy(m_gxFillKey, key, sizeof(key));
+	if (obj)
+		TheGxUnitStore.setInCells(obj, m_coiInUseCount > 0);	// web port: the store's inCells column
 
 	Int currentCellIndexX, currentCellIndexY;
 	ThePartitionManager->worldToCell( pos.x, pos.y, &currentCellIndexX, &currentCellIndexY );
@@ -2727,6 +2731,8 @@ void PartitionData::freeCoiArray()
 	m_coiArray = nullptr;
 	m_coiArrayCount = 0;
 	m_coiInUseCount = 0;
+	if (getObject())
+		TheGxUnitStore.setInCells(getObject(), false);	// web port: the store's inCells column
 	makeDirty(true);
 }
 
@@ -3554,72 +3560,81 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 	PartitionManager *pm = ThePartitionManager;
 	const Int nx = pm->getCellCountX(), ny = pm->getCellCountY();
 	const Real bigR = pm->getCellSize() * 0.5f;
-	static std::vector<int> head, next, item;
-	head.assign((size_t)nx * ny, -1);
-	next.clear(); item.clear();
+	// web port (round 5, re-measure on the data layout): bucket from the store columns only (inCells,
+	// radius, cell, x, y; no Object or PartitionData read per unit), as one block per cell by a counting
+	// sort. Within a cell the units come in descending slot order, the order the old per-cell linked
+	// lists (head insertion in slot order) visited them, so the pairs and their order are unchanged.
+	const int nc = nx * ny, ns = st.size();
+	static std::vector<int> start, cslot, urect;
+	static std::vector<float> cx_, cy_, cr_;
+	start.assign((size_t)nc + 1, 0);
+	urect.resize((size_t)ns * 4);
 	Real smallMax = 0.0f;
-	for (int s = 0; s < st.size(); ++s)
+	const Bool gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
+	static Int s_gxInChecked = 0, s_gxInBad = 0;
+	for (int s = 0; s < ns; ++s)
 	{
-		Object *o = st.obj[s];
-		PartitionData *pd = o ? o->friend_getPartitionData() : nullptr;
-		if (!pd || pd->friend_getCoiInUseCount() == 0)
-			continue;	// not in the partition's cells (e.g. inside a transport)
+		Int *q = &urect[(size_t)s * 4];
+		if (gxVerify)
+		{
+			Object *o = st.obj[s];
+			PartitionData *pd = o ? o->friend_getPartitionData() : nullptr;
+			const Bool in = pd && pd->friend_getCoiInUseCount() > 0;
+			++s_gxInChecked;
+			if (in != (o && st.inCells[s] != 0)) ++s_gxInBad;
+		}
+		if (!st.obj[s] || !st.inCells[s])
+		{
+			q[0] = q[1] = 1; q[2] = q[3] = 0;	// empty: not in the partition's cells (e.g. inside a transport)
+			continue;
+		}
 		const Real r = st.radius[s];
-		const Coord3D p = st.posOf(s);
 		Int x0, y0, x1, y1;
 		if (r <= bigR)
 		{
 			if (r > smallMax) smallMax = r;
 			const int c = st.cell[s];	// the store's cell index (written by the partition)
 			if (c >= 0) { x0 = c % nx; y0 = c / nx; }
-			else pm->worldToCell(p.x, p.y, &x0, &y0);
+			else pm->worldToCell(st.x[s], st.y[s], &x0, &y0);
 			x1 = x0; y1 = y0;
 		}
 		else
 		{
 			const Real e = r * 1.4143f + 1.0f;
-			pm->worldToCell(p.x - e, p.y - e, &x0, &y0);
-			pm->worldToCell(p.x + e, p.y + e, &x1, &y1);
+			pm->worldToCell(st.x[s] - e, st.y[s] - e, &x0, &y0);
+			pm->worldToCell(st.x[s] + e, st.y[s] + e, &x1, &y1);
 		}
-		x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, nx - 1); y1 = min(y1, ny - 1);
-		for (Int cy = y0; cy <= y1; ++cy)
-			for (Int cx = x0; cx <= x1; ++cx)
-			{
-				const int c = cy * nx + cx;
-				item.push_back(s); next.push_back(head[c]); head[c] = (int)item.size() - 1;
-			}
+		q[0] = max(x0, 0); q[1] = max(y0, 0); q[2] = min(x1, nx - 1); q[3] = min(y1, ny - 1);
+		for (Int cy = q[1]; cy <= q[3]; ++cy)
+			for (Int cx = q[0]; cx <= q[2]; ++cx)
+				++start[cy * nx + cx + 1];
+	}
+	if (gxVerify && (TheGameLogic->getFrame() % 300) == 0)
+		printf("GXVERIFY storePairs inCells column checked %d, mismatches %d\n", s_gxInChecked, s_gxInBad);
+	for (int c = 0; c < nc; ++c)
+		start[c + 1] += start[c];
+	const size_t tot = (size_t)start[nc];
+	cslot.resize(tot + 3); cx_.resize(tot + 3); cy_.resize(tot + 3); cr_.resize(tot + 3);
+	{
+		static std::vector<int> fill;
+		fill.assign(start.begin(), start.end() - 1);
+		for (int s = ns - 1; s >= 0; --s)
+		{
+			const Int *q = &urect[(size_t)s * 4];
+			for (Int cy = q[1]; cy <= q[3]; ++cy)
+				for (Int cx = q[0]; cx <= q[2]; ++cx)
+				{
+					const int w = fill[cy * nx + cx]++;
+					cslot[w] = s; cx_[w] = st.x[s]; cy_[w] = st.y[s]; cr_[w] = st.radius[s];
+				}
+		}
 	}
 
 	std::sort(seekers.begin(), seekers.end(), [](const PartitionData *a, const PartitionData *b) { return gxBefore(a, b); });
 
-	// web port (round 5, switch collideSimd, fourth word bit 1; same pairs as above): the grid as one
-	// block per cell (cell start/end, units in the same order the linked lists visit them) with the
-	// units' x, y, radius copied in, so the distance cut tests 4 units per instruction.
+	// web port (round 5, switch collideSimd, fourth word bit 1; same pairs as above): the distance cut
+	// tests 4 units per instruction over the per-cell blocks
 	const Bool simd = (GLES3_Page_Switches4() & 2) != 0;
-	static std::vector<int> start, cslot;
-	static std::vector<float> cx_, cy_, cr_;
-	if (simd)
-	{
-		const int nc = nx * ny;
-		start.assign((size_t)nc + 1, 0);
-		for (int c = 0; c < nc; ++c)
-		{
-			int n = 0;
-			for (int k = head[c]; k >= 0; k = next[k]) ++n;
-			start[c + 1] = start[c] + n;
-		}
-		const size_t tot = (size_t)start[nc];
-		cslot.resize(tot + 3); cx_.resize(tot + 3); cy_.resize(tot + 3); cr_.resize(tot + 3);
-		for (int c = 0; c < nc; ++c)
-		{
-			int w = start[c];
-			for (int k = head[c]; k >= 0; k = next[k], ++w)
-			{
-				const int t = item[k];
-				cslot[w] = t; cx_[w] = st.x[t]; cy_[w] = st.y[t]; cr_[w] = st.radius[t];
-			}
-		}
-	}
 
 	if (simd)
 	{
@@ -3689,9 +3704,9 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 			for (Int cx = x0; cx <= x1; ++cx)
 			{
 				gxCount(GXC_PAIR_CELLS);	// tickTiming
-				for (int k = head[cy * nx + cx]; k >= 0; k = next[k])
+				for (int k = start[cy * nx + cx], ke = start[cy * nx + cx + 1]; k < ke; ++k)
 				{
-					const int t = item[k];
+					const int t = cslot[k];
 					gxCount(GXC_PAIR_TESTS);
 					if (t == s)
 						continue;

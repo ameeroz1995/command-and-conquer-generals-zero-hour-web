@@ -34,6 +34,7 @@ enum GxCountId
 struct GxTimeState
 {
 	double ms[GXT_TIME_COUNT] = {};
+	unsigned long long allocs[GXT_TIME_COUNT] = {};	///< game memory blocks allocated inside each system's outermost scope
 	unsigned long long n[GXC_COUNT] = {};
 	unsigned long long ticks = 0;
 	std::vector<float> frames;	///< frame intervals (ms)
@@ -41,19 +42,20 @@ struct GxTimeState
 	int depth[GXT_TIME_COUNT] = {};	///< nesting guard: only the outermost scope of an id is timed
 };
 
+extern unsigned long long g_gxAllocs;	// GameMemory.cpp: every pool block and large block handed out
 inline GxTimeState &gxTime() { static GxTimeState s; return s; }
 inline bool gxTimingOn() { return (GLES3_Page_Switches4() & 65536) != 0; }
 inline void gxCount(GxCountId id, unsigned long long k = 1) { if (gxTimingOn()) gxTime().n[id] += k; }
 
 struct GxTimeScope
 {
-	GxTimeId id; double t0; bool on;
-	explicit GxTimeScope(GxTimeId i) : id(i), t0(0.0), on(gxTimingOn() && gxTime().depth[i]++ == 0) { if (on) t0 = emscripten_get_now(); }
+	GxTimeId id; double t0; unsigned long long a0; bool on;
+	explicit GxTimeScope(GxTimeId i) : id(i), t0(0.0), a0(g_gxAllocs), on(gxTimingOn() && gxTime().depth[i]++ == 0) { if (on) t0 = emscripten_get_now(); }
 	~GxTimeScope()
 	{
 		if (!gxTimingOn()) return;
 		GxTimeState &s = gxTime();
-		if (on) s.ms[id] += emscripten_get_now() - t0;
+		if (on) { s.ms[id] += emscripten_get_now() - t0; s.allocs[id] += g_gxAllocs - a0; }
 		if (s.depth[id] > 0) --s.depth[id];
 	}
 };
@@ -89,6 +91,7 @@ inline void gxTimeTickEnd()
 	char buf[4096]; int k = snprintf(buf, sizeof(buf), "GXTIME ticks %llu:", s.ticks);
 	for (int i = 0; i < GXT_TIME_COUNT; ++i) k += snprintf(buf + k, sizeof(buf) - k, " %s %.3f ms/tick;", tn[i], s.ms[i] / s.ticks);
 	for (int i = 0; i < GXC_COUNT; ++i) k += snprintf(buf + k, sizeof(buf) - k, " %s %.1f/tick;", cn[i], (double)s.n[i] / s.ticks);
+	for (int i = GXT_SEARCH; i < GXT_TIME_COUNT; ++i) k += snprintf(buf + k, sizeof(buf) - k, " %sAllocs %.1f/tick;", tn[i], (double)s.allocs[i] / s.ticks);
 	snprintf(buf + k, sizeof(buf) - k, " frames %d, p99 %.1f ms, over 100 ms %d", (int)f.size(), p99, over100);
 	printf("%s\n", buf);
 }

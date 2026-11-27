@@ -32,6 +32,9 @@
 //   set by Object::setOrRestoreTeam and TeamPrototype::setControllingPlayer (whole-team owner change).
 // - cell: the partition cell (cy * cellCountX + cx) under the unit's centre, written by
 //   PartitionData::updateCellsTouched when it changes (-1 off the map or before that).
+// - inCells: 1 while the unit's partition data has cells in use; written by the partition when it
+//   fills or empties the unit's cells (updateCellsTouched, removeAllTouchedCells, freeCoiArray), read
+//   by the storePairs broad phase instead of asking each Object (verify mode compares the two).
 // - mask: set when a unit's behaviour set changes (setMask); never re-tested per tick.
 // - status, disabled, layer, geom, angle, xf (round 5, switch hotInStore, fourth word bit 2, fixed per
 //   object when it enters the store): the truth for the object's status bits, disabled mask,
@@ -43,6 +46,8 @@
 #pragma once
 
 #include <vector>
+#include <cstdlib>
+#include <new>
 #include "Lib/BaseType.h"	// Coord3D
 #include "Common/GameType.h"			// PathfindLayerEnum
 #include "Common/ObjectStatusTypes.h"
@@ -67,6 +72,28 @@ struct GxVec3Ref
 
 typedef unsigned long long GxBehaviourMask;
 
+extern unsigned long long g_gxAllocs;	// GameMemory.cpp (tickTiming allocation count)
+
+/// Round 6 false-sharing rule: every store column starts on a 64-byte boundary (and is a whole number of
+/// 64-byte lines), so a job chunk of 16 slots of float never shares a cache line with the next one.
+template <class T> struct GxAlign64
+{
+	typedef T value_type;
+	GxAlign64() noexcept {}
+	template <class U> GxAlign64(const GxAlign64<U> &) noexcept {}
+	T *allocate(size_t n)
+	{
+		++g_gxAllocs;
+		void *p = aligned_alloc(64, (n * sizeof(T) + 63) & ~(size_t)63);
+		if (!p) throw std::bad_alloc();
+		return (T *)p;
+	}
+	void deallocate(T *p, size_t) noexcept { free(p); }
+	template <class U> bool operator==(const GxAlign64<U> &) const noexcept { return true; }
+	template <class U> bool operator!=(const GxAlign64<U> &) const noexcept { return false; }
+};
+template <class T> using GxCol = std::vector<T, GxAlign64<T>>;	///< one store column
+
 
 /// One bit per manager pass. Agents add their own below GXB_COUNT.
 enum GxBehaviour
@@ -90,28 +117,29 @@ class GxUnitStore
 {
 public:
 	// ---- the data: index by slot, 0 .. size()-1 ----
-	std::vector<int>							id;				///< ObjectID (0 in a hole)
-	std::vector<Object*>					obj;			///< nullptr in a hole
-	std::vector<float>						x, y, z;		///< position (truth with positionInStore, else write-through)
-	std::vector<float>						vx, vy, vz;		///< velocity (truth for physics units)
-	std::vector<float>						ax, ay, az;		///< acceleration being summed this frame (truth for physics units)
-	std::vector<float>						radius;			///< bounding circle radius
-	std::vector<signed char>			player;			///< controlling player index, -1 for none
-	std::vector<unsigned int>			playerBit;		///< 1 << player (0 for none)
-	std::vector<int>							cell;			///< partition cell index, -1 unknown
-	std::vector<GxBehaviourMask>	mask;			///< behaviour bits (GXB_BIT)
+	GxCol<int>							id;				///< ObjectID (0 in a hole)
+	GxCol<Object*>					obj;			///< nullptr in a hole
+	GxCol<float>						x, y, z;		///< position (truth with positionInStore, else write-through)
+	GxCol<float>						vx, vy, vz;		///< velocity (truth for physics units)
+	GxCol<float>						ax, ay, az;		///< acceleration being summed this frame (truth for physics units)
+	GxCol<float>						radius;			///< bounding circle radius
+	GxCol<signed char>			player;			///< controlling player index, -1 for none
+	GxCol<unsigned int>			playerBit;		///< 1 << player (0 for none)
+	GxCol<int>							cell;			///< partition cell index, -1 unknown
+	GxCol<unsigned char>				inCells;		///< 1 while the partition holds the unit in its cells (COIs in use; 0 e.g. inside a transport)
+	GxCol<GxBehaviourMask>	mask;			///< behaviour bits (GXB_BIT)
 	// hot fields (truth with hotInStore, see above)
-	std::vector<ObjectStatusMaskType>	status;		///< status bits
-	std::vector<DisabledMaskType>		disabled;		///< disabled mask
-	std::vector<PathfindLayerEnum>		layer;			///< pathfind layer
-	std::vector<GeometryInfo>			geom;			///< geometry
-	std::vector<float>						angle;			///< orientation
-	std::vector<Matrix3D>					xf;				///< transform
+	GxCol<ObjectStatusMaskType>	status;		///< status bits
+	GxCol<DisabledMaskType>		disabled;		///< disabled mask
+	GxCol<PathfindLayerEnum>		layer;			///< pathfind layer
+	GxCol<GeometryInfo>			geom;			///< geometry
+	GxCol<float>						angle;			///< orientation
+	GxCol<Matrix3D>					xf;				///< transform
 
 	// ---- combat block (round 4, combat agent): weapons ----
-	std::vector<int>							target;			///< current victim ObjectID, 0 none (write-through: AIUpdateInterface::setCurrentVictim)
-	std::vector<unsigned int>			weaponReady;	///< frame a weapon's reload / pre-attack ends (weapon-status pass); 0 = look now
-	std::vector<unsigned int>			weaponSig;		///< weapon-status pass: ammo/status signature last shown on the drawable
+	GxCol<int>							target;			///< current victim ObjectID, 0 none (write-through: AIUpdateInterface::setCurrentVictim)
+	GxCol<unsigned int>			weaponReady;	///< frame a weapon's reload / pre-attack ends (weapon-status pass); 0 = look now
+	GxCol<unsigned int>			weaponSig;		///< weapon-status pass: ammo/status signature last shown on the drawable
 	void setTarget(const Object *o, int victimId);
 	/// a weapon of this unit changed (fired, reloaded, ammo, pre-attack, slot): the pass looks at it now
 	void weaponTouch(int objectId) { const int s = slotOfId(objectId); if (s >= 0) weaponReady[s] = 0; }
@@ -142,11 +170,13 @@ public:
 	void setRadius(const Object *o, float r);
 	void setPlayer(const Object *o, int playerIndex);
 	void setCell(const Object *o, int cellIndex);
+	void setInCells(const Object *o, bool in) { const int s = slotOf(o); if (s >= 0) inCells[s] = in ? 1 : 0; }
 	void gxVerifyHot(unsigned int frame);				///< verify mode: stored objects' rows untouched (hotInStore)
 	void compact();									///< close holes (pass() calls it once per frame)
 	void bumpEpoch() { ++m_epoch; }
 
 private:
+	std::vector<int>							m_order;		///< compact(): scratch, kept between frames
 	std::vector<int>							m_slotById;		///< ObjectID -> slot, -1 if none
 	std::vector<int>							m_pass[GXB_COUNT];
 	GxBehaviourMask								m_dirty = ~0ull;	///< pass lists to rebuild
