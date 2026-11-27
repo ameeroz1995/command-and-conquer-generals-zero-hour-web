@@ -66,7 +66,6 @@ struct GxTimeState
 	std::vector<float> frames;	///< frame intervals (ms)
 	double lastFrame = 0.0;
 	int depth[GXT_TIME_COUNT] = {};	///< nesting guard: only the outermost scope of an id is timed
-	unsigned long long allocs[GXT_TIME_COUNT] = {};	///< game memory blocks allocated inside each timer's outermost scope
 };
 
 extern unsigned long long g_gxAllocs;	// GameMemory.cpp: every pool block and large block handed out
