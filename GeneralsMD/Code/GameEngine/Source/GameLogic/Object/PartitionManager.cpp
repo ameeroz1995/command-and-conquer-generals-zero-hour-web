@@ -2342,6 +2342,23 @@ Bool PartitionData::collidesWith(const PartitionData *that, CollideLocAndNormal 
 	if( thisObj->isKindOf( KINDOF_NO_COLLIDE )  ||  thatObj->isKindOf( KINDOF_NO_COLLIDE ) )
 		return FALSE; // A collision extent of zero size is still a point and can collide, but we don't always want to.
 
+	// web port (geomColumns): the z test and the shape pick from the store's plain columns, so a pair
+	// apart in height never builds its CollideInfos (same test, same floats)
+	if (thisObj->gxHotInStore() && thatObj->gxHotInStore() && gxGeomColumnsOn())
+	{
+		const GxUnitStore &st = TheGxUnitStore;
+		const int a = thisObj->gxStoreSlot(), b = thatObj->gxStoreSlot();
+		const Bool sa = st.gType[a] == GEOMETRY_SPHERE, sb = st.gType[b] == GEOMETRY_SPHERE;
+		const Real aTop = st.z[a] + (sa ? st.gMajor[a] : st.gHeight[a]), aBot = st.z[a] - (sa ? st.gMajor[a] : 0.0f);
+		const Real bTop = st.z[b] + (sb ? st.gMajor[b] : st.gHeight[b]), bBot = st.z[b] - (sb ? st.gMajor[b] : 0.0f);
+		if (!(aTop >= bBot && aBot <= bTop))
+			return false;
+		CollideInfo thisInfo(thisObj->getPosition(), thisObj->getGeometryInfo(), thisObj->getOrientation());
+		CollideInfo thatInfo(thatObj->getPosition(), thatObj->getGeometryInfo(), thatObj->getOrientation());
+		CollideTestProc collideProc = theCollideTestProcs[ (st.gType[a] - GEOMETRY_FIRST) * GEOMETRY_NUM_TYPES + (st.gType[b] - GEOMETRY_FIRST) ];
+		return (*collideProc)(&thisInfo, &thatInfo, cinfo);
+	}
+
 	CollideInfo thisInfo(thisObj->getPosition(), thisObj->getGeometryInfo(), thisObj->getOrientation());
 	CollideInfo thatInfo(thatObj->getPosition(), thatObj->getGeometryInfo(), thatObj->getOrientation());
 
@@ -2415,7 +2432,19 @@ void PartitionData::updateCellsTouched()
 
 	Object *obj = getObject();
 
-	if (obj)
+	if (obj && obj->gxHotInStore() && gxGeomColumnsOn())
+	{
+		// web port (geomColumns): the same values from the store's plain columns
+		const GxUnitStore &st = TheGxUnitStore;
+		const int gs = obj->gxStoreSlot();
+		geom = (GeometryType)st.gType[gs];
+		isSmall = st.gSmall[gs] != 0;
+		pos.x = st.x[gs]; pos.y = st.y[gs]; pos.z = st.z[gs];
+		angle = st.angle[gs];
+		majorRadius = st.gMajor[gs];
+		minorRadius = st.gMinor[gs];
+	}
+	else if (obj)
 	{
 		//we have no object using this PartitionData but we still have a GhostObject so copy its data.
 		geom = obj->getGeometryInfo().getGeomType();

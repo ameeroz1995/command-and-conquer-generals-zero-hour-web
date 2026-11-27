@@ -292,6 +292,8 @@ public:
 		Set the team's AI recruitablity.
 	*/
 	void setRecruitable(Bool recruitable) {m_isRecruitablitySet = true; m_isRecruitable = recruitable;}
+	Bool gxRecruitabilitySet() const { return m_isRecruitablitySet; }	///< web port (recruitIndex)
+	Bool gxRecruitable() const { return m_isRecruitable; }
 
 	/**
 		Set the team's target object.

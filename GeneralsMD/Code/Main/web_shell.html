@@ -1321,6 +1321,10 @@
             { key: 'crushFirst', def: true, label: 'QUICKER CRUSH CHECK', note: 'When units touch, the can-it-crush check compares crush levels before looking up whether they are allies. Same game.' },
             { key: 'collideList', def: true, label: 'COLLIDE MODULE LIST', note: 'Each unit lists its collision handlers once instead of asking all its parts on every touch. Same game.' },
             { key: 'storePairs', def: false, label: 'COLLISION PAIRS FROM UNIT TABLE', note: 'Which units might touch is found from the shared unit table, by unit order, instead of the map cell lists. Changes the game slightly (match rule).' },
+            { key: 'recruitIndex', def: false, label: 'TEAM RECRUITING FROM PLAYER LIST', note: 'AI teams look for units to recruit among the player\'s own units instead of every unit on the map. Same game.' },
+            { key: 'aiWorldIndex', def: false, label: 'AI DOZER AND REBUILD LOOKUPS', note: 'The AI finds its dozers among its own units and the hole of a destroyed building by an index, instead of looking at every unit. Same game.' },
+            { key: 'playerKindCounts', def: false, label: 'PER-PLAYER BLACK MARKET AND DRONE COUNTS', note: 'Stealth and drone docks skip looking through all of a player\'s units when the player has no black market or drone. Same game.' },
+            { key: 'geomColumns', def: false, label: 'UNIT SHAPES AS PLAIN COLUMNS', note: 'With unit state in the unit table: each unit\'s shape and transform are also kept as plain number columns, which the map cells, collision height test and facing read. Same game.' },
             { key: 'hotInStore', def: true, label: 'UNIT STATE IN THE UNIT TABLE', note: 'Each unit\'s position, status, disabled state, layer, shape, facing and transform are kept in the shared unit table instead of inside the unit. Same game as without.' },
             { key: 'collideSimd', def: true, label: 'COLLISION CHECKS 4 AT A TIME', note: 'With collision pairs from the unit table: the distance checks test four units per instruction. Same game as without.' },
             { key: 'positionInStore', def: false, label: 'POSITIONS IN UNIT STORE', note: 'Unit positions are kept in the shared unit table that all game systems read (new units only after a change). Same game. Off: measured 3-17% slower logic (round 4).' },
@@ -2063,7 +2067,7 @@
           (function () {
             var cats = [
               { name: 'MANAGER PATTERN', note: 'Unit data kept in one store, and each game system run as one pass over all its units, in unit order.',
-                keys: ['positionInStore', 'hotInStore', 'updatePasses', 'moveAfterTick', 'physBulk', 'physSimd', 'storePairs', 'collideSimd', 'scanManager', 'rowKernels', 'simdSearch', 'fogStamps', 'fogKeep', 'weaponPass', 'weaponSkip', 'damageQueue', 'animStoreList', 'disabledList', 'dataBehaviors'] },
+                keys: ['positionInStore', 'hotInStore', 'geomColumns', 'recruitIndex', 'aiWorldIndex', 'playerKindCounts', 'updatePasses', 'moveAfterTick', 'physBulk', 'physSimd', 'storePairs', 'collideSimd', 'scanManager', 'rowKernels', 'simdSearch', 'fogStamps', 'fogKeep', 'weaponPass', 'weaponSkip', 'damageQueue', 'animStoreList', 'disabledList', 'dataBehaviors'] },
               { name: 'ROUTE PLANNING', note: 'How units find their way: shared route maps, route reuse and how much planning each frame does.',
                 keys: ['flowFields', 'lazyFields', 'gpuFlowFields', 'flowCover', 'coarseStart', 'groupRoute', 'routeQueue', 'routeCache', 'routeRefine', 'sharedRoutes', 'routeBudget', 'ignoreUnitsInPaths', 'openHeap', 'cellBits', 'cpopSegments', 'cpopSimd'] },
               { name: 'COMPUTATION', note: 'Cheaper game logic: searches, collisions, physics and bookkeeping.',

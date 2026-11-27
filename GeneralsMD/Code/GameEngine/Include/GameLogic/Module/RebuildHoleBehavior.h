@@ -135,6 +135,9 @@ struct GxRebuildHoleBehaviorRow
 
 
 inline GxRebuildHoleBehaviorRow &RebuildHoleBehavior::gxRow() const { return const_cast<GxRebuildHoleBehaviorRow &>(*m_gxRebuildHoleBehaviorRow); }
+// web port (hash-map sweep #10, aiWorldIndex): spawner ID -> hole IDs (RebuildHoleBehavior.cpp)
+void gxNoteHoleSpawner(ObjectID spawner, ObjectID hole);
+const std::vector<ObjectID> *gxHolesOfSpawner(ObjectID spawner);
 inline ObjectID RebuildHoleBehavior::getSpawnerID() { return gxRow().spawnerObjectID; }
 inline ObjectID RebuildHoleBehavior::getReconstructedBuildingID() { return gxRow().reconstructingID; }
 inline const ThingTemplate* RebuildHoleBehavior::getRebuildTemplate() const { return gxRow().rebuildTemplate; }

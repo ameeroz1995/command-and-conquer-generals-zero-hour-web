@@ -493,6 +493,10 @@ void GLES3_Begin_Scene() {
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+                 | (o.recruitIndex === true ? 32 : 0)   // bit 5 (value 32): team recruiting looks at the player's objects from the unit store, in object-list order, not the whole world (Team.cpp; same game)
+                 | (o.aiWorldIndex === true ? 64 : 0)   // bit 6 (value 64): AI dozer search over the player's objects from the unit store, rebuild holes by spawner index (AIPlayer.cpp, RebuildHoleBehavior.cpp; same game)
+                 | (o.playerKindCounts === true ? 128 : 0)   // bit 7 (value 128): per-player black-market / drone counts skip the player walks when there are none (GxUnitStore, StealthUpdate.cpp, AIDock.cpp; same game)
+                 | (o.geomColumns === true ? 16 : 0)   // bit 4 (value 16): with hotInStore, geometry and transform also as plain store columns read by the partition fill, collision z test and direction (GxUnitStore.h; same game)
                  | (o.batchScan === true ? 1 : 0);   // bit 0 (value 1): batchScan, due mood scans of AI units collected per phase and searched in one pass over the unit store (AIUpdate.cpp, PartitionManager.cpp; off until timed)
         });
         g_PageSwitches3 = EM_ASM_INT({

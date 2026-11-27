@@ -741,54 +741,56 @@ void PhysicsBehavior::gxBulkPass(UnsignedInt now)
 // Reads: due[], store vx/vy/vz, ax/ay/az. Writes: vx/vy/vz, ax/ay/az of rows in [begin, end) only.
 // No allocation, events, RNG or other globals: safe on a worker thread for disjoint ranges.
 // (The forces before it and the rest of each unit's step after it are the main-thread parts.)
-void PhysicsBehavior::gxIntegrateColumns(const UnsignedInt *due, Int begin, Int end)
+// One row, scalar (head and tail of the SIMD loop): the same float ops as the SIMD lanes.
+static inline void gxIntegrateRow(float *__restrict v, float *__restrict a, Int i, UnsignedInt d)
 {
-	GxUnitStore &S = TheGxUnitStore;
-	float *v[3] = { S.vx.data(), S.vy.data(), S.vz.data() };
-	float *a[3] = { S.ax.data(), S.ay.data(), S.az.data() };
 	const float THRESH = 0.001f;
+	const float nv0 = v[i] + a[i];
+	const float nv = fabsf(nv0) < THRESH ? 0.0f : nv0;
+	v[i] = d ? nv : v[i];
+	a[i] = d ? 0.0f : a[i];
+}
+
+void PhysicsBehavior::gxIntegrateColumns(const UnsignedInt *__restrict due, Int begin, Int end)
+{
+	// straight-line kernel: column pointers in __restrict locals, no branch in the loop (rows not due
+	// keep their values through bitselect), two blocks of 4 rows per step as independent chains
+	GxUnitStore &S = TheGxUnitStore;
+	float *__restrict vx = S.vx.data(), *__restrict vy = S.vy.data(), *__restrict vz = S.vz.data();
+	float *__restrict ax = S.ax.data(), *__restrict ay = S.ay.data(), *__restrict az = S.az.data();
 	const Int n = end;
 	Int i = begin;
 	for (; i < n && (i & 3); ++i)	// to a multiple of 4
 	{
-		if (!due[i])
-			continue;
-		for (int k = 0; k < 3; ++k)
-		{
-			Real nv = v[k][i] + a[k][i];
-			if (fabsf(nv) < THRESH) nv = 0.0f;
-			v[k][i] = nv;
-			a[k][i] = 0.0f;
-		}
+		gxIntegrateRow(vx, ax, i, due[i]); gxIntegrateRow(vy, ay, i, due[i]); gxIntegrateRow(vz, az, i, due[i]);
 	}
 #ifdef __wasm_simd128__
-	const v128_t th = wasm_f32x4_splat(THRESH), zero = wasm_f32x4_splat(0.0f);
+	const v128_t th = wasm_f32x4_splat(0.001f), zero = wasm_f32x4_splat(0.0f);
+#define GX_INTEGRATE4(V, A, M, J) \
+	{ \
+		const v128_t vv = wasm_v128_load(V + (J)), aa = wasm_v128_load(A + (J)); \
+		v128_t nv = wasm_f32x4_add(vv, aa); \
+		nv = wasm_v128_andnot(nv, wasm_f32x4_lt(wasm_f32x4_abs(nv), th));	/* tiny -> 0 */ \
+		wasm_v128_store(V + (J), wasm_v128_bitselect(nv, vv, M)); \
+		wasm_v128_store(A + (J), wasm_v128_bitselect(zero, aa, M)); \
+	}
+	for (; i + 8 <= n; i += 8)
+	{
+		const v128_t m0 = wasm_v128_load(due + i), m1 = wasm_v128_load(due + i + 4);
+		GX_INTEGRATE4(vx, ax, m0, i) GX_INTEGRATE4(vx, ax, m1, i + 4)
+		GX_INTEGRATE4(vy, ay, m0, i) GX_INTEGRATE4(vy, ay, m1, i + 4)
+		GX_INTEGRATE4(vz, az, m0, i) GX_INTEGRATE4(vz, az, m1, i + 4)
+	}
 	for (; i + 4 <= n; i += 4)
 	{
-		const v128_t m = wasm_v128_load(due + i);
-		if (!wasm_v128_any_true(m))
-			continue;
-		for (int k = 0; k < 3; ++k)
-		{
-			const v128_t vv = wasm_v128_load(v[k] + i), aa = wasm_v128_load(a[k] + i);
-			v128_t nv = wasm_f32x4_add(vv, aa);
-			nv = wasm_v128_andnot(nv, wasm_f32x4_lt(wasm_f32x4_abs(nv), th));	// tiny -> 0
-			wasm_v128_store(v[k] + i, wasm_v128_bitselect(nv, vv, m));
-			wasm_v128_store(a[k] + i, wasm_v128_bitselect(zero, aa, m));
-		}
+		const v128_t m0 = wasm_v128_load(due + i);
+		GX_INTEGRATE4(vx, ax, m0, i) GX_INTEGRATE4(vy, ay, m0, i) GX_INTEGRATE4(vz, az, m0, i)
 	}
+#undef GX_INTEGRATE4
 #endif
 	for (; i < n; ++i)
 	{
-		if (!due[i])
-			continue;
-		for (int k = 0; k < 3; ++k)
-		{
-			Real nv = v[k][i] + a[k][i];
-			if (fabsf(nv) < THRESH) nv = 0.0f;
-			v[k][i] = nv;
-			a[k][i] = 0.0f;
-		}
+		gxIntegrateRow(vx, ax, i, due[i]); gxIntegrateRow(vy, ay, i, due[i]); gxIntegrateRow(vz, az, i, due[i]);
 	}
 }
 

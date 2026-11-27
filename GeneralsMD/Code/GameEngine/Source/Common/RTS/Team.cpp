@@ -51,6 +51,11 @@
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/ScriptActions.h"
 #include "GameLogic/ScriptEngine.h"
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#else
+static int GLES3_Page_Switches() { return 0; }
+#endif
 
 
 ///@todo - do delayed script evaluations for team scripts. jba.
@@ -2342,13 +2347,17 @@ static Bool isInBuildVariations(const ThingTemplate* ttWithVariations, const Thi
 
 // ------------------------------------------------------------------------
 /* Try to recruit a unit from other teams of this player. */
-Object *Team::tryToRecruit(const ThingTemplate *tTemplate, const Coord3D *teamHome, Real maxDist)
+// web port (hash-map sweep #9, switch recruitIndex, fifth word bit 5, value 32): the candidates are this
+// player's objects from the unit store's player column, in object-list order (so ties go the same way),
+// instead of a walk over the whole world. Verify mode runs both and compares the pick.
+static Object *gxTryToRecruitOver(Team *self, Object *first, const std::vector<Object*> *list, const ThingTemplate *tTemplate, const Coord3D *teamHome, Real maxDist)
 {
-	Player *myPlayer = getControllingPlayer();
-	Object *obj=nullptr;
+	Player *myPlayer = self->getControllingPlayer();
 	Real distSqr = maxDist*maxDist;
 	Object *recruit = nullptr;
-	for( obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+	size_t li = 0;
+	for( Object *obj = list ? (list->empty() ? nullptr : (*list)[0]) : first; obj;
+			obj = list ? (++li < list->size() ? (*list)[li] : nullptr) : obj->getNextObject() )
 	{
 		if (!obj->getTemplate()->isEquivalentTo(tTemplate))
 		{
@@ -2366,7 +2375,7 @@ Object *Team::tryToRecruit(const ThingTemplate *tTemplate, const Coord3D *teamHo
 		if (!team->isActive()) {
 			continue; // Team is building, so don't steal it's members yet.
 		}
-		if (team->getPrototype()->getTemplateInfo()->m_productionPriority>=getPrototype()->getTemplateInfo()->m_productionPriority) {
+		if (team->getPrototype()->getTemplateInfo()->m_productionPriority>=self->getPrototype()->getTemplateInfo()->m_productionPriority) {
 			continue;
 		}
 		Bool teamIsRecruitable = isDefaultTeam;	 // Default team always recruitable.
@@ -2374,8 +2383,8 @@ Object *Team::tryToRecruit(const ThingTemplate *tTemplate, const Coord3D *teamHo
 			teamIsRecruitable = true;
 		}
 		// Check & see if individual team has been marked for recruitability.
-		if (team->m_isRecruitablitySet) {
-			teamIsRecruitable = team->m_isRecruitable;
+		if (team->gxRecruitabilitySet()) {
+			teamIsRecruitable = team->gxRecruitable();
 		}
 		if (!teamIsRecruitable) {
 			continue;
@@ -2402,10 +2411,26 @@ Object *Team::tryToRecruit(const ThingTemplate *tTemplate, const Coord3D *teamHo
 		distSqr = dx*dx+dy*dy;
 		recruit = obj;
 	}
-	if (recruit!=nullptr) {
-		return recruit;
+	return recruit;
+}
+
+/* Try to recruit a unit from other teams of this player. */
+Object *Team::tryToRecruit(const ThingTemplate *tTemplate, const Coord3D *teamHome, Real maxDist)
+{
+	Player *myPlayer = getControllingPlayer();
+	if (!myPlayer || !(GLES3_Page_Switches5() & 32))
+		return gxTryToRecruitOver(this, TheGameLogic->getFirstObject(), nullptr, tTemplate, teamHome, maxDist);
+	static std::vector<Object*> s_cand;
+	TheGxUnitStore.playerObjectsInListOrder(myPlayer->getPlayerIndex(), s_cand);
+	Object *got = gxTryToRecruitOver(this, nullptr, &s_cand, tTemplate, teamHome, maxDist);
+	if (GLES3_Page_Switches() & 2097152)
+	{
+		static Int checked = 0, bad = 0;
+		++checked;
+		if (got != gxTryToRecruitOver(this, TheGameLogic->getFirstObject(), nullptr, tTemplate, teamHome, maxDist)) ++bad;
+		if (bad || checked % 50 == 0) printf("GXVERIFY recruitIndex checked %d, mismatches %d\n", checked, bad);
 	}
- 	return nullptr;
+	return got;
 }
 
 // ------------------------------------------------------------------------

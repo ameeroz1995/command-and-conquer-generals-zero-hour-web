@@ -55,7 +55,16 @@
 #include "WWMath/matrix3d.h"
 
 class Object;
-class GeometryInfo;	// complete wherever geom is used (Common/Geometry.h)
+class GeometryInfo;
+
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches5();
+#else
+static inline int GLES3_Page_Switches5() { return 0; }
+#endif
+/// switch geomColumns (round 5, fifth word bit 4, value 16; with hotInStore): geometry and transform also
+/// as plain columns (gType .. gHeight, xfm[12]), read by the hot readers instead of the structs
+inline bool gxGeomColumnsOn() { return (GLES3_Page_Switches5() & 16) != 0; }	// complete wherever geom is used (Common/Geometry.h)
 
 /// A Coord3D-shaped view of one row of three float columns: `velRef(s).x += a` writes the column.
 /// Use it right away (the columns can reallocate when objects are created).
@@ -135,6 +144,14 @@ public:
 	GxCol<GeometryInfo>			geom;			///< geometry
 	GxCol<float>						angle;			///< orientation
 	GxCol<Matrix3D>					xf;				///< transform
+	// geomColumns: the same geometry and transform as plain columns, written with geom / xf (gxGeomSync,
+	// gxXfSync) at their few writers; hot readers (partition fill, collision z and shape test, direction)
+	// read these. height = the box / cylinder height (0 for spheres, which use majorRadius).
+	GxCol<unsigned char>				gType, gSmall;	///< GeometryType, isSmall
+	GxCol<float>						gMajor, gMinor, gHeight;
+	GxCol<float>						xfm[12];		///< transform rows: xfm[r * 4 + c] = xf[s][r][c]
+	void gxGeomSync(int s);							///< geom[s] -> gType .. gHeight (geomColumns)
+	void gxXfSync(int s) { if (!gxGeomColumnsOn()) return; const Matrix3D &m = xf[s]; for (int r = 0; r < 3; ++r) for (int c = 0; c < 4; ++c) xfm[r * 4 + c][s] = m[r][c]; }
 
 	// ---- combat block (round 4, combat agent): weapons ----
 	GxCol<int>							target;			///< current victim ObjectID, 0 none (write-through: AIUpdateInterface::setCurrentVictim)
@@ -171,12 +188,26 @@ public:
 	void setPlayer(const Object *o, int playerIndex);
 	void setCell(const Object *o, int cellIndex);
 	void setInCells(const Object *o, bool in) { const int s = slotOf(o); if (s >= 0) inCells[s] = in ? 1 : 0; }
+	/// hash-map sweep (round 5): the objects controlled by player `playerIndex` that are in GameLogic's object
+	/// list, in that list's order (head first: descending Object::m_gxListSeq), from the player column instead
+	/// of a walk over the whole world. `out` is cleared first.
+	void playerObjectsInListOrder(int playerIndex, std::vector<Object*> &out) const;
+	/// hash-map sweep #18 (switch playerKindCounts, fifth word bit 7, value 128): per player, how many stored
+	/// objects have each of a few kinds (fixed by the template), kept by add / remove / setPlayer, so a walk over
+	/// a player's objects looking for one of them can be skipped when there are none (same answer)
+	enum GxKind { GXK_BLACK_MARKET, GXK_DRONE, GXK_COUNT };
+	int kindCount(int playerIndex, GxKind k) const { return (playerIndex >= 0 && playerIndex < 32) ? m_kindCount[playerIndex][k] : 0; }
+	/// walking such a list like the object list: element i, or null past the end
+	static Object *gxListAtImpl(const std::vector<Object*> &v, size_t i) { return i < v.size() ? v[i] : nullptr; }
 	void gxVerifyHot(unsigned int frame);				///< verify mode: stored objects' rows untouched (hotInStore)
 	void compact();									///< close holes (pass() calls it once per frame)
 	void bumpEpoch() { ++m_epoch; }
 
 private:
 	std::vector<int>							m_order;		///< compact(): scratch, kept between frames
+	GxCol<unsigned char>						m_kinds;		///< GxKind bits of each slot (from its template)
+	int													m_kindCount[32][GXK_COUNT] = {};
+	void kindAdjust(int s, int d) { const int p = player[s]; if (p < 0 || p >= 32) return; for (int k = 0; k < GXK_COUNT; ++k) if (m_kinds[s] >> k & 1) m_kindCount[p][k] += d; }
 	std::vector<int>							m_slotById;		///< ObjectID -> slot, -1 if none
 	std::vector<int>							m_pass[GXB_COUNT];
 	GxBehaviourMask								m_dirty = ~0ull;	///< pass lists to rebuild
@@ -188,3 +219,4 @@ private:
 };
 
 extern GxUnitStore TheGxUnitStore;
+inline Object *gxListAt(const std::vector<Object*> &v, size_t i) { return GxUnitStore::gxListAtImpl(v, i); }

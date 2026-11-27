@@ -59,6 +59,11 @@
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/SpawnBehavior.h"
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#else
+static int GLES3_Page_Switches() { return 0; }
+#endif
 
 
 
@@ -300,7 +305,18 @@ Bool StealthUpdate::allowedToStealth( Object *stealthOwner ) const
 
 		//If we can't find an active black market, then we can't stealth.
 		Bool blackMarket = FALSE;
-		self->getControllingPlayer()->iterateObjects( isBlackMarket, &blackMarket );
+		// web port (hash-map sweep #18, playerKindCounts): no black market at all -> no walk (same answer)
+		Player *gxOwner = self->getControllingPlayer();
+		const Bool gxSkip = (GLES3_Page_Switches5() & 128) && TheGxUnitStore.kindCount(gxOwner->getPlayerIndex(), GxUnitStore::GXK_BLACK_MARKET) == 0;
+		if (!gxSkip || (GLES3_Page_Switches() & 2097152))
+			gxOwner->iterateObjects( isBlackMarket, &blackMarket );
+		if (gxSkip && (GLES3_Page_Switches() & 2097152))
+		{
+			static Int checked = 0, bad = 0;
+			++checked;
+			if (blackMarket) { ++bad; blackMarket = FALSE; }
+			if (bad || checked % 100 == 0) printf("GXVERIFY playerKindCounts black market checked %d, mismatches %d\n", checked, bad);
+		}
 		if( !blackMarket )
 		{
 			return FALSE;

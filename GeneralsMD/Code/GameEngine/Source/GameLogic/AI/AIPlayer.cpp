@@ -61,6 +61,11 @@
 #include "GameLogic/Module/SupplyTruckAIUpdate.h"
 #include "GameLogic/Module/SupplyWarehouseDockUpdate.h"
 #include "GameLogic/PartitionManager.h"
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#else
+static int GLES3_Page_Switches() { return 0; }
+#endif
 
 
 #define SUPPLY_CENTER_CLOSE_DIST (20*PATHFIND_CELL_SIZE_F)
@@ -727,6 +732,28 @@ void AIPlayer::processBaseBuilding()
 					info->setObjectID(INVALID_ID);
 					info->setObjectTimestamp(TheGameLogic->getFrame()+1);
 					// Scan for a GLA hole.	KINDOF_REBUILD_HOLE
+					// web port (aiWorldIndex): the holes this building spawned, from the spawner index; the
+					// world walk kept the last match in object-list order, so the lowest list sequence wins
+					const Bool gxIdx = (GLES3_Page_Switches5() & 64) != 0;
+					Object *gxPick = nullptr;
+					if (gxIdx)
+					{
+						Object *head = TheGameLogic->getFirstObject();
+						if (const std::vector<ObjectID> *holes = gxHolesOfSpawner(priorID))
+							for (ObjectID hid : *holes)
+							{
+								Object *h = TheGameLogic->findObjectByID(hid);
+								if (!h || !h->isInList(&head) || !h->isKindOf(KINDOF_REBUILD_HOLE)) continue;
+								RebuildHoleBehaviorInterface *rhbi = RebuildHoleBehavior::getRebuildHoleBehaviorInterfaceFromObject( h );
+								if (rhbi && rhbi->getSpawnerID() == priorID && (!gxPick || h->m_gxListSeq < gxPick->m_gxListSeq))
+									gxPick = h;
+							}
+						if (gxPick)
+							info->setObjectID(gxPick->getID());
+					}
+					if (!gxIdx || (GLES3_Page_Switches() & 2097152))
+					{
+					Object *gxWalk = nullptr;
 					Object *obj;
 					for( obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() ) {
 						if (!obj->isKindOf(KINDOF_REBUILD_HOLE)) continue;
@@ -735,10 +762,19 @@ void AIPlayer::processBaseBuilding()
 							ObjectID spawnerID = rhbi->getSpawnerID();
 							if (priorID == spawnerID) {
 								DEBUG_LOG(("AI Found hole to rebuild %s", bldgPlan->getName().str()));
-								info->setObjectID(obj->getID());
+								if (!gxIdx) info->setObjectID(obj->getID());
+								gxWalk = obj;
 							}
 						}
  					}
+					if (gxIdx)
+					{
+						static Int checked = 0, bad = 0;
+						++checked;
+						if (gxWalk != gxPick) ++bad;
+						printf("GXVERIFY aiWorldIndex hole checked %d, mismatches %d\n", checked, bad);
+					}
+					}
 				}	else {
 					if (bldg->getControllingPlayer() == m_player) {
 						// Check for built or dozer missing.
@@ -3225,20 +3261,24 @@ enum GameDifficulty AIPlayer::getAIDifficulty() const
 /**
  * Finds a dozer that isn't building or collecting resources.
  */
-Object * AIPlayer::findDozer( const Coord3D *pos )
+// web port (hash-map sweep #10, switch aiWorldIndex, fifth word bit 6, value 64): the dozer search walks
+// this player's objects from the unit store's player column, in object-list order, instead of the
+// whole world (same picks, same ties). Verify mode compares the pick with the world walk.
+struct GxDozerPick { Object *dozer; Object *closestDozer; Bool needDozer; };
+static GxDozerPick gxFindDozerOver(Player *player, ObjectID repairDozer, const Coord3D *pos, const std::vector<Object*> *list)
 {
-	// Add any factories placed to the build list.
 	Object *obj;
 	Object *dozer = nullptr;
 	Bool needDozer = true;
 	Object *closestDozer=nullptr;
 	Real closestDistSqr = 0;
 
-	for( obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+	size_t gxI = 0;
+	for( obj = list ? gxListAt(*list, 0) : TheGameLogic->getFirstObject(); obj; obj = list ? gxListAt(*list, ++gxI) : obj->getNextObject() )
 	{
 
 		Player *owner = obj->getControllingPlayer();
-		if (owner==m_player) {
+		if (owner==player) {
 			// See if it's a dozer.
 			if (obj->isKindOf(KINDOF_DOZER)) {
 
@@ -3259,7 +3299,7 @@ Object * AIPlayer::findDozer( const Coord3D *pos )
 							continue;
 						}
 					}
-					if (obj->getID() == m_repairDozer) {
+					if (obj->getID() == repairDozer) {
 						continue; // don't steal the repair dozer.
 					}
 					needDozer = false; // dozer exists, may be busy.
@@ -3292,11 +3332,34 @@ Object * AIPlayer::findDozer( const Coord3D *pos )
 		}
 
 	}
-	if (needDozer) {
+	GxDozerPick r = { dozer, closestDozer, needDozer };
+	return r;
+}
+
+Object * AIPlayer::findDozer( const Coord3D *pos )
+{
+	GxDozerPick r;
+	if (GLES3_Page_Switches5() & 64)
+	{
+		static std::vector<Object*> s_gxList;
+		TheGxUnitStore.playerObjectsInListOrder(m_player->getPlayerIndex(), s_gxList);
+		r = gxFindDozerOver(m_player, m_repairDozer, pos, &s_gxList);
+		if (GLES3_Page_Switches() & 2097152)
+		{
+			static Int checked = 0, bad = 0;
+			const GxDozerPick w = gxFindDozerOver(m_player, m_repairDozer, pos, nullptr);
+			++checked;
+			if (w.dozer != r.dozer || w.closestDozer != r.closestDozer || w.needDozer != r.needDozer) ++bad;
+			if (bad || checked % 50 == 0) printf("GXVERIFY aiWorldIndex dozer checked %d, mismatches %d\n", checked, bad);
+		}
+	}
+	else
+		r = gxFindDozerOver(m_player, m_repairDozer, pos, nullptr);
+	if (r.needDozer) {
 		queueDozer();
 	}
-	if (closestDozer) return closestDozer;
-	return dozer;
+	if (r.closestDozer) return r.closestDozer;
+	return r.dozer;
 }
 
 // ------------------------------------------------------------------------------------------------
