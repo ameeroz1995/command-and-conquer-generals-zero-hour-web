@@ -751,7 +751,7 @@ static inline void gxIntegrateRow(float *__restrict v, float *__restrict a, Int 
 	a[i] = d ? 0.0f : a[i];
 }
 
-void PhysicsBehavior::gxIntegrateColumns(const UnsignedInt *__restrict due, Int begin, Int end)
+__attribute__((noinline)) void PhysicsBehavior::gxIntegrateColumns(const UnsignedInt *__restrict due, Int begin, Int end)
 {
 	// straight-line kernel: column pointers in __restrict locals, no branch in the loop (rows not due
 	// keep their values through bitselect), two blocks of 4 rows per step as independent chains

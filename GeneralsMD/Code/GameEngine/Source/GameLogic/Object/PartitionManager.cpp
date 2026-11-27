@@ -3527,47 +3527,71 @@ static GxPairKernelIn s_gxPairIn;
 // Reads: in (slot, rect, start, cslot, cx, cy, cr, x, y, radius). Writes: out[0 .. return) only.
 // No allocation, events, RNG or globals: safe on a worker thread for disjoint ranges with their own
 // out. Returns the number of ints written, or -1 if cap was too small (nothing else changed).
-static Int gxPairKernel(const GxPairKernelIn &in, Int begin, Int end, Int *out, Int cap)
+__attribute__((noinline)) static Int gxPairKernel(const GxPairKernelIn &in, Int begin, Int end, Int *__restrict out, Int cap)
 {
+	// straight-line kernel: inputs in __restrict locals, constants and the seeker's values hoisted out of
+	// the cell loops, two blocks of 4 units per step (independent compares), same tests and output order
+	const int *__restrict slot = in.slot.data();
+	const Int *__restrict rect = in.rect.data();
+	const int *__restrict start = in.start, *__restrict cslot = in.cslot;
+	const float *__restrict bx = in.cx, *__restrict by = in.cy, *__restrict br = in.cr;
+	const float *__restrict X = in.x, *__restrict Y = in.y, *__restrict R = in.radius;
+	const Int nx = in.nx;
 	Int w = 0;
+#ifdef __wasm_simd128__
+	const v128_t c14 = wasm_f32x4_splat(1.4143f), one = wasm_f32x4_splat(1.0f);
+#endif
 	for (Int i = begin; i < end; ++i)
 	{
-		const int s = in.slot[i];
-		const float px0 = in.x[s], py0 = in.y[s], r = in.radius[s];
-		const Int *q = &in.rect[i * 4];
+		const int s = slot[i];
+		const float px0 = X[s], py0 = Y[s], r = R[s];
+		const Int *q = &rect[i * 4];
+#ifdef __wasm_simd128__
+		const v128_t px = wasm_f32x4_splat(px0), py = wasm_f32x4_splat(py0), pr = wasm_f32x4_splat(r);
+#define GX_HIT4(K) \
+		wasm_i32x4_bitmask(wasm_f32x4_le( \
+			wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_sub(wasm_v128_load(bx + (K)), px), wasm_f32x4_sub(wasm_v128_load(bx + (K)), px)), \
+			               wasm_f32x4_mul(wasm_f32x4_sub(wasm_v128_load(by + (K)), py), wasm_f32x4_sub(wasm_v128_load(by + (K)), py))), \
+			wasm_f32x4_mul(wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_add(wasm_v128_load(br + (K)), pr), c14), one), \
+			               wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_add(wasm_v128_load(br + (K)), pr), c14), one))))
+#endif
 		for (Int cy = q[1]; cy <= q[3]; ++cy)
 			for (Int cx = q[0]; cx <= q[2]; ++cx)
 			{
-				const int b = in.start[cy * in.nx + cx], en = in.start[cy * in.nx + cx + 1];
+				const int b = start[cy * nx + cx], en = start[cy * nx + cx + 1];
 				if (w + 2 * (en - b) > cap)
 					return -1;
 				int k = b;
 #ifdef __wasm_simd128__
-				const v128_t px = wasm_f32x4_splat(px0), py = wasm_f32x4_splat(py0), pr = wasm_f32x4_splat(r);
-				const v128_t c14 = wasm_f32x4_splat(1.4143f), one = wasm_f32x4_splat(1.0f);
+				for (; k + 8 <= en; k += 8)
+				{
+					const int bits = GX_HIT4(k) | (GX_HIT4(k + 4) << 4);
+					for (int j = 0; j < 8; ++j)
+						if ((bits >> j & 1) && cslot[k + j] != s)
+							{ out[w++] = i; out[w++] = cslot[k + j]; }
+				}
 				for (; k + 4 <= en; k += 4)
 				{
-					const v128_t dx = wasm_f32x4_sub(wasm_v128_load(in.cx + k), px);
-					const v128_t dy = wasm_f32x4_sub(wasm_v128_load(in.cy + k), py);
-					const v128_t lim = wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_add(wasm_v128_load(in.cr + k), pr), c14), one);
-					const v128_t hit = wasm_f32x4_le(wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)), wasm_f32x4_mul(lim, lim));
-					const int bits = wasm_i32x4_bitmask(hit);
+					const int bits = GX_HIT4(k);
 					for (int j = 0; j < 4; ++j)
-						if ((bits >> j & 1) && in.cslot[k + j] != s)
-							{ out[w++] = i; out[w++] = in.cslot[k + j]; }
+						if ((bits >> j & 1) && cslot[k + j] != s)
+							{ out[w++] = i; out[w++] = cslot[k + j]; }
 				}
 #endif
 				for (; k < en; ++k)
 				{
-					const int t = in.cslot[k];
+					const int t = cslot[k];
 					if (t == s)
 						continue;
-					const float dx = in.cx[k] - px0, dy = in.cy[k] - py0, lim = (in.cr[k] + r) * 1.4143f + 1.0f;
+					const float dx = bx[k] - px0, dy = by[k] - py0, lim = (br[k] + r) * 1.4143f + 1.0f;
 					if (dx * dx + dy * dy > lim * lim)
 						continue;
 					out[w++] = i; out[w++] = t;
 				}
 			}
+#ifdef __wasm_simd128__
+#undef GX_HIT4
+#endif
 	}
 	return w;
 }
