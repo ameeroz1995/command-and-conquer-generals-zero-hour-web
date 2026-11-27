@@ -56,6 +56,7 @@
 #include "Common/CriticalSection.h"
 #include "Common/Errors.h"
 #include "Common/GameMemory.h"
+#include "Common/GxTime.h"
 #include "Common/GlobalData.h"
 #include "Common/PerfTimer.h"
 #ifdef MEMORYPOOL_DEBUG
@@ -1691,6 +1692,7 @@ Int MemoryPool::freeBlob(MemoryPoolBlob *blob) {
 void *
 MemoryPool::allocateBlockDoNotZeroImplementation(DECLARE_LITERALSTRING_ARG1) {
   ScopedCriticalSection scopedCriticalSection(TheMemoryPoolCriticalSection);
+  gxCountPathAlloc(GXC_PATH_ALLOCS); // web port: GXTIME (tickTiming)
 
   if (m_firstBlobWithFreeBlocks != nullptr &&
       !m_firstBlobWithFreeBlocks->hasAnyFreeBlocks()) {
@@ -2217,6 +2219,7 @@ void *DynamicMemoryAllocator::allocateBytesDoNotZeroImplementation(
 #endif // MEMORYPOOL_DEBUG
   } else {
     // too big for our pools -- just go right to the metal.
+    gxCountPathAlloc(GXC_PATH_BIG_ALLOCS); // web port: GXTIME (tickTiming)
     MemoryPoolSingleBlock *block =
         MemoryPoolSingleBlock::rawAllocateSingleBlock(
             &m_rawBlocks, numBytes, m_factory PASS_LITERALSTRING_ARG2);

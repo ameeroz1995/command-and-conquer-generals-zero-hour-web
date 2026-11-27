@@ -458,6 +458,23 @@ void Path::appendNode( const Coord3D *pos, PathfindLayerEnum layer )
 	node->setPosition( pos );
 	node->setLayer(layer);
 
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches(), GLES3_Page_Switches5();
+	// web port (switch pathTail, fifth word bit 17): link after the kept tail instead of walking the
+	// list to find it (each append was O(nodes), a path build O(nodes^2)); the same list
+	if (m_path && m_pathTail && (GLES3_Page_Switches5() & 131072)) {
+		if (GLES3_Page_Switches() & 2097152) {	// verify mode: the kept tail is the walked tail
+			static int s_checked = 0, s_bad = 0;
+			PathNode *t = m_path;
+			while (t->getNext()) t = t->getNext();
+			if (t != m_pathTail && ++s_bad <= 20)
+				printf("GXVERIFY pathTail mismatch: kept tail is not the list's tail\n");
+			if (++s_checked % 200000 == 0)
+				printf("GXVERIFY pathTail checked %d, mismatches %d\n", s_checked, s_bad);
+		}
+		m_pathTail->append(node);
+	} else
+#endif
 	m_path = node->appendToList( m_path );
 
 	if (m_isOptimized && m_pathTail)

@@ -30,7 +30,7 @@ enum GxCountId
 	GXC_MOVE_UNITS, GXC_MOVE_KERNEL_POINTS, GXC_MOVE_KERNEL_TAKEN, GXC_MOVE_APPLY_POINTS, GXC_HORDE_SEARCHES,
 	GXC_AI_MODULE_CALLS, GXC_AI_KERNEL_SLOTS,
 	GXC_PATH_FINDS, GXC_PATH_CELLS, GXC_LOCO_CALLS, GXC_CPOP_CALLS, GXC_CPOP_SIMD_SEGS, GXC_LOCO_SIMD_ANGLES, GXC_LOCO_ANGLE_HITS, GXC_LOCO_ANGLES,
-	GXC_SHARE_NOTED, GXC_SHARE_SEARCHES, GXC_SHARE_TAKEN, GXC_GROUP_SPOTS,
+	GXC_SHARE_NOTED, GXC_SHARE_SEARCHES, GXC_SHARE_TAKEN, GXC_GROUP_SPOTS, GXC_PATH_ALLOCS, GXC_PATH_BIG_ALLOCS,
 	GXC_COUNT
 };
 
@@ -47,6 +47,8 @@ struct GxTimeState
 inline GxTimeState &gxTime() { static GxTimeState s; return s; }
 inline bool gxTimingOn() { return (GLES3_Page_Switches4() & 65536) != 0; }
 inline void gxCount(GxCountId id, unsigned long long k = 1) { if (gxTimingOn()) gxTime().n[id] += k; }
+/// game allocator: counts a heap block taken inside a route search (GXT_PATHFIND scope)
+inline void gxCountPathAlloc(GxCountId id) { if (gxTimingOn() && gxTime().depth[GXT_PATHFIND] > 0) gxTime().n[id]++; }
 
 struct GxTimeScope
 {
@@ -83,7 +85,7 @@ inline void gxTimeTickEnd()
 		"moveUnits", "moveKernelPoints", "moveKernelTaken", "moveApplyPoints", "hordeSearches",
 		"aiModuleCalls", "aiKernelSlots",
 		"pathFinds", "pathCells", "locoCalls", "cpopCalls", "cpopSimdSegs", "locoSimdAngles", "locoAngleHits", "locoAngles",
-		"shareNoted", "shareSearches", "shareTaken", "groupSpots" };
+		"shareNoted", "shareSearches", "shareTaken", "groupSpots", "pathAllocs", "pathBigAllocs" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())

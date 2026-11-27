@@ -4241,3 +4241,36 @@ Level within noise (the ceiling was the call's 0.4% self share).
   p99 off 94.9 / 87.3, on 94.7 / 89.4 ms; over 100 ms off 13 / 7, on 10 / 10; fps off 16.7 / 17.4, on 17.9 / 18.5.
   The battle's AI mostly issues attack moves (no shared route: shareNoted 1.0/tick, shareTaken < 0.05/tick),
   so the battle is level; the gain is the order tick above. ON by default.
+- Note (later runs, 11-27): the battle benchmark itself comes in two runs even with the same settings
+  (2700 ticks / ~766 movers, or 3000 ticks / ~690: lsoff1, bitsoff1 below, rule on), so the off/on
+  difference above in ticks and movers is not only the rule.
+
+## 2026-11-27 — paths: heap churn in route searches, counted (not built: already pooled)
+- New GXTIME counters pathAllocs / pathBigAllocs: game-allocator blocks (pool / too big for a pool)
+  taken while a route search runs (GXT_PATHFIND scope; GameMemory.cpp). Battle benchmark, paths-hc0:
+  405 pool blocks and 2.3 big blocks per tick, at 8.8 route searches per tick (about 46 per search:
+  Path / PathNode / cell info, all MemoryPool objects already; GameMemory is on in the web build).
+- Ceiling: ~400 pool takes and frees a tick is tens of microseconds of a 17.5 ms tick, under 0.3%.
+  No pooling to add; nothing built. Counters kept (only with tickTiming).
+
+## 2026-11-27 — paths: #53 exact route-search speed-ups re-measured (openHeap, cellBits: both stay ON)
+- Both #53 parts were built 11-24 (openHeap: heap open list instead of the insertion sort; cellBits:
+  occupied-cell bits instead of reading every cell). Battle benchmark, paths-hc0, tickTiming,
+  timing.lock, load 2.1-3.6 except where noted, alternating off/on x2:
+  openHeap off 2.814 / 2.798 pathfind ms/tick, on 2.612 / 2.834 (on2: whole tick 19.3 ms, a slow run);
+  per search cell off 5.57 / 5.54 us, on 5.18. cellBits off 2.561 (3000-tick run, 455 cells/tick) /
+  3.026 (slow run), on 2.601; per search cell off 5.62 / 6.00 us, on 5.16; bitson2 discarded (load 7.4
+  -> 14). Both are about 7-8% of route-search time; same game, so they stay on.
+- Big orders (order probe, 2000-unit clump, orderQueue on, probe build m10, both off / both on, x2,
+  load 2.4-7.5): the order tick has no route search left, so it is level (N=100 17.1 / 22.8 off,
+  20.1 / 16.4 on; N=1000 32.3 / 23.0 off, 21.7 / 24.7 on). Route-search time in the 5 s after an order,
+  where the searches now run: N=100 944 / 1021 ms off, 837 / 798 on; N=1000 758 / 779 off, 720 / 716 on.
+
+## 2026-11-27 — paths: locoSimd re-timed, now ON by default
+- Battle benchmark, paths-oq1 (orderQueue on), tickTiming, timing.lock, alternating off/on x3:
+  pair 1 discarded (load rose to 10.7 during off1). Pair 2 (load 1.7-2.7): logic off 17.57 / on 17.36
+  ms/tick with more movers on (790 vs 766); per loco call off 1.76 us / on 1.68; p99 94.5 / 85.2 ms;
+  over 100 ms 23 / 16; fps 17.4 / 18.3. Pair 3 (load 5-7, inside the < 8 gate): logic 22.69 / 20.05;
+  per loco call 2.19 / 1.91 us; p99 138.6 / 122.2; over 100 ms 128 / 78; fps 12.7 / 14.6.
+- On wins in both clean pairs, so ON by default (rule 27 stays; fifth word value 2 now default-on).
+  Its checks are in the 11-26 entry (paths-loco.rep replays to a match; 0 SIMD-lane mismatches).
