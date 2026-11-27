@@ -34,6 +34,8 @@
 #include "Lib/BaseType.h"
 #include "Common/GameEngine.h"
 #include "Common/GlobalData.h"
+#include "Common/GxTime.h"
+extern "C" void GX_Bench_NoDraw(int on);
 #include "Common/MessageStream.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
@@ -134,6 +136,7 @@ struct Bench {
 	int shotFor = -1;
 	AsciiString replayName;
 	double replayLimitMs = 600000;
+	UnsignedInt pauseAt = 0;	// replay: pause at this game frame (screenshots for the visual check), 0 = never
 	std::string setupNote;
 	Player *side[2] = {nullptr, nullptr};
 } B;
@@ -538,6 +541,7 @@ std::string phaseJson(const Phase &p)
 void finish(const char *why)
 {
 	endPhase();
+	if (TheGlobalData && TheGlobalData->m_noDraw) GX_Bench_NoDraw(0);	// no-drawing run over: normal frames
 	std::string j = "{\"version\":2,\"result\":\"";
 	j += why;
 	char buf[700];
@@ -662,17 +666,25 @@ void onFrame(double workMs)
 		}
 		break;
 	case REPLAY_LOAD:	// replay check: wait for the replay's match to start
-		if (gameReady()) { B.stage = REPLAY_RUN; B.frame0 = TheGameLogic->getFrame(); B.stageStart = t; }
+		if (gameReady()) { B.stage = REPLAY_RUN; B.frame0 = TheGameLogic->getFrame(); B.stageStart = t; gxTime() = GxTimeState(); }	// timing counts the match only
 		else if (t - B.stageStart > kLoadWallMs) { B.stage = IDLE; EM_ASM({ if (window.gxBenchDone) window.gxBenchDone(JSON.stringify({ result: 'replay did not load' })); }); }
 		break;
 	case REPLAY_RUN: {
 		const UnsignedInt f = TheGameLogic->getFrame();
+		if (B.pauseAt && f >= B.pauseAt && !TheGameLogic->isGamePaused()) {	// visual check: hold this frame for a screenshot
+			B.pauseAt = 0;
+			TheGameLogic->setGamePaused(TRUE, FALSE, FALSE);
+			EM_ASM({ window.gxBenchPausedAt = $0; }, f);
+			break;
+		}
 		const bool over = !TheRecorder->isPlaybackInProgress() || f >= B.replayFrames || TheRecorder->sawCRCMismatch();
 		if (over) {
 			char buf[200];
 			snprintf(buf, sizeof(buf), "{\"result\":\"replay check\",\"replayFrames\":%u,\"mismatch\":%s,\"seconds\":%.0f}",
 				f, TheRecorder->sawCRCMismatch() ? "true" : "false", (t - B.stageStart) / 1000.0);
 			printf("GXREPLAY %s\n", buf);
+			if (gxTimingOn()) gxTimePrint("GXTIMEEND");	// the match's averages (shell frames come after)
+			if (TheGlobalData && TheGlobalData->m_noDraw) GX_Bench_NoDraw(0);	// back to normal frames
 			B.stage = IDLE;
 			EM_ASM({ if (window.gxBenchDone) window.gxBenchDone(UTF8ToString($0)); }, buf);
 			TheGameLogic->exitGame();
@@ -698,6 +710,7 @@ void onFrame(double workMs)
 			beginPhase("armies");
 			B.frame0 = TheGameLogic->getFrame();
 			B.stage = BATTLE_RUN; B.stageStart = t;
+			gxTime() = GxTimeState();	// tickTiming: GXTIMEEND covers the battle only (not the loads or the tour)
 			progress("Battle: armies arriving in waves");
 		} else if (t - B.stageStart > kLoadWallMs) {
 			beginPhase("battle"); B.cur->note = "map did not load"; finish("battle map did not load");
@@ -718,6 +731,7 @@ void onFrame(double workMs)
 		if (f >= kBattleFrames || t - B.stageStart > kBattleWallMs) {
 			if (t - B.stageStart > kBattleWallMs && B.cur) B.cur->note = "stopped at the time limit";
 			endPhase();
+			if (gxTimingOn()) gxTimePrint("GXTIMEEND");	// the battle's own averages
 			memorySnapshot("battle end");
 			TheInGameUI->deselectAllDrawables(FALSE);
 			TheTacticalView->setAngleToDefault();
@@ -824,6 +838,41 @@ extern "C" EMSCRIPTEN_KEEPALIVE void GX_Bench_Record(int frames, int maxSeconds)
 	gx_frame_hook = onFrame;
 	B.stage = RECORD_WAIT;
 	B.stageStart = now();
+}
+
+// No-drawing mode (bench scripts): 1 = the game skips drawing in a match (the engine's m_noDraw;
+// the first frame and the menus still draw), so logic timing runs as fast as the logic allows.
+// Game logic is untouched (replays still match). 0 = draw again.
+extern "C" EMSCRIPTEN_KEEPALIVE void GX_Bench_NoDraw(int on)
+{
+#ifdef __EMSCRIPTEN_PTHREADS__
+	extern pthread_t GX_GameThread;
+	if (GX_GameThread && !pthread_equal(pthread_self(), GX_GameThread)) {
+		emscripten_dispatch_to_thread_async(GX_GameThread, EM_FUNC_SIG_VI, (void *)GX_Bench_NoDraw, nullptr, on);
+		return;
+	}
+#endif
+	if (TheWritableGlobalData) TheWritableGlobalData->m_noDraw = on ? ~0u : 0u;
+	// with nothing to draw, run frames back to back instead of one per display refresh
+	if (on) emscripten_set_main_loop_timing(EM_TIMING_SETIMMEDIATE, 0);
+	else emscripten_set_main_loop_timing(EM_TIMING_RAF, 1);
+}
+
+// Visual check (bench scripts): during a replay, pause at game frame <frame> (0 = don't); the page
+// sees window.gxBenchPausedAt, takes its screenshot and calls this again with the next frame.
+// Call after GX_Bench_Replay (which resets the benchmark state).
+extern "C" EMSCRIPTEN_KEEPALIVE void GX_Bench_PauseAt(int frame)
+{
+#ifdef __EMSCRIPTEN_PTHREADS__
+	extern pthread_t GX_GameThread;
+	if (GX_GameThread && !pthread_equal(pthread_self(), GX_GameThread)) {
+		emscripten_dispatch_to_thread_async(GX_GameThread, EM_FUNC_SIG_VI, (void *)GX_Bench_PauseAt, nullptr, frame);
+		return;
+	}
+#endif
+	B.pauseAt = frame > 0 ? (UnsignedInt)frame : 0;
+	EM_ASM({ window.gxBenchPausedAt = 0; });
+	if (TheGameLogic && TheGameLogic->isGamePaused()) TheGameLogic->setGamePaused(FALSE, FALSE, FALSE);
 }
 
 // Replay check: plays /userdata/Replays/<name> for up to <frames> game frames as fast as the
