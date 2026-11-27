@@ -1268,6 +1268,14 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
   }
 
 	gxStartMatchRules();	// web port: network games and replays use the host's match rules
+	if (m_gxHeap4 && !gxMatchRule(GXRULE_HEAP4))
+	{
+		// heap4: an update() before this game's rules were known (between the last game's reset and here) can
+		// have switched the queue to 4-ary from the local settings; a game without the rule runs the binary queue
+		m_gxHeap4 = FALSE;
+		if (!m_sleepyUpdates.empty())
+			remakeSleepyUpdate();
+	}
 	checkForDuplicateColors( TheGameInfo );
 
 	Bool isSkirmishOrSkirmishReplay = FALSE;
