@@ -4014,3 +4014,13 @@ Stays default off.
   - wasm (wasm-dis, name section): gxSnapBox has no function of its own (inlined); the cull's vector loops
     and gxSnapBox are call-free; what is left in loops is the filters' and distance procs' indirect calls
     per candidate (the walk's semantics) and the verify prints.
+- Pinned no-draw battle (same game every run, 1800 ticks; query-65a = the kernels before, query-65b = after,
+  both with the batch pass forced on; query-65 iterPool off/on), two pairs each:
+  - fogReveal 0.117 / 0.112 -> 0.051 / 0.050 ms/tick; snapBuild 0.614 / 0.610 -> 0.578 / 0.597;
+    bsCull 0.101 / 0.106 -> 0.078 / 0.082 (24.9 seekers a tick); logic 28.86 -> 28.88, 28.11 -> 29.27 (noise).
+  - iterPool off -> on: allocations 4835 -> 3871 a tick; logic 28.85 -> 28.29, 28.34 -> 27.95 ms/tick;
+    p99 79.2 -> 77.7, 78.3 -> 75.5 ms; frames > 100 ms 14 -> 10, 10 -> 11.
+  - Replays referee, query-mgr5, query-mgr6 match on query-65 (no drawing).
+- Visual check (bench_visual query-65a vs query-65b, referee replay, frames 600/1800/3600/5400): both replays
+  match; the same two small patches at the top of the screen (y 25-39) differ by a few levels in every frame,
+  identical at 600 and 5400 (a UI element, not the fog, which changes with the game).
