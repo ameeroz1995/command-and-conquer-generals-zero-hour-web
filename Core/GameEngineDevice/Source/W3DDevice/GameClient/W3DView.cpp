@@ -726,9 +726,25 @@ void W3DView::reset()
 //-------------------------------------------------------------------------------------------------
 static void drawDrawable( Drawable *draw, void *userData )
 {
-
+	// lightOffscreen (switch word 3 bit 25): the view's box is much larger than what the tilted camera
+	// sees; units in the box but off screen skip their per-frame draw work, as units outside the box do.
+	if (userData)
+	{
+		const Coord3D *pos = draw->getPosition();
+		const SphereClass sphere(Vector3(pos->x, pos->y, pos->z), draw->getDrawableGeometryInfo().getBoundingSphereRadius() + 30.0f);
+		if (((const CameraClass *)userData)->Cull_Sphere_On_Frustum_Sides(sphere))
+			return;
+	}
 	draw->draw();
 
+}
+
+// lightOffscreen: the tactical camera of the current frame, for on-screen tests outside this file
+// (particle systems). Null while the switch is off.
+static const CameraClass *s_gxOffscreenCamera = nullptr;
+bool gxOffscreen(const Coord3D *pos, float radius)
+{
+	return s_gxOffscreenCamera && s_gxOffscreenCamera->Cull_Sphere_On_Frustum_Sides(SphereClass(Vector3(pos->x, pos->y, pos->z), radius));
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1434,7 +1450,9 @@ void W3DView::update()
 
 	// render all of the visible Drawables
 	/// @todo this needs to use a real region partition or something
-	TheGameClient->iterateDrawablesInRegion( &axisAlignedRegion, drawDrawable, nullptr );
+	extern int GLES3_Page_Switches3();
+	s_gxOffscreenCamera = (GLES3_Page_Switches3() & 33554432) ? m_3DCamera : nullptr;
+	TheGameClient->iterateDrawablesInRegion( &axisAlignedRegion, drawDrawable, (void *)s_gxOffscreenCamera );
 }
 
 //-------------------------------------------------------------------------------------------------
