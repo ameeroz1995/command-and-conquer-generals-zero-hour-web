@@ -64,7 +64,7 @@ static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 512 | 4096 | 8192 | 16384 
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static int g_PageSwitches5 = 0 | 16 | 32 | 64 | 128;	// fifth word, default-on bits of every lane (geomColumns, recruitIndex, aiWorldIndex, playerKindCounts)
 int GLES3_Page_Switches5() { return g_PageSwitches5; }
-static int g_PageSwitches6 = 0;	// sixth word, default-on bits of every lane (none yet); ranges: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19
+static int g_PageSwitches6 = 0 | 16777216;	// sixth word, default-on bits of every lane (circleReuse); ranges: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19
 int GLES3_Page_Switches6() { return g_PageSwitches6; }	// non-web builds: callers use a local stub returning 0
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
@@ -495,7 +495,7 @@ void GLES3_Begin_Scene() {
         g_PageSwitches6 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // sixth word: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19, 20-31 spare
-                 | (o.circleReuse === true ? 16777216 : 0);   // bit 24 (collide): shroud-cover / threat / value affects regenerate one scratch DiscreteCircle per call site instead of a new edge vector per call (PartitionManager.cpp, DiscreteCircle.cpp; same game)
+                 | (o.circleReuse === false ? 0 : 16777216);   // bit 24 (collide): shroud-cover / threat / value affects regenerate one scratch DiscreteCircle per call site instead of a new edge vector per call (PartitionManager.cpp, DiscreteCircle.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

@@ -3991,6 +3991,33 @@ Stays default off.
 - Timings queued (battle, timing.lock, load < 8, alternating): geomColumns, hash switches, storePairs,
   pairPlace, collideList, physBulk, heap (soa-15 / soa-16), kernels.
 
+### collide: defaults, circleReuse, pinned no-draw timing (2026-11-27)
+- Defaults now on: geomColumns (fifth word 16), recruitIndex (32), aiWorldIndex (64), playerKindCounts
+  (128), circleReuse (sixth word bit 24, 16777216). Off and kept off: storePairs (collideBuild 1.90 vs
+  1.00 ms/tick unpinned), pairPlace (flat), collideList (collideProcess 1.52 vs 1.30). physBulk: too noisy
+  to call, default unchanged.
+- Allocation sampler (GXDIAG, 1 in 97 allocations inside physics / collideBuild / collideProcess, patch
+  not committed): collideBuild was ~80% DiscreteCircle edge vectors (shroud cover, threat and value
+  affects in cell maintenance), ~17% queueUndoShroudReveal (pool SightingInfo). collideProcess and
+  physics allocations are event work (move-away paths, particle systems, audio file names, object
+  creation from deaths), not per-tick containers.
+- circleReuse: DiscreteCircle::reset regenerates one scratch circle per call site; the same edges, so
+  the same cells in the same order. Checks: referee replay (with circleReuse, and defaults), collide-hot
+  replay with verify: all match; screenshots at frames 600/1800/3600/5400 off vs on: 2 pixels of 1.77M
+  differ, the same 2 at every frame.
+- Pinned no-draw battle (soa-20, 1800 ticks, slot runs back to back off/on; counters identical):
+
+  | run | logic ms | collideBuild ms | collideBuild allocs/tick | allocs/tick | p99 ms | >100 ms |
+  |---|---:|---:|---:|---:|---:|---:|
+  | circleReuse off | 55.95 / 34.87 | 3.311 / 2.140 | 86.1 | 4677 | 175.9 / 80.1 | 130 / 10 |
+  | circleReuse on  | 52.62 / 35.74 | 3.408 / 2.176 | 18.8 | 4606 | 196.5 / 85.6 | 212 / 10 |
+  | geomColumns off | 33.31 / 37.60 | 1.988 / 2.418 | 86.1 | 4677 | 77.6 / 88.6 | 10 / 12 |
+  | geomColumns on  | 43.19 / 36.74 | 2.739 / 2.239 | 86.1 | 4677 | 95.6 / 85.8 | 18 / 12 |
+
+  Pinned ms spread run to run was 33-56 ms logic on this lane (not the ~1.5% expected), so ms is within
+  noise for both; the allocation drop (-78% collideBuild, -71/tick total) is exact. circleReuse on by
+  main's rule (on once replays match).
+
 ## 2026-11-25 — Round 5 (units are pure data), paths families: state in component rows; movement kernel
 - Per-unit state moved out of the module objects into rows of collide's GxComponentPool (one pool per
   module type, deque rows that never move, freed rows reused). Each module keeps only its row index
