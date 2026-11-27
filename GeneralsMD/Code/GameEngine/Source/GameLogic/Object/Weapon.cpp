@@ -38,8 +38,10 @@
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
 extern int GLES3_Page_Switches4();
+extern int GLES3_Page_Switches5();
 #else
 static int GLES3_Page_Switches() { return 0; }
+static int GLES3_Page_Switches5() { return 0; }
 #endif
 #include "Common/GxUnitStore.h"
 #include <algorithm>
@@ -3288,12 +3290,32 @@ void Weapon::processRequestAssistance(const Object *requestingObject,
   if (!ourPlayer)
     return;
 
+  gxCount(GXC_ASSIST_ASKS);
   AssistanceRequestData requestData;
   requestData.m_requestingObject = requestingObject;
   requestData.m_victimObject = victimObject;
   requestData.m_requestDistanceSquared =
       TheGxWeapons.tmpl[m_row]->getRequestAssistRange() * TheGxWeapons.tmpl[m_row]->getRequestAssistRange();
 
+  if (GLES3_Page_Switches5() & 33554432) {
+    // #8 assistList: the same objects in the same order, without walking every object the player owns
+    const std::vector<Object *> &list = ourPlayer->gxAssistList();
+    if (GLES3_Page_Switches() & 2097152) {
+      static unsigned long long s_checked = 0, s_bad = 0;
+      std::vector<Object *> walk;
+      ourPlayer->iterateObjects([](Object *o, void *u) {
+        static const NameKeyType k = NAMEKEY("AssistedTargetingUpdate");
+        if (o->findUpdateModule(k)) ((std::vector<Object *> *)u)->push_back(o);
+      }, &walk);
+      ++s_checked;
+      if (walk != list) ++s_bad;
+      if ((s_checked & 255) == 1 || walk != list)
+        printf("GXVERIFY assistList checked %llu, mismatches %llu\n", s_checked, s_bad);
+    }
+    for (size_t i = 0; i < list.size(); ++i)
+      makeAssistanceRequest(list[i], &requestData);
+    return;
+  }
   ourPlayer->iterateObjects(makeAssistanceRequest, &requestData);
 }
 

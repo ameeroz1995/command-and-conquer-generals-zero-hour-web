@@ -45,7 +45,7 @@ enum GxCountId
 	GXC_PHYS_UNITS, GXC_COLLIDE_SEEKERS, GXC_PAIR_CELLS, GXC_PAIR_TESTS, GXC_PAIRS, GXC_ALLOCS,
 	// combat: game memory blocks allocated inside weapon fire (includes the damage it deals), damage
 	// dealing (splash lists included), damage estimates for target choice, projectile updates
-	GXC_ALLOC_FIRE, GXC_ALLOC_DAMAGE, GXC_ALLOC_ESTIMATE, GXC_ALLOC_PROJECTILE, GXC_ALLOC_FX, GXC_ALLOC_SPAWN,
+	GXC_ALLOC_FIRE, GXC_ALLOC_DAMAGE, GXC_ALLOC_ESTIMATE, GXC_ALLOC_PROJECTILE, GXC_ALLOC_FX, GXC_ALLOC_SPAWN, GXC_EVENT_WALK, GXC_ASSIST_ASKS, GXC_BUILD_MORE,
 	GXC_PATH_FINDS, GXC_PATH_CELLS, GXC_LOCO_CALLS, GXC_CPOP_CALLS, GXC_CPOP_SIMD_SEGS,
 	GXC_MOOD_SCANS, GXC_BATCH_SCANNED, GXC_BATCH_USED, GXC_BATCH_CALLS,
 	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES,
@@ -118,7 +118,7 @@ inline void gxTimeTickEnd()
 		"splashes", "splashVictims", "splashScanned", "splashNear",
 		"estimates", "tableHits", "tableMisses", "bonusHits", "bonusMisses", "reloadRows", "reloadChanged", "heightDieRedone",
 		"physUnits", "collideSeekers", "pairCells", "pairTests", "pairs", "allocs",
-		"allocFire", "allocDamage", "allocEstimate", "allocProjectile", "allocFx", "allocSpawn",
+		"allocFire", "allocDamage", "allocEstimate", "allocProjectile", "allocFx", "allocSpawn", "eventWalkObjects", "assistAsks", "buildMoreChecks",
 		"pathFinds", "pathCells", "locoCalls", "cpopCalls", "cpopSimdSegs",
 		"moodScans", "batchScanned", "batchUsed", "batches",
 		"pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates" };

@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 
 #define DEFINE_OBJECT_STATUS_NAMES
 #include "GameLogic/Module/AIUpdate.h"
@@ -135,6 +136,7 @@ void CreateObjectDie::onDie( const DamageInfo * damageInfo )
 		//Transfer attackers.
 		for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 		{
+			gxCount(GXC_EVENT_WALK);
 			AIUpdateInterface* ai = obj->getAI();
 			if (!ai)
 				continue;

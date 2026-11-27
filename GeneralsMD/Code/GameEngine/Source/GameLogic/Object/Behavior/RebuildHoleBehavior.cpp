@@ -29,6 +29,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 #include "Common/GameState.h"
 #include "Common/ThingFactory.h"
 #include "Common/ThingTemplate.h"
@@ -177,6 +178,7 @@ void RebuildHoleBehavior::transferBombs( Object *reconstruction )
 	Object *obj = TheGameLogic->getFirstObject();
 	while( obj )
 	{
+		gxCount(GXC_EVENT_WALK);
 		if( obj->isKindOf( KINDOF_MINE ) )
 		{
 			static NameKeyType key_StickyBombUpdate = NAMEKEY( "StickyBombUpdate" );

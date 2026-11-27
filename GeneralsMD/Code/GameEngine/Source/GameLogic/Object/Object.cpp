@@ -29,6 +29,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 #define DEFINE_WEAPONCONDITIONMAP
 #include "Common/GxUnitStore.h"
 #include "Common/BitFlagsIO.h"
@@ -4819,6 +4820,7 @@ void Object::onDie( DamageInfo *damageInfo )
 			//Transfer any attackers from the destroyed building to the hole.
 			for ( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 			{
+				gxCount(GXC_EVENT_WALK);
 				AIUpdateInterface* ai = obj->getAI();
 				if (!ai)
 					continue;
@@ -6468,6 +6470,7 @@ void Object::defect( Team* newTeam, UnsignedInt detectionTime )
 	// is probably an acceptable, if icky, solution.] (srj)
 	for (Object* mine = TheGameLogic->getFirstObject(); mine; mine = mine->getNextObject())
 	{
+		gxCount(GXC_EVENT_WALK);
 		if (mine->isKindOf(KINDOF_MINE))
 		{
 			if (mine->getProducerID() == this->getID())

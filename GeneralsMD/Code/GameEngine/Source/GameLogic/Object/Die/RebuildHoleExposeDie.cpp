@@ -30,6 +30,7 @@
 
 // INCLUDE FILES //////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
@@ -173,6 +174,7 @@ void RebuildHoleExposeDie::onDie( const DamageInfo *damageInfo )
 		{
 			for ( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 			{
+				gxCount(GXC_EVENT_WALK);
 				AIUpdateInterface* ai = obj->getAI();
 				if (!ai)
 					continue;

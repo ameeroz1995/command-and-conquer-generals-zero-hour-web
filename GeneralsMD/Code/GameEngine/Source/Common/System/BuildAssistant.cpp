@@ -30,6 +30,7 @@
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 
 #include "Common/BuildAssistant.h"
 #include "Common/GlobalData.h"
@@ -1608,6 +1609,7 @@ void BuildAssistant::sellObject( Object *obj )
 	// is probably an acceptable, if icky, solution.] (srj)
 	for (Object* mine = TheGameLogic->getFirstObject(); mine; mine = mine->getNextObject())
 	{
+		gxCount(GXC_EVENT_WALK);
 		if (mine->isKindOf(KINDOF_MINE))
 		{
 			if (mine->getProducerID() == obj->getID())

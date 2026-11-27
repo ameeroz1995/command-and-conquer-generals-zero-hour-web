@@ -416,6 +416,17 @@ public:
 	void gxCountByTemplate(Int numTmplates, const ThingTemplate* const * things, Int *counts) const;
 	mutable std::unordered_map<const ThingTemplate*, Int> m_gxTmplCount;
 	mutable UnsignedInt m_gxTmplCountGen = 0;	///< g_gxTmplCountGen it was built for (0: never)
+	/// #8 (switch assistList, fifth word bit 25): this player's objects with an AssistedTargetingUpdate,
+	/// in iterateObjects order; rebuilt after any team join / leave of this player or a team list change
+	const std::vector<Object*> &gxAssistList() const;
+	mutable std::vector<Object*> m_gxAssist;
+	mutable UnsignedInt m_gxMemberVer = 1, m_gxAssistVer = 0, m_gxAssistGen = 0;
+	/// #2 (switch buildMoreIndex, fifth word bit 26): this player's objects by template, and the ones with a
+	/// production queue, for canBuildMoreOfType (a count, so order does not matter); same rebuild rule as #8
+	void gxRefreshMembers() const;
+	mutable std::unordered_map<const ThingTemplate*, std::vector<Object*> > m_gxByTmpl;
+	mutable std::vector<Object*> m_gxProducers;
+	mutable UnsignedInt m_gxByTmplVer = 0, m_gxByTmplGen = 0;
 
 	/**
 		this is called when the player becomes the local player (yes==true)
