@@ -395,7 +395,9 @@ void selectAndOrder(int turn)
 		pick.push_back({ d2, o });
 	}
 	std::sort(pick.begin(), pick.end(), [](const std::pair<Real, Object *> &a, const std::pair<Real, Object *> &b) { return a.first < b.first || (a.first == b.first && a.second->getID() < b.second->getID()); });
-	const size_t cap = kind == 3 ? 1 : 150;
+	// benchSelect (setting, measuring only): the group size for the selection UI timings (#57/#58/#64)
+	const int asked = EM_ASM_INT({ return (window.GeneralsX && GeneralsX.settings && GeneralsX.settings.benchSelect) | 0; });
+	const size_t cap = kind == 3 ? 1 : (asked > 0 ? (size_t)asked : 150);
 	if (pick.size() > cap) pick.resize(cap);
 	TheInGameUI->deselectAllDrawables(FALSE);
 	B.event += "select " + std::to_string(pick.size()) + " (group " + std::to_string(kind) + "); ";

@@ -27,6 +27,7 @@
 // Desc:
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 
 #include "Common/BezierSegment.h"
 #include "Common/GameCommon.h"
@@ -584,6 +585,7 @@ void DumbProjectileBehavior::detonate()
  */
 UpdateSleepTime DumbProjectileBehavior::update()
 {
+	GxAllocScope gxA(GXC_ALLOC_PROJECTILE); // tickTiming
 	const DumbProjectileBehaviorModuleData* d = getDumbProjectileBehaviorModuleData();
 
 	if (GXROW_DUMBPROJECTILEBEHAVIOR.lifespanFrame != 0 && TheGameLogic->getFrame() >= GXROW_DUMBPROJECTILEBEHAVIOR.lifespanFrame)

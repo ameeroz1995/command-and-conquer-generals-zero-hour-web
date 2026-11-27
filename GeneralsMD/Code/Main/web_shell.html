@@ -1309,6 +1309,7 @@
             { key: 'splashSimd', def: true, label: 'FIND SPLASH VICTIMS WITH SIMD (EXPERIMENT)', note: 'Explosions find the units in their blast with one fast sweep over all units, four at a time, then take them in the usual order. Same game.' },
             { key: 'damageTable', def: false, label: 'REMEMBER WEAPON BONUSES EACH FRAME (EXPERIMENT)', note: 'When units weigh up targets, each weapon\'s bonus for a set of conditions is worked out once per frame and then looked up. Same game.' },
             { key: 'splashIlp', def: false, label: 'SPLASH SEARCH, 8 UNITS PER STEP (EXPERIMENT)', note: 'With SPLASH VICTIMS BY SIMD on: the sweep over all units handles 8 per step in two independent halves so the CPU can overlap them. Same victims, same game.' },
+            { key: 'iterReuse', def: false, label: 'REUSE SEARCH RESULT LISTS (EXPERIMENT)', note: 'Lists of units found by a search keep their entries for the next search instead of asking for new memory for every unit found. Same game.' },
             { key: 'animStoreList', def: true, label: 'ANIMATION WORKERS USE THE UNIT LIST (EXPERIMENT)', note: 'With the animation worker switches: the units to pose are taken from the game\'s unit list instead of scanning everything drawn. Drawing only.' },
             { key: 'particleWorker', def: true, label: 'PARTICLES ON A WORKER THREAD', note: 'Multi-threaded build only. When the game runs slowly (frames over 40 ms), smoke, fire and dust particles are moved on a second thread while the frame is drawn; new particles are still made on the main thread. Drawing only: the game itself is not affected.' },
             { key: 'cellReuse', def: true, label: 'KEEP MAP SQUARES OF UNITS THAT STAY IN THEM', note: 'A unit that moved but still covers the same map squares keeps its place in them instead of being taken out and put back. Same game.' },
@@ -2063,7 +2064,7 @@
           (function () {
             var cats = [
               { name: 'MANAGER PATTERN', note: 'Unit data kept in one store, and each game system run as one pass over all its units, in unit order.',
-                keys: ['positionInStore', 'hotInStore', 'updatePasses', 'moveAfterTick', 'physBulk', 'physSimd', 'storePairs', 'collideSimd', 'scanManager', 'rowKernels', 'simdSearch', 'fogStamps', 'fogKeep', 'weaponPass', 'weaponSkip', 'damageQueue', 'animStoreList', 'disabledList', 'dataBehaviors', 'weaponReload', 'splashSimd', 'damageTable', 'splashIlp'] },
+                keys: ['positionInStore', 'hotInStore', 'updatePasses', 'moveAfterTick', 'physBulk', 'physSimd', 'storePairs', 'collideSimd', 'scanManager', 'rowKernels', 'simdSearch', 'fogStamps', 'fogKeep', 'weaponPass', 'weaponSkip', 'damageQueue', 'animStoreList', 'disabledList', 'dataBehaviors', 'weaponReload', 'splashSimd', 'damageTable', 'splashIlp', 'iterReuse'] },
               { name: 'ROUTE PLANNING', note: 'How units find their way: shared route maps, route reuse and how much planning each frame does.',
                 keys: ['flowFields', 'lazyFields', 'gpuFlowFields', 'flowCover', 'coarseStart', 'groupRoute', 'routeQueue', 'routeCache', 'routeRefine', 'sharedRoutes', 'routeBudget', 'ignoreUnitsInPaths', 'openHeap', 'cellBits', 'cpopSegments'] },
               { name: 'COMPUTATION', note: 'Cheaper game logic: searches, collisions, physics and bookkeeping.',

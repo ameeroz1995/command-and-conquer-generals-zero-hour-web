@@ -29,6 +29,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxUnitStore.h"
 #include "Common/BitFlagsIO.h"
 #include "Common/CRCDebug.h"
 #include "Common/DamageFX.h"
@@ -160,6 +161,7 @@ ActiveBody::ActiveBody( Thing *thing, const ModuleData* moduleData ) :
 	m_gxActiveBody->m_currentHealth = getActiveBodyModuleData()->m_initialHealth;
 	m_gxActiveBody->m_prevHealth = getActiveBodyModuleData()->m_initialHealth;
 	m_gxActiveBody->m_maxHealth = getActiveBodyModuleData()->m_maxHealth;
+	gxSyncHealth();
 	m_gxActiveBody->m_initialHealth = getActiveBodyModuleData()->m_initialHealth;
 
 	// force an initially-valid armor setup
@@ -889,6 +891,7 @@ void ActiveBody::setMaxHealth( Real maxHealth, MaxHealthChangeType healthChangeT
 {
 	Real prevMaxHealth = m_gxActiveBody->m_maxHealth;
 	m_gxActiveBody->m_maxHealth = maxHealth;
+	gxSyncHealth();
 	m_gxActiveBody->m_initialHealth = maxHealth;
 
 	switch( healthChangeType )
@@ -1201,6 +1204,12 @@ void ActiveBody::updateBodyParticleSystems()
 	* Game stuff goes in attemptDamage and attemptHealing.
 */
 //-------------------------------------------------------------------------------------------------
+void ActiveBody::gxSyncHealth() const
+{
+	TheGxUnitStore.setHealth(getObject(), m_gxActiveBody->m_currentHealth, m_gxActiveBody->m_maxHealth);
+}
+
+//-------------------------------------------------------------------------------------------------
 void ActiveBody::internalChangeHealth( Real delta )
 {
 	// save the current health as the previous health
@@ -1218,6 +1227,7 @@ void ActiveBody::internalChangeHealth( Real delta )
 	const Real lowEndCap = 0.0f;  // low end cap for health, don't go below this
 	if( m_gxActiveBody->m_currentHealth < lowEndCap )
 		m_gxActiveBody->m_currentHealth = lowEndCap;
+	gxSyncHealth();
 
 	// recalc the damage state
 	BodyDamageType oldState = m_gxActiveBody->m_curDamageState;
@@ -1561,6 +1571,7 @@ void ActiveBody::xfer( Xfer *xfer )
 
 	// initial health
 	xfer->xferReal( &m_gxActiveBody->m_initialHealth );
+	gxSyncHealth();
 
 	// current damage state
 	xfer->xferUser( &m_gxActiveBody->m_curDamageState, sizeof( BodyDamageType ) );

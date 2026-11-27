@@ -315,6 +315,52 @@ void ControlBar::updateContextMultiSelect()
 	// sanity
 	DEBUG_ASSERTCRASH( selectedDrawables->empty() == FALSE, ("populateMultiSelect: Drawable list is empty") );
 
+	// #58 (switch multiSelectEarlyOut): each button asks the selected units in turn and stops at the
+	// first that can use it (or that hides it), instead of asking every unit about every button. The
+	// enabled state is the same (enabled when any unit can); the not-ready / can't-afford tint and
+	// the cooldown clock come from the unit it stopped at rather than from the last unit.
+	if (gxBarSwitch(GX_BAR_MULTISELECT_EARLY_OUT))
+	{
+		for( i = 0; i < MAX_COMMANDS_PER_SET; i++ )
+		{
+			win = m_commandWindows[ i ];
+			if (!win)
+				continue;
+			for( DrawableListCIt it = selectedDrawables->begin(); it != selectedDrawables->end(); ++it )
+			{
+				if( win->winIsHidden() == TRUE )
+					break;
+				draw = *it;
+				if (draw->getObject()->isKindOf(KINDOF_IGNORED_IN_GUI))
+					continue;
+				obj = draw->getObject();
+				if( obj == nullptr )
+					continue;
+				command = (const CommandButton *)GadgetButtonGetData(win);
+				if( command == nullptr )
+					break;
+				CommandAvailability availability = getCommandAvailability( command, obj, win );
+				win->winClearStatus( WIN_STATUS_NOT_READY );
+				win->winClearStatus( WIN_STATUS_ALWAYS_COLOR );
+				switch( availability )
+				{
+					case COMMAND_HIDDEN: win->winHide( TRUE ); break;
+					case COMMAND_RESTRICTED: win->winEnable( FALSE ); break;
+					case COMMAND_NOT_READY: win->winEnable( FALSE ); win->winSetStatus( WIN_STATUS_NOT_READY ); break;
+					case COMMAND_CANT_AFFORD: win->winEnable( FALSE ); win->winSetStatus( WIN_STATUS_ALWAYS_COLOR ); break;
+					default: win->winEnable( TRUE ); break;
+				}
+				if( BitIsSet( command->getOptions(), CHECK_LIKE ) )
+					GadgetCheckLikeButtonSetVisualCheck( win, availability == COMMAND_ACTIVE );
+				if( availability == COMMAND_AVAILABLE || availability == COMMAND_ACTIVE )
+				{
+					objectsThatCanDoCommand[ i ]++;
+					break;
+				}
+			}
+		}
+	}
+	else
 	// loop through all the selected drawable IDs
 	for( DrawableListCIt it = selectedDrawables->begin();
 			 it != selectedDrawables->end(); ++it )

@@ -76,7 +76,7 @@ protected:
 	// that an earlier death moved or let out is redone in apply from its saved last position
 	static void gxKernel( UpdateModulePtr *mods, Int begin, Int end );
 	static void gxApply( UpdateModulePtr *mods, Int count );
-	Bool gxQuiet( UnsignedInt now );
+	Bool gxQuiet( UnsignedInt now, const Coord3D *pos );
 	UpdateSleepTime gxFullUpdate();
 
 

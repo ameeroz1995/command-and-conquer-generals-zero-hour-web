@@ -407,6 +407,9 @@ public:
 		the given object has just become (or just ceased to be) a member of one of our teams (or subteams)
 	*/
 	void becomingTeamMember(Object *obj, Bool yes);
+	/// #57 (switch beaconCount): this player's beacon objects (dead ones included), kept by becomingTeamMember
+	Int gxBeaconCount() const { return m_gxBeaconCount; }
+	Int m_gxBeaconCount = 0;
 
 	/**
 		this is called when the player becomes the local player (yes==true)

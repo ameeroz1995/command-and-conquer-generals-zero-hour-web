@@ -25,6 +25,7 @@ static inline double emscripten_get_now() { return 0.0; }
 enum GxTimeId { GXT_LOGIC, GXT_FRAME, GXT_SEARCH, GXT_FOG_REVEAL, GXT_MOVE, GXT_MOVE_KERNEL, GXT_AI_LOOP, GXT_AI_KERNELS, 
 	GXT_SPLASH, GXT_ESTIMATE, GXT_RELOAD,	// combat
 	GXT_PHYSICS, GXT_COLLIDE_BUILD, GXT_COLLIDE_PROCESS,	// collide
+	GXT_CLIENT, GXT_CONTROLBAR,	// combat: GameClient::update, ControlBar::update (selection UI)
 	GXT_TIME_COUNT };
 enum GxCountId
 {
@@ -38,6 +39,9 @@ enum GxCountId
 	GXC_ESTIMATES, GXC_TABLE_HITS, GXC_TABLE_MISSES, GXC_BONUS_HITS, GXC_BONUS_MISSES,
 	GXC_RELOAD_ROWS, GXC_RELOAD_CHANGED, GXC_HEIGHTDIE_REDONE,
 	GXC_PHYS_UNITS, GXC_COLLIDE_SEEKERS, GXC_PAIR_CELLS, GXC_PAIR_TESTS, GXC_PAIRS, GXC_ALLOCS,
+	// combat: game memory blocks allocated inside weapon fire (includes the damage it deals), damage
+	// dealing (splash lists included), damage estimates for target choice, projectile updates
+	GXC_ALLOC_FIRE, GXC_ALLOC_DAMAGE, GXC_ALLOC_ESTIMATE, GXC_ALLOC_PROJECTILE, GXC_ALLOC_FX, GXC_ALLOC_SPAWN,
 	GXC_COUNT
 };
 
@@ -68,6 +72,21 @@ struct GxTimeScope
 	}
 };
 
+/// game memory blocks allocated while the outermost scope of `id` is open (g_gxAllocs, GameMemory.cpp)
+struct GxAllocScope
+{
+	GxCountId id; unsigned long long a0; bool on;
+	static int *depth() { static int d[GXC_COUNT] = {}; return d; }
+	static unsigned long long allocs() { extern unsigned long long g_gxAllocs; return g_gxAllocs; }
+	explicit GxAllocScope(GxCountId i) : id(i), a0(0), on(gxTimingOn() && depth()[i]++ == 0) { if (on) a0 = allocs(); }
+	~GxAllocScope()
+	{
+		if (!gxTimingOn()) return;
+		if (on) gxTime().n[id] += allocs() - a0;
+		if (depth()[id] > 0) --depth()[id];
+	}
+};
+
 /// GameEngine::update, at the start of each frame
 inline void gxTimeFrameStart()
 {
@@ -84,14 +103,15 @@ inline void gxTimeTickEnd()
 	if (!gxTimingOn()) return;
 	GxTimeState &s = gxTime();
 	if (++s.ticks % 300) return;
-	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "move", "moveKernel", "aiLoop", "aiKernels", "splash", "estimate", "reload", "physics", "collideBuild", "collideProcess" };
+	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "move", "moveKernel", "aiLoop", "aiKernels", "splash", "estimate", "reload", "physics", "collideBuild", "collideProcess", "client", "controlBar" };
 	static const char *cn[GXC_COUNT] = { "searches", "searchCells", "searchEntries", "searchUnits", "simdCulled",
 		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept",
 		"moveUnits", "moveKernelPoints", "moveKernelTaken", "moveApplyPoints", "hordeSearches",
 		"aiModuleCalls", "aiKernelSlots",
 		"splashes", "splashVictims", "splashScanned", "splashNear",
 		"estimates", "tableHits", "tableMisses", "bonusHits", "bonusMisses", "reloadRows", "reloadChanged", "heightDieRedone",
-		"physUnits", "collideSeekers", "pairCells", "pairTests", "pairs", "allocs" };
+		"physUnits", "collideSeekers", "pairCells", "pairTests", "pairs", "allocs",
+		"allocFire", "allocDamage", "allocEstimate", "allocProjectile", "allocFx", "allocSpawn" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())

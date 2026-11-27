@@ -30,6 +30,19 @@
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
+#include <unordered_map>
+#include <cstring>
+static void gxCommandSetMapDirty();	// #58, see findNonConstCommandSet
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches5();
+#else
+static int GLES3_Page_Switches() { return 0; }
+static int GLES3_Page_Switches5() { return 0; }
+#endif
+// selection UI switches, fifth word bits 12-15 (ControlBar.h)
+bool gxBarSwitch(GxBarSwitch s) { return (GLES3_Page_Switches5() & (4096 << (int)s)) != 0; }
 #define DEFINE_GUI_COMMAND_NAMES
 #define DEFINE_COMMAND_OPTION_NAMES
 #define DEFINE_WEAPONSLOTTYPE_NAMES
@@ -1009,6 +1022,7 @@ ControlBar::~ControlBar()
 		m_commandSets = set;
 
 	}
+	gxCommandSetMapDirty();
 
 	// destroy all our command button definitions
 	CommandButton *button;
@@ -1348,6 +1362,7 @@ void ControlBar::reset()
 		if (stillValid == nullptr && possibleAdjustment) {
 			m_commandSets = nextSet;
 		}
+		gxCommandSetMapDirty();
 
 		set = nextSet;
 	}
@@ -1383,6 +1398,7 @@ void ControlBar::reset()
 //-------------------------------------------------------------------------------------------------
 void ControlBar::update()
 {
+	GxTimeScope gxT(GXT_CONTROLBAR);	// tickTiming
 	if (TheGlobalData->m_headless)
 		return;
 	getStarImage();
@@ -1521,7 +1537,20 @@ void ControlBar::update()
 	{
 		Int count;
 		const ThingTemplate *thing = TheThingFactory->findTemplate( ThePlayerList->getLocalPlayer()->getPlayerTemplate()->getBeaconTemplate() );
-		ThePlayerList->getLocalPlayer()->countObjectsByThingTemplate( 1, &thing, false, &count );
+		if (gxBarSwitch(GX_BAR_BEACON_COUNT))
+		{
+			count = ThePlayerList->getLocalPlayer()->gxBeaconCount();	// #57: kept as beacons come and go
+			if (GLES3_Page_Switches() & 2097152)
+			{	// verify mode: the walk over every unit must agree
+				static unsigned checked = 0, mismatches = 0;
+				Int full;
+				ThePlayerList->getLocalPlayer()->countObjectsByThingTemplate( 1, &thing, false, &full );
+				++checked; if (full != count) ++mismatches;
+				if (checked % 3000 == 0) printf("GXVERIFY beacon count: checked %u, mismatches %u\n", checked, mismatches);
+			}
+		}
+		else
+			ThePlayerList->getLocalPlayer()->countObjectsByThingTemplate( 1, &thing, false, &count );
 		static NameKeyType beaconPlacementButtonID = NAMEKEY("ControlBar.wnd:ButtonPlaceBeacon");
 		GameWindow *win = TheWindowManager->winGetWindowFromId(nullptr, beaconPlacementButtonID);
 		if (win)
@@ -2026,9 +2055,31 @@ CommandButton *ControlBar::newCommandButtonOverride( CommandButton *buttonToOver
 //-------------------------------------------------------------------------------------------------
 /** Find existing command set by name */
 //-------------------------------------------------------------------------------------------------
+// #58 (switch commandSetMap): command sets by name in a hash map instead of a walk over every set with a
+// string compare. Same answer: the map keeps the first set of each name in list order and is rebuilt
+// whenever the list changes (gxCommandSetMapDirty). Keys point at the sets' own names.
+struct GxCStrHash { size_t operator()(const char *s) const { size_t h = 2166136261u; while (*s) h = (h ^ (unsigned char)*s++) * 16777619u; return h; } };
+struct GxCStrEq { bool operator()(const char *a, const char *b) const { return strcmp(a, b) == 0; } };
+static std::unordered_map<const char *, CommandSet *, GxCStrHash, GxCStrEq> s_gxCommandSetMap;
+static Bool s_gxCommandSetMapDirty = TRUE;
+static void gxCommandSetMapDirty() { s_gxCommandSetMapDirty = TRUE; }
+
 CommandSet* ControlBar::findNonConstCommandSet( const AsciiString& name )
 {
 	CommandSet* set;
+
+	if (gxBarSwitch(GX_BAR_COMMANDSET_MAP))
+	{
+		if (s_gxCommandSetMapDirty)
+		{
+			s_gxCommandSetMap.clear();
+			for( set = m_commandSets; set != nullptr; set = set->friend_getNext() )
+				s_gxCommandSetMap.emplace(set->getName().str(), set);	// keeps the first of a name
+			s_gxCommandSetMapDirty = FALSE;
+		}
+		auto it = s_gxCommandSetMap.find(name.str());
+		return it == s_gxCommandSetMap.end() ? nullptr : it->second;
+	}
 
 	for( set = m_commandSets; set != nullptr; set = set->friend_getNext() )
 		if( set->getName() == name )
@@ -2070,6 +2121,7 @@ CommandSet *ControlBar::newCommandSet( const AsciiString& name )
 	CommandSet* set = newInstance(CommandSet)(name);
 	// add it to the list.
 	set->friend_addToList(&m_commandSets);
+	gxCommandSetMapDirty();
 	// return the newly created set
 	return set;
 

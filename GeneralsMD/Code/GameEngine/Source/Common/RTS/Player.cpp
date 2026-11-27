@@ -1060,6 +1060,15 @@ void Player::becomingTeamMember(Object *obj, Bool yes)
 	if (!obj)
 		return;
 
+	// #57: count beacons as they join and leave this player's teams (what countObjectsByThingTemplate
+	// would find for the player's beacon template)
+	if (getPlayerTemplate())
+	{
+		const ThingTemplate *beacon = TheThingFactory->findTemplate(getPlayerTemplate()->getBeaconTemplate());
+		if (beacon && obj->getTemplate()->isEquivalentTo(beacon))
+			m_gxBeaconCount += yes ? 1 : -1;
+	}
+
 	// energy production/consumption hooks, note we ignore things that are UNDER_CONSTRUCTION
 	if( !obj->getStatusBits().test( OBJECT_STATUS_UNDER_CONSTRUCTION ) )
 	{

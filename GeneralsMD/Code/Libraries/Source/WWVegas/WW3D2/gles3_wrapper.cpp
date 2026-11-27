@@ -478,6 +478,7 @@ void GLES3_Begin_Scene() {
                  | (o.splashSimd === false ? 0 : 33554432)    // bit 25: splashSimd (on), splash victims found by a SIMD pass over the unit store, in the cell walk's order (PartitionManager.cpp; same game)
                  | (o.damageTable === true ? 67108864 : 0)  // bit 26: damageTable, per-frame table of weapon bonuses for target evaluation (Weapon.cpp; same game)
                  | (o.splashIlp === true ? 134217728 : 0)  // bit 27: splashIlp, with splashSimd: the splash pass does 8 slots per step as two independent chains (PartitionManager.cpp; same game)
+                 | (o.iterReuse === true ? 268435456 : 0)  // bit 28: iterReuse, search result lists reuse their entries instead of allocating one per object (SimpleObjectIterator.cpp; same game)
                  | (o.dataBehaviors === false ? 0 : 64)   // bit 6: behaviours as data: lookups made per frame by name done once (Behavior/*.cpp; same game)
                  | (o.kindKernels === false ? 0 : 128)   // bit 7: kernels follow match rule updatePasses; off here turns them off in local single player only (GameLogic.cpp)
                  | (o.hotInStore === false ? 0 : 4)   // bit 2: objects' position, status, disabled mask, layer, geometry, angle and transform live in the unit store's columns (GxUnitStore.h, Object.h, Thing.h; same game)

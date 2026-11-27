@@ -36,6 +36,7 @@
 #include "GameClient/ParticleSys.h"
 #include "GameLogic/GameLogic.h"
 #include "Common/GxTime.h"
+#include "Common/GxUnitStore.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/TerrainLogic.h"
@@ -127,7 +128,7 @@ UpdateSleepTime HeightDieUpdate::update()
 
 //-------------------------------------------------------------------------------------------------
 // the update's frames that change nothing but this row (same tests, same order); FALSE: run the full one
-Bool HeightDieUpdate::gxQuiet( UnsignedInt now )
+Bool HeightDieUpdate::gxQuiet( UnsignedInt now, const Coord3D *pos )
 {
 	Row &r = D();
 	const HeightDieUpdateModuleData *modData = getHeightDieUpdateModuleData();
@@ -135,7 +136,6 @@ Bool HeightDieUpdate::gxQuiet( UnsignedInt now )
 		r.m_earliestDeathFrame = now + modData->m_initialDelay;	// the full update would do the same first
 	if( r.m_earliestDeathFrame > now )
 		return TRUE;
-	const Coord3D *pos = getObject()->getPosition();
 	if( getObject()->getContainedBy() != nullptr )
 	{
 		r.m_lastPosition = *pos;
@@ -167,9 +167,11 @@ void HeightDieUpdate::gxKernel( UpdateModulePtr *mods, Int begin, Int end )
 		Row &r = m->D();
 		r.gxKernelFrame = now;
 		r.gxPrevLast = r.m_lastPosition;
-		r.gxPos = *m->getObject()->getPosition();
+		const int s = m->getObject()->gxStoreSlot();	// position from the store's columns (truth or write-through)
+		if (s >= 0) { r.gxPos.x = TheGxUnitStore.x[s]; r.gxPos.y = TheGxUnitStore.y[s]; r.gxPos.z = TheGxUnitStore.z[s]; }
+		else r.gxPos = *m->getObject()->getPosition();
 		r.gxContained = m->getObject()->getContainedBy() != nullptr;
-		r.gxFull = !m->gxQuiet(now);
+		r.gxFull = !m->gxQuiet(now, &r.gxPos);
 	}
 }
 
