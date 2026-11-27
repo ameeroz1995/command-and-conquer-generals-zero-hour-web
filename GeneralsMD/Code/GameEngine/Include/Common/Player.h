@@ -44,6 +44,7 @@
 
 #pragma once
 
+#include <unordered_map>
 #include "Common/AcademyStats.h"
 #include "Common/Debug.h"
 #include "Common/Energy.h"
@@ -407,9 +408,14 @@ public:
 		the given object has just become (or just ceased to be) a member of one of our teams (or subteams)
 	*/
 	void becomingTeamMember(Object *obj, Bool yes);
-	/// #57 (switch beaconCount): this player's beacon objects (dead ones included), kept by becomingTeamMember
-	Int gxBeaconCount() const { return m_gxBeaconCount; }
-	Int m_gxBeaconCount = 0;
+	/// #57 (switch beaconCount): this player's beacon objects (dead ones included), from the template index
+	Int gxBeaconCount() const;
+	/// #1 (hash-map sweep, switch tmplIndex, fifth word bit 24): objects per template in this player's
+	/// teams (dead ones included), kept on team join / leave; answers countObjectsByThingTemplate
+	/// (ignoreDead and ignoreUnderConstruction false) without walking the player's objects
+	void gxCountByTemplate(Int numTmplates, const ThingTemplate* const * things, Int *counts) const;
+	mutable std::unordered_map<const ThingTemplate*, Int> m_gxTmplCount;
+	mutable UnsignedInt m_gxTmplCountGen = 0;	///< g_gxTmplCountGen it was built for (0: never)
 
 	/**
 		this is called when the player becomes the local player (yes==true)

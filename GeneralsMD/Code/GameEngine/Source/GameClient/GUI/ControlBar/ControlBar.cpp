@@ -41,8 +41,6 @@ extern int GLES3_Page_Switches5();
 static int GLES3_Page_Switches() { return 0; }
 static int GLES3_Page_Switches5() { return 0; }
 #endif
-// selection UI switches, fifth word bits 12-15 (ControlBar.h)
-bool gxBarSwitch(GxBarSwitch s) { return (GLES3_Page_Switches5() & (4096 << (int)s)) != 0; }
 #define DEFINE_GUI_COMMAND_NAMES
 #define DEFINE_COMMAND_OPTION_NAMES
 #define DEFINE_WEAPONSLOTTYPE_NAMES
@@ -3833,3 +3831,7 @@ void ControlBar::setScaledViewportHeight()
 {
 	TheTacticalView->setHeight(TheDisplay->getHeight() * TheGlobalData->m_viewportHeightScale);
 }
+
+//-------------------------------------------------------------------------------------------------
+// selection UI switches, fifth word bits 12-15 (ControlBar.h)
+bool gxBarSwitch(GxBarSwitch s) { return (GLES3_Page_Switches5() & (4096 << (int)s)) != 0; }
