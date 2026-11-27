@@ -3979,3 +3979,38 @@ Stays default off.
 - Profile (strikes, n = 1 per call, local test): search self 3.7% -> 3.4% (scanManager on), 2.7% -> 3.0% (off).
   Battle pair under load 7-9 (rough): search 2.09 -> 2.01 ms/tick, logic 19.8 -> 18.3. The gain is in batching
   many seekers per call (ai's wiring); re-time once wired.
+
+## 2026-11-27 (query): re-measures, hash-map sweep, heap churn, straight-line kernels
+
+- Re-measured on the store: denseCellMask (on) and the per-tick search snapshot (scanManager + snapPatch, on)
+  were already rebuilt on the store. blockMask (8x8 block player masks, second word bit 24, on) rebuilt:
+  verify 0 block mismatches (scanManager on and off); battle pairs on query-58 at load 2-5: search 1.547 ->
+  1.530 and 1.512 -> 1.561 ms/tick (noise either way).
+- Hash-map sweep (fifth word: 8 scriptNames, 9 scriptLookups, 10 upgradeKeys, 11 powerKeys, 28 scienceKeys;
+  all on): scripts/groups, named units, object type lists, trigger areas, waypoints, upgrades (plus cached
+  veterancy upgrades), special powers by name and ID, sciences. Maps are built in the old walk's order (first
+  match kept) and rebuilt when the list's change counter moved (bumped at every link, name or vector write).
+  Verify checks every answer against the walk: 6144 checked, 0 mismatches; replays referee, query-mgr5,
+  query-mgr6 match. Lookups: 2.3-2.7 a tick in the battle, ~0 in the referee skirmish replay, so no
+  measurable time either way (battle pairs within noise; replay logic 0.46-0.50 ms/tick both ways).
+  Not built: Player::hasScience bitsets (vectors of a few dozen ints; a find is cheaper than the index lookup).
+- Heap churn (tickTiming counts game-memory blocks per tick and inside each timer, g_gxAllocs):
+  - iterPool (fifth word bit 29, on): emptied search iterators keep their clumps on a per-thread free list;
+    DiscreteCircle edge buffers come from a per-thread pool; undone sightings are reused.
+  - The scan manager's per-tick result cache is an open-addressing table with reused entries (was an
+    unordered_map cleared every tick: a node and a list per cached search).
+  - Battle, my scopes (query-57 -> query-62): search 582 -> 70 allocations a tick (the rest: one pooled
+    iterator object per iterate call), cell changes (look/unlook, value/threat circles) 52 -> 3, partUpdate
+    142 -> 94 (the rest is collision reactions in other lanes' modules). Whole tick, iterPool off/on on
+    query-62: 3264 -> 2646 and 2956 -> 2401. Logic 16.74 -> 17.44 and 14.69 -> 14.45 ms/tick (noise).
+  - snapBuild's ~13 a tick are GxUnitStore::compact (fixed on perf/logic-collide, 1f734bb).
+- Straight-line kernels (same results, no switch):
+  - fog stamps: the scalar tail of each span does addLooker/removeLooker's arithmetic inline (a call only on
+    a status edge), like the SIMD body: fogReveal 0.064-0.077 -> 0.026-0.031 ms/tick.
+  - snapshot build: gxSnapBox always_inline, the cached-radius switch read hoisted out of the slot loop:
+    snapBuild 0.365-0.392 -> 0.298-0.356 ms/tick.
+  - batchScan cull: survivors written into a buffer sized up front (no push_back call). A fully
+    branchless all-lanes write measured slower (0.059 -> 0.067 ms/tick; survivors are rare), not kept.
+  - wasm (wasm-dis, name section): gxSnapBox has no function of its own (inlined); the cull's vector loops
+    and gxSnapBox are call-free; what is left in loops is the filters' and distance procs' indirect calls
+    per candidate (the walk's semantics) and the verify prints.

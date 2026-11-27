@@ -63,6 +63,7 @@ class DiscreteCircle
 
 	public:
 		DiscreteCircle(Int xCenter, Int yCenter, Int radius);
+		~DiscreteCircle();	///< web port (switch iterPool): hands m_edges' buffer back to a per-thread pool
 		__inline const VecHorzLine &getEdges() const { return m_edges; }
 		__inline Int getEdgeCount() const { return m_edges.size(); }
 		void drawCircle(ScanlineDrawFunc functionToDrawWith, void *parmToPass);
