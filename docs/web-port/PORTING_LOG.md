@@ -4024,3 +4024,7 @@ Stays default off.
 - Visual check (bench_visual query-65a vs query-65b, referee replay, frames 600/1800/3600/5400): both replays
   match; the same two small patches at the top of the screen (y 25-39) differ by a few levels in every frame,
   identical at 600 and 5400 (a UI element, not the fog, which changes with the game).
+- searchTable (sixth word bit 8, on; the sixth word as ai's c97828e): the flat per-tick result table has its own
+  switch, the unordered_map kept behind it. Pinned no-draw battle on query-66, off -> on: allocations in search
+  193.6 -> 117.8 a tick (whole tick 3946 -> 3871), logic 30.85 -> 31.01 ms/tick (noise), search 3.30 -> 3.26.
+  Replays referee, query-mgr5, query-mgr6 match.

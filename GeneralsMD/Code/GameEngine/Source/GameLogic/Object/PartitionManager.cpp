@@ -4309,6 +4309,16 @@ struct GxSearchTable
 	}
 };
 static GxSearchTable s_gxSearchCache;
+static std::unordered_map<unsigned long long, GxCachedSearch> s_gxSearchMap;	// switch searchTable off: the map as before
+static inline bool gxSearchTableOn()	// switch searchTable (sixth word bit 8, on)
+{
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches6();
+	return (GLES3_Page_Switches6() & 256) != 0;
+#else
+	return false;
+#endif
+}
 static UnsignedInt s_gxManagerFrame = ~0u;
 static Bool s_gxScanPassDone = false;
 static Bool s_gxInScanPass = false;	// the pass's own scans are not requests (else every unit rescans forever)
@@ -4822,6 +4832,7 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 	{
 		s_gxManagerFrame = frame;
 		s_gxSearchCache.clear();
+		s_gxSearchMap.clear();
 		s_gxScanPassDone = false;
 	}
 	// this tick's per-cell lists (again if the store moved slots, e.g. a unit was removed)
@@ -4868,7 +4879,16 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 	// a search from a point names no searcher, and its filters' state (whose enemies, which laser) is
 	// not in the key: never cached. A unit's search is keyed by the unit, which its filters are built from.
 	const Bool gxCacheable = obj != nullptr;
-	const GxCachedSearch *c = gxCacheable ? s_gxSearchCache.find(key) : nullptr;
+	const Bool gxTable = gxSearchTableOn();
+	const GxCachedSearch *c = nullptr;
+	if (gxCacheable && gxTable)
+		c = s_gxSearchCache.find(key);
+	else if (gxCacheable)
+	{
+		std::unordered_map<unsigned long long, GxCachedSearch>::iterator m = s_gxSearchMap.find(key);
+		if (m != s_gxSearchMap.end())
+			c = &m->second;
+	}
 	Bool hit = false;
 	if (c)
 	{
@@ -4907,7 +4927,7 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 	}
 	if (!hit && gxCacheable)
 	{
-		GxCachedSearch &cs = s_gxSearchCache.get(key);
+		GxCachedSearch &cs = gxTable ? s_gxSearchCache.get(key) : s_gxSearchMap[key];
 		cs.closest = result ? result->getID() : INVALID_ID;
 		cs.dist = dist;
 		cs.vec = vec;

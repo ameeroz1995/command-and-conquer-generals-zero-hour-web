@@ -1327,6 +1327,7 @@
             { key: 'powerKeys', def: true, label: 'SPECIAL POWERS FOUND BY NAME', note: 'Special powers are looked up in a table instead of a list. Same game.' },
             { key: 'scienceKeys', def: true, label: 'PROMOTIONS FOUND BY NAME', note: 'General\'s promotions are looked up in a table instead of a list. Same game.' },
             { key: 'iterPool', def: true, label: 'REUSE SEARCH RESULT LISTS', note: 'Lists of units found by a search reuse their entries instead of allocating new ones each time. Same game.' },
+            { key: 'searchTable', def: true, label: 'REUSE SEARCH ANSWER TABLE', note: 'The answers range searches share within a frame are kept in a table that is reused every frame instead of being rebuilt (sixth switch word). Same game.' },
             { key: 'pairPlace', def: true, label: 'QUICK TEST FOR UNITS FAR APART', note: 'Possible touching pairs whose units stand clearly apart are dropped using a kept copy of where they are, without reading the units. Same game.' },
             { key: 'pairOffer', def: true, label: 'DROP FAR-APART PAIRS EARLY (MATCH RULE)', note: 'Units clearly apart are never listed as a possible touching pair. Can change a fight slightly; the host decides for network games.' },
             { key: 'rowKernels', def: true, label: 'SCAN TIMER KERNELS', note: 'Scan timers of enemy-near, healing-finder and point-defense units are counted for the whole group in one loop before each unit acts (ready for worker threads). Same game.' },

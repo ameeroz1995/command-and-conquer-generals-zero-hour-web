@@ -64,6 +64,8 @@ static int g_PageSwitches4 = 0;
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static int g_PageSwitches5 = 0 | 256 | 512 | 1024 | 2048 | 268435456 | 536870912;	// fifth word, default-on bits of every lane (query 8-11, 28-29)
 int GLES3_Page_Switches5() { return g_PageSwitches5; }	// non-web builds: callers use a local stub returning 0
+static int g_PageSwitches6 = 0 | 256;	// sixth word, default-on bits of every lane; ranges: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19
+int GLES3_Page_Switches6() { return g_PageSwitches6; }	// non-web builds: callers use a local stub returning 0
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
@@ -485,6 +487,13 @@ void GLES3_Begin_Scene() {
                  | (o.simdPairs === false ? 0 : 131072)    // bit 17: with pairOffer, the clearly-apart neighbour test 4 at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.simdBody === false ? 0 : 1073741824)  // bit 30 (query): with simdSearch, the search body's enemy test and 2D distance 8 at a time with wasm SIMD (same game)
                  | (o.snapPatch === false ? 0 : -2147483648); // bit 31 (query): scanManager's per-cell lists patched where units crossed a cell edge, not rebuilt, later in a tick (same game)
+        });
+        g_PageSwitches6 = EM_ASM_INT({
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            return 0   // sixth word: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19, 20-31 spare
+                 | (o.passPos === true ? 1 : 0)           // bit 0 (ai): update pass removal by stored position (GameLogic.cpp; same game)
+                 | (o.passKeyArray === true ? 2 : 0)      // bit 1 (ai): pass sort keys and kinds by NameKey in arrays (GameLogic.cpp; same game)
+                 | (o.searchTable === false ? 0 : 256);   // bit 8 (query): the scan manager's per-tick answers in a flat table with reused entries, not a map rebuilt each tick (PartitionManager.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
