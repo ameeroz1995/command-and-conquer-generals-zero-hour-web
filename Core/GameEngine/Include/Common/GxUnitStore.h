@@ -114,6 +114,8 @@ public:
 	std::vector<unsigned int>			weaponSig;		///< weapon-status pass: ammo/status signature last shown on the drawable
 	std::vector<float>						sphere;			///< bounding sphere radius (splashSimd: the 3D blast test's reach)
 	void setSphere(const Object *o, float r) { const int s = slotOf(o); if (s >= 0) sphere[s] = r; }
+	std::vector<float>						health, maxHealth;	///< body health (write-through: ActiveBody sets it on every change; 0 without a body)
+	void setHealth(const Object *o, float h, float m) { const int s = slotOf(o); if (s >= 0) { health[s] = h; maxHealth[s] = m; } }
 	void setTarget(const Object *o, int victimId);
 	/// a weapon of this unit changed (fired, reloaded, ammo, pre-attack, slot): the pass looks at it now
 	void weaponTouch(int objectId) { const int s = slotOfId(objectId); if (s >= 0) weaponReady[s] = 0; }

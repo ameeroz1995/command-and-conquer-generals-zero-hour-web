@@ -30,6 +30,7 @@
 
 // INCLUDE FILES //////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
@@ -45,6 +46,7 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/ScriptEngine.h"
 #include "GameClient/SelectionXlat.h"
+#include "Common/GxEventIndex.h"
 
 
 // ------------------------------------------------------------------------------------------------
@@ -171,8 +173,20 @@ void RebuildHoleExposeDie::onDie( const DamageInfo *damageInfo )
 
 		if (modData->m_transferAttackers)
 		{
+			if (gxEventIndexOn())
+			{
+				// #11 eventIndex: the AI objects, in object-list order
+				std::vector<Object *> ais;
+				TheGxEventIndex.get(GX_EV_AI, ais);
+				gxEventIndexVerify(GX_EV_AI, ais);
+				gxCount(GXC_EVENT_WALK, ais.size());
+				for (Object *obj : ais)
+					obj->getAI()->transferAttack(us->getID(), hole->getID());
+			}
+			else
 			for ( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 			{
+				gxCount(GXC_EVENT_WALK);
 				AIUpdateInterface* ai = obj->getAI();
 				if (!ai)
 					continue;

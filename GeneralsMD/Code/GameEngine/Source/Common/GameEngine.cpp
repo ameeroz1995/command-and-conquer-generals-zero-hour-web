@@ -1129,7 +1129,7 @@ void GameEngine::update() {
       /// @todo Move audio init, update, etc, into GameClient update
 
       TheAudio->UPDATE();
-      TheGameClient->UPDATE();
+      { GxTimeScope gxC(GXT_CLIENT); TheGameClient->UPDATE(); }	// tickTiming: client ms per frame
       TheMessageStream->propagateMessages();
 
       if (TheNetwork != nullptr) {

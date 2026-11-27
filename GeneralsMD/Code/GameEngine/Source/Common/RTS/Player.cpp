@@ -43,6 +43,18 @@
 //-----------------------------------------------------------------------------
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
+#include <algorithm>
+#include <cstdio>
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches5();
+#else
+static int GLES3_Page_Switches() { return 0; }
+static int GLES3_Page_Switches5() { return 0; }
+#endif
+extern UnsignedInt g_gxTmplCountGen;	// #1, below
+static std::unordered_map<unsigned long long, Bool> s_gxEquiv;	// #1: isEquivalentTo answers for this game
 
 #define DEFINE_SCIENCE_AVAILABILITY_NAMES
 
@@ -351,6 +363,8 @@ Player::Player( Int playerIndex )
 //=============================================================================
 void Player::init(const PlayerTemplate* pt)
 {
+	s_gxEquiv.clear();	// #1: template pointers are only stable within a game
+	m_gxTmplCount.clear(); m_gxTmplCountGen = 0;
 
 	DEBUG_ASSERTCRASH(m_playerTeamPrototypes.empty(), ("Player::m_playerTeamPrototypes is not empty at game start!"));
 	m_skillPointsModifier = 1.0f;
@@ -510,6 +524,7 @@ Player::~Player()
 		(*it)->friend_setOwningPlayer(nullptr);
 	}
 	m_playerTeamPrototypes.clear();	// empty, but don't free the contents
+	++g_gxTmplCountGen;	// #1 / #8: walk order changed
 
 	// delete the relation maps (the destructor clears the actual map if any data is present)
 	deleteInstance(m_teamRelations);
@@ -1059,6 +1074,16 @@ void Player::becomingTeamMember(Object *obj, Bool yes)
 {
 	if (!obj)
 		return;
+	++m_gxMemberVer;	// #8
+
+	// #1 / #57: the template-count index follows team joins and leaves
+	if (m_gxTmplCountGen == g_gxTmplCountGen)
+	{
+		Int &n = m_gxTmplCount[obj->getTemplate()];
+		n += yes ? 1 : -1;
+		if (n == 0)
+			m_gxTmplCount.erase(obj->getTemplate());
+	}
 
 	// energy production/consumption hooks, note we ignore things that are UNDER_CONSTRUCTION
 	if( !obj->getStatusBits().test( OBJECT_STATUS_UNDER_CONSTRUCTION ) )
@@ -1827,6 +1852,7 @@ void Player::addTeamToList(TeamPrototype* team)
 	}
 
 	m_playerTeamPrototypes.push_back(team);
+	++g_gxTmplCountGen;	// #1 / #8
 }
 
 //=============================================================================
@@ -1838,6 +1864,7 @@ void Player::removeTeamFromList(TeamPrototype* team)
 		if (team == *it)
 		{
 			m_playerTeamPrototypes.erase(it);
+			++g_gxTmplCountGen;	// #1 / #8
 			return;
 		}
 	}
@@ -1864,9 +1891,107 @@ void Player::iterateObjects( ObjectIterateFunc func, void *userData ) const
 }
 
 //=============================================================================
+// #1 (hash-map sweep): per-player template counts. A team changing owner (Team::setControllingPlayer)
+// bumps g_gxTmplCountGen and every index is rebuilt by a walk on its next use. isEquivalentTo answers
+// are cached per (object template, asked template) pair for the game (cleared in Player::init).
+UnsignedInt g_gxTmplCountGen = 1;
+static Bool gxEquivalent(const ThingTemplate *objTmpl, const ThingTemplate *asked)
+{
+	const unsigned long long key = ((unsigned long long)(uintptr_t)objTmpl << 32) ^ (unsigned long long)(uintptr_t)asked;
+	auto it = s_gxEquiv.find(key);
+	if (it != s_gxEquiv.end())
+		return it->second;
+	const Bool r = objTmpl->isEquivalentTo(asked);
+	s_gxEquiv.emplace(key, r);
+	return r;
+}
+static void gxTmplCountAdd(Object *obj, void *userData)
+{
+	++(*(std::unordered_map<const ThingTemplate*, Int> *)userData)[obj->getTemplate()];
+}
+void Player::gxCountByTemplate(Int numTmplates, const ThingTemplate* const * things, Int *counts) const
+{
+	if (m_gxTmplCountGen != g_gxTmplCountGen)
+	{
+		m_gxTmplCount.clear();
+		const_cast<Player *>(this)->iterateObjects(gxTmplCountAdd, &m_gxTmplCount);
+		m_gxTmplCountGen = g_gxTmplCountGen;
+	}
+	for (Int i = 0; i < numTmplates; ++i)
+		counts[i] = 0;
+	// an object counts once, for the first asked template it matches (as the walk does)
+	for (auto it = m_gxTmplCount.begin(); it != m_gxTmplCount.end(); ++it)
+		for (Int i = 0; i < numTmplates; ++i)
+			if (gxEquivalent(it->first, things[i]))
+			{
+				counts[i] += it->second;
+				break;
+			}
+}
+static void gxAssistAdd(Object *obj, void *userData)
+{
+	static const NameKeyType key_assistUpdate = NAMEKEY("AssistedTargetingUpdate");
+	if (obj->findUpdateModule(key_assistUpdate))
+		((std::vector<Object*> *)userData)->push_back(obj);
+}
+const std::vector<Object*> &Player::gxAssistList() const
+{
+	if (m_gxAssistVer != m_gxMemberVer || m_gxAssistGen != g_gxTmplCountGen)
+	{
+		m_gxAssist.clear();
+		iterateObjects(gxAssistAdd, &m_gxAssist);
+		m_gxAssistVer = m_gxMemberVer;
+		m_gxAssistGen = g_gxTmplCountGen;
+	}
+	return m_gxAssist;
+}
+static void gxMembersAdd(Object *obj, void *userData)
+{
+	const Player *p = (const Player *)userData;
+	p->m_gxByTmpl[obj->getTemplate()].push_back(obj);
+	if (ProductionUpdate::getProductionUpdateInterfaceFromObject(obj))
+		p->m_gxProducers.push_back(obj);
+}
+void Player::gxRefreshMembers() const
+{
+	if (m_gxByTmplVer == m_gxMemberVer && m_gxByTmplGen == g_gxTmplCountGen)
+		return;
+	m_gxByTmpl.clear();
+	m_gxProducers.clear();
+	iterateObjects(gxMembersAdd, (void *)this);
+	m_gxByTmplVer = m_gxMemberVer;
+	m_gxByTmplGen = g_gxTmplCountGen;
+}
+Int Player::gxBeaconCount() const
+{
+	const ThingTemplate *beacon = getPlayerTemplate() ? TheThingFactory->findTemplate(getPlayerTemplate()->getBeaconTemplate()) : nullptr;
+	Int n = 0;
+	if (beacon)
+		gxCountByTemplate(1, &beacon, &n);
+	return n;
+}
+
 void Player::countObjectsByThingTemplate(Int numTmplates, const ThingTemplate* const * things, Bool ignoreDead, Int *counts, Bool ignoreUnderConstruction ) const
 {
 	Int i;
+
+	if (!ignoreDead && !ignoreUnderConstruction && (GLES3_Page_Switches5() & 16777216))	// fifth word bit 24: tmplIndex
+	{
+		gxCountByTemplate(numTmplates, things, counts);
+		if (!(GLES3_Page_Switches() & 2097152))
+			return;
+		// verify mode: the walk must give the same counts
+		std::vector<Int> idx(counts, counts + numTmplates);
+		for (i = 0; i < numTmplates; ++i)
+			counts[i] = 0;
+		for (PlayerTeamList::const_iterator it = m_playerTeamPrototypes.begin(); it != m_playerTeamPrototypes.end(); ++it)
+			(*it)->countObjectsByThingTemplate(numTmplates, things, ignoreDead, counts, ignoreUnderConstruction);
+		static unsigned checked = 0, mismatches = 0;
+		++checked;
+		if (!std::equal(idx.begin(), idx.end(), counts)) ++mismatches;
+		if (checked % 5000 == 0) printf("GXVERIFY tmplIndex: checked %u, mismatches %u\n", checked, mismatches);
+		return;
+	}
 
 	for (i = 0; i < numTmplates; ++i)
 		counts[i] = 0;
@@ -2977,6 +3102,7 @@ Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild ) const
   if (maxSimultaneousOfType != 0)
   {
 
+    gxCount(GXC_BUILD_MORE);
     TypeCountData typeCountData;
     typeCountData.count = 0;
     typeCountData.type = whatToBuild;
@@ -2988,6 +3114,36 @@ Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild ) const
     // Remember: To ASSUME makes an ASS out of U and ME.
     typeCountData.checkProductionInterface = !whatToBuild->isKindOf( KINDOF_STRUCTURE );
 
+    if (GLES3_Page_Switches5() & 67108864)
+    {
+      // #2 buildMoreIndex: the same count from the per-template lists and the producer list
+      gxRefreshMembers();
+      UnsignedInt n = 0;
+      for (auto it = m_gxByTmpl.begin(); it != m_gxByTmpl.end(); ++it)
+      {
+        const ThingTemplate *t = it->first;
+        if (!( whatToBuild->isEquivalentTo( t ) ||
+               ( typeCountData.linkKey != NAMEKEY_INVALID && t != nullptr && typeCountData.linkKey == t->getMaxSimultaneousLinkKey() ) ))
+          continue;
+        for (Object *o : it->second)
+          if (!o->isEffectivelyDead())
+            ++n;
+      }
+      if (typeCountData.checkProductionInterface)
+        for (Object *o : m_gxProducers)
+          if (!o->isEffectivelyDead())
+            n += ProductionUpdate::getProductionUpdateInterfaceFromObject( o )->countUnitTypeInQueue( whatToBuild );
+      if (GLES3_Page_Switches() & 2097152)
+      {
+        static unsigned long long s_checked = 0, s_bad = 0;
+        iterateObjects( countExisting, &typeCountData );
+        ++s_checked;
+        if (typeCountData.count != n) ++s_bad;
+        if ((s_checked & 255) == 1 || typeCountData.count != n)
+          printf("GXVERIFY buildMoreIndex checked %llu, mismatches %llu\n", s_checked, s_bad);
+      }
+      return n < maxSimultaneousOfType;
+    }
     iterateObjects( countExisting, &typeCountData );
     if( typeCountData.count >= maxSimultaneousOfType )
       return false;
@@ -4233,6 +4389,7 @@ void Player::xfer( Xfer *xfer )
 
 			// put in list
 			m_playerTeamPrototypes.push_back( prototype );
+			++g_gxTmplCountGen;	// #1 / #8
 
 		}
 

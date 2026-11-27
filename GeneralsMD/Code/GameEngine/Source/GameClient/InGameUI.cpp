@@ -200,6 +200,33 @@ struct MatchingUnitSelectionData
 	DrawableList newlySelectedDrawables;
 	Bool isCarBomb;
 };
+// #64 (switch selectTypeOnePass): one walk for every type in the selection; each unit's own tests run
+// once, then its type is matched against the selection's types in the same order the per-type walks
+// used (the set's order), so a unit is selected for the same type as before.
+struct GxMatchingTypesData
+{
+	const std::set<const ThingTemplate*> *types;
+	MatchingUnitSelectionData *data;
+};
+static Bool similarUnitSelection( Drawable *test, void *userData );
+static Bool gxSimilarUnitSelectionAnyType( Drawable *test, void *userData )
+{
+	GxMatchingTypesData *m = (GxMatchingTypesData *) userData;
+	const Object *object = test ? test->getObject() : nullptr;
+	if (!object || !object->isLocallyControlled() || object->isContained() || object->getDrawable()->isSelected()
+			|| !object->isMassSelectable() || object->isOffMap())
+		return FALSE;	// what similarUnitSelection rejects whatever the type
+	for (std::set<const ThingTemplate*>::const_iterator it = m->types->begin(); it != m->types->end(); ++it)
+	{
+		m->data->templateToSelect = *it;
+		if (similarUnitSelection(test, m->data))
+			return TRUE;
+		if (object->getDrawable()->isSelected())
+			return FALSE;
+	}
+	return FALSE;
+}
+
 // ------------------------------------------------------------------------------------------------
 static Bool similarUnitSelection( Drawable *test, void *userData )
 {
@@ -5068,6 +5095,18 @@ Int InGameUI::selectMatchingAcrossRegion( IRegion2D *region )
 	MatchingUnitSelectionData data;
 	Int newSelectionCount = 0;
 
+	if (gxBarSwitch(GX_BAR_SELECT_TYPE_ONE_PASS))
+	{
+		data.isCarBomb = carBomb;
+		GxMatchingTypesData m = { &drawableList, &data };
+		if (region)
+			newSelectionCount += TheTacticalView->iterateDrawablesInRegion(region, gxSimilarUnitSelectionAnyType, (void *)&m);
+		else
+			for (Drawable *temp = TheGameClient->firstDrawable(); temp; temp = temp->getNextDrawable())
+				newSelectionCount += gxSimilarUnitSelectionAnyType(temp, (void *)&m);
+		setDisplayedMaxWarning( FALSE );
+	}
+	else
 	for( iter = drawableList.begin(); iter != drawableList.end(); ++iter )
 	{
 		// get this drawable

@@ -70,11 +70,26 @@ SimpleObjectIterator::~SimpleObjectIterator()
 }
 
 //=============================================================================
+// web port (heap churn): emptied iterators keep their clumps in a per-thread free list (linked through
+// m_nextClump) instead of giving them back to the pool, so a search allocates only past the high-water
+// mark. Nothing resets the pools mid-run (MemoryPoolFactory::reset has no caller).
+static thread_local void *s_gxFreeClumps = nullptr;	// Clump* (the type is private to the iterator)
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches4();
+#else
+static int GLES3_Page_Switches4() { return 0; }
+#endif
+static inline bool gxIterReuse() { return (GLES3_Page_Switches4() & 268435456) != 0; }	// fourth word bit 28
+
 void SimpleObjectIterator::insert(Object *obj, Real numeric)
 {
 	DEBUG_ASSERTCRASH(obj, ("sorry, no nulls allowed here"));
 
-	Clump *clump = newInstance(Clump)();
+	Clump *clump = gxIterReuse() ? static_cast<Clump *>(s_gxFreeClumps) : nullptr;
+	if (clump)
+		s_gxFreeClumps = clump->m_nextClump;
+	else
+		clump = newInstance(Clump)();
 
 	clump->m_nextClump = m_firstClump;
 	m_firstClump = clump;
@@ -115,7 +130,13 @@ void SimpleObjectIterator::makeEmpty()
 	while (m_firstClump)
 	{
 		Clump *next = m_firstClump->m_nextClump;
-		deleteInstance(m_firstClump);
+		if (gxIterReuse())
+		{
+			m_firstClump->m_nextClump = static_cast<Clump *>(s_gxFreeClumps);	// to the free list (see insert)
+			s_gxFreeClumps = m_firstClump;
+		}
+		else
+			deleteInstance(m_firstClump);
 		m_firstClump = next;
 		--m_clumpCount;
 	}

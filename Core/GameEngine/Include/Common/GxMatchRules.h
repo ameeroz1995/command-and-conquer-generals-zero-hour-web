@@ -32,7 +32,9 @@ enum GxMatchRule
 	GXRULE_DAMAGE_QUEUE   = 524288,
 	// "off" rules (an old recording without them plays as before, kernels on):
 	GXRULE_KIND_KERNELS_OFF    = 16777216,	///< kindKernels off: no per-kind kernels under updatePasses (GameLogic.cpp)
-	GXRULE_CONTAIN_KERNELS_OFF = 33554432,	///< containKernels off: containers / rebuild holes count down in their own turns (OpenContain.cpp, RebuildHoleBehavior.cpp)	///< damageQueue: weapon damage queued during the tick and applied in one pass in victim-ID order (Weapon.cpp)
+	GXRULE_CONTAIN_KERNELS_OFF = 33554432,
+	GXRULE_SCAN_ALIGN          = 268435456,	///< scanAlign (fifth word value 8): routine mood checks land on every 4th frame so batchScan searches more units at once (AIUpdate.cpp)
+	GXRULE_BATCH_SCAN          = 67108864,	///< batchScan (fifth word bit 1): due mood scans searched in one batch per AI kind before the turns (AIUpdate.cpp, PartitionManager.cpp)	///< containKernels off: containers / rebuild holes count down in their own turns (OpenContain.cpp, RebuildHoleBehavior.cpp)	///< damageQueue: weapon damage queued during the tick and applied in one pass in victim-ID order (Weapon.cpp)
 };
 
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for

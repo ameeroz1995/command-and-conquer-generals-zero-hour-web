@@ -29,6 +29,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 #define DEFINE_WEAPONCONDITIONMAP
 #include "Common/GxUnitStore.h"
 #include "Common/BitFlagsIO.h"
@@ -112,6 +113,7 @@
 #include "Common/MiscAudio.h"
 #include "Common/AudioEventInfo.h"
 #include "Common/DynamicAudioEventInfo.h"
+#include "Common/GxEventIndex.h"
 
 
 #ifdef DEBUG_OBJECT_ID_EXISTS
@@ -806,6 +808,8 @@ void Object::setGeometryInfoZ( Real newZ )
 	gxGeom().setMaxHeightAbovePosition( newZ );
 	if (m_gxObj->m_partitionData)
 		m_gxObj->m_partitionData->gxRefreshPlace();	// web port: the bounding sphere may have grown
+	extern void gxSnapTouch(const Object *o);
+	gxSnapTouch(this);	// web port (snapPatch): the bounding sphere changed
 
 	if (m_gxObj->m_drawable)
 		m_gxObj->m_drawable->reactToGeometryChange();
@@ -1840,7 +1844,10 @@ void Object::reactToTurretChange( WhichTurretType turret, Real oldRotation, Real
 void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPos, Real oldAngle)
 {
 	//USE_PERF_TIMER(Object_reactToTransformChange)
-	if(_isnan(getPosition()->x) || _isnan(getPosition()->y) || _isnan(getPosition()->z)) {
+	// web port (round 5): one position read for the checks below (with the position in the store
+	// each getPosition() copies the store's x/y/z into the row); nothing before makeDirty moves us
+	const Coord3D *gxPosNow = getPosition();
+	if(_isnan(gxPosNow->x) || _isnan(gxPosNow->y) || _isnan(gxPosNow->z)) {
 		DEBUG_CRASH(("Object pos is nan."));
 		TheGameLogic->destroyObject(this);
 	}
@@ -1850,13 +1857,13 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
 	}
 
 	if (!gxPosInStore())
-		TheGxUnitStore.setPos(this, *getPosition());	// web port (round 4): write-through without positionInStore
+		TheGxUnitStore.setPos(this, *gxPosNow);	// web port (round 4): write-through without positionInStore
 
 	// web port (switch searchCache): range searches keep a copy of where we are
 	if (m_gxObj->m_partitionData)
 		m_gxObj->m_partitionData->gxRefreshPlace();
 
-	Bool posDiff = isPosDifferent(oldPos, getPosition());
+	Bool posDiff = isPosDifferent(oldPos, gxPosNow);
 	Bool angDiff = isAngleDifferent(oldAngle, getOrientation());
 
 	if (posDiff || angDiff)
@@ -4812,8 +4819,20 @@ void Object::onDie( DamageInfo *damageInfo )
 			}
 
 			//Transfer any attackers from the destroyed building to the hole.
+			if (gxEventIndexOn())
+			{
+				// #11 eventIndex: the AI objects, in object-list order
+				std::vector<Object *> ais;
+				TheGxEventIndex.get(GX_EV_AI, ais);
+				gxEventIndexVerify(GX_EV_AI, ais);
+				gxCount(GXC_EVENT_WALK, ais.size());
+				for (Object *obj : ais)
+					obj->getAI()->transferAttack( getID(), hole->getID() );
+			}
+			else
 			for ( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 			{
+				gxCount(GXC_EVENT_WALK);
 				AIUpdateInterface* ai = obj->getAI();
 				if (!ai)
 					continue;
@@ -6461,8 +6480,21 @@ void Object::defect( Team* newTeam, UnsignedInt detectionTime )
 	// unfortunately, structures don't keep a list of mines they own, so we must do
 	// this the hard way :-( [fortunately, this doesn't happen very often, so this
 	// is probably an acceptable, if icky, solution.] (srj)
+	if (gxEventIndexOn())
+	{
+		// #11 eventIndex: the mines, in object-list order
+		std::vector<Object *> mines;
+		TheGxEventIndex.get(GX_EV_MINES, mines);
+		gxEventIndexVerify(GX_EV_MINES, mines);
+		gxCount(GXC_EVENT_WALK, mines.size());
+		for (Object *mine : mines)
+			if (mine->getProducerID() == this->getID())
+				mine->setTeam(newTeam);
+	}
+	else
 	for (Object* mine = TheGameLogic->getFirstObject(); mine; mine = mine->getNextObject())
 	{
+		gxCount(GXC_EVENT_WALK);
 		if (mine->isKindOf(KINDOF_MINE))
 		{
 			if (mine->getProducerID() == this->getID())

@@ -102,8 +102,7 @@ protected:
 
 	virtual void removeAllInfluence();			///< remove any influence we had on all objects we've affected
 	virtual void doScan();									///< do a scan
-	virtual void effectLogic( Object *obj, Bool giving,
-														const PropagandaTowerBehaviorModuleData *modData);///< give/remove effect on object
+	virtual void effectLogic( Object *obj, Bool giving, const PropagandaTowerBehaviorModuleData *modData, Int upgraded = -1 );	///< give/remove effect on object (upgraded: -1 = look it up)
 
 	GxRow<struct GxPropagandaTowerBehaviorRow> m_gxPropagandaTowerBehaviorRow;	///< web port (round 5): this unit's row in TheGxPropagandaTowerBehaviors
 	friend struct GxPropagandaTowerBehaviorRow;

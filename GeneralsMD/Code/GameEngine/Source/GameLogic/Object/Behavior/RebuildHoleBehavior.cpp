@@ -29,6 +29,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 #include "Common/GameState.h"
 #include "Common/ThingFactory.h"
 #include "Common/ThingTemplate.h"
@@ -42,6 +43,7 @@
 #include "GameLogic/Module/BodyModule.h"
 #include "GameLogic/Module/RebuildHoleBehavior.h"
 #include "GameLogic/Module/StickyBombUpdate.h"
+#include "Common/GxEventIndex.h"
 
 // Web port (round 5, units are pure data): RebuildHoleBehavior's per-unit state is a row of TheGxRebuildHoleBehaviors;
 // GXROW_REBUILDHOLEBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
@@ -174,9 +176,26 @@ void RebuildHoleBehavior::transferBombs( Object *reconstruction )
 
 	Object *self = getObject();
 
+	if (gxEventIndexOn())
+	{
+		// #11 eventIndex: the mines, in object-list order
+		std::vector<Object *> mines;
+		TheGxEventIndex.get(GX_EV_MINES, mines);
+		gxEventIndexVerify(GX_EV_MINES, mines);
+		gxCount(GXC_EVENT_WALK, mines.size());
+		static NameKeyType key_StickyBombUpdate = NAMEKEY( "StickyBombUpdate" );
+		for (Object *mine : mines)
+		{
+			StickyBombUpdate *update = (StickyBombUpdate*)mine->findUpdateModule( key_StickyBombUpdate );
+			if( update && update->getTargetObject() == self )
+				update->setTargetObject( reconstruction );
+		}
+		return;
+	}
 	Object *obj = TheGameLogic->getFirstObject();
 	while( obj )
 	{
+		gxCount(GXC_EVENT_WALK);
 		if( obj->isKindOf( KINDOF_MINE ) )
 		{
 			static NameKeyType key_StickyBombUpdate = NAMEKEY( "StickyBombUpdate" );
@@ -288,6 +307,17 @@ UpdateSleepTime RebuildHoleBehavior::update()
 					else
 						ai->aiResumeConstruction( reconstructing, CMD_FROM_AI );
 
+					if (gxEventIndexOn())
+					{
+						// #11 eventIndex: the AI objects, in object-list order
+						std::vector<Object *> ais;
+						TheGxEventIndex.get(GX_EV_AI, ais);
+						gxEventIndexVerify(GX_EV_AI, ais);
+						gxCount(GXC_EVENT_WALK, ais.size());
+						for (Object *obj : ais)
+							obj->getAI()->transferAttack(hole->getID(), reconstructing->getID());
+					}
+					else
 					for ( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 					{
 						// Just like the building transfers attackers to the hole when it creates us, we need to transfer

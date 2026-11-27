@@ -52,6 +52,10 @@ class WindowLayout;
 class Player;
 class PlayerTemplate;
 class AudioEventRTS;
+// web port, selection UI switches (#57 / #58 / #64; client only, same game): see gxBarSwitch in ControlBar.cpp
+enum GxBarSwitch { GX_BAR_COMMANDSET_MAP, GX_BAR_MULTISELECT_EARLY_OUT, GX_BAR_BEACON_COUNT, GX_BAR_SELECT_TYPE_ONE_PASS };
+bool gxBarSwitch(GxBarSwitch s);
+
 class ControlBarSchemeManager;
 class UpgradeTemplate;
 class ControlBarResizer;

@@ -68,6 +68,8 @@
 #include "GameLogic/Module/HordeUpdate.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
+#include "Common/GxMatchRules.h"
+#include <algorithm>
 #include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/ScriptEngine.h"
 #include "GameLogic/TurretAI.h"
@@ -252,7 +254,7 @@ AIUpdateInterface::AIUpdateInterface( Thing *thing, const ModuleData* moduleData
 	GXROW_AIUPDATEINTERFACE.nextGoalPathIndex = -1;
 	GXROW_AIUPDATEINTERFACE.moveOutOfWay1 = INVALID_ID;
 	GXROW_AIUPDATEINTERFACE.moveOutOfWay2 = INVALID_ID;
-	GXROW_AIUPDATEINTERFACE.locomotorSet.clear();
+	GXROW_AIUPDATEINTERFACE.locomotorSet.clear(); GXROW_AIUPDATEINTERFACE.gxLocoValid = false;
 	GXROW_AIUPDATEINTERFACE.curLocomotor = nullptr;
 	GXROW_AIUPDATEINTERFACE.curLocomotorSet = LOCOMOTORSET_INVALID;
 	GXROW_AIUPDATEINTERFACE.locomotorGoalType = NONE;
@@ -686,7 +688,7 @@ void AIUpdateInterface::onObjectCreated()
 //-------------------------------------------------------------------------------------------------
 AIUpdateInterface::~AIUpdateInterface()
 {
-	GXROW_AIUPDATEINTERFACE.locomotorSet.clear();
+	GXROW_AIUPDATEINTERFACE.locomotorSet.clear(); GXROW_AIUPDATEINTERFACE.gxLocoValid = false;
 	GXROW_AIUPDATEINTERFACE.curLocomotor = nullptr;
 
 	if( GXROW_AIUPDATEINTERFACE.stateMachine ) {
@@ -885,7 +887,7 @@ Bool AIUpdateInterface::chooseLocomotorSetExplicit(LocomotorSetType wst)
 	const LocomotorTemplateVector* set = getAIUpdateModuleData()->findLocomotorTemplateVector(wst);
 	if (set)
 	{
-		GXROW_AIUPDATEINTERFACE.locomotorSet.clear();
+		GXROW_AIUPDATEINTERFACE.locomotorSet.clear(); GXROW_AIUPDATEINTERFACE.gxLocoValid = false;
 		GXROW_AIUPDATEINTERFACE.curLocomotor = nullptr;
 		for (size_t i = 0; i < set->size(); ++i)
 		{
@@ -900,11 +902,44 @@ Bool AIUpdateInterface::chooseLocomotorSetExplicit(LocomotorSetType wst)
 }
 
 //-------------------------------------------------------------------------------------------------
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches4();
 void AIUpdateInterface::chooseGoodLocomotorFromCurrentSet()
 {
 	Locomotor* prevLoco = GXROW_AIUPDATEINTERFACE.curLocomotor;
 
-	Locomotor* newLoco = TheAI->pathfinder()->chooseBestLocomotorForPosition(getObject()->getLayer(), &GXROW_AIUPDATEINTERFACE.locomotorSet, getObject()->getPosition());
+	Locomotor* newLoco;
+	if (GLES3_Page_Switches4() & 64)	// dataBehaviors: same cell, same cell types, same set -> same answer
+	{
+		GxAIUpdateInterfaceRow &r = GXROW_AIUPDATEINTERFACE;
+		const Coord3D *pos = getObject()->getPosition();
+		const Int layer = (Int)getObject()->getLayer();
+		const Int x = REAL_TO_INT_FLOOR(pos->x/PATHFIND_CELL_SIZE);
+		const Int y = REAL_TO_INT_FLOOR(pos->y/PATHFIND_CELL_SIZE);
+		const UnsignedInt ver = Pathfinder::gxCellTypeVersion();
+		if (r.gxLocoValid && r.gxLocoVer == ver && r.gxLocoLayer == layer && r.gxLocoX == x && r.gxLocoY == y)
+		{
+			newLoco = r.gxLocoResult;
+			if (GLES3_Page_Switches() & 2097152)	// verify mode
+			{
+				extern int gx_verify_mismatch, gx_verify_checked;
+				Locomotor *real = TheAI->pathfinder()->chooseBestLocomotorForPosition(getObject()->getLayer(), &r.locomotorSet, pos);
+				++gx_verify_checked;
+				static int n = 0;
+				if (real != newLoco) ++gx_verify_mismatch;
+				if (real != newLoco || (++n % 100000) == 0)
+					printf("GXVERIFY loco cache: %s, checked %d, mismatches %d\n", real == newLoco ? "ok" : "MISMATCH", gx_verify_checked, gx_verify_mismatch);
+			}
+		}
+		else
+		{
+			newLoco = TheAI->pathfinder()->chooseBestLocomotorForPosition(getObject()->getLayer(), &r.locomotorSet, pos);
+			r.gxLocoValid = true; r.gxLocoVer = ver; r.gxLocoLayer = layer; r.gxLocoX = x; r.gxLocoY = y;
+			r.gxLocoResult = newLoco;
+		}
+	}
+	else
+		newLoco = TheAI->pathfinder()->chooseBestLocomotorForPosition(getObject()->getLayer(), &GXROW_AIUPDATEINTERFACE.locomotorSet, getObject()->getPosition());
 
 	if (newLoco == nullptr)
 	{
@@ -3355,9 +3390,26 @@ void AIUpdateInterface::privateIdle(CommandSourceType cmdSource)
 }
 
 //----------------------------------------------------------------------------------------
+extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches4();
 Bool AIUpdateInterface::isIdle() const
 {
 	const AIStateMachine *state = getStateMachine();
+	if (GLES3_Page_Switches4() & 64)	// dataBehaviors: the state machine keeps its current state's ID / idleness
+	{
+		const Bool idle = state->gxCachedStateID() == AI_IDLE || state->gxCachedIdle();
+		if (GLES3_Page_Switches() & 2097152)	// verify mode
+		{
+			extern int gx_verify_mismatch, gx_verify_checked;
+			const Bool old = state->getCurrentStateID() == AI_IDLE || state->isInIdleState();
+			++gx_verify_checked;
+			static int n = 0;
+			if (old != idle) ++gx_verify_mismatch;
+			if (old != idle || (++n % 200000) == 0)
+				printf("GXVERIFY idle cache: %s, checked %d, mismatches %d\n", old == idle ? "ok" : "MISMATCH", gx_verify_checked, gx_verify_mismatch);
+		}
+		return idle;
+	}
 	if( state->getCurrentStateID() == AI_IDLE )
 	{
 		return TRUE;
@@ -4741,6 +4793,122 @@ Bool AIUpdateInterface::canAutoAcquireWhileStealthed() const
 /**
  * Return the next object that our mood suggests we should attack.
  */
+//-------------------------------------------------------------------------------------------------
+// batchScan (fifth word bit 1; rides on match rule updatePasses): before any update of the tick, GameLogic
+// hands every AI module that runs this tick (pass lists, misc lists, heap entries due now) to
+// gxMoodScanKernel, which collects the units whose routine mood scan is due, with the arguments
+// getNextMoodTarget would use (same code, below). The first such turn of the tick searches every collected unit of every AI
+// kind in one call (query's gxBatchFindClosestEnemy, which wants 16+ seekers per call). A turn takes the
+// answer only if its own arguments match exactly; anything else searches as before.
+extern bool gxMatchRule(unsigned int rule);
+Bool AIUpdateInterface::gxMoodScanArgs( Real &range, UnsignedInt &flags )
+{
+	Object *obj = getObject();
+	if (obj->isEffectivelyDead() || obj->testStatus(OBJECT_STATUS_IS_USING_ABILITY))
+		return FALSE;
+	const AIUpdateModuleData* d = getAIUpdateModuleData();
+	if (isAttacking() && BitIsSet(d->m_autoAcquireEnemiesWhenIdle, AAS_Idle_Not_While_Attacking))
+		return FALSE;
+	if (TheGameLogic->getFrame() < GXROW_AIUPDATEINTERFACE.nextMoodCheckTime)
+		return FALSE;
+	// only the states whose update makes the routine scan (AIIdleState, AIAttackMoveToState,
+	// AIAttackFollowWaypointPathState); a unit in any other state would never use the answer
+	if (getStateMachine()->gxSleepTill() > TheGameLogic->getFrame())	// the machine sleeps: no state update this tick
+		return FALSE;
+	if (obj->getTeam() && obj->getTeam()->getPrototype()->getTemplateInfo()->m_attackCommonTarget)	// may take the team's target first
+		return FALSE;
+	const StateID st = getCurrentStateID();
+	if (st == AI_IDLE)
+	{
+		if ((d->m_autoAcquireEnemiesWhenIdle & AAS_Idle) == 0)
+			return FALSE;
+	}
+	else if (st != AI_ATTACK_MOVE_TO && st != AI_ATTACKFOLLOW_WAYPOINT_PATH_AS_TEAM && st != AI_ATTACKFOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS)
+		return FALSE;
+	else if (!getStateMachine()->gxInnerIdle())	// the inner attack machine is busy: update() returns before the scan
+		return FALSE;
+	range = TheAI->getAdjustedVisionRangeForObject(obj, AI_VISIONFACTOR_OWNERTYPE | AI_VISIONFACTOR_MOOD);
+	if (range <= 0.0f)
+		return FALSE;
+	const Object *container = obj->getContainedBy();
+	if (container)
+		range += container->getBoundingCircleRadius();
+	const UnsignedInt moodMatrixVal = getMoodMatrixValue();
+	if ((moodMatrixVal & MM_Controller_AI) && (moodMatrixVal & MM_Mood_Passive))
+		return FALSE;
+	flags = AI::CAN_ATTACK;
+	if (TheAI->getAiData()->m_attackUsesLineOfSight && obj->isKindOf(KINDOF_ATTACK_NEEDS_LINE_OF_SIGHT))
+		flags |= AI::CAN_SEE;
+	if (TheAI->getAiData()->m_attackIgnoreInsignificantBuildings)
+		flags |= AI::IGNORE_INSIGNIFICANT_BUILDINGS;
+	if (d->m_autoAcquireEnemiesWhenIdle & AAS_Idle_Attack_Buildings)
+		flags |= AI::ATTACK_BUILDINGS;
+	if (obj->getControllingPlayer() && obj->getControllingPlayer()->getPlayerType() == PLAYER_HUMAN)
+		flags |= AI::WITHIN_ATTACK_RANGE | AI::UNFOGGED;
+	return TRUE;
+}
+
+static std::vector<AIUpdateInterface *> s_gxScanWho;	// collected this tick, all AI kinds
+static UnsignedInt s_gxScanWhoFrame = ~0u, s_gxScanDoneFrame = ~0u;
+
+void AIUpdateInterface::gxMoodScanKernel( UpdateModulePtr *mods, Int begin, Int end )
+{
+	if (!GameLogic::gxKernelSwitch(GXRULE_KIND_KERNELS_OFF) || !gxMatchRule(GXRULE_BATCH_SCAN))	// match rules
+		return;
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if (s_gxScanWhoFrame != now) { s_gxScanWho.clear(); s_gxScanWhoFrame = now; s_gxScanDoneFrame = ~0u; }
+	for (Int k = begin; k < end; ++k)
+	{
+		AIUpdateInterface *ai = static_cast<AIUpdateInterface *>(mods[k]);
+		GxAIUpdateInterfaceRow &r = ai->gxRow();
+		if (mods[k]->friend_getNextCallFrame() != now)	// already ran this tick (woken early) or not due
+			continue;
+		if (r.gxScanQueued != 0 && r.gxScanQueued + 1 == now)	// collected last tick, answer never taken
+			r.gxScanMiss = TRUE;
+		if (r.gxScanMiss)
+			continue;
+		if (r.gxScanQueued == now || !ai->gxMoodScanArgs(r.gxScanRange, r.gxScanFlags))
+			continue;
+		r.gxScanQueued = now; r.gxScanInfo = ai->getAttackInfo();
+		s_gxScanWho.push_back(ai);
+	}
+}
+
+void AIUpdateInterface::gxMoodScanFlush()
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	s_gxScanDoneFrame = now;
+	if (s_gxScanWhoFrame != now)
+		return;
+	static std::vector<AIUpdateInterface *> who;
+	static std::vector<Object *> me;
+	static std::vector<Real> range;
+	static std::vector<UnsignedInt> quals;
+	static std::vector<const AttackPriorityInfo *> info;
+	static std::vector<Object *> out;
+	who.clear(); me.clear(); range.clear(); quals.clear(); info.clear();
+	for (AIUpdateInterface *ai : s_gxScanWho)
+	{
+		if (ai->getObject()->isEffectivelyDead())
+			continue;
+		GxAIUpdateInterfaceRow &r = ai->gxRow();
+		who.push_back(ai); me.push_back(ai->getObject()); range.push_back(r.gxScanRange); quals.push_back(r.gxScanFlags); info.push_back(r.gxScanInfo);
+	}
+	s_gxScanWho.clear();
+	if (who.empty())
+		return;
+	out.assign(who.size(), nullptr);
+	gxCount(GXC_BATCH_SCANNED, who.size());
+	gxCount(GXC_BATCH_CALLS);
+	gxBatchFindClosestEnemy((Int)who.size(), me.data(), range.data(), quals.data(), info.data(), out.data());
+	for (size_t i = 0; i < who.size(); ++i)
+	{
+		GxAIUpdateInterfaceRow &r = who[i]->gxRow();
+		r.gxScanFrame = now;
+		r.gxScanResult = out[i] ? out[i]->getID() : INVALID_ID;
+	}
+}
+
 Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuringIdle )
 {
 	Object *obj = getObject();
@@ -4824,6 +4992,10 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 			GXROW_AIUPDATEINTERFACE.nextMoodCheckTime = (UnsignedInt)((Int)GXROW_AIUPDATEINTERFACE.nextMoodCheckTime + GameLogicRandomValue(-halfRate, halfRate));
 			GXROW_AIUPDATEINTERFACE.randomlyOffsetMoodCheck = FALSE;
 		}
+		// scanAlign (match rule; fifth word value 8): the next check waits for the next 4th frame, so
+		// the routine scans of many units fall on one frame and batchScan searches them together
+		if (gxMatchRule(GXRULE_SCAN_ALIGN))
+			GXROW_AIUPDATEINTERFACE.nextMoodCheckTime = (GXROW_AIUPDATEINTERFACE.nextMoodCheckTime + 3u) & ~3u;
 	}
 
 	// Use Guard Outer, which typically corresponds to the total range
@@ -4889,7 +5061,41 @@ Object* AIUpdateInterface::getNextMoodTarget( Bool calledByAI, Bool calledDuring
 		flags |= AI::UNFOGGED;
 	}
 
-	Object *newVictim = TheAI->findClosestEnemy(obj, rangeToFindWithin, flags, getAttackInfo());
+	Object *newVictim = nullptr;
+	gxCount(GXC_MOOD_SCANS);
+	GxAIUpdateInterfaceRow &gxR = GXROW_AIUPDATEINTERFACE;
+	if (calledByAI)
+		gxR.gxScanMiss = FALSE;	// batchScan: this unit's routine scan runs, so collecting it pays again
+	if (calledByAI && gxR.gxScanQueued == now && gxR.gxScanRange == rangeToFindWithin && gxR.gxScanFlags == flags
+			&& gxR.gxScanInfo == getAttackInfo() && gxMatchRule(GXRULE_BATCH_SCAN)
+			&& (s_gxScanDoneFrame == now || (gxMoodScanFlush(), true)) && gxR.gxScanFrame == now)
+	{
+		gxR.gxScanQueued = 0;
+		// batchScan: this tick's batched answer (searched before the turns, so it can differ from a search now;
+		// rides on updatePasses). An answer that died since then is searched again.
+		gxR.gxScanFrame = 0;
+		gxCount(GXC_BATCH_USED);
+		Bool fresh = gxR.gxScanResult == INVALID_ID;
+		if (!fresh)
+		{
+			newVictim = TheGameLogic->findObjectByID(gxR.gxScanResult);
+			if (!newVictim || newVictim->isEffectivelyDead())
+				newVictim = TheAI->findClosestEnemy(obj, rangeToFindWithin, flags, getAttackInfo());
+			else
+				fresh = TRUE;
+		}
+		if (fresh && (GLES3_Page_Switches() & 2097152))	// verify mode: how often a search now would differ
+		{
+			Object *now2 = TheAI->findClosestEnemy(obj, rangeToFindWithin, flags, getAttackInfo());
+			static int checked = 0, differ = 0;
+			++checked;
+			if (now2 != newVictim) ++differ;
+			if ((checked % 1000) == 0)
+				printf("GXVERIFY batchScan used %d, differs from a search in the turn %d (%.2f%%; by design, rides on updatePasses)\n", checked, differ, 100.0 * differ / checked);
+		}
+	}
+	else
+		newVictim = TheAI->findClosestEnemy(obj, rangeToFindWithin, flags, getAttackInfo());
 
 	// lazyScans (page switch word 2, bit 12): after a routine scan that found nothing, wait one more
 	// check interval before the next one. Changes the game, so it is a match rule (the host's setting
@@ -5454,10 +5660,10 @@ void AIUpdateInterface::xfer( Xfer *xfer )
 			// to simply clear out whatever we have here and allow
 			// xferSelfAndCurLocoPtr() to continue to require a pristine,
 			// empty set. (srj)
-			GXROW_AIUPDATEINTERFACE.locomotorSet.clear();
+			GXROW_AIUPDATEINTERFACE.locomotorSet.clear(); GXROW_AIUPDATEINTERFACE.gxLocoValid = false;
 			GXROW_AIUPDATEINTERFACE.curLocomotor = nullptr;
 		}
-		GXROW_AIUPDATEINTERFACE.locomotorSet.xferSelfAndCurLocoPtr(xfer, &GXROW_AIUPDATEINTERFACE.curLocomotor);
+		GXROW_AIUPDATEINTERFACE.locomotorSet.xferSelfAndCurLocoPtr(xfer, &GXROW_AIUPDATEINTERFACE.curLocomotor); GXROW_AIUPDATEINTERFACE.gxLocoValid = false;
 		xfer->xferUser(&GXROW_AIUPDATEINTERFACE.curLocomotorSet, sizeof(GXROW_AIUPDATEINTERFACE.curLocomotorSet));
 	}
 

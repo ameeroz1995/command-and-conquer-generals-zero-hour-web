@@ -622,6 +622,7 @@ public:
 	Int friend_getCoiInUseCount() { return m_coiInUseCount; } ///< this is only for use by PartitionManager
 	CellAndObjectIntersection *friend_getCoiArray() { return m_coiArray; }	///< combat, splashSimd (PartitionManager::gxSplashSearch)
 	Int friend_getCoiArrayCount() const { return m_coiArrayCount; }
+	PartitionCell *gxCoiCell(Int i) { return m_coiArray[i].getCell(); }	///< web port (batchScan): the cell of COI i (i < friend_getCoiInUseCount())
 	Bool friend_collidesWith(const PartitionData *that, CollideLocAndNormal *cinfo) const { return collidesWith(that, cinfo); }	///< this is only for use by PartitionContactList
 
 	// these are only for use by getClosestObjects.
@@ -1366,6 +1367,10 @@ protected:
 	Object *gxClosestImpl(const Object *obj, const Coord3D *pos, Real maxDist, DistanceCalculationType dc,
 		PartitionFilter **filters, SimpleObjectIterator *iterArg, Real *closestDistArg, Coord3D *closestVecArg,
 		UnsignedInt gxFlags, UnsignedInt gxMask, std::vector<Object*> *trace);
+	/// web port (batchScan): a getClosestObject(obj, maxDist, FROM_BOUNDINGSPHERE_2D, filters) asked from
+	/// gxBatchFindClosestEnemy: an f32x4 cull over the store, then the walk's answer from the survivors
+	Object *gxBatchClosest(const Object *obj, Real maxDist, PartitionFilter **filters, UnsignedInt gxFlags, UnsignedInt gxMask,
+		Bool snap, Real *distOut, Coord3D *vecOut);
 
 	void shutdown();
 
@@ -1693,3 +1698,9 @@ public:
 //           Externals
 //-----------------------------------------------------------------------------
 extern PartitionManager *ThePartitionManager;  ///< object manager singleton
+
+class AttackPriorityInfo;
+/// web port (batchScan, fifth word bit 1, the AI's switch): out[i] = TheAI->findClosestEnemy(me[i], range[i],
+/// qualifiers[i], info[i], nullptr) for i < n, as of the call. Same answers as the old search (verify mode checks).
+void gxBatchFindClosestEnemy(Int n, Object *const *me, const Real *range, const UnsignedInt *qualifiers,
+	const AttackPriorityInfo *const *info, Object **out);

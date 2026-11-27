@@ -240,6 +240,7 @@ struct GxSpawnBehaviorRow
 	UnsignedInt gxKernelFrame = 0;	///< frame the kind kernel last ran this row
 	Bool gxDue = FALSE;	///< the kernel's result for gxApplyStep
 	Int gxSnap = 0;	///< verify mode: the timer as the kernel left it
+	std::vector<std::pair<ObjectID, class SlavedUpdateInterface *>> gxSlaved;	///< dataBehaviors: each spawn's slaved-update interface, in spawnIDs order (an object's modules never change)
 };
 
 

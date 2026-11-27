@@ -30,6 +30,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 #include "Common/GxUnitStore.h"
 
 #define DEFINE_WEAPONSLOTTYPE_NAMES
@@ -849,6 +850,7 @@ CanAttackResult WeaponSet::getAbleToUseWeaponAgainstTarget( AbleToAttackType att
 //-------------------------------------------------------------------------------------------------
 Bool WeaponSet::chooseBestWeaponForTarget(const Object* obj, const Object* victim, WeaponChoiceCriteria criteria, CommandSourceType cmdSource)
 {
+	GxAllocScope gxA(GXC_ALLOC_ESTIMATE); // tickTiming: allocations in target / weapon choice
 	/*
 		1) The first criteria is weapon fitness.  If the object has two weapons that can fire concurrently,
 			find the set of weapons that can hit the given target.  If two weapons can hit the given target,

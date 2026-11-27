@@ -44,6 +44,7 @@
 
 #pragma once
 
+#include <unordered_map>
 #include "Common/AcademyStats.h"
 #include "Common/Debug.h"
 #include "Common/Energy.h"
@@ -407,6 +408,25 @@ public:
 		the given object has just become (or just ceased to be) a member of one of our teams (or subteams)
 	*/
 	void becomingTeamMember(Object *obj, Bool yes);
+	/// #57 (switch beaconCount): this player's beacon objects (dead ones included), from the template index
+	Int gxBeaconCount() const;
+	/// #1 (hash-map sweep, switch tmplIndex, fifth word bit 24): objects per template in this player's
+	/// teams (dead ones included), kept on team join / leave; answers countObjectsByThingTemplate
+	/// (ignoreDead and ignoreUnderConstruction false) without walking the player's objects
+	void gxCountByTemplate(Int numTmplates, const ThingTemplate* const * things, Int *counts) const;
+	mutable std::unordered_map<const ThingTemplate*, Int> m_gxTmplCount;
+	mutable UnsignedInt m_gxTmplCountGen = 0;	///< g_gxTmplCountGen it was built for (0: never)
+	/// #8 (switch assistList, fifth word bit 25): this player's objects with an AssistedTargetingUpdate,
+	/// in iterateObjects order; rebuilt after any team join / leave of this player or a team list change
+	const std::vector<Object*> &gxAssistList() const;
+	mutable std::vector<Object*> m_gxAssist;
+	mutable UnsignedInt m_gxMemberVer = 1, m_gxAssistVer = 0, m_gxAssistGen = 0;
+	/// #2 (switch buildMoreIndex, fifth word bit 26): this player's objects by template, and the ones with a
+	/// production queue, for canBuildMoreOfType (a count, so order does not matter); same rebuild rule as #8
+	void gxRefreshMembers() const;
+	mutable std::unordered_map<const ThingTemplate*, std::vector<Object*> > m_gxByTmpl;
+	mutable std::vector<Object*> m_gxProducers;
+	mutable UnsignedInt m_gxByTmplVer = 0, m_gxByTmplGen = 0;
 
 	/**
 		this is called when the player becomes the local player (yes==true)

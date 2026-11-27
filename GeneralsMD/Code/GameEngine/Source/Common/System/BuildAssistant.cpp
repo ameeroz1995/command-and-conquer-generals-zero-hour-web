@@ -30,6 +30,7 @@
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 
 #include "Common/BuildAssistant.h"
 #include "Common/GlobalData.h"
@@ -54,6 +55,7 @@
 #include "GameLogic/Module/CreateModule.h"
 #include "GameLogic/Module/ProductionUpdate.h"
 #include "GameLogic/Module/ParkingPlaceBehavior.h"
+#include "Common/GxEventIndex.h"
 
 // PUBLIC DATA ////////////////////////////////////////////////////////////////////////////////////
 BuildAssistant *TheBuildAssistant = nullptr;
@@ -1606,8 +1608,21 @@ void BuildAssistant::sellObject( Object *obj )
 	// unfortunately, structures don't keep list of mines they own, so we must do
 	// this the hard way :-( [fortunately, this doesn't happen very often, so this
 	// is probably an acceptable, if icky, solution.] (srj)
+	if (gxEventIndexOn())
+	{
+		// #11 eventIndex: the mines, in object-list order
+		std::vector<Object *> mines;
+		TheGxEventIndex.get(GX_EV_MINES, mines);
+		gxEventIndexVerify(GX_EV_MINES, mines);
+		gxCount(GXC_EVENT_WALK, mines.size());
+		for (Object *mine : mines)
+			if (mine->getProducerID() == obj->getID())
+				TheGameLogic->destroyObject(mine);
+		return;
+	}
 	for (Object* mine = TheGameLogic->getFirstObject(); mine; mine = mine->getNextObject())
 	{
+		gxCount(GXC_EVENT_WALK);
 		if (mine->isKindOf(KINDOF_MINE))
 		{
 			if (mine->getProducerID() == obj->getID())

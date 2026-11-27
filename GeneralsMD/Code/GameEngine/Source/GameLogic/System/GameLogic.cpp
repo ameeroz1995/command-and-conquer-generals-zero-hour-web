@@ -123,6 +123,8 @@
 DECLARE_PERF_TIMER(SleepyMaintenance)
 
 #include "Common/UnitTimings.h" //Contains the DO_UNIT_TIMINGS define jba.
+#include "Common/GxEventIndex.h"
+GxEventIndex TheGxEventIndex;	// #11
 // If defined, the game times various units.
 #ifdef DO_UNIT_TIMINGS
 #pragma MESSAGE("*** WARNING *** DOING DO_UNIT_TIMINGS!!!!")
@@ -407,6 +409,7 @@ void GameLogic::reset()
 	m_objVector.resize(OBJ_HASH_SIZE, nullptr);
 	m_gxDisabledObjs.clear();
 	m_gxDisabledListValid = false;
+	++m_gxListEpoch;	// #11
 
 	m_pauseFrame = 0;
 	m_gamePaused = FALSE;
@@ -4168,6 +4171,54 @@ void GameLogic::update()
 				}
 			}
 		};
+		if (gxMatchRule(GXRULE_BATCH_SCAN) && gxKernelSwitch(GXRULE_KIND_KERNELS_OFF))
+		{
+			// batchScan: before any update of the tick, collect every AI module that runs this tick
+			// (each phase's AI pass lists and the heap's entries due now) so one search serves them all
+			static std::vector<UpdateModulePtr> km; km.clear();
+			for (size_t oi = 0; oi < m_gxKindOrder.size(); ++oi)
+			{
+				GxKind &kd = m_gxKinds[m_gxKindOrder[oi]];
+				if (!kd.isAI) continue;
+				const std::vector<int> &ks = TheGxUnitStore.pass(kd.bit);
+				for (size_t q = 0; q < ks.size(); ++q)
+				{
+					const int sl = ks[q];
+					if (!TheGxUnitStore.obj[sl]) continue;
+					const int id = TheGxUnitStore.id[sl];
+					if (id < (int)kd.modById.size() && kd.modById[id]) km.push_back(kd.modById[id]);
+				}
+			}
+			for (Int ph = 0; ph < 4; ++ph)	// AI kinds without a bit of their own run from the misc lists
+			{
+				const std::vector<int> &ms = TheGxUnitStore.pass(GX_MISC_BIT0 + ph);
+				for (size_t q = 0; q < ms.size(); ++q)
+				{
+					const int sl = ms[q];
+					if (!TheGxUnitStore.obj[sl]) continue;
+					const int id = TheGxUnitStore.id[sl];
+					if (id >= (int)m_gxMiscById[ph].size()) continue;
+					for (UpdateModulePtr u : m_gxMiscById[ph][id])
+						if (u->getAIUpdateInterface()) km.push_back(u);
+				}
+			}
+			const UnsignedInt lim = (now << 2) | 3;
+			static std::vector<size_t> st; st.clear();
+			if (!m_sleepyUpdates.empty()) st.push_back(0);
+			while (!st.empty())	// the heap's entries due this tick: a walk that stops below later keys
+			{
+				const size_t i = st.back(); st.pop_back();
+				if (i >= m_sleepyUpdates.size() || m_gxSleepyKey[i] > lim) continue;
+				if (m_sleepyUpdates[i]->getAIUpdateInterface()) km.push_back(m_sleepyUpdates[i]);
+				st.push_back(2 * i + 2); st.push_back(2 * i + 1);
+			}
+			std::sort(km.begin(), km.end(), [](UpdateModulePtr a, UpdateModulePtr b) { return a->friend_getObject()->getID() < b->friend_getObject()->getID(); });
+			if (!km.empty())
+			{
+				GxTimeScope t(GXT_AI_KERNELS);
+				AIUpdateInterface::gxMoodScanKernel(km.data(), 0, (Int)km.size());
+			}
+		}
 		for (Int ph = 0; ph < 4; ++ph)
 		{
 			gxRunKernels(ph);	// round 5 kernels of this phase, before any of its module updates
@@ -4660,6 +4711,7 @@ void GameLogic::registerObject( Object *obj )
 
 	// add object to lookup table
 	addObjectToLookupTable( obj );
+	if (gxEventIndexOn()) TheGxEventIndex.note(obj);	// #11
 
 	UnsignedInt now = getFrame();
 	if (now == 0)
@@ -5909,6 +5961,7 @@ void GameLogic::xfer( Xfer *xfer )
 void GameLogic::loadPostProcess()
 {
 	m_gxDisabledListValid = false;	// web port: the object list was rebuilt; the disabled list is rebuilt from it
+	++m_gxListEpoch;	// #11
 
 	//
 	// the act of loading objects can (theoretically) as a side effect create other objects,
