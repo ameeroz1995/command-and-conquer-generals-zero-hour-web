@@ -57,6 +57,7 @@
 #include "Common/Errors.h"
 #include "Common/GameMemory.h"
 #include "Common/GxTime.h"
+static void gxDropFast(const MemoryPool *p);	// web port (switch nodePool), below
 #include "Common/GlobalData.h"
 #include "Common/PerfTimer.h"
 #ifdef MEMORYPOOL_DEBUG
@@ -1596,6 +1597,7 @@ void MemoryPool::init(MemoryPoolFactory *factory, const char *poolName,
         throw away the pool, and all blocks/blobs associated with it.
 */
 MemoryPool::~MemoryPool() {
+  gxDropFast(this);
   // toss everything. we could do this slightly more efficiently,
   // but not really worth the extra code to do so.
   while (m_firstBlob) {
@@ -1765,7 +1767,37 @@ MemoryPool::allocateBlockDoNotZeroImplementation(DECLARE_LITERALSTRING_ARG1) {
         of the block. if unable to allocate, throw ERROR_OUT_OF_MEMORY. this
         function will never return null.
 */
+// web port (switch nodePool, fifth word bit 18; same game): the route pools (PathNode, Path) keep their
+// freed blocks in a LIFO stack and hand them out again (zeroed, as the pool does) without the blob
+// bookkeeping; a reset or destroyed pool drops its stack first
+static MemoryPool *s_gxFastPool[2] = { nullptr, nullptr };
+static void **s_gxFastFree[2] = { nullptr, nullptr };
+static int s_gxFastN[2] = { 0, 0 };
+enum { GX_FAST_CAP = 8192 };
+void gxSetFastPools(MemoryPool *a, MemoryPool *b) { s_gxFastPool[0] = a; s_gxFastPool[1] = b; }
+static inline int gxFastIdx(const MemoryPool *p)
+{
+#ifdef __EMSCRIPTEN__
+  extern int GLES3_Page_Switches5();
+  if (!(GLES3_Page_Switches5() & 262144)) return -1;
+  return p == s_gxFastPool[0] ? 0 : p == s_gxFastPool[1] ? 1 : -1;
+#else
+  (void)p; return -1;
+#endif
+}
+static void gxDropFast(const MemoryPool *p)
+{
+  for (int i = 0; i < 2; ++i)
+    if (p == s_gxFastPool[i]) s_gxFastN[i] = 0;	// the blocks go with the blobs
+}
+
 void *MemoryPool::allocateBlockImplementation(DECLARE_LITERALSTRING_ARG1) {
+  const int gxi = gxFastIdx(this);
+  if (gxi >= 0 && s_gxFastN[gxi] > 0) {
+    void *p = s_gxFastFree[gxi][--s_gxFastN[gxi]];
+    memset(p, 0, getAllocationSize());
+    return p;
+  }
   void *p = allocateBlockDoNotZeroImplementation(
       PASS_LITERALSTRING_ARG1); // throws on failure
   memset(p, 0, getAllocationSize());
@@ -1779,6 +1811,13 @@ void *MemoryPool::allocateBlockImplementation(DECLARE_LITERALSTRING_ARG1) {
 void MemoryPool::freeBlock(void *pBlockPtr) {
   if (!pBlockPtr)
     return; // my, that was easy
+  {
+    const int gxi = gxFastIdx(this);
+    if (gxi >= 0 && s_gxFastN[gxi] < GX_FAST_CAP) {
+      if (!s_gxFastFree[gxi]) s_gxFastFree[gxi] = (void **)::malloc(sizeof(void *) * GX_FAST_CAP);
+      if (s_gxFastFree[gxi]) { s_gxFastFree[gxi][s_gxFastN[gxi]++] = pBlockPtr; return; }
+    }
+  }
 
   ScopedCriticalSection scopedCriticalSection(TheMemoryPoolCriticalSection);
 
@@ -1858,6 +1897,7 @@ Int MemoryPool::releaseEmpties() {
 */
 void MemoryPool::reset() {
   ScopedCriticalSection scopedCriticalSection(TheMemoryPoolCriticalSection);
+  gxDropFast(this);
 
   // toss everything. we could do this slightly more efficiently,
   // but not really worth the extra code to do so.

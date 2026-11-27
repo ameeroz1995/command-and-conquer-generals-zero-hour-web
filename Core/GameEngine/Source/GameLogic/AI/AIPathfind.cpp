@@ -419,9 +419,21 @@ void Path::loadPostProcess()
 /**
  * Create a new node at the head of the path
  */
+// web port (switch nodePool, GameMemory.cpp): hand the route pools to the allocator's reuse stack once
+// both exist (they are made on first use)
+static void gxRegisterFastPools()
+{
+	static Bool s_done = FALSE;
+	if (s_done) return;
+	extern void gxSetFastPools(MemoryPool *a, MemoryPool *b);
+	MemoryPool *a = TheMemoryPoolFactory->findMemoryPool("PathNodePool"), *b = TheMemoryPoolFactory->findMemoryPool("PathPool");
+	if (a && b) { gxSetFastPools(a, b); s_done = TRUE; }
+}
+
 void Path::prependNode( const Coord3D *pos, PathfindLayerEnum layer )
 {
 	PathNode *node = newInstance(PathNode);
+	gxRegisterFastPools();
 	node->m_gxOwner = this; m_gxSegsValid = FALSE;
 
 	node->setPosition( pos );
@@ -453,6 +465,7 @@ void Path::appendNode( const Coord3D *pos, PathfindLayerEnum layer )
 		}
 	}
 	PathNode *node = newInstance(PathNode);
+	gxRegisterFastPools();
 	node->m_gxOwner = this; m_gxSegsValid = FALSE;
 
 	node->setPosition( pos );

@@ -4483,3 +4483,18 @@ Level within noise (the ceiling was the call's 0.4% self share).
   searches, 679.8 cells per tick in all four), alternating off/on x2, load 4.2-8.6:
   logic off 42.12 / on 37.88, off 38.43 / on 41.70 ms/tick; pathfind off 5.05 / on 4.64, off 4.76 / on 4.95.
   Level within the run-to-run spread (routes here are a few nodes long). Exact, so kept on.
+
+## 2026-11-27 — paths: nodePool (fifth word bit 18, ON; same game): reuse stack for route points
+- Main/ai: the no-draw battle's second-biggest allocation source is route points (Path::appendNode /
+  prependNode from flow fields, the route cache, prependCells, computeQuickPath) plus Path objects.
+  Both are MemoryPool objects already; under the switch the two pools (PathNodePool, PathPool) push
+  freed blocks on a LIFO stack (up to 8192 each) and hand them out again zeroed, as the pool does,
+  skipping the blob bookkeeping. A reset or destroyed pool drops its stack. The pools are registered
+  on the first route point (they are made on first use; the first build registered them too early and
+  never fired: allocations unchanged at 4641/tick, logged as found).
+- Checks (paths-np2, switch on): referee.rep, paths-long-up.rep, paths-loco.rep, paths-oq.rep,
+  paths-def.rep match; battle verify (draw=False) every GXVERIFY 0 mismatches.
+- Battle no-draw, same game every run: game-allocator blocks per tick 4641 -> 4091 (route-search ones
+  628 -> 168). Timing (pinned slot), alternating off/on: pair 1 discarded (load 12); pair 2 (load 6-7)
+  logic 36.03 / 32.40 ms/tick, pathfind 4.47 / 4.17; pair 3 (load 4-5) logic 32.30 / 32.15, pathfind
+  4.13 / 4.18. Lower in both clean pairs (pair 3 within noise), so ON by default.
