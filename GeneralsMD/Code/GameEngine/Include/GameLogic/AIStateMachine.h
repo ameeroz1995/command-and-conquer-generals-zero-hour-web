@@ -662,6 +662,7 @@ public:
 	//virtual ~AIAttackMoveToState();
 
 	virtual Bool isAttack() const { return m_attackMoveMachine ? m_attackMoveMachine->isInAttackState() : FALSE; }
+	virtual Bool gxInnerIdle() const { return m_attackMoveMachine ? m_attackMoveMachine->isInIdleState() : TRUE; }
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -789,6 +790,7 @@ public:
 	//virtual ~AIAttackFollowWaypointPathState();
 
 	virtual Bool isAttack() const;
+	virtual Bool gxInnerIdle() const;
 
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
@@ -820,6 +822,8 @@ struct GxAIAttackFollowWaypointPathStateRow
 inline GxAIAttackFollowWaypointPathStateRow &AIAttackFollowWaypointPathState::gxRow() const { return const_cast<GxAIAttackFollowWaypointPathStateRow &>(*m_gxAIAttackFollowWaypointPathStateRow); }
 inline Bool AIAttackFollowWaypointPathState::isAttack() const
 { return gxRow().attackFollowMachine ? gxRow().attackFollowMachine->isInAttackState() : FALSE; }
+inline Bool AIAttackFollowWaypointPathState::gxInnerIdle() const
+{ return gxRow().attackFollowMachine ? gxRow().attackFollowMachine->isInIdleState() : TRUE; }
 
 
 //-----------------------------------------------------------------------------------------------------------

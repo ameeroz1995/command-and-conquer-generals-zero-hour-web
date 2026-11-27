@@ -154,6 +154,7 @@ public:
 	virtual Bool isGuardIdle() const { return FALSE; }
 	//Definition of busy -- when explicitly in the busy state. Moving or attacking is not considered busy!
 	virtual Bool isBusy() const { return false; }
+	virtual Bool gxInnerIdle() const { return TRUE; }	///< web port (batchScan): an inner machine (attack move / follow) is idle, so update() makes the routine mood scan
 
 	StateMachine* getMachine();		///< return the machine this state is part of
 	StateID getID() const;			///< get this state's id
@@ -293,6 +294,7 @@ public:
 	StateID getCurrentStateID() const;	///< return the id of the current state of the machine
 	Bool isInIdleState() const;	// stateless things are considered 'idle'
 	Bool isInAttackState() const;	// stateless things are considered 'idle'
+	inline Bool gxInnerIdle() const;	///< web port (batchScan): the current state's gxInnerIdle()
 	Bool isInForceAttackState() const;	// stateless things are considered 'idle'
 	Bool isInGuardIdleState() const; // stateless things aren't guard idle.
 
@@ -379,6 +381,12 @@ private:
 	void internalSetGoalPosition( const Coord3D *pos);
 
 
+	void gxNoteCurrentState();	///< web port: refresh the cached current-state ID / idleness (after every change)
+public:
+	inline StateID gxCachedStateID() const;	///< web port: getCurrentStateID(), kept in the row
+	inline UnsignedInt gxSleepTill() const;	///< web port: frame the machine sleeps until (0 = awake)
+	inline Bool gxCachedIdle() const;	///< web port: isInIdleState(), kept in the row
+protected:
 	GxRow<struct GxStateMachineRow> m_gxStateMachineRow;	///< web port (round 5): this unit's row in TheGxStateMachines
 	friend struct GxStateMachineRow;
 	inline struct GxStateMachineRow &gxRow() const;
@@ -409,10 +417,15 @@ struct GxStateMachineRow
 	Bool debugOutput;
 	AsciiString name;
 	const char* lockedby;
+	StateID gxCurID = INVALID_STATE_ID;	///< cached currentState->getID() (switch dataBehaviors)
+	Bool gxCurIdle = true;	///< cached currentState->isIdle() (a state's isIdle() is fixed per state class)
 };
 
 
 inline GxStateMachineRow &StateMachine::gxRow() const { return const_cast<GxStateMachineRow &>(*m_gxStateMachineRow); }
+inline StateID StateMachine::gxCachedStateID() const { return gxRow().gxCurID; }
+inline UnsignedInt StateMachine::gxSleepTill() const { return gxRow().sleepTill; }
+inline Bool StateMachine::gxCachedIdle() const { return gxRow().gxCurIdle; }
 inline void StateMachine::Add_Ref() const
 { gxRow().refCount.Add_Ref(); }
 inline void StateMachine::Release_Ref() const
@@ -423,6 +436,8 @@ inline StateID StateMachine::getCurrentStateID() const
 { return gxRow().currentState ? gxRow().currentState->getID() : INVALID_STATE_ID; }
 inline Bool StateMachine::isInIdleState() const
 { return gxRow().currentState ? gxRow().currentState->isIdle() : true; }
+inline Bool StateMachine::gxInnerIdle() const
+{ return gxRow().currentState ? gxRow().currentState->gxInnerIdle() : TRUE; }
 inline Bool StateMachine::isInAttackState() const
 { return gxRow().currentState ? gxRow().currentState->isAttack() : true; }
 inline Bool StateMachine::isInForceAttackState() const

@@ -278,7 +278,7 @@ StateMachine::StateMachine( Object *owner, AsciiString name )
 	GXROW_STATEMACHINE.sleepTill = 0;
 	GXROW_STATEMACHINE.defaultStateID = INVALID_STATE_ID;
 	GXROW_STATEMACHINE.defaultStateInited = false;
-	GXROW_STATEMACHINE.currentState = nullptr;
+	GXROW_STATEMACHINE.currentState = nullptr; gxNoteCurrentState();
 	GXROW_STATEMACHINE.locked = false;
 #ifdef STATE_MACHINE_DEBUG
 	GXROW_STATEMACHINE.name = name;
@@ -371,7 +371,7 @@ void StateMachine::clear()
 	if (GXROW_STATEMACHINE.currentState)
 		GXROW_STATEMACHINE.currentState->onExit( EXIT_RESET );
 
-	GXROW_STATEMACHINE.currentState = nullptr;
+	GXROW_STATEMACHINE.currentState = nullptr; gxNoteCurrentState();
 
 	internalClear();
 }
@@ -401,7 +401,7 @@ StateReturnType StateMachine::resetToDefaultState()
 	// allow current state to exit with EXIT_RESET if present
 	if (GXROW_STATEMACHINE.currentState)
 		GXROW_STATEMACHINE.currentState->onExit( EXIT_RESET );
-	GXROW_STATEMACHINE.currentState = nullptr;
+	GXROW_STATEMACHINE.currentState = nullptr; gxNoteCurrentState();
 
 	//
 	// the current state has done an onExit, clear the internal guts before we set
@@ -624,7 +624,7 @@ StateReturnType StateMachine::internalSetState( StateID newStateID )
 		GXROW_STATEMACHINE.currentState->onExit( EXIT_NORMAL );
 
 	// set the new state
-	GXROW_STATEMACHINE.currentState = newState;
+	GXROW_STATEMACHINE.currentState = newState; gxNoteCurrentState();
 
 	// invoke the new state's onEnter()
 	/// @todo It might be useful to pass the old state in... (MSB)
@@ -767,7 +767,7 @@ Bool StateMachine::isGoalObjectDestroyed() const
 void StateMachine::halt()
 {
 	GXROW_STATEMACHINE.locked = true;
-	GXROW_STATEMACHINE.currentState = nullptr; // don't exit current state, just clear it.
+	GXROW_STATEMACHINE.currentState = nullptr; gxNoteCurrentState(); // don't exit current state, just clear it.
 #ifdef STATE_MACHINE_DEBUG
 	if (getWantsDebugOutput())
 	{
@@ -847,7 +847,7 @@ void StateMachine::xfer( Xfer *xfer )
 	if (xfer->getXferMode() == XFER_LOAD)	{
 		// We are going to jump into the current state.	We don't call onEnter or onExit, because the
 		// state was already active when we saved.
-		GXROW_STATEMACHINE.currentState = internalGetState( curStateID );
+		GXROW_STATEMACHINE.currentState = internalGetState( curStateID ); gxNoteCurrentState();
 	}
 
 	Bool snapshotAllStates = false;
@@ -895,7 +895,7 @@ void StateMachine::xfer( Xfer *xfer )
 		{
 			DEBUG_ASSERTCRASH(GXROW_STATEMACHINE.currentState != nullptr, ("currentState was null on xfer, trying to heal..."));
 			// Hmm... too late to find out why we are getting nullptr in our state, but if we let it go, we will Throw in xferSnapshot.
-			GXROW_STATEMACHINE.currentState = internalGetState(GXROW_STATEMACHINE.defaultStateID);
+			GXROW_STATEMACHINE.currentState = internalGetState(GXROW_STATEMACHINE.defaultStateID); gxNoteCurrentState();
 		}
 		xfer->xferSnapshot(GXROW_STATEMACHINE.currentState);
 	}
@@ -918,4 +918,13 @@ void StateMachine::loadPostProcess()
 
 State::~State()
 {
+}
+
+//-------------------------------------------------------------------------------------------------
+// web port: the current state's ID and idleness kept in the row, so isIdle() checks read no state object
+void StateMachine::gxNoteCurrentState()
+{
+	GxStateMachineRow &r = GXROW_STATEMACHINE;
+	r.gxCurID = r.currentState ? r.currentState->getID() : INVALID_STATE_ID;
+	r.gxCurIdle = r.currentState ? r.currentState->isIdle() : true;
 }

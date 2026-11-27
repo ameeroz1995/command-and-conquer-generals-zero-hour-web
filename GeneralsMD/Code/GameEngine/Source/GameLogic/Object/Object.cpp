@@ -806,6 +806,8 @@ void Object::setGeometryInfoZ( Real newZ )
 	gxGeom().setMaxHeightAbovePosition( newZ );
 	if (m_gxObj->m_partitionData)
 		m_gxObj->m_partitionData->gxRefreshPlace();	// web port: the bounding sphere may have grown
+	extern void gxSnapTouch(const Object *o);
+	gxSnapTouch(this);	// web port (snapPatch): the bounding sphere changed
 
 	if (m_gxObj->m_drawable)
 		m_gxObj->m_drawable->reactToGeometryChange();

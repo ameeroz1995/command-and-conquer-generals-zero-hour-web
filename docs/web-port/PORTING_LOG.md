@@ -4237,6 +4237,208 @@ Timing, battle benchmark, ai-33, tickTiming, timing.lock, load 4-5, kindKernels 
 Level within noise: the kernel part is a few compares per unit; the gain is the split itself (the
 kernel can later run over workers / SIMD).
 
+### ai: containers and rebuild holes as kernels (drifting part, rides on match rule updatePasses)
+- OpenContain (and every container kind: Transport, Garrison, Tunnel, Cave, Heal, InternetHack,
+  MobNexus, Overlord, Helix, Parachute, RailedTransport, RiderChange; each update() calls
+  OpenContain::update() unconditionally): the kind kernel clears the entered mask and steps the door
+  countdown of all containers ahead of the turns; update() does the rest (art monitor, door close,
+  dead wanters) in the container's own turn.
+- RebuildHoleBehavior: the kernel steps the worker wait counter of holes with no worker; a worker
+  lost this frame starts its countdown next frame.
+- Results differ from the in-turn order (riders entering / workers dying in other units' turns), so
+  it follows match rule updatePasses; switch containKernels (fourth word bit 8, default on) can turn
+  it off in local single player only (GameLogic::gxKernelSwitch).
+Checks (ai-34): referee.rep (rule off) matches; new recording ai-ck.rep made on ai-34 replays to a
+match; ai-up5.rep still matches; verify mode on the battle benchmark: 0 mismatches.
+Timing, battle benchmark, ai-34, tickTiming, timing.lock, load 4-8 (just after a reboot), containKernels off / on:
+- run 1: logic 20.37 / 21.66 ms/tick; aiLoop 10.40 / 10.90; aiKernels 0.39 / 0.41; p99 122 / 110 ms; over 100 ms 76 / 48
+- run 2: logic 21.36 / 18.46 ms/tick; aiLoop 10.79 / 9.27; aiKernels 0.41 / 0.34; p99 128 / 107 ms; over 100 ms 117 / 41
+- kernel slots 712-791/tick (counted also when off: the hook runs, the kernel returns at once)
+Level within noise (the run's work differs: 2700 vs 3000 ticks, 3215-3572 module calls/tick).
+
+### ai: SIMD step, slow-death kernel 4 rows per instruction (switch kernelSimd, fourth word bit 9, on; same game)
+- Profile of the battle benchmark (ai-34): no math loops in the ai lane; its own cost is branchy
+  scalar work (isIdle 0.5%, doLocomotor 0.5%, state updates ~0.4% each). The SIMD step applies to
+  the biggest ai kernel, SlowDeath (~250 rows/tick): with LOD scale 1 the step is integer compares
+  and adds, done 4 rows per wasm SIMD instruction, branchless (masks + and/or), gathered from and
+  scattered back to the pool; no FMA, no float math. Spawn / container kernels are one decrement
+  over a few dozen rows: left scalar.
+- Checks (ai-35): referee.rep and ai-ck.rep match; verify mode runs the scalar step on a copy of every
+  row: 37.25M checks, 0 mismatches (all GXVERIFY checks 0).
+Timing, battle benchmark, ai-35, tickTiming, timing.lock, load 2-3, kernelSimd off / on:
+- run 1: logic 15.28 / 15.22 ms/tick; aiLoop 7.48 / 7.44; aiKernels 0.271 / 0.270; p99 84.7 / 86.0 ms; over 100 ms 19 / 21
+- run 2: logic 15.04 / 14.92 ms/tick; aiLoop 7.35 / 7.25; aiKernels 0.266 / 0.256; p99 88.6 / 83.6 ms; over 100 ms 24 / 19
+- same work both sides: 3214.6 module calls/tick, 711.9 kernel slots/tick. Level to slightly faster
+  (aiKernels includes the apply step, which is most of it).
+
+### ai: kernel switches carried in the replay header (match rules kindKernelsOff 16777216, containKernelsOff 33554432)
+- Before: kindKernels / containKernels off only worked in local single player and playback forced
+  kernels on, so a single-player game recorded with a switch off would not replay.
+- Now both are "off" match rules (bits 24, 25: an old recording without them plays as before, kernels
+  on). The local switches set them; the host's Settings decide network games; the replay header keeps
+  them. GameLogic::gxKernelSwitch(offRule) = updatePasses on and offRule not set.
+Checks (ai-36): single-player game recorded with both switches off (rules 3FEE6E7 in the header)
+replays to a match (rules read back 3FEE6E7); one recorded with defaults (FEE6E7) replays to a match;
+referee.rep, ai-ck.rep, ai-up5.rep match.
+
+### ai: idle check from a cached state ID / idleness (switch dataBehaviors; same game)
+- AIUpdateInterface::isIdle() (75 call sites) read the state machine's current state object and made a
+  virtual isIdle() call. A state's isIdle() is fixed per state class, so the state machine now keeps
+  the current state's ID and idleness in its row, refreshed at the 7 places that set the current state
+  (StateMachine.cpp); isIdle() reads those two fields. All call sites benefit without being touched.
+- Verify mode compares with the old computation: 40.0M checks, 0 mismatches (battle benchmark, ai-37).
+  Replays referee.rep, ai-ck.rep, ai-kon.rep, ai-koff.rep match.
+Timing, battle benchmark, ai-36 / ai-37 (before / after), tickTiming, timing.lock, load 3-5, 3 pairs. The
+benchmark ran two ways (2700 ticks at ~3570 module calls/tick, or 3000 ticks at 3215), so compare like with like:
+- 2700-tick runs: ai-36 19.31, 19.07 ms/tick logic (aiLoop 9.68, 9.43) / ai-37 19.62, 19.49 (aiLoop 9.86, 9.73)
+- 3000-tick runs: ai-36 17.92 (aiLoop 8.86, p99 100.0 ms) / ai-37 16.48 (aiLoop 8.21, p99 94.1 ms)
+- frames over 100 ms 30-40 / 25-48. Level within noise (the expected ceiling was isIdle's 0.6% share).
+## 2026-11-26 — paths: route following with SIMD (cpopSimd), cell-types counter, pathfind/loco timing
+- Kept: c8dfa88, range kernels moved onto ai's per-kind hook (GameLogic::gxRegisterKindKernel, keyed by
+  module name, joined on first update). Store bits 20-27 and the per-unit join lists are gone. Replays:
+  referee with verify (90,584 checks, 0 mismatches), paths-r5c.rep, ai-up5.rep, paths-r5j.rep, and the
+  new paths-long-up.rep (27,000 frames, updatePasses + moveAfterTick) all match.
+- Kept: cpopSimd (fourth word bit 18, on; only acts with cpopSegments, third word bit 0, still off).
+  Path::computePointOnPath keeps the flat segments as columns (start, direction, length, prefix sum
+  in walk order) and finds the closest segment 8 at a time (two independent 4-lane chains, wasm SIMD,
+  separate mul/add, no FMA, ties to the lowest index). The last segment and the winner's point stay
+  scalar. Same floats as the scalar walk: battle benchmark in verify mode, 820,000 calls compared
+  (48.2 M segments), 0 mismatches.
+- Kept: Pathfinder::gxCellTypeVersion() (global gxPathCellTypesGen), goes up on every PathfindCell
+  type change (cell reset/setType/setTypeAsObstacle/removeObstacle/clearObstruction, layer
+  reset/allocate/destroy, pathfinder reset/newMap). For ai's caches.
+- Measuring: GxTime pathfind and loco timers, counters pathFinds, pathCells, locoCalls, cpopCalls,
+  cpopSimdSegs.
+- Battle benchmark (tickTiming, lane 3, load < 8): the scripted battle diverges between builds
+  (r5k/r5l run ~780 movers/tick vs ~700 for r5before2/paths-iso), so only same-counter pairs compare.
+  cpopSimd on vs off with identical counters (simd1 vs segs2): logic 18.35 vs 21.28 ms/tick, pathfind
+  2.93 vs 3.23, loco 0.73 vs 0.84; p99 160.5 vs 118.0 ms, frames over 100 ms 99 vs 69 (load ~5, noisy).
+
+### ai: same-cell locomotor skip (switch dataBehaviors; same game; uses paths' Pathfinder::gxCellTypeVersion, b4f1531)
+- chooseGoodLocomotorFromCurrentSet asked Pathfinder::chooseBestLocomotorForPosition every tick for every
+  moving unit (one pathfind-cell read + findLocomotor). The AI row keeps the last answer with its key
+  (cell x/y, layer, cell-type version); same key -> same answer. Invalidated wherever the locomotor set
+  is rebuilt (4 clears + load).
+Checks (ai-38): verify mode calls the pathfinder on every cache hit and compares: 46.7M checks,
+0 mismatches; referee.rep, ai-ck.rep, ai-kon.rep, ai-koff.rep match.
+Timing, battle benchmark, ai-38m (same tree, skip compiled out) / ai-38, tickTiming, timing.lock, load 3-5:
+- 2700-tick runs: ai-38m 18.88 ms/tick logic (aiLoop 9.26) / ai-38 18.85, 19.07 (aiLoop 9.19, 9.26)
+- 3000/3300-tick runs (different work, not comparable): ai-38m 16.69, 16.52 / ai-38 14.62 (3300 ticks)
+Level within noise (the ceiling was the call's 0.4% self share).
+
+### ai: spawn slaved cache, PropagandaTower scan, batchScan rule (ai-40)
+- SpawnBehavior::computeAggregateStates looked up each slave's SlavedUpdateInterface by name every
+  call. The row keeps (ObjectID, interface) pairs (switch dataBehaviors, same game). Verify: 27.6M
+  checks, 0 mismatches.
+- PropagandaTowerBehavior: the per-object KindOf test uses one static mask (isAnyKindOf) and the
+  upgrade is looked up once per tower, not per unit (dataBehaviors, same game).
+- StealthUpdate: looked, nothing worth building (cost is the call itself).
+- batchScan (fifth word bit 0, off) = match rule GXRULE_BATCH_SCAN (bit 26). Needs updatePasses and
+  kind kernels on. A per-kind kernel collects the units whose mood scan is due this frame and asks
+  gxBatchFindClosestEnemy for all of them at once (query's SIMD pass; a weak fallback calls
+  findClosestEnemy per unit). getNextMoodTarget uses the stored answer when the stamp, range, flags
+  and priority info match; a dead answer is searched again. Answers come from earlier in the frame,
+  so it is a rule, not a plain switch.
+Checks (ai-40): referee.rep, ai-ck.rep, ai-kon.rep, ai-koff.rep match; ai-bs.rep (batchScan on,
+GXRULES 4FEE6E7) records and replays to a match.
+Timing, battle benchmark, ai-38 / ai-40 (batchScan off), tickTiming, timing.lock, load 6-7 (busy):
+- 2700-tick pair: ai-38 25.13 ms/tick logic (aiLoop 12.70) / ai-40 25.32 (aiLoop 12.88)
+- ai-40 2700-tick runs 24.99, 25.39; ai-38 3000-tick runs 21.87, 22.23 (not comparable)
+Level within noise. batchScan on is timed once query's pass lands.
+
+## Round 5 (query) continued: PartitionData row, DynamicShroudClearingRange and Stealth kernels
+- PartitionData's own per-object web-port state (cached place x/y/r for pairPlace/pairOffer, fogKeep's pure /
+  kept bits) moved into PartitionDataGxRow on GxComponentPool (keyed by the PartitionData: ghost objects have
+  no store slot). The per-COI copies stay in the COIs (one per cell entry). Referee + query-mgr5.rep match (query-31).
+- DynamicShroudClearingRange: gxDscruStep is the kernel (reads state, countdowns, range, deadlines and copied
+  module data; writes only the row's next record; same arithmetic and types: the countdown is signed, deadlines
+  unsigned); update() is the apply step: decals first (animateGridDecals reads the pre-step range and
+  countdown), then commit, then setShroudClearingRange. A row whose inputs changed since gets the step inline.
+- Stealth: gxStealthStep precomputes the pure per-frame math (pulse opacity/phase, disguise transition
+  countdown and factor, granted-frames countdown); update() uses each piece only when its inputs are unchanged.
+  The rest (AI victim, status bits, containers, sounds) stays in the apply step.
+- Both under rowKernels (fourth word bit 12). Referee + query-mgr5.rep match (query-32).
+
+## simdPairs (fourth word bit 17, default on) and verify checks for the SIMD culls
+- addPossibleCollisions (pairOffer path): neighbour COIs are gathered 4 at a time into f32x4 and culled by the
+  same f32 distance test (drop only when > limit², NaN kept); kept lanes get the scalar test unchanged.
+- Verify: every lane the SIMD cull drops (simdPairs and simdSearch) is rechecked with the scalar test.
+  Battle verify on query-34 (300 s, pairOffer + scanManager): simdPairs 9.6M and simdSearch 9.8M dropped lanes
+  checked, 0 mismatches; fogKeep 2.54M checks, 0. Replays referee, query-mgr5, query-mgr6 match (query-33).
+- Battle counters (query-33, tickTiming): pairs tested 3942/tick, SIMD-culled 4395/tick; search entries 27446,
+  SIMD-culled 5880/tick.
+
+## PartitionData state into store columns; ILP in the SIMD culls (LOGIC_AGENTS "SIMD step")
+- PartitionDataGxRow is gone: the cached place (placeX/Y/R) and fogKeep bits (fogPure, fogKeptMask, fogKept:
+  4 bits a player) are a query block in TheGxUnitStore (added, reserved, permuted with the rest). A
+  PartitionData reaches them through its object's store slot; attachToObject resets them (a new PartitionData
+  knows no place: placeR = HUGE_DIST, never turned away). Ghost-only PartitionData has no slot: no place,
+  nothing kept (the switch-off behaviour). The per-COI place copies stay in the COIs (one per cell entry).
+- simdPairs and simdSearch: blocks of 8 with two independent f32x4 chains (was one block of 4), branchless
+  masks, same f32 ops (no FMA / relaxed SIMD); tails under 4 are kept as before.
+- query-36: referee, query-mgr5, query-mgr6 match; battle verify: simdPairs 9.6M / simdSearch 9.8M dropped
+  lanes checked, fogKeep 2.54M, all 0 mismatches.
+
+## Battle timing pairs (rule "fps is not the measure"; tickTiming on, pairOffer + scanManager, under timing.lock, load < 8)
+| switch off -> on | logic ms/tick | own ms/tick | counters/tick | p99 ms | frames > 100 ms |
+|---|---|---|---|---|---|
+| fogKeep (q33) | 17.4 -> 15.8 | search 2.28 -> 2.10 | fog recomputes 992 -> 141 (855 kept) | 108.5 -> 90.6 | 46 -> 22 |
+| fogStamps (q33) | 16.3 -> 15.5 | fogReveal 0.10 -> 0.06 | 19.8 circles, 5.4k cells | 91.2 -> 94.4 | 22 -> 21 |
+| simdPairs (q36) | 15.9 -> 15.6 | - | pairs scalar-tested 6549 -> 3335 (3214 SIMD-culled) | 89.9 -> 87.9 | 20 -> 20 |
+| simdSearch (q36) | 17.3 -> 17.3 | search 2.33 -> 2.32 | 21.9k entries, 4.6k SIMD-culled | 103.4 -> 100.4 | 34 -> 31 |
+| rowKernels (q33) | 22.1 -> 22.2 | - | same work (main thread) | 126.9 -> 127.5 | 73 -> 81 |
+- fogKeep is the one clear gain; the SIMD culls halve the scalar tests but the search cost is the per-unit
+  body after the cull (distProc, filters), so ms/tick barely moves; rowKernels on one thread is neutral.
+
+## SIMD step (query): simdBody (fourth word bit 30) and snapPatch (bit 31), both on, same game
+- Profile (battle, query-36): getClosestObjects 8.5% inclusive, filters only 1.2%; gxManagedSearch's own
+  3.1% was mostly gxBuildStoreSnapshot: every new object bumps the store epoch, so scanManager rebuilt its
+  per-cell lists 2.8-3.1 times a tick, 1.0-1.6 of the 2.1-3.0 ms/tick search time (GXTIME snapBuild).
+- simdBody: in the scanManager walk, the body's enemy test (player bits) and the 2D distance
+  (distCalcProc_CenterAndCenter_2D / BoundaryAndBoundary_2D: same f32 ops, sqrt, div, no FMA) for the
+  same blocks of 8 as simdSearch, in two f32x4 chains; the scalar body uses the lane's values.
+  Verify: every lane's distance and vector bit-compared with distProc: 3.6M, 0 mismatches.
+  Timing: no measurable change (search 2.18 -> 2.26, logic 16.4 -> 16.4): the body is not the cost.
+- snapPatch: after a frame's full build, a later rebuild request recomputes only slots whose id/x/y/radius
+  differ bit-wise from the base build (compared 8 per step, two i32x4 chains) or that were touched
+  (registerObject, unRegisterObject, setGeometryInfoZ), and replaces only the lists of cells such a slot
+  covered or covers (merged ascending, as the full build orders them). Partition presence and sphere radius
+  are cached per object ID (cleared by the same touches and PartitionManager::reset).
+  Verify: each snapshot compared with a fresh uncached full build, lists and radii: 6000, 0 mismatches.
+- Replays referee, query-mgr5, query-mgr6 match (query-42). Battle pair (query-42, tickTiming):
+| snapPatch off -> on | logic 18.7 -> 18.7 | search 2.99 -> 2.10 | snapshot 1.60 -> 0.58 (builds 3.1 -> 0.7 + patches 2.4) | p99 107 -> 96 ms | > 100 ms 40 -> 24 |
+
+## batchScan (query side; ai's switch: fifth word value 1, match rule GXRULE_BATCH_SCAN 67108864)
+- gxBatchFindClosestEnemy(n, me, range, qualifiers, info, out): out[i] = TheAI->findClosestEnemy(...) as of the
+  call. Each scan keeps findClosestEnemy (filters, early outs); its getClosestObject goes to gxBatchClosest:
+  an f32x4 cull over the store's live place columns (placeX/Y/R, playerBit; two chains, 8 a step), then the
+  walk's answer rebuilt from the survivors: the passing objects in the lowest ring any is in (COI cells, or with
+  scanManager the tick lists' boxes and the walk's cell-mask skips), the nearest; ties to the earlier visit
+  (same cell: slot order with the tick lists; COI lists: falls back to the walk).
+- Batches of 16+ scans (a driver call, or scanManager's prefetch pass under GXRULE_BATCH_SCAN) cull from
+  per-batch, per-enemy-mask lists sorted by place x (binary-searched window); smaller ones read the store directly.
+- Verify (bit 21, every answer vs the old walk at the same moment; local test routing getNextMoodTarget's scan
+  and the prefetch through it): scanManager on 84,000-88,000 checked, 0 mismatches; off 46,000, 0 (53 tie
+  fallbacks). Replays referee, query-mgr5, query-mgr6 match.
+- Profile (strikes, n = 1 per call, local test): search self 3.7% -> 3.4% (scanManager on), 2.7% -> 3.0% (off).
+  Battle pair under load 7-9 (rough): search 2.09 -> 2.01 ms/tick, logic 19.8 -> 18.3. The gain is in batching
+  many seekers per call (ai's wiring); re-time once wired.
+
+### ai: batchScan wired to query's gxBatchFindClosestEnemy (merged 88a3744)
+- The weak fallback is gone. Each AI kind's kernel only collects; the first mood-scan turn of the
+  tick searches every collected unit of every AI kind in one call (query's pass wants 16+ seekers).
+- Collect filter, from a verify-mode diagnosis (temporary, removed): the first wiring collected 230
+  units/tick for 10 answers used. Units are now collected only if due (nextMoodCheckTime), in a
+  state that scans (AI_IDLE with AAS_Idle, attack-move, attack-follow-waypoints), not attacking, the
+  machine awake, not on an attack-common-target team, the module due this tick. Attack-move units
+  whose inner machine stays busy stay "due" for good and were collected every tick (54k of 76k
+  unused answers): a unit that left last tick's answer unused (gxScanMiss) is not collected again
+  until its own routine scan runs. Battle, verify: 4.4 collected / 4.2 used per tick, of 16.7 mood
+  scans (the rest come from turrets, attack states, forced retargets, or are not due at kernel time).
+- Verify (battle, batchScan on): used answers differ from a search in the turn 0 of 13,000; query's
+  per-answer check 1 mismatch in 124,000 (tick-list path, radius grown after the snapshot; query's
+  fix 88568b9).
+
 ## 2026-11-26 — combat: splash SIMD, damage table, last data, ILP, FireWeapon kind kernel (logic-combat)
 - splashSimd (fourth word bit 25, off; same game): a splash's victims (WeaponTemplate::dealDamageInternal)
   come from PartitionManager::gxSplashSearch: a SIMD pass over the unit store's x/y/sphere columns keeps

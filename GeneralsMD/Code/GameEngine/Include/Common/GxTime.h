@@ -18,7 +18,10 @@
 #include <emscripten.h>
 extern int GLES3_Page_Switches4();
 #else
+#ifndef GX_SWITCHES4_FALLBACK
+#define GX_SWITCHES4_FALLBACK
 static inline int GLES3_Page_Switches4() { return 0; }
+#endif
 static inline double emscripten_get_now() { return 0.0; }
 #endif
 
@@ -26,6 +29,7 @@ enum GxTimeId { GXT_LOGIC, GXT_FRAME, GXT_SEARCH, GXT_FOG_REVEAL, GXT_MOVE, GXT_
 	GXT_SPLASH, GXT_ESTIMATE, GXT_RELOAD,	// combat
 	GXT_PHYSICS, GXT_COLLIDE_BUILD, GXT_COLLIDE_PROCESS,	// collide
 	GXT_CLIENT, GXT_CONTROLBAR,	// combat: GameClient::update, ControlBar::update (selection UI)
+	GXT_PATHFIND, GXT_LOCO, GXT_SNAP, GXT_PATCH, GXT_PART_UPDATE, GXT_CELLS, GXT_PAIRS,	// paths / ai / query
 	GXT_TIME_COUNT };
 enum GxCountId
 {
@@ -42,6 +46,9 @@ enum GxCountId
 	// combat: game memory blocks allocated inside weapon fire (includes the damage it deals), damage
 	// dealing (splash lists included), damage estimates for target choice, projectile updates
 	GXC_ALLOC_FIRE, GXC_ALLOC_DAMAGE, GXC_ALLOC_ESTIMATE, GXC_ALLOC_PROJECTILE, GXC_ALLOC_FX, GXC_ALLOC_SPAWN,
+	GXC_PATH_FINDS, GXC_PATH_CELLS, GXC_LOCO_CALLS, GXC_CPOP_CALLS, GXC_CPOP_SIMD_SEGS,
+	GXC_MOOD_SCANS, GXC_BATCH_SCANNED, GXC_BATCH_USED, GXC_BATCH_CALLS,
+	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES,
 	GXC_COUNT
 };
 
@@ -103,7 +110,7 @@ inline void gxTimeTickEnd()
 	if (!gxTimingOn()) return;
 	GxTimeState &s = gxTime();
 	if (++s.ticks % 300) return;
-	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "move", "moveKernel", "aiLoop", "aiKernels", "splash", "estimate", "reload", "physics", "collideBuild", "collideProcess", "client", "controlBar" };
+	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "move", "moveKernel", "aiLoop", "aiKernels", "splash", "estimate", "reload", "physics", "collideBuild", "collideProcess", "client", "controlBar", "pathfind", "loco", "snapBuild", "snapPatch", "partUpdate", "cellsTouched", "pairOffers" };
 	static const char *cn[GXC_COUNT] = { "searches", "searchCells", "searchEntries", "searchUnits", "simdCulled",
 		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept",
 		"moveUnits", "moveKernelPoints", "moveKernelTaken", "moveApplyPoints", "hordeSearches",
@@ -111,7 +118,10 @@ inline void gxTimeTickEnd()
 		"splashes", "splashVictims", "splashScanned", "splashNear",
 		"estimates", "tableHits", "tableMisses", "bonusHits", "bonusMisses", "reloadRows", "reloadChanged", "heightDieRedone",
 		"physUnits", "collideSeekers", "pairCells", "pairTests", "pairs", "allocs",
-		"allocFire", "allocDamage", "allocEstimate", "allocProjectile", "allocFx", "allocSpawn" };
+		"allocFire", "allocDamage", "allocEstimate", "allocProjectile", "allocFx", "allocSpawn",
+		"pathFinds", "pathCells", "locoCalls", "cpopCalls", "cpopSimdSegs",
+		"moodScans", "batchScanned", "batchUsed", "batches",
+		"pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())

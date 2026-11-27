@@ -919,6 +919,7 @@ Bool SpawnBehavior::shouldTryToSpawn()
 //* as an average position of all the spawn.
 //********************************************************************
 
+extern int GLES3_Page_Switches4();
 void SpawnBehavior::computeAggregateStates()
 {
 	if ( ! GXROW_SPAWNBEHAVIOR.aggregateHealth ) // sanity
@@ -949,7 +950,11 @@ void SpawnBehavior::computeAggregateStates()
 
 	GXROW_SPAWNBEHAVIOR.selfTaskingSpawnCount = 0;
 
-	for( objectIDListIterator iter = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); iter != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); iter++)
+	const Bool gxCache = (GLES3_Page_Switches4() & 64) != 0;	// dataBehaviors
+	if (gxCache && GXROW_SPAWNBEHAVIOR.gxSlaved.size() != GXROW_SPAWNBEHAVIOR.spawnIDs.size())
+		GXROW_SPAWNBEHAVIOR.gxSlaved.resize(GXROW_SPAWNBEHAVIOR.spawnIDs.size(), std::make_pair((ObjectID)INVALID_ID, (SlavedUpdateInterface *)nullptr));
+	size_t gxK = 0;
+	for( objectIDListIterator iter = GXROW_SPAWNBEHAVIOR.spawnIDs.begin(); iter != GXROW_SPAWNBEHAVIOR.spawnIDs.end(); iter++, gxK++)
 	{
 		currentSpawn = TheGameLogic->findObjectByID( (*iter) );
 
@@ -957,15 +962,36 @@ void SpawnBehavior::computeAggregateStates()
 		{
 			//GXROW_SPAWNBEHAVIOR.selfTaskingSpawnCount += ( currentSpawn->isSelf);
 
-			for (BehaviorModule** update = currentSpawn->getBehaviorModules(); *update; ++update)
+			SlavedUpdateInterface* sdu = nullptr;
+			if (gxCache && GXROW_SPAWNBEHAVIOR.gxSlaved[gxK].first == *iter)
 			{
-				SlavedUpdateInterface* sdu = (*update)->getSlavedUpdateInterface();
-				if (sdu != nullptr)
+				sdu = GXROW_SPAWNBEHAVIOR.gxSlaved[gxK].second;
+				if (GLES3_Page_Switches() & 2097152)	// verify mode: the scan must find the same module
 				{
-					GXROW_SPAWNBEHAVIOR.selfTaskingSpawnCount += ( sdu->isSelfTasking());
-					break;
+					SlavedUpdateInterface* real = nullptr;
+					for (BehaviorModule** update = currentSpawn->getBehaviorModules(); *update && !real; ++update)
+						real = (*update)->getSlavedUpdateInterface();
+					extern int gx_verify_mismatch, gx_verify_checked;
+					++gx_verify_checked;
+					static int n = 0;
+					if (real != sdu) ++gx_verify_mismatch;
+					if (real != sdu || (++n % 50000) == 0)
+						printf("GXVERIFY spawn slaved cache: %s, checked %d, mismatches %d\n", real == sdu ? "ok" : "MISMATCH", gx_verify_checked, gx_verify_mismatch);
 				}
 			}
+			else
+			{
+				for (BehaviorModule** update = currentSpawn->getBehaviorModules(); *update; ++update)
+				{
+					sdu = (*update)->getSlavedUpdateInterface();
+					if (sdu != nullptr)
+						break;
+				}
+				if (gxCache)
+					GXROW_SPAWNBEHAVIOR.gxSlaved[gxK] = std::make_pair(*iter, sdu);
+			}
+			if (sdu != nullptr)
+				GXROW_SPAWNBEHAVIOR.selfTaskingSpawnCount += ( sdu->isSelfTasking());
 
 
 			// VETERANCY LEVEL *************************************

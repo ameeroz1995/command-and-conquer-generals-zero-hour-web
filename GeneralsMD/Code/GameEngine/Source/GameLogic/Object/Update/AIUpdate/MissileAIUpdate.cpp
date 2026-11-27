@@ -143,7 +143,6 @@ MissileAIUpdate::MissileAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 //-------------------------------------------------------------------------------------------------
 MissileAIUpdate::~MissileAIUpdate()
 {
-	GxModuleList<MissileAIUpdate>::leave(this, R().gxId);
 	GxComponentPool<GxState>::the().release(m_gxRow);
 	tossExhaust();
 }
@@ -668,7 +667,6 @@ static Bool gxMissileKernel(MissileAIUpdate::GxState &r, const Coord3D &newPos, 
 }
 
 // web port (round 5): the range kernel through ai's hook, at the start of this module's phase
-GX_PATHS_KERNEL(MissileAIUpdate, GXB_PK_MISSILE, PHASE_INITIAL)
 void MissileAIUpdate::gxKernelStep(UnsignedInt now)
 {
 	// reads: its row, its position, the frame; writes: its row (distance flown, decoy timer, op)
@@ -679,7 +677,7 @@ void MissileAIUpdate::gxKernelStep(UnsignedInt now)
 
 UpdateSleepTime MissileAIUpdate::update()
 {
-	GX_PK_JOIN(MissileAIUpdate, GXB_PK_MISSILE)
+	GX_PK_JOIN(MissileAIUpdate)
 	Coord3D newPos = *getObject()->getPosition();
 	//If this missile has been marked to divert to countermeasures, check when
 	//that will occur, then do it when the timer expires (the kernel says when; apply below).

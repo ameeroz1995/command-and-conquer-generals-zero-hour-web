@@ -106,8 +106,19 @@ public:
 
 //-------------------------------------------------------------------------------------------------
 // Web port (round 5): StealthUpdate's per-unit state, one row per module in its component table
+// round 5 kernel output (gxStealthStep): the pure per-frame math, each piece with the inputs it read
+struct GxStealthNext
+{
+	unsigned int stamp;													///< frame + 1 when valid
+	Real inPhase, inRate, phase, pulseOpacity;					///< pulse: opacity from the phase, then the phase advanced
+	UnsignedInt inTrans; Bool inTo; UnsignedInt trans; Real factor;	///< disguise transition: one frame less, and its factor
+	UnsignedInt inGranted, granted;								///< temporary stealth: one frame less
+};
+
 struct StealthUpdateRow
 {
+	UnsignedInt m_gxDataTransFrames, m_gxDataRevealFrames;	///< copies of the module data the kernel reads
+	GxStealthNext m_gxNext;
 	UnsignedInt						m_stealthAllowedFrame;
 	UnsignedInt						m_detectionExpiresFrame;
 	UnsignedInt		m_nextBlackMarketCheckFrame;

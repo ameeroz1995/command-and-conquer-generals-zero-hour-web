@@ -39,6 +39,11 @@ class Bridge;
 class Object;
 class Weapon;
 class PathfindZoneManager;
+/// Web port (for ai): bumped whenever any pathfind cell's type may change (every write of a cell type,
+/// on any layer, including map resets). A caller that cached something derived from a cell's type
+/// (e.g. the best locomotor for the cell a unit stands in) may keep it while this and the cell stay the same.
+extern UnsignedInt gxPathCellTypesGen;
+
 class PathfindCell;
 class Path;
 
@@ -205,6 +210,9 @@ public:
 	struct GxSeg { const PathNode *prev, *node; Coord3D prevPos, nodePos; Coord2D dir; Real len; Bool last; };
 	Bool										m_gxSegsValid = FALSE;
 	std::vector<GxSeg>			m_gxSegs;
+	// Web port (switch cpopSimd, with cpopSegments): the segments' start, direction and length as columns,
+	// and cum[i] = the path length before segment i (summed in walk order, so the same floats as the walk)
+	std::vector<Real>			m_gxSx, m_gxSy, m_gxDx, m_gxDy, m_gxLen, m_gxCum;
 	// Web port (match rule routeRefine): detailed only up to m_gxRefineEnd, zone-level after it
 	Bool										m_gxRefine = FALSE;
 	Coord3D									m_gxRefineEnd;
@@ -347,7 +355,7 @@ public:
 #if RETAIL_COMPATIBLE_PATHFINDING_ALLOCATION
 	// TheSuperHackers @info isObstructionInvalid() and clearObstruction() only used during retail compatible pathfinding failover cleanup
 	Bool isObstructionInvalid() const { return m_obstacleID != INVALID_ID && m_info == nullptr && (m_type == CELL_OBSTACLE || m_type == CELL_IMPASSABLE); }
-	void clearObstruction() { m_type = CELL_CLEAR; m_obstacleID = INVALID_ID; m_obstacleIsFence = false; m_obstacleIsTransparent = false; }
+	void clearObstruction() { ++gxPathCellTypesGen; m_type = CELL_CLEAR; m_obstacleID = INVALID_ID; m_obstacleIsFence = false; m_obstacleIsTransparent = false; }
 #endif
 
 	inline Bool isObstacleTransparent() const;
@@ -728,6 +736,7 @@ public:
 
 	void newMap();
 
+	static UnsignedInt gxCellTypeVersion() { return gxPathCellTypesGen; }	///< web port (for ai): goes up whenever any cell's type can change (gxPathCellTypesGen)
 	PathfindCell *getCell( PathfindLayerEnum layer, Int x, Int y );							///< Return the cell at grid coords (x,y)
 	Path *gxFlowFieldPath( Object *obj, const LocomotorSet& locomotorSet, const Coord3D *from, const Coord3D *rawTo,
 		PathfindCell *startCell, PathfindCell *goalCell, Bool isCrusher, Bool centerInCell );	///< web port: long ground paths from a shared field (switch flowFields)

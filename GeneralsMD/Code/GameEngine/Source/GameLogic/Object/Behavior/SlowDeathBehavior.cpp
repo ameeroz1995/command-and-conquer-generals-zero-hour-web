@@ -410,8 +410,10 @@ extern int GLES3_Page_Switches();
 enum { GXSD_INSTANT = 1, GXSD_FLUNG = 2, GXSD_SINK = 4, GXSD_MIDPOINT = 8, GXSD_FINAL = 16 };
 UnsignedInt SlowDeathBehavior::gxStep( UnsignedInt now, Real timeScale )
 {
-	const SlowDeathBehaviorModuleData* d = getSlowDeathBehaviorModuleData();
-	GxSlowDeathBehaviorRow &r = GXROW_SLOWDEATHBEHAVIOR;
+	return gxStepRow(GXROW_SLOWDEATHBEHAVIOR, getSlowDeathBehaviorModuleData(), now, timeScale);
+}
+UnsignedInt SlowDeathBehavior::gxStepRow( GxSlowDeathBehaviorRow &r, const SlowDeathBehaviorModuleData *d, UnsignedInt now, Real timeScale )
+{
 
 	// Check if we have normal time scale but LODManager is requesting acceleration
 	if (timeScale != 1.0f && r.acceleratedTimeScale == 1.0f && !d->hasNonLodEffects())
@@ -511,12 +513,101 @@ UpdateSleepTime SlowDeathBehavior::gxApplyStep( UnsignedInt due )
 	return UPDATE_SLEEP_NONE;
 }
 
+// SIMD step (switch kernelSimd, fourth word bit 9; same game): with no LOD time scale (the scale branch
+// cannot fire) the step is integer compares and adds, done 4 rows per instruction, branchless; rows are
+// gathered from and scattered back to the pool. Bit-exact with gxStepRow (verify mode checks it).
+#ifdef __EMSCRIPTEN__
+#include <wasm_simd128.h>
+extern int GLES3_Page_Switches4();
+void SlowDeathBehavior::gxKernelSimd( UpdateModulePtr *mods, Int begin, Int end, UnsignedInt now )
+{
+	const v128_t nowv = wasm_i32x4_splat((int)now);
+	const v128_t fFlung = wasm_i32x4_splat(1 << FLUNG_INTO_AIR), fBounced = wasm_i32x4_splat(1 << BOUNCED);
+	const v128_t fMid = wasm_i32x4_splat(1 << MIDPOINT_EXECUTED), zero = wasm_i32x4_splat(0);
+	const v128_t bFlung = wasm_i32x4_splat(GXSD_FLUNG), bSink = wasm_i32x4_splat(GXSD_SINK);
+	const v128_t bMid = wasm_i32x4_splat(GXSD_MIDPOINT), bFinal = wasm_i32x4_splat(GXSD_FINAL);
+	Int k = begin;
+	for (; k + 4 <= end; k += 4)
+	{
+		GxSlowDeathBehaviorRow *r0 = &static_cast<SlowDeathBehavior *>(mods[k])->gxRow();
+		GxSlowDeathBehaviorRow *r1 = &static_cast<SlowDeathBehavior *>(mods[k + 1])->gxRow();
+		GxSlowDeathBehaviorRow *r2 = &static_cast<SlowDeathBehavior *>(mods[k + 2])->gxRow();
+		GxSlowDeathBehaviorRow *r3 = &static_cast<SlowDeathBehavior *>(mods[k + 3])->gxRow();
+		const SlowDeathBehaviorModuleData *d0 = static_cast<SlowDeathBehavior *>(mods[k])->getSlowDeathBehaviorModuleData();
+		const SlowDeathBehaviorModuleData *d1 = static_cast<SlowDeathBehavior *>(mods[k + 1])->getSlowDeathBehaviorModuleData();
+		const SlowDeathBehaviorModuleData *d2 = static_cast<SlowDeathBehavior *>(mods[k + 2])->getSlowDeathBehaviorModuleData();
+		const SlowDeathBehaviorModuleData *d3 = static_cast<SlowDeathBehavior *>(mods[k + 3])->getSlowDeathBehaviorModuleData();
+		v128_t sink = wasm_i32x4_make(r0->sinkFrame, r1->sinkFrame, r2->sinkFrame, r3->sinkFrame);
+		v128_t mid = wasm_i32x4_make(r0->midpointFrame, r1->midpointFrame, r2->midpointFrame, r3->midpointFrame);
+		v128_t dst = wasm_i32x4_make(r0->destructionFrame, r1->destructionFrame, r2->destructionFrame, r3->destructionFrame);
+		const v128_t fl = wasm_i32x4_make(r0->flags, r1->flags, r2->flags, r3->flags);
+		const v128_t sinkPos = wasm_i32x4_make(d0->m_sinkRate > 0.0f ? -1 : 0, d1->m_sinkRate > 0.0f ? -1 : 0,
+			d2->m_sinkRate > 0.0f ? -1 : 0, d3->m_sinkRate > 0.0f ? -1 : 0);
+		// flung and not yet bounced: all three frames move one later (mask is -1, so subtracting adds 1)
+		const v128_t flung = wasm_v128_andnot(wasm_i32x4_ne(wasm_v128_and(fl, fFlung), zero),
+			wasm_i32x4_ne(wasm_v128_and(fl, fBounced), zero));
+		sink = wasm_i32x4_sub(sink, flung);
+		mid = wasm_i32x4_sub(mid, flung);
+		dst = wasm_i32x4_sub(dst, flung);
+		const v128_t sinkDue = wasm_v128_and(wasm_u32x4_ge(nowv, sink), sinkPos);
+		const v128_t midDue = wasm_v128_and(wasm_u32x4_ge(nowv, mid), wasm_i32x4_eq(wasm_v128_and(fl, fMid), zero));
+		const v128_t finDue = wasm_u32x4_ge(nowv, dst);
+		const v128_t due = wasm_v128_or(wasm_v128_or(wasm_v128_and(flung, bFlung), wasm_v128_and(sinkDue, bSink)),
+			wasm_v128_or(wasm_v128_and(midDue, bMid), wasm_v128_and(finDue, bFinal)));
+#define GXSD_PUT(i, r) \
+		r->sinkFrame = wasm_i32x4_extract_lane(sink, i); r->midpointFrame = wasm_i32x4_extract_lane(mid, i); \
+		r->destructionFrame = wasm_i32x4_extract_lane(dst, i); r->gxDue = wasm_i32x4_extract_lane(due, i); r->gxKernelFrame = now;
+		GXSD_PUT(0, r0) GXSD_PUT(1, r1) GXSD_PUT(2, r2) GXSD_PUT(3, r3)
+#undef GXSD_PUT
+	}
+	for (; k < end; ++k)
+	{
+		SlowDeathBehavior *m = static_cast<SlowDeathBehavior *>(mods[k]);
+		GxSlowDeathBehaviorRow &r = m->gxRow();
+		r.gxDue = gxStepRow(r, m->getSlowDeathBehaviorModuleData(), now, 1.0f);
+		r.gxKernelFrame = now;
+	}
+}
+#endif
+
 void SlowDeathBehavior::gxKernel( UpdateModulePtr *mods, Int begin, Int end )
 {
 	const UnsignedInt now = TheGameLogic->getFrame();	// read only: fixed for the frame
 	const Real timeScale = TheGameLODManager->getSlowDeathScale();
 	const Bool gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
 	s_gxTimeScale = timeScale;
+#ifdef __EMSCRIPTEN__
+	if (timeScale == 1.0f && (GLES3_Page_Switches4() & 512))	// kernelSimd
+	{
+		static std::vector<GxSlowDeathBehaviorRow> before;
+		if (gxVerify)
+		{
+			before.clear();
+			for (Int k = begin; k < end; ++k) before.push_back(static_cast<SlowDeathBehavior *>(mods[k])->gxRow());
+		}
+		gxKernelSimd(mods, begin, end, now);
+		if (gxVerify)
+		{
+			// the scalar step on the rows as they were must give the same rows and results
+			for (Int k = begin; k < end; ++k)
+			{
+				SlowDeathBehavior *m = static_cast<SlowDeathBehavior *>(mods[k]);
+				GxSlowDeathBehaviorRow r = before[k - begin];
+				const UnsignedInt due = gxStepRow(r, m->getSlowDeathBehaviorModuleData(), now, timeScale);
+				const GxSlowDeathBehaviorRow &v = m->gxRow();
+				gxSlowDeathVerify("slowDeathSimd", due == v.gxDue && r.sinkFrame == v.sinkFrame
+					&& r.midpointFrame == v.midpointFrame && r.destructionFrame == v.destructionFrame);
+			}
+			for (Int k = begin; k < end; ++k)	// the snapshot the apply check compares with
+			{
+				GxSlowDeathBehaviorRow &r = static_cast<SlowDeathBehavior *>(mods[k])->gxRow();
+				r.gxSnap[0] = r.sinkFrame; r.gxSnap[1] = r.midpointFrame; r.gxSnap[2] = r.destructionFrame;
+				memcpy(&r.gxSnap[3], &r.acceleratedTimeScale, 4); r.gxSnap[4] = r.flags;
+			}
+		}
+		return;
+	}
+#endif
 	for (Int k = begin; k < end; ++k)
 	{
 		SlowDeathBehavior *m = static_cast<SlowDeathBehavior *>(mods[k]);
