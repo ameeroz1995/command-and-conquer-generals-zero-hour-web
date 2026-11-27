@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/Geometry.h"
 #include "GameLogic/Module/DynamicGeometryInfoUpdate.h"
+#include "Common/GxComponentPool.h"
 
 // ------------------------------------------------------------------------------------------------
 enum { MAX_FIRESTORM_SYSTEMS = 16 };
@@ -76,8 +77,16 @@ protected:
 
 	void doDamageScan();
 
-	ParticleSystemID m_myParticleSystemID[ MAX_FIRESTORM_SYSTEMS ];
-	Bool m_effectsFired;							///< TRUE once the effects have been fired off
-	Bool m_scorchPlaced;							///< TRUE once we have placed the scorch mark
-	UnsignedInt m_lastDamageFrame;		///< frame we last did damage on
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		ParticleSystemID m_myParticleSystemID[ MAX_FIRESTORM_SYSTEMS ];
+		Bool m_effectsFired;							///< TRUE once the effects have been fired off
+		Bool m_scorchPlaced;							///< TRUE once we have placed the scorch mark
+		UnsignedInt m_lastDamageFrame;		///< frame we last did damage on
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 };

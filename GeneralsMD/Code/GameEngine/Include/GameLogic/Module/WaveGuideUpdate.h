@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 struct FieldParse;
@@ -93,18 +94,26 @@ protected:
 	void doShoreEffects();					///< do any effects on the shorelines
 	void doDamage();								///< do damage to things that have crossed our path
 
-	UnsignedInt m_activeFrame;						///< frame we became active on
-	Bool m_needDisable;
-	Bool m_initialized;										///< set to TRUE after we're enabled and in motion
-
 	enum { MAX_WAVEGUIDE_SHAPE_POINTS = 64 };
-	Coord3D m_shapePoints[ MAX_WAVEGUIDE_SHAPE_POINTS ];						///< array that will be our "shape" of sample points to affect the water
-	Coord3D m_transformedShapePoints[ MAX_WAVEGUIDE_SHAPE_POINTS ];	///< m_shapePoints transformed into current world coords
 	enum { MAX_SHAPE_EFFECTS = 3 };
-	ParticleSystemID m_shapeEffects[ MAX_WAVEGUIDE_SHAPE_POINTS ][ MAX_SHAPE_EFFECTS ];		///< particle effects on the wavefront
-	Int m_shapePointCount;								///< number of points in m_shape
-	UnsignedInt m_splashSoundFrame;				///< frame we last tried to play a splash sound on
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		UnsignedInt m_activeFrame;						///< frame we became active on
+		Bool m_needDisable;
+		Bool m_initialized;										///< set to TRUE after we're enabled and in motion
+		Coord3D m_shapePoints[ MAX_WAVEGUIDE_SHAPE_POINTS ];						///< array that will be our "shape" of sample points to affect the water
+		Coord3D m_transformedShapePoints[ MAX_WAVEGUIDE_SHAPE_POINTS ];	///< m_shapePoints transformed into current world coords
+		ParticleSystemID m_shapeEffects[ MAX_WAVEGUIDE_SHAPE_POINTS ][ MAX_SHAPE_EFFECTS ];		///< particle effects on the wavefront
+		Int m_shapePointCount;								///< number of points in m_shape
+		UnsignedInt m_splashSoundFrame;				///< frame we last tried to play a splash sound on
+		Coord3D m_finalDestination;						///< the final destination of the waveguide path
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
-	Coord3D m_finalDestination;						///< the final destination of the waveguide path
+
 
 };

@@ -40,6 +40,7 @@
 #include "GameLogic/Module/FlammableUpdate.h"
 #include "GameLogic/Module/FireSpreadUpdate.h"
 
+
 //-------------------------------------------------------------------------------------------------
 FlammableUpdateModuleData::FlammableUpdateModuleData()
 {
@@ -75,14 +76,15 @@ FlammableUpdateModuleData::FlammableUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 FlammableUpdate::FlammableUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_status = FS_NORMAL;
-	m_aflameEndFrame = 0;
-	m_burnedEndFrame = 0;
-	m_damageEndFrame = 0;
-	m_audioHandle = 0;
-	m_flameDamageLimit = getFlammableUpdateModuleData()->m_flameDamageLimitData;
-	m_flameSource = INVALID_ID;
-	m_lastFlameDamageDealt = 0;
+
+	D().m_status = FS_NORMAL;
+	D().m_aflameEndFrame = 0;
+	D().m_burnedEndFrame = 0;
+	D().m_damageEndFrame = 0;
+	D().m_audioHandle = 0;
+	D().m_flameDamageLimit = getFlammableUpdateModuleData()->m_flameDamageLimitData;
+	D().m_flameSource = INVALID_ID;
+	D().m_lastFlameDamageDealt = 0;
 
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
@@ -102,25 +104,25 @@ void FlammableUpdate::onDamage( DamageInfo *damageInfo )
 	if( damageInfo->in.m_damageType == DAMAGE_FLAME || damageInfo->in.m_damageType == DAMAGE_PARTICLE_BEAM )
 	{
 		UnsignedInt now = TheGameLogic->getFrame();
-		if( now - getFlammableUpdateModuleData()->m_flameDamageExpirationDelay > m_lastFlameDamageDealt )
+		if( now - getFlammableUpdateModuleData()->m_flameDamageExpirationDelay > D().m_lastFlameDamageDealt )
 		{
 			// If it has been a long time since our last flame damage, reset the threshold
-			m_flameDamageLimit = getFlammableUpdateModuleData()->m_flameDamageLimitData;
+			D().m_flameDamageLimit = getFlammableUpdateModuleData()->m_flameDamageLimitData;
 		}
-		m_lastFlameDamageDealt = now;
+		D().m_lastFlameDamageDealt = now;
 #if RETAIL_COMPATIBLE_CRC || PRESERVE_RETAIL_BEHAVIOR
-		m_flameSource = getObject()->getID();
+		D().m_flameSource = getObject()->getID();
 #else
 		// TheSuperHackers @bugfix Stubbjax 03/09/2025 Allow flame damage to award xp to the flame source.
-		m_flameSource = damageInfo->in.m_sourceID;
+		D().m_flameSource = damageInfo->in.m_sourceID;
 #endif
 
 		Object *me = getObject();
 		if( !me->getStatusBits().test( OBJECT_STATUS_AFLAME ) && !me->getStatusBits().test( OBJECT_STATUS_BURNED ) )
 		{
 			// If I'm not on fire, and I haven't burned up, see if I should try to catch fire.
-			m_flameDamageLimit -= damageInfo->out.m_actualDamageDealt;
-			if( m_flameDamageLimit <= 0 )
+			D().m_flameDamageLimit -= damageInfo->out.m_actualDamageDealt;
+			if( D().m_flameDamageLimit <= 0 )
 			{
 				tryToIgnite();
 			}
@@ -133,36 +135,36 @@ void FlammableUpdate::onDamage( DamageInfo *damageInfo )
 UpdateSleepTime FlammableUpdate::update()
 {
 	Object *me = getObject();
-	DEBUG_ASSERTCRASH(m_status == FS_AFLAME, ("hmm, should be aflame"));
+	DEBUG_ASSERTCRASH(D().m_status == FS_AFLAME, ("hmm, should be aflame"));
 
 	UnsignedInt now = TheGameLogic->getFrame();
 	const FlammableUpdateModuleData *data = getFlammableUpdateModuleData();
 
-	if( m_damageEndFrame != 0 && now >= m_damageEndFrame )
+	if( D().m_damageEndFrame != 0 && now >= D().m_damageEndFrame )
 	{
-		m_damageEndFrame = now + data->m_aflameDamageDelay;
+		D().m_damageEndFrame = now + data->m_aflameDamageDelay;
 		doAflameDamage();
 	}
 
-	if( m_burnedEndFrame != 0 && now >= m_burnedEndFrame )
+	if( D().m_burnedEndFrame != 0 && now >= D().m_burnedEndFrame )
 	{
 		// So this status is set, but I am still aflame on an independent timer.
 		me->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_BURNED ) );
 		me->setModelConditionState( MODELCONDITION_SMOLDERING );
 	}
 
-	if( m_aflameEndFrame != 0 && now >= m_aflameEndFrame )
+	if( D().m_aflameEndFrame != 0 && now >= D().m_aflameEndFrame )
 	{
 		// This is the important one.  I am no longer on fire.
 		if( me->getStatusBits().test( OBJECT_STATUS_BURNED ) )
 		{
 			// If I am burned, then I will never catch fire again.
-			m_status = FS_BURNED;
+			D().m_status = FS_BURNED;
 		}
 		else
 		{
 			// otherwise I am free to burn again
-			m_status = FS_NORMAL;
+			D().m_status = FS_NORMAL;
 		}
 		stopBurningSound();
 		me->clearStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_AFLAME ) );
@@ -178,11 +180,11 @@ UpdateSleepTime FlammableUpdate::update()
 UpdateSleepTime FlammableUpdate::calcSleepTime()
 {
 	UnsignedInt now = TheGameLogic->getFrame();
-	if (m_status == FS_AFLAME && m_aflameEndFrame != 0 && m_aflameEndFrame > now)
+	if (D().m_status == FS_AFLAME && D().m_aflameEndFrame != 0 && D().m_aflameEndFrame > now)
 	{
-		UnsignedInt soonest = m_aflameEndFrame;
-		if (m_burnedEndFrame != 0 && m_burnedEndFrame < soonest && m_burnedEndFrame > now) soonest = m_burnedEndFrame;
-		if (m_damageEndFrame != 0 && m_damageEndFrame < soonest && m_damageEndFrame > now) soonest = m_damageEndFrame;
+		UnsignedInt soonest = D().m_aflameEndFrame;
+		if (D().m_burnedEndFrame != 0 && D().m_burnedEndFrame < soonest && D().m_burnedEndFrame > now) soonest = D().m_burnedEndFrame;
+		if (D().m_damageEndFrame != 0 && D().m_damageEndFrame < soonest && D().m_damageEndFrame > now) soonest = D().m_damageEndFrame;
 		DEBUG_ASSERTCRASH(soonest - now > 0, ("hmm"));
 		// UPDATE_SLEEP requires a count-of-frames, not an absolute-frame, so subtract 'now'
 		return UPDATE_SLEEP(soonest - now);
@@ -197,7 +199,7 @@ UpdateSleepTime FlammableUpdate::calcSleepTime()
 //-------------------------------------------------------------------------------------------------
 void FlammableUpdate::tryToIgnite()
 {
-	if( m_status == FS_NORMAL )
+	if( D().m_status == FS_NORMAL )
 	{
 		Object *me = getObject();
 		me->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_AFLAME ) );
@@ -213,13 +215,13 @@ void FlammableUpdate::tryToIgnite()
 			fu->startFireSpreading();
 		}
 
-		m_status = FS_AFLAME;
+		D().m_status = FS_AFLAME;
 
 		const FlammableUpdateModuleData *data = getFlammableUpdateModuleData();
 		UnsignedInt now = TheGameLogic->getFrame();
-		m_aflameEndFrame = now + data->m_aflameDuration;
-		m_burnedEndFrame = data->m_burnedDelay ? now + data->m_burnedDelay : 0;
-		m_damageEndFrame = data->m_aflameDamageDelay ? now + data->m_aflameDamageDelay : 0;
+		D().m_aflameEndFrame = now + data->m_aflameDuration;
+		D().m_burnedEndFrame = data->m_burnedDelay ? now + data->m_burnedDelay : 0;
+		D().m_damageEndFrame = data->m_aflameDamageDelay ? now + data->m_aflameDamageDelay : 0;
 
 		setWakeFrame(getObject(), calcSleepTime());
 	}
@@ -233,7 +235,7 @@ void FlammableUpdate::doAflameDamage()
 
 	DamageInfo info;
 	info.in.m_amount = data->m_aflameDamageAmount;
-	info.in.m_sourceID = m_flameSource;
+	info.in.m_sourceID = D().m_flameSource;
 	info.in.m_damageType = DAMAGE_FLAME;
 	info.in.m_deathType = DEATH_BURNED;
 
@@ -247,17 +249,17 @@ void FlammableUpdate::startBurningSound()
 	const FlammableUpdateModuleData *data = getFlammableUpdateModuleData();
 
 	AudioEventRTS audio(data->m_burningSoundName, getObject()->getID());
-	m_audioHandle = TheAudio->addAudioEvent( &audio );
+	D().m_audioHandle = TheAudio->addAudioEvent( &audio );
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 void FlammableUpdate::stopBurningSound()
 {
-	if (m_audioHandle)
+	if (D().m_audioHandle)
 	{
-		TheAudio->removeAudioEvent( m_audioHandle );
-		m_audioHandle = 0;
+		TheAudio->removeAudioEvent( D().m_audioHandle );
+		D().m_audioHandle = 0;
 	}
 }
 
@@ -265,7 +267,7 @@ void FlammableUpdate::stopBurningSound()
 //-------------------------------------------------------------------------------------------------
 Bool FlammableUpdate::wouldIgnite()
 {
-	if( m_status == FS_NORMAL )
+	if( D().m_status == FS_NORMAL )
 		return TRUE;
 
 	return FALSE;
@@ -305,26 +307,26 @@ void FlammableUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// flammability status
-	xfer->xferUser( &m_status, sizeof( FlammabilityStatusType ) );
+	xfer->xferUser( &D().m_status, sizeof( FlammabilityStatusType ) );
 
 	// aflame end frame
-	xfer->xferUnsignedInt( &m_aflameEndFrame );
+	xfer->xferUnsignedInt( &D().m_aflameEndFrame );
 
 	// burned end frame
-	xfer->xferUnsignedInt( &m_burnedEndFrame );
+	xfer->xferUnsignedInt( &D().m_burnedEndFrame );
 
 	// damage end frame
-	xfer->xferUnsignedInt( &m_damageEndFrame );
+	xfer->xferUnsignedInt( &D().m_damageEndFrame );
 
 	// flame damage limit
-	xfer->xferReal( &m_flameDamageLimit );
+	xfer->xferReal( &D().m_flameDamageLimit );
 
 	// last flame damage dealt
-	xfer->xferUnsignedInt( &m_lastFlameDamageDealt );
+	xfer->xferUnsignedInt( &D().m_lastFlameDamageDealt );
 
 	if (version >= 2)
 	{
-		xfer->xferObjectID(&m_flameSource);
+		xfer->xferObjectID(&D().m_flameSource);
 	}
 }
 

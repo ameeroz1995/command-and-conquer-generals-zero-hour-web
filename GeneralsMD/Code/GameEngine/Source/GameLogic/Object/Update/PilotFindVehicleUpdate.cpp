@@ -50,6 +50,7 @@
 
 
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 PilotFindVehicleUpdateModuleData::PilotFindVehicleUpdateModuleData()
@@ -77,7 +78,8 @@ PilotFindVehicleUpdateModuleData::PilotFindVehicleUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 PilotFindVehicleUpdate::PilotFindVehicleUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_didMoveToBase = false;
+
+	D().m_didMoveToBase = false;
 	setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
 }
 
@@ -121,13 +123,13 @@ UpdateSleepTime PilotFindVehicleUpdate::update()
 	if(upgradeUnit)
 	{
 		ai->aiEnter(upgradeUnit, CMD_FROM_AI);
-		m_didMoveToBase = false;
+		D().m_didMoveToBase = false;
 	} else {
 		Coord3D pos;
 		// Try moving to base 1 time.
-		if (!m_didMoveToBase && obj->getControllingPlayer()->getAiBaseCenter(&pos)) {
+		if (!D().m_didMoveToBase && obj->getControllingPlayer()->getAiBaseCenter(&pos)) {
 			ai->aiMoveToPosition(&pos, CMD_FROM_AI);
-			m_didMoveToBase = true;
+			D().m_didMoveToBase = true;
 		}
 	}
 	return UPDATE_SLEEP(data->m_scanFrames);
@@ -209,7 +211,7 @@ void PilotFindVehicleUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// did move to base
-	xfer->xferBool( &m_didMoveToBase );
+	xfer->xferBool( &D().m_didMoveToBase );
 
 }
 

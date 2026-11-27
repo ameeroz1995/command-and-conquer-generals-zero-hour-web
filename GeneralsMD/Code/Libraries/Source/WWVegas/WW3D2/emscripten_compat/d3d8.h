@@ -24,6 +24,8 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#include "../gles3_webgpu.h"
+extern int gx_draw_cat; extern unsigned gx_draw_cat_count[16]; // draws by kind (GXCAT log, gles3_wrapper.cpp)
 extern "C" double gx_mem_buffer_bytes, gx_mem_texture_bytes; // CPU copies of buffers and textures kept, for the benchmark
 extern "C" unsigned gx_stat_tex_refills; // a dropped texture copy needed again (benchmark counter)
 #endif
@@ -508,8 +510,8 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
     ~Emscripten_IDirect3DTexture8() {
         for (auto &l : levels) gx_mem_texture_bytes -= (double)l.pixels.size();
         if (gl_tex_id) {
-            GLES3_Unregister_Texture(gl_tex_id);
-            glDeleteTextures(1, &gl_tex_id);
+            if (GXW_On()) GXW_Texture_Destroy(gl_tex_id);
+            else { GLES3_Unregister_Texture(gl_tex_id); glDeleteTextures(1, &gl_tex_id); }
             gl_tex_id = 0;
         }
     }
@@ -573,8 +575,47 @@ struct Emscripten_IDirect3DTexture8 : public IDirect3DTexture8 {
     // For uncompressed textures: Create_Texture uploads level 0 and calls
     // glGenerateMipmap to auto-generate the rest.
     uint64_t sent_hash = 0; bool sent_valid = false; // pixels of the last re-upload (Upload_To_GL)
+    // WebGPU (gles3_webgpu.cpp): same rules as below; mips of uncompressed textures are built
+    // on the CPU for the full chain, as glGenerateMipmap does.
+    GLuint Upload_To_GXW() {
+        bool dxt = _is_dxt(Fmt);
+        if (levels[0].pixels.empty()) {
+            if (gl_tex_id && !dirty) return gl_tex_id;
+            _refill(0);
+        }
+        if (dxt) for (UINT i = 1; i < levels.size(); ++i) if (levels[i].pixels.empty()) _refill(i);
+        if (gl_tex_id && !dxt) {
+            const std::vector<uint8_t>& px = levels[0].pixels;
+            if (px.size() <= (2u << 20) && (GLES3_Page_Switches() & 32)) {
+                uint64_t h = 1469598103934665603ull ^ px.size(), w;
+                size_t i = 0;
+                for (; i + 8 <= px.size(); i += 8) { memcpy(&w, px.data() + i, 8); h = (h ^ w) * 1099511628211ull; h ^= h >> 29; }
+                for (; i < px.size(); i++) h = (h ^ px[i]) * 1099511628211ull;
+                if (sent_valid && h == sent_hash) { dirty = false; return gl_tex_id; }
+                sent_hash = h; sent_valid = true;
+            } else sent_valid = false;
+            GXW_Texture_Write(gl_tex_id, 0, Width, Height, (unsigned)Fmt, levels[0].pixels.data(), LevelCount > 1);
+            dirty = false;
+            return gl_tex_id;
+        }
+        if (gl_tex_id) { GXW_Texture_Destroy(gl_tex_id); gl_tex_id = 0; }
+        if (dxt) {
+            UINT n = 0;
+            while (n < levels.size() && !levels[n].pixels.empty()) n++;
+            gl_tex_id = GXW_Texture_Create(Width, Height, n ? n : 1, (unsigned)Fmt);
+            for (UINT lvl = 0; lvl < n; ++lvl)
+                GXW_Texture_Write(gl_tex_id, lvl, levels[lvl].w, levels[lvl].h, (unsigned)Fmt, levels[lvl].pixels.data(), false);
+        } else {
+            gl_tex_id = GXW_Texture_Create(Width, Height, LevelCount > 1 ? _count_mips(Width, Height) : 1, (unsigned)Fmt);
+            GXW_Texture_Write(gl_tex_id, 0, Width, Height, (unsigned)Fmt, levels[0].pixels.data(), LevelCount > 1);
+        }
+        dirty = false;
+        _drop_copies(dxt);
+        return gl_tex_id;
+    }
     GLuint Upload_To_GL() {
         if (levels.empty()) return 0;
+        if (GXW_On()) return Upload_To_GXW();
         bool dxt = _is_dxt(Fmt);
         if (levels[0].pixels.empty()) {
             if (gl_tex_id && !dirty) return gl_tex_id;	// copy dropped, the chip has it
@@ -780,7 +821,18 @@ inline HRESULT Emscripten_IDirect3DSurface8::UnlockRect() {
 // ---------------------------------------------------------------------------
 struct Emscripten_BufferData {
     std::vector<uint8_t> data;
-    ~Emscripten_BufferData() { gx_mem_buffer_bytes -= (double)data.size(); }
+    unsigned gxw = 0; // WebGPU buffer (gles3_webgpu.cpp)
+    ~Emscripten_BufferData() { gx_mem_buffer_bytes -= (double)data.size(); if (gxw) GXW_Buffer_Destroy(gxw); }
+    // One upload: WebGL (allocate = glBufferData of everything) or WebGPU.
+    void Put(GLenum target, size_t lo, size_t hi, bool allocate) {
+        if (GXW_On()) {
+            if (!gxw) { gxw = GXW_Buffer_Create(data.size(), target == GL_ELEMENT_ARRAY_BUFFER); lo = 0; hi = data.size(); }
+            GXW_Buffer_Write(gxw, lo, hi, data.data());
+            return;
+        }
+        if (allocate) glBufferData(target, (GLsizeiptr)data.size(), data.data(), GL_DYNAMIC_DRAW);
+        else glBufferSubData(target, (GLintptr)lo, (GLsizeiptr)(hi - lo), data.data() + lo);
+    }
     size_t dirty_lo = 0, dirty_hi = 0; // locked bytes not yet uploaded
     bool allocated = false;            // GL storage made with glBufferData
 
@@ -826,18 +878,18 @@ struct Emscripten_BufferData {
     void Upload(GLenum target) {
         size_t lo, hi;
         if (!allocated) {
-            glBufferData(target, (GLsizeiptr)data.size(), data.data(), GL_DYNAMIC_DRAW);
+            Put(target, 0, data.size(), true);
             allocated = true;
             serial = ++gx_content_serial;
         } else if (dirty_hi > dirty_lo && always_new > 0 && (GLES3_Page_Switches() & 8192)) {
             // This buffer changed nearly everywhere the last few times (animated soldiers, particles):
             // comparing it with the bytes last sent only costs time, so the locked span goes
             // straight up for a while (8% of a frame with 400 soldiers was the comparison).
-            glBufferSubData(target, (GLintptr)dirty_lo, (GLsizeiptr)(dirty_hi - dirty_lo), data.data() + dirty_lo);
+            Put(target, dirty_lo, dirty_hi, false);
             serial = ++gx_content_serial;
             if (--always_new == 0) { sent.clear(); full_changes = 2; } // then one copy and one real comparison decide again
         } else if (dirty_hi > dirty_lo && Changed_Span(lo, hi)) {
-            glBufferSubData(target, (GLintptr)lo, (GLsizeiptr)(hi - lo), data.data() + lo);
+            Put(target, lo, hi, false);
             serial = ++gx_content_serial;
             // Four uploads in a row that changed at least 7/8 of what was locked: stop comparing.
             if ((hi - lo) * 8 >= (dirty_hi - dirty_lo) * 7) { if (++full_changes >= 4) { always_new = 120; full_changes = 0; } }
@@ -878,6 +930,7 @@ struct Emscripten_IDirect3DVertexBuffer8 : public IDirect3DVertexBuffer8 {
 
     // Upload the locked bytes to the GL VBO and bind it
     GLuint Upload_And_Bind() {
+        if (GXW_On()) { buf.Upload(GL_ARRAY_BUFFER); return 0; }
         if (!gl_vbo) glGenBuffers(1, &gl_vbo);
         GLES3_Bind_Array_Buffer(gl_vbo);
         buf.Upload(GL_ARRAY_BUFFER);
@@ -914,6 +967,7 @@ struct Emscripten_IDirect3DIndexBuffer8 : public IDirect3DIndexBuffer8 {
     // Upload the locked bytes. Not bound here: the element buffer is VAO state, and the
     // draw's cached layout VAO (GLES3_Bind_Layout) carries it.
     GLuint Upload() {
+        if (GXW_On()) { buf.Upload(GL_ELEMENT_ARRAY_BUFFER); return 0; }
         if (!gl_ibo) glGenBuffers(1, &gl_ibo);
         size_t lo, hi;
         if (!buf.allocated)
@@ -1203,7 +1257,13 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
 
     virtual HRESULT DrawPrimitive(D3DPRIMITIVETYPE PrimType, UINT StartVertex,
                                 UINT PrimCount) override {
+        gx_draw_cat_count[gx_draw_cat & 15]++;
         if (!current_vb || current_vb->buf.data.empty()) return 0;
+        if (GXW_On()) {
+            current_vb->Upload_And_Bind();
+            GXW_Draw_Arrays((unsigned)PrimType, PrimCount, current_fvf, _stride(0), current_vb->buf.gxw, StartVertex);
+            return 0;
+        }
         GLES3_Bind_Default_VAO();
         current_vb->Upload_And_Bind();
         _setup_vertex_attribs(0, false);
@@ -1215,6 +1275,7 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
                                   const void *pVertexStreamZeroData,
                                   UINT VertexStreamZeroStride) override {
         if (!pVertexStreamZeroData || !PrimCount) return 0;
+        gx_draw_cat_count[gx_draw_cat & 15]++;
         // Compute vertex count for this primitive type
         unsigned int vertex_count = 0;
         switch ((unsigned int)PrimType) {
@@ -1225,6 +1286,11 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
             case 3: vertex_count = PrimCount + 1; break; // LINESTRIP
             case 1: vertex_count = PrimCount;     break; // POINTLIST
             default: vertex_count = PrimCount * 3; break;
+        }
+        if (GXW_On()) {
+            GXW_Draw_UP((unsigned)PrimType, PrimCount, current_fvf, VertexStreamZeroStride ? VertexStreamZeroStride : _stride(0),
+                        pVertexStreamZeroData, vertex_count, nullptr, false);
+            return 0;
         }
         // One streaming buffer re-filled per call (was a new GL buffer created and deleted).
         static GLuint up_vbo = 0;
@@ -1246,10 +1312,23 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
         // Counters declared with C linkage at file scope; defined in
         // dx8wrapper.cpp.
         ++gx_d3d_dip_called;
+        gx_draw_cat_count[gx_draw_cat & 15]++;
         if (!current_vb) { ++gx_d3d_dip_no_vb; return 0; }
         if (current_vb->buf.data.empty()) { ++gx_d3d_dip_empty_vb; return 0; }
         if (!current_ib) { ++gx_d3d_dip_no_ib; return 0; }
         if (current_ib->buf.data.empty()) { ++gx_d3d_dip_empty_ib; return 0; }
+        if (GXW_On()) {
+            current_vb->Upload_And_Bind();
+            current_ib->Upload();
+            if (gx_instance_count) // DX8Wrapper::Draw_Triangles_Instanced / _Skinned
+                GXW_Set_Instances(gx_instance_count, gx_skin_palette ? nullptr : gx_instance_matrices, gx_skin_palette ? nullptr : gx_instance_uv,
+                                  gx_skin_palette, gx_skin_palette ? gx_skin_bones : 0, gx_skin_palette ? gx_skin_bone_buffer : 0);
+            GXW_Draw_Indexed((unsigned)PrimType, PrimCount, current_fvf, _stride(0), current_vb->buf.gxw, current_vb->buf.data.size(),
+                             base_vtx_index, MinIndex, NumVertices, current_ib->buf.gxw, StartIndex,
+                             current_ib->buf.data.data(), current_ib->buf.data.size());
+            ++gx_d3d_dip_drew;
+            return 0;
+        }
         current_vb->Upload_And_Bind();
         current_ib->Upload();
         if (current_fvf) {
@@ -1268,6 +1347,19 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
         }
         if (gx_instance_count && gx_skin_palette) { // DX8Wrapper::Draw_Triangles_Skinned
             GLES3_Draw_Triangles_Skinned(StartIndex, PrimCount, gx_skin_palette, gx_skin_bones, gx_instance_count, gx_skin_bone_buffer);
+            ++gx_d3d_dip_drew;
+            return 0;
+        }
+        if (gx_multi_count) { // DX8Wrapper::Draw_Triangles_Multi: many parts of the bound buffers, one call
+            if (!GLES3_Draw_Triangles_Multi(gx_multi_counts, gx_multi_offsets, gx_multi_count, gx_multi_matrices, gx_multi_uv, gx_multi_lights)) {
+                float was[16];
+                GLES3_Get_Transform(GLES3_TS_WORLD, was); // the engine's transform cache still holds it
+                for (unsigned i = 0; i < gx_multi_count; i++) { // one by one (no program slot left)
+                    GLES3_Set_Transform(GLES3_TS_WORLD, gx_multi_matrices + i * 16);
+                    GLES3_Draw_Triangles(4, (unsigned)gx_multi_offsets[i] / 2, (unsigned)gx_multi_counts[i] / 3, 0, 0);
+                }
+                GLES3_Set_Transform(GLES3_TS_WORLD, was);
+            }
             ++gx_d3d_dip_drew;
             return 0;
         }
@@ -1292,6 +1384,7 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
                                          const void *pVertexStreamZeroData,
                                          UINT VertexStreamZeroStride) override {
         if (!pVertexStreamZeroData || !pIndexData || !PrimCount) return 0;
+        gx_draw_cat_count[gx_draw_cat & 15]++;
         unsigned int index_count = 0;
         switch ((unsigned int)PrimType) {
             case 4: index_count = PrimCount * 3; break; // TRIANGLELIST
@@ -1300,6 +1393,11 @@ struct Emscripten_IDirect3DDevice8 : public IDirect3DDevice8 {
             case 3: index_count = PrimCount + 1; break; // LINESTRIP
             case 1: index_count = PrimCount;     break; // POINTLIST
             default: index_count = PrimCount * 3; break;
+        }
+        if (GXW_On()) {
+            GXW_Draw_UP((unsigned)PrimType, PrimCount, current_fvf, VertexStreamZeroStride ? VertexStreamZeroStride : _stride(0),
+                        pVertexStreamZeroData, MinVertexIndex + NumVertices, pIndexData, IndexDataFormat != D3DFMT_INDEX16);
+            return 0;
         }
         // Upload vertices
         static GLuint up_vbo = 0, up_ibo = 0;

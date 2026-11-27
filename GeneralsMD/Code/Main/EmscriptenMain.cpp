@@ -617,7 +617,10 @@ int main(int argc, char *argv[]) {
     // and keep the SDL window for input only.
     const Uint32 windowFlags = SDL_WINDOW_RESIZABLE;
 #else
-    const Uint32 windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
+    // WebGPU drawing (Settings switch webgpu; the page made Module.gxGPU): the canvas must not
+    // get a WebGL context, so the SDL window is for input only, as in the worker build.
+    const bool gx_webgpu = EM_ASM_INT({ return Module.gxGPU && Module.gxGPU.device ? 1 : 0; }) != 0;
+    const Uint32 windowFlags = gx_webgpu ? SDL_WINDOW_RESIZABLE : (SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
 #endif
     TheSDL3Window = SDL_CreateWindow(
         "Command & Conquer Generals: Zero Hour", SDL_WINDOWPOS_UNDEFINED,
@@ -644,6 +647,7 @@ int main(int argc, char *argv[]) {
       }
     }
 #else
+    if (!gx_webgpu) {
     SDL_GLContext gl_context = SDL_GL_CreateContext(TheSDL3Window);
     if (!gl_context) {
       fprintf(stderr, "FATAL: SDL_GL_CreateContext failed: %s\n", SDL_GetError());
@@ -652,6 +656,7 @@ int main(int argc, char *argv[]) {
       return 1;
     }
     SDL_GL_MakeCurrent(TheSDL3Window, gl_context);
+    }
 #endif
 
     double dpr = EM_ASM_DOUBLE({

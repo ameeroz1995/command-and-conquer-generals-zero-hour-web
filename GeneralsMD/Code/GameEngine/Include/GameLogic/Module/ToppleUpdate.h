@@ -33,6 +33,7 @@
 #include "GameLogic/Module/BehaviorModule.h"
 #include "GameLogic/Module/CollideModule.h"
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 //-------------------------------------------------------------------------------------------------
 class FXList;
@@ -113,15 +114,23 @@ protected:
 		TOPPLE_DOWN
 	};
 
-	Real					m_angularVelocity;				///< Velocity in degrees per frame (or is it radians per frame?)
-	Real					m_angularAcceleration;		///< Acceleration angularVelocity is increasing
-	Coord3D				m_toppleDirection;				///< Z-less direction we are toppling
-	ToppleState		m_toppleState;						///< Stage this module is in.
-	Real					m_angularAccumulation;		///< How much have I rotated so I know when to bounce.
-	Real					m_angleDeltaX;						///< how much to modify x angle each frame
-	Int						m_numAngleDeltaX;					///< how many frames to tweak x angle
-	Bool					m_doBounceFX;							///< do the bounce FX if we do bounce
-	UnsignedInt		m_options;								///< topple options
-	ObjectID			m_stumpID;								///< stump generated, if any
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		Real					m_angularVelocity;				///< Velocity in degrees per frame (or is it radians per frame?)
+		Real					m_angularAcceleration;		///< Acceleration angularVelocity is increasing
+		Coord3D				m_toppleDirection;				///< Z-less direction we are toppling
+		ToppleState		m_toppleState;						///< Stage this module is in.
+		Real					m_angularAccumulation;		///< How much have I rotated so I know when to bounce.
+		Real					m_angleDeltaX;						///< how much to modify x angle each frame
+		Int						m_numAngleDeltaX;					///< how many frames to tweak x angle
+		Bool					m_doBounceFX;							///< do the bounce FX if we do bounce
+		UnsignedInt		m_options;								///< topple options
+		ObjectID			m_stumpID;								///< stump generated, if any
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 };

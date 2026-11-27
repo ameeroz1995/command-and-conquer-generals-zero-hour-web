@@ -49,27 +49,29 @@
 
 
 
+
 const Int MAX_IDX = 32;
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 StructureToppleUpdate::StructureToppleUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_delayBurstLocation.zero();
-	m_structuralIntegrity = 0.0f;
-	m_toppleDirection.x = m_toppleDirection.y = 0;
-	m_toppleFrame = 0;
-	m_toppleState = TOPPLESTATE_STANDING;
-	m_toppleVelocity = 0.0f;
-	m_accumulatedAngle = 0.001f; // Need to give it a little nudge in the right direction
-	m_lastCrushedLocation = 0.0f;
-	m_nextBurstFrame = -1;
+
+	D().m_delayBurstLocation.zero();
+	D().m_structuralIntegrity = 0.0f;
+	D().m_toppleDirection.x = D().m_toppleDirection.y = 0;
+	D().m_toppleFrame = 0;
+	D().m_toppleState = TOPPLESTATE_STANDING;
+	D().m_toppleVelocity = 0.0f;
+	D().m_accumulatedAngle = 0.001f; // Need to give it a little nudge in the right direction
+	D().m_lastCrushedLocation = 0.0f;
+	D().m_nextBurstFrame = -1;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 
 	//Get the extent height here, rather than after it dies -- when it switches to dead state
 	//the rubble state has a tiny height.
 	Object *building = getObject();
-	m_buildingHeight = building->getGeometryInfo().getMaxHeightAbovePosition();
+	D().m_buildingHeight = building->getGeometryInfo().getMaxHeightAbovePosition();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -138,7 +140,7 @@ void StructureToppleUpdate::beginStructureTopple(const DamageInfo *damageInfo)
 	if (d)
 	{
 		UnsignedInt now = TheGameLogic->getFrame();
-		m_toppleFrame = now + GameLogicRandomValue(d->m_minToppleDelay, d->m_maxToppleDelay);
+		D().m_toppleFrame = now + GameLogicRandomValue(d->m_minToppleDelay, d->m_maxToppleDelay);
 
 		Object *attacker = TheGameLogic->findObjectByID(damageInfo->in.m_sourceID);
 		Object *building = getObject();
@@ -151,28 +153,28 @@ void StructureToppleUpdate::beginStructureTopple(const DamageInfo *damageInfo)
 			const Coord3D *buildingPos = building->getPosition();
 
 			// Calculate the topple direction to be the opposite of the direction fired from.
-			m_toppleDirection.x = buildingPos->x - attackerPos->x;
-			m_toppleDirection.y = buildingPos->y - attackerPos->y;
+			D().m_toppleDirection.x = buildingPos->x - attackerPos->x;
+			D().m_toppleDirection.y = buildingPos->y - attackerPos->y;
 
 			// Give it a little randomness...
-			toppleAngle = m_toppleDirection.toAngle();
+			toppleAngle = D().m_toppleDirection.toAngle();
 			toppleAngle += GameLogicRandomValueReal(-PI/8, PI/8);
 		}
-		m_toppleDirection.x = Cos(toppleAngle);
-		m_toppleDirection.y = Sin(toppleAngle);
-		TheScriptEngine->adjustToppleDirection(getObject(), &m_toppleDirection);
+		D().m_toppleDirection.x = Cos(toppleAngle);
+		D().m_toppleDirection.y = Sin(toppleAngle);
+		TheScriptEngine->adjustToppleDirection(getObject(), &D().m_toppleDirection);
 
 		Real averageRadius = (building->getGeometryInfo().getMajorRadius() + building->getGeometryInfo().getMinorRadius()) / 2;
 		Real explosionRadius = averageRadius * 0.90;
 
-		m_delayBurstLocation.x = building->getPosition()->x + explosionRadius * Cos(toppleAngle);
-		m_delayBurstLocation.y = building->getPosition()->y + explosionRadius * Sin(toppleAngle);
-		m_delayBurstLocation.z = TheTerrainLogic->getGroundHeight(m_delayBurstLocation.x, m_delayBurstLocation.y);
+		D().m_delayBurstLocation.x = building->getPosition()->x + explosionRadius * Cos(toppleAngle);
+		D().m_delayBurstLocation.y = building->getPosition()->y + explosionRadius * Sin(toppleAngle);
+		D().m_delayBurstLocation.z = TheTerrainLogic->getGroundHeight(D().m_delayBurstLocation.x, D().m_delayBurstLocation.y);
 
 		doToppleStartFX(building, damageInfo);
-		m_nextBurstFrame = now + GameClientRandomValue(d->m_minToppleBurstDelay, d->m_maxToppleBurstDelay);
+		D().m_nextBurstFrame = now + GameClientRandomValue(d->m_minToppleBurstDelay, d->m_maxToppleBurstDelay);
 
-		m_toppleState = TOPPLESTATE_WAITINGFORTOPPLESTART;
+		D().m_toppleState = TOPPLESTATE_WAITINGFORTOPPLESTART;
 
 		setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
 	}
@@ -204,7 +206,7 @@ UpdateSleepTime StructureToppleUpdate::update()
 
 	const StructureToppleUpdateModuleData *d = getStructureToppleUpdateModuleData();
 
-	if (m_toppleState == TOPPLESTATE_STANDING)
+	if (D().m_toppleState == TOPPLESTATE_STANDING)
 	{
 		DEBUG_CRASH(("hmm, what?"));
 		return UPDATE_SLEEP_FOREVER;
@@ -215,46 +217,46 @@ UpdateSleepTime StructureToppleUpdate::update()
 
 	// We are in the dramatic pause between when the building has lost all its hit points and
 	// when it starts toppling over.
-	if (m_toppleState == TOPPLESTATE_WAITINGFORTOPPLESTART) {
+	if (D().m_toppleState == TOPPLESTATE_WAITINGFORTOPPLESTART) {
 		UnsignedInt now = TheGameLogic->getFrame();
-		if (now >= m_nextBurstFrame) {
+		if (now >= D().m_nextBurstFrame) {
 			doToppleDelayBurstFX();
 			// This uses a game client random value because the delay bursts are purely visual and aural effects.
-			m_nextBurstFrame = now + GameClientRandomValue(d->m_minToppleBurstDelay, d->m_maxToppleBurstDelay);
+			D().m_nextBurstFrame = now + GameClientRandomValue(d->m_minToppleBurstDelay, d->m_maxToppleBurstDelay);
 		}
-		if (now >= m_toppleFrame) {
-			m_toppleState = TOPPLESTATE_TOPPLING;
-			m_structuralIntegrity = d->m_structuralIntegrity;
+		if (now >= D().m_toppleFrame) {
+			D().m_toppleState = TOPPLESTATE_TOPPLING;
+			D().m_structuralIntegrity = d->m_structuralIntegrity;
 		}
 	}
 
 	// The building is in the process of falling over.
-	if (m_toppleState == TOPPLESTATE_TOPPLING) {
+	if (D().m_toppleState == TOPPLESTATE_TOPPLING) {
 		UnsignedInt now = TheGameLogic->getFrame();
-		Real toppleAcceleration = TOPPLE_ACCELERATION_FACTOR * (Sin(m_accumulatedAngle) * (1.0 - m_structuralIntegrity));
+		Real toppleAcceleration = TOPPLE_ACCELERATION_FACTOR * (Sin(D().m_accumulatedAngle) * (1.0 - D().m_structuralIntegrity));
 //		DEBUG_LOG(("toppleAcceleration = %f", toppleAcceleration));
-		m_toppleVelocity += toppleAcceleration;
-//		DEBUG_LOG(("m_toppleVelocity = %f", m_toppleVelocity));
+		D().m_toppleVelocity += toppleAcceleration;
+//		DEBUG_LOG(("D().m_toppleVelocity = %f", D().m_toppleVelocity));
 
 		// doesn't make sense to have a structural integrity less than zero.
-		if (m_structuralIntegrity > 0.0f) {
-			m_structuralIntegrity *= d->m_structuralDecay;
-			if (m_structuralIntegrity < 0.0f) {
-				m_structuralIntegrity = 0.0f;
+		if (D().m_structuralIntegrity > 0.0f) {
+			D().m_structuralIntegrity *= d->m_structuralDecay;
+			if (D().m_structuralIntegrity < 0.0f) {
+				D().m_structuralIntegrity = 0.0f;
 			}
 		}
-//		DEBUG_LOG(("m_structuralIntegrity = %f", m_structuralIntegrity));
+//		DEBUG_LOG(("D().m_structuralIntegrity = %f", D().m_structuralIntegrity));
 
-		doAngleFX(m_accumulatedAngle, m_accumulatedAngle + m_toppleVelocity);
+		doAngleFX(D().m_accumulatedAngle, D().m_accumulatedAngle + D().m_toppleVelocity);
 
-		m_accumulatedAngle += m_toppleVelocity;
+		D().m_accumulatedAngle += D().m_toppleVelocity;
 
-		applyCrushingDamage(PI/2 - m_accumulatedAngle);
+		applyCrushingDamage(PI/2 - D().m_accumulatedAngle);
 
-		if (m_accumulatedAngle >= PI/2) {
-			m_toppleVelocity -= m_accumulatedAngle - PI/2;
-			m_accumulatedAngle = PI/2;
-			m_toppleState = TOPPLESTATE_WAITINGFORDONE;
+		if (D().m_accumulatedAngle >= PI/2) {
+			D().m_toppleVelocity -= D().m_accumulatedAngle - PI/2;
+			D().m_accumulatedAngle = PI/2;
+			D().m_toppleState = TOPPLESTATE_WAITINGFORDONE;
 
 			applyCrushingDamage(0.0f);
 			doPhaseStuff(STPHASE_FINAL, getObject()->getPosition());
@@ -262,26 +264,26 @@ UpdateSleepTime StructureToppleUpdate::update()
 			if( lastDamageInfo == nullptr || getDamageTypeFlag( d->m_damageFXTypes, lastDamageInfo->in.m_damageType ) )
 				FXList::doFXObj(d->m_toppleDoneFXList, getObject());
 
-			m_toppleFrame = TheGameLogic->getFrame();
+			D().m_toppleFrame = TheGameLogic->getFrame();
 		}
 
-		if (now >= m_nextBurstFrame) {
+		if (now >= D().m_nextBurstFrame) {
 			doToppleDelayBurstFX();
 			// This uses a game client random value because the delay bursts are purely visual and aural effects.
-			m_nextBurstFrame = now + GameClientRandomValue(d->m_minToppleBurstDelay, d->m_maxToppleBurstDelay);
+			D().m_nextBurstFrame = now + GameClientRandomValue(d->m_minToppleBurstDelay, d->m_maxToppleBurstDelay);
 		}
 
 		Object *building = getObject();
 		Matrix3D xfrm = *building->getTransformMatrix();
-		xfrm.In_Place_Pre_Rotate_X(-m_toppleVelocity * m_toppleDirection.y);
-		xfrm.In_Place_Pre_Rotate_Y(m_toppleVelocity * m_toppleDirection.x);
+		xfrm.In_Place_Pre_Rotate_X(-D().m_toppleVelocity * D().m_toppleDirection.y);
+		xfrm.In_Place_Pre_Rotate_Y(D().m_toppleVelocity * D().m_toppleDirection.x);
 		building->setTransformMatrix(&xfrm);
 	}
 
 	// The building is now flat on the ground and done with all the crushing and all that.
-	if (m_toppleState == TOPPLESTATE_WAITINGFORDONE)
+	if (D().m_toppleState == TOPPLESTATE_WAITINGFORDONE)
 	{
-		if (m_toppleFrame <= TheGameLogic->getFrame())
+		if (D().m_toppleFrame <= TheGameLogic->getFrame())
 		{
 			Object *building = getObject();
 			Drawable *drawable = building->getDrawable();
@@ -295,7 +297,7 @@ UpdateSleepTime StructureToppleUpdate::update()
 
 			doToppleDoneStuff();
 
-			m_toppleState = TOPPLESTATE_DONE;
+			D().m_toppleState = TOPPLESTATE_DONE;
 
 			return UPDATE_SLEEP_FOREVER;
 		}
@@ -319,7 +321,7 @@ void StructureToppleUpdate::doToppleDoneStuff()
 	Real origAngle = building->getOrientation();
 	building->setOrientation(origAngle);
 
-	Real toppleAngle = m_toppleDirection.toAngle();
+	Real toppleAngle = D().m_toppleDirection.toAngle();
 
 	Matrix3D xfrm = *building->getTransformMatrix();
 	xfrm.In_Place_Pre_Rotate_Z(toppleAngle-origAngle);
@@ -362,7 +364,7 @@ void StructureToppleUpdate::applyCrushingDamage(Real theta)
 
 	Object *building = getObject();
 	Real orientationAngle = building->getOrientation();
-	Real toppleAngle = m_toppleDirection.toAngle();
+	Real toppleAngle = D().m_toppleDirection.toAngle();
 
 	// Figure out the width of the projection of the boundary of the building along the topple direction.
 	// Do this because the amount of ground that is affected will be different if the building falls
@@ -385,7 +387,7 @@ void StructureToppleUpdate::applyCrushingDamage(Real theta)
 	}
 
 	// The furthest away from the base of the building to explode on.
-	Real maxDistance = m_buildingHeight * (1.0 - Sin(theta));
+	Real maxDistance = D().m_buildingHeight * (1.0 - Sin(theta));
 
 	/*
 	 * Fire explosions at regular intervals across the area that the building is currently
@@ -394,7 +396,7 @@ void StructureToppleUpdate::applyCrushingDamage(Real theta)
 	Real jcos;
 	Real jsin;
 //	Coord3D target;
-	Real j = m_lastCrushedLocation;
+	Real j = D().m_lastCrushedLocation;
 	for (; j < maxDistance; j += WEAPON_SPACING_PERPENDICULAR) {
 		jcos = j * Cos(toppleAngle);
 		jsin = j * Sin(toppleAngle);
@@ -406,7 +408,7 @@ void StructureToppleUpdate::applyCrushingDamage(Real theta)
 	jsin = maxDistance * Sin(toppleAngle);
 	doDamageLine(building, wt, jcos, jsin, facingWidth, toppleAngle);
 
-	m_lastCrushedLocation = j;
+	D().m_lastCrushedLocation = j;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -476,7 +478,7 @@ void StructureToppleUpdate::doToppleDelayBurstFX()
 
 	DEBUG_LOG(("Doing topple delay burst on frame %d", TheGameLogic->getFrame()));
 	if( lastDamageInfo == nullptr || getDamageTypeFlag( d->m_damageFXTypes, lastDamageInfo->in.m_damageType ) )
-		FXList::doFXPos(d->m_toppleDelayFXList, &m_delayBurstLocation);
+		FXList::doFXPos(d->m_toppleDelayFXList, &D().m_delayBurstLocation);
 
 	Object *building = getObject();
 	Drawable *drawable = building->getDrawable();
@@ -502,7 +504,7 @@ void StructureToppleUpdate::doToppleDelayBurstFX()
 		}
 	}
 
-	doPhaseStuff(STPHASE_DELAY, &m_delayBurstLocation);
+	doPhaseStuff(STPHASE_DELAY, &D().m_delayBurstLocation);
 
 }
 
@@ -586,31 +588,31 @@ void StructureToppleUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// topple frame
-	xfer->xferUnsignedInt( &m_toppleFrame );
+	xfer->xferUnsignedInt( &D().m_toppleFrame );
 
 	// topple direction
-	xfer->xferCoord2D( &m_toppleDirection );
+	xfer->xferCoord2D( &D().m_toppleDirection );
 
 	// topple state
-	xfer->xferUser( &m_toppleState, sizeof( StructureToppleStateType ) );
+	xfer->xferUser( &D().m_toppleState, sizeof( StructureToppleStateType ) );
 
 	// topple velocity
-	xfer->xferReal( &m_toppleVelocity );
+	xfer->xferReal( &D().m_toppleVelocity );
 
 	// accumulated angle
-	xfer->xferReal( &m_accumulatedAngle );
+	xfer->xferReal( &D().m_accumulatedAngle );
 
 	// structural integrity
-	xfer->xferReal( &m_structuralIntegrity );
+	xfer->xferReal( &D().m_structuralIntegrity );
 
 	// last crushed location
-	xfer->xferReal( &m_lastCrushedLocation );
+	xfer->xferReal( &D().m_lastCrushedLocation );
 
 	// next burst frame
-	xfer->xferInt( &m_nextBurstFrame );
+	xfer->xferInt( &D().m_nextBurstFrame );
 
 	// delay burst location
-	xfer->xferCoord3D( &m_delayBurstLocation );
+	xfer->xferCoord3D( &D().m_delayBurstLocation );
 
 }
 

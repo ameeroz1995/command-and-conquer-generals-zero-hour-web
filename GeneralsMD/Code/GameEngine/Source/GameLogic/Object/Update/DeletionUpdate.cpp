@@ -35,11 +35,13 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/Module/DeletionUpdate.h"
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 DeletionUpdate::DeletionUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_dieFrame = 0;
+
+	D().m_dieFrame = 0;
 	const DeletionUpdateModuleData* d = getDeletionUpdateModuleData();
 	UnsignedInt delay = calcSleepDelay(d->m_minFrames, d->m_maxFrames);
 	setWakeFrame(getObject(), UPDATE_SLEEP(delay));
@@ -73,7 +75,7 @@ UnsignedInt DeletionUpdate::calcSleepDelay(UnsignedInt minFrames, UnsignedInt ma
 {
 	UnsignedInt delay = GameLogicRandomValue( minFrames, maxFrames );
 	if (delay < 1) delay = 1;
-	m_dieFrame = TheGameLogic->getFrame() + delay;
+	D().m_dieFrame = TheGameLogic->getFrame() + delay;
 	return delay;
 }
 
@@ -92,7 +94,7 @@ UpdateSleepTime DeletionUpdate::update()
 		obj->setGeometryInfo(geom);
 	}
 
-	if (TheGameLogic->getFrame() > m_dieFrame)
+	if (TheGameLogic->getFrame() > D().m_dieFrame)
 	{
 		TheGameLogic->destroyObject( getObject() );
 		return UPDATE_SLEEP_FOREVER;
@@ -134,7 +136,7 @@ void DeletionUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// die frame
-	xfer->xferUnsignedInt( &m_dieFrame );
+	xfer->xferUnsignedInt( &D().m_dieFrame );
 
 }
 

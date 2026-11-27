@@ -52,6 +52,7 @@
 #include "GameLogic/Module/BodyModule.h"
 
 
+
 //-------------------------------------------------------------------------------------------------
 FireOCLAfterWeaponCooldownUpdateModuleData::FireOCLAfterWeaponCooldownUpdateModuleData()
 {
@@ -83,7 +84,8 @@ void FireOCLAfterWeaponCooldownUpdateModuleData::buildFieldParse(MultiIniFieldPa
 //-------------------------------------------------------------------------------------------------
 FireOCLAfterWeaponCooldownUpdate::FireOCLAfterWeaponCooldownUpdate( Thing *thing, const ModuleData *moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_valid = false;
+
+	D().m_valid = false;
 	resetStats();
 }
 
@@ -137,19 +139,19 @@ UpdateSleepTime FireOCLAfterWeaponCooldownUpdate::update()
 	{
 		if( weapon->getLastShotFrame() == now - 1 )
 		{
-			m_consecutiveShots++;
-			if( m_consecutiveShots == 1 )
+			D().m_consecutiveShots++;
+			if( D().m_consecutiveShots == 1 )
 			{
 				//Our first shot -- so record the frame number so we can easily calculate the
 				//time we've been firing!
-				m_startFrame = now;
+				D().m_startFrame = now;
 			}
 		}
 		else if( weapon->getPossibleNextShotFrame() < now )
 		{
 			//Means we could have shot but didn't!
 
-			if( data->m_minShotsRequired <= m_consecutiveShots )
+			if( data->m_minShotsRequired <= D().m_consecutiveShots )
 			{
 				//We have fired enough shots to create the OCL.
 				fireOCL();
@@ -160,17 +162,17 @@ UpdateSleepTime FireOCLAfterWeaponCooldownUpdate::update()
 	{
 		//We've stopped being valid -- which means we may have stopped firing our weapon.
 		Weapon *weapon = obj->getWeaponInWeaponSlot( data->m_weaponSlot );
-		if( weapon && data->m_minShotsRequired <= m_consecutiveShots )
+		if( weapon && data->m_minShotsRequired <= D().m_consecutiveShots )
 		{
 			//We switched weapons! Fire OCL!
 			fireOCL();
 		}
 	}
 
-	if( validThisFrame != m_valid )
+	if( validThisFrame != D().m_valid )
 	{
 		//There has been a validity change, so reset all values!
-		m_valid = validThisFrame;
+		D().m_valid = validThisFrame;
 		resetStats();
 	}
 
@@ -180,8 +182,8 @@ UpdateSleepTime FireOCLAfterWeaponCooldownUpdate::update()
 //-------------------------------------------------------------------------------------------------
 void FireOCLAfterWeaponCooldownUpdate::resetStats()
 {
-	m_consecutiveShots = 0;
-	m_startFrame = 0;
+	D().m_consecutiveShots = 0;
+	D().m_startFrame = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -192,7 +194,7 @@ void FireOCLAfterWeaponCooldownUpdate::fireOCL()
 
 	//Calculate the lifetime of the OCL.
 	UnsignedInt now = TheGameLogic->getFrame();
-	Real seconds = (now - m_startFrame) * SECONDS_PER_LOGICFRAME_REAL;
+	Real seconds = (now - D().m_startFrame) * SECONDS_PER_LOGICFRAME_REAL;
 	seconds *= data->m_oclLifetimePerSecond * 0.001f;
 	UnsignedInt oclFrames = (UnsignedInt)(seconds * LOGICFRAMES_PER_SECOND);
 	oclFrames = MIN( oclFrames, data->m_oclMaxFrames );
@@ -236,13 +238,13 @@ void FireOCLAfterWeaponCooldownUpdate::xfer( Xfer *xfer )
 	UpgradeMux::upgradeMuxXfer( xfer );
 
 	// valid
-	xfer->xferBool( &m_valid );
+	xfer->xferBool( &D().m_valid );
 
 	// consecutive shots
-	xfer->xferUnsignedInt( &m_consecutiveShots );
+	xfer->xferUnsignedInt( &D().m_consecutiveShots );
 
 	// start frame
-	xfer->xferUnsignedInt( &m_startFrame );
+	xfer->xferUnsignedInt( &D().m_startFrame );
 
 }
 

@@ -48,6 +48,7 @@
 #include "GameLogic/ScriptEngine.h"
 #include "GameLogic/Damage.h"
 
+
 //-------------------------------------------------------------------------------------------------
 // this is our "bounce" limit -- slightly less that 90 degrees, to account for slop.
 static const Real ANGULAR_LIMIT = PI/2 - PI/64;
@@ -104,18 +105,19 @@ void ToppleUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
 //-------------------------------------------------------------------------------------------------
 ToppleUpdate::ToppleUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_angleDeltaX = 0.0f;
-	m_doBounceFX = FALSE;
-	m_numAngleDeltaX = 0;
-	m_angularVelocity = 0;
-	m_angularAccumulation = 0;
-	m_angularAcceleration = 0;
-	m_toppleDirection.x = 0;
-	m_toppleDirection.y = 0;
-	m_toppleDirection.z = 0;
-	m_toppleState = TOPPLE_UPRIGHT;
-	m_options = TOPPLE_OPTIONS_NONE;
-	m_stumpID = INVALID_ID;
+
+	D().m_angleDeltaX = 0.0f;
+	D().m_doBounceFX = FALSE;
+	D().m_numAngleDeltaX = 0;
+	D().m_angularVelocity = 0;
+	D().m_angularAccumulation = 0;
+	D().m_angularAcceleration = 0;
+	D().m_toppleDirection.x = 0;
+	D().m_toppleDirection.y = 0;
+	D().m_toppleDirection.z = 0;
+	D().m_toppleState = TOPPLE_UPRIGHT;
+	D().m_options = TOPPLE_OPTIONS_NONE;
+	D().m_stumpID = INVALID_ID;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
 
@@ -154,14 +156,14 @@ void ToppleUpdate::applyTopplingForce( const Coord3D* toppleDirection, Real topp
 		return;
 	}
 
-	m_toppleDirection = *toppleDirection;
-	m_toppleDirection.normalize();
-	TheScriptEngine->adjustToppleDirection(getObject(), &m_toppleDirection);
+	D().m_toppleDirection = *toppleDirection;
+	D().m_toppleDirection.normalize();
+	TheScriptEngine->adjustToppleDirection(getObject(), &D().m_toppleDirection);
 
-	m_angularVelocity = toppleSpeed * d->m_initialVelocityPercent;
-	m_angularAcceleration = toppleSpeed * d->m_initialAccelPercent;
-	m_toppleState = TOPPLE_FALLING;
-	m_options = options;
+	D().m_angularVelocity = toppleSpeed * d->m_initialVelocityPercent;
+	D().m_angularAcceleration = toppleSpeed * d->m_initialAccelPercent;
+	D().m_toppleState = TOPPLE_FALLING;
+	D().m_options = options;
 
 	// tell the drawable to stop swaying
 	Drawable * draw = getObject()->getDrawable();
@@ -185,13 +187,13 @@ void ToppleUpdate::applyTopplingForce( const Coord3D* toppleDirection, Real topp
 	// yeah, it assumes the models are constructed appropriately, but is a cheap way
 	// of minimizing the problem. (srj)
 	Real curAngleX = normalizeAngle(getObject()->getOrientation());
-	Real toppleAngle = normalizeAngle(atan2(m_toppleDirection.y, m_toppleDirection.x));
+	Real toppleAngle = normalizeAngle(atan2(D().m_toppleDirection.y, D().m_toppleDirection.x));
 	if (d->m_toppleLeftOrRightOnly)
 	{
 		// it's a fence or such, and can only topple left or right, so pick the closest
 		toppleAngle = angleClosestTo(curAngleX + PI/2, curAngleX - PI/2, toppleAngle);
-		m_toppleDirection.x = Cos(toppleAngle);
-		m_toppleDirection.y = Sin(toppleAngle);
+		D().m_toppleDirection.x = Cos(toppleAngle);
+		D().m_toppleDirection.y = Sin(toppleAngle);
 
 		// go ahead and remove it from the pathfinder now, rather than waiting for the topple to
 		// finish.... since we might be in a slightly different position when toppled, which can
@@ -201,10 +203,10 @@ void ToppleUpdate::applyTopplingForce( const Coord3D* toppleDirection, Real topp
 	}
 	// desired angle is toppleAngle +/- pi/2, whichever is closer to curangle
 	Real desiredAngleX = angleClosestTo(toppleAngle + PI/2, toppleAngle - PI/2, curAngleX);
-	m_numAngleDeltaX = REAL_TO_INT_FLOOR(ANGULAR_LIMIT / (m_angularVelocity * 2));
-	if (m_numAngleDeltaX < 1)
-		m_numAngleDeltaX = 1;
-	m_angleDeltaX = (desiredAngleX - curAngleX) / m_numAngleDeltaX;
+	D().m_numAngleDeltaX = REAL_TO_INT_FLOOR(ANGULAR_LIMIT / (D().m_angularVelocity * 2));
+	if (D().m_numAngleDeltaX < 1)
+		D().m_numAngleDeltaX = 1;
+	D().m_angleDeltaX = (desiredAngleX - curAngleX) / D().m_numAngleDeltaX;
 
 	getObject()->getDrawable()->setModelConditionState(MODELCONDITION_TOPPLED);
 	FXList::doFXObj(d->m_toppleFX, getObject());
@@ -218,7 +220,7 @@ void ToppleUpdate::applyTopplingForce( const Coord3D* toppleDirection, Real topp
 		{
 			stump->setPosition( getObject()->getPosition() );
 			stump->setOrientation( getObject()->getOrientation() );
-			m_stumpID = stump->getID();
+			D().m_stumpID = stump->getID();
 
 			// if we are "burned", then we will burn our stump
 			const Drawable* draw = getObject()->getDrawable();
@@ -242,7 +244,7 @@ void ToppleUpdate::applyTopplingForce( const Coord3D* toppleDirection, Real topp
 //-------------------------------------------------------------------------------------------------
 Bool ToppleUpdate::isAbleToBeToppled() const
 {
-	return m_toppleState == TOPPLE_UPRIGHT;
+	return D().m_toppleState == TOPPLE_UPRIGHT;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -265,8 +267,8 @@ static void deathByToppling(Object* obj)
 UpdateSleepTime ToppleUpdate::update()
 {
 	//DEBUG_LOG(("updating ToppleUpdate %08lx",this));
-	DEBUG_ASSERTCRASH(m_toppleState != TOPPLE_UPRIGHT, ("hmm, we should be sleeping here"));
-	if ( (m_toppleState == TOPPLE_UPRIGHT)  ||  (m_toppleState == TOPPLE_DOWN) )
+	DEBUG_ASSERTCRASH(D().m_toppleState != TOPPLE_UPRIGHT, ("hmm, we should be sleeping here"));
+	if ( (D().m_toppleState == TOPPLE_UPRIGHT)  ||  (D().m_toppleState == TOPPLE_DOWN) )
 		return UPDATE_SLEEP_FOREVER;
 
 	const ToppleUpdateModuleData* d = getToppleUpdateModuleData();
@@ -274,35 +276,35 @@ UpdateSleepTime ToppleUpdate::update()
 	const Real VELOCITY_BOUNCE_SOUND_LIMIT = 0.03f;	// and if this low, then skip the bounce sound
 
 	Object* obj = getObject();
-	if (m_numAngleDeltaX)
+	if (D().m_numAngleDeltaX)
 	{
 		Matrix3D xfrm = *obj->getTransformMatrix();
-		xfrm.In_Place_Pre_Rotate_Z(m_angleDeltaX);
+		xfrm.In_Place_Pre_Rotate_Z(D().m_angleDeltaX);
 		obj->setTransformMatrix(&xfrm);
-		--m_numAngleDeltaX;
+		--D().m_numAngleDeltaX;
 	}
 
-	Real curVelToUse = m_angularVelocity;
-	if (m_angularAccumulation + curVelToUse > ANGULAR_LIMIT)
-		curVelToUse = ANGULAR_LIMIT - m_angularAccumulation;
+	Real curVelToUse = D().m_angularVelocity;
+	if (D().m_angularAccumulation + curVelToUse > ANGULAR_LIMIT)
+		curVelToUse = ANGULAR_LIMIT - D().m_angularAccumulation;
 
 	Matrix3D xfrm = *obj->getTransformMatrix();
-	xfrm.In_Place_Pre_Rotate_X(-curVelToUse * m_toppleDirection.y);
-	xfrm.In_Place_Pre_Rotate_Y(curVelToUse * m_toppleDirection.x);
+	xfrm.In_Place_Pre_Rotate_X(-curVelToUse * D().m_toppleDirection.y);
+	xfrm.In_Place_Pre_Rotate_Y(curVelToUse * D().m_toppleDirection.x);
 	obj->setTransformMatrix(&xfrm);
 
-	m_angularAccumulation += curVelToUse;
-	if ((m_angularAccumulation >= ANGULAR_LIMIT) && (m_angularVelocity > 0))
+	D().m_angularAccumulation += curVelToUse;
+	if ((D().m_angularAccumulation >= ANGULAR_LIMIT) && (D().m_angularVelocity > 0))
 	{
 		// Hit so either bounce or stop if too little remaining velocity.
-		m_angularVelocity *= -d->m_bounceVelocityPercent;
+		D().m_angularVelocity *= -d->m_bounceVelocityPercent;
 
-		if( BitIsSet( m_options, TOPPLE_OPTIONS_NO_BOUNCE ) == TRUE ||
-				fabs(m_angularVelocity) < VELOCITY_BOUNCE_LIMIT )
+		if( BitIsSet( D().m_options, TOPPLE_OPTIONS_NO_BOUNCE ) == TRUE ||
+				fabs(D().m_angularVelocity) < VELOCITY_BOUNCE_LIMIT )
 		{
 			// too slow, just stop
-			m_angularVelocity = 0;
-			m_toppleState = TOPPLE_DOWN;
+			D().m_angularVelocity = 0;
+			D().m_toppleState = TOPPLE_DOWN;
 
 			if (d->m_killWhenToppled)
 			{
@@ -331,23 +333,23 @@ UpdateSleepTime ToppleUpdate::update()
 
 			if (d->m_killStumpWhenToppled)
 			{
-				Object* stump = TheGameLogic->findObjectByID(m_stumpID);
+				Object* stump = TheGameLogic->findObjectByID(D().m_stumpID);
 				if (stump)
 				{
 					deathByToppling(stump);
 				}
 			}
 		}
-		else if( fabs(m_angularVelocity) >= VELOCITY_BOUNCE_SOUND_LIMIT )
+		else if( fabs(D().m_angularVelocity) >= VELOCITY_BOUNCE_SOUND_LIMIT )
 		{
 			// fast enough bounce to warrant the bounce fx
-			if( BitIsSet( m_options, TOPPLE_OPTIONS_NO_FX ) == FALSE )
+			if( BitIsSet( D().m_options, TOPPLE_OPTIONS_NO_FX ) == FALSE )
 				FXList::doFXObj(d->m_bounceFX, obj);
 		}
 	}
 	else
 	{
-		m_angularVelocity += m_angularAcceleration;
+		D().m_angularVelocity += D().m_angularAcceleration;
 	}
 
 	Drawable *draw=obj->getDrawable();
@@ -419,34 +421,34 @@ void ToppleUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// angular velocity
-	xfer->xferReal( &m_angularVelocity );
+	xfer->xferReal( &D().m_angularVelocity );
 
 	// angular acceleration
-	xfer->xferReal( &m_angularAcceleration );
+	xfer->xferReal( &D().m_angularAcceleration );
 
 	// topple direction
-	xfer->xferCoord3D( &m_toppleDirection );
+	xfer->xferCoord3D( &D().m_toppleDirection );
 
 	// topple state
-	xfer->xferUser( &m_toppleState, sizeof( ToppleState	) );
+	xfer->xferUser( &D().m_toppleState, sizeof( ToppleState	) );
 
 	// angular accumulation
-	xfer->xferReal( &m_angularAccumulation );
+	xfer->xferReal( &D().m_angularAccumulation );
 
 	// angle delta X
-	xfer->xferReal( &m_angleDeltaX );
+	xfer->xferReal( &D().m_angleDeltaX );
 
 	// num angle delta X
-	xfer->xferInt( &m_numAngleDeltaX );
+	xfer->xferInt( &D().m_numAngleDeltaX );
 
 	// do bounce FX
-	xfer->xferBool( &m_doBounceFX );
+	xfer->xferBool( &D().m_doBounceFX );
 
 	// options
-	xfer->xferUnsignedInt( &m_options );
+	xfer->xferUnsignedInt( &D().m_options );
 
 	// stump id
-	xfer->xferObjectID( &m_stumpID );
+	xfer->xferObjectID( &D().m_stumpID );
 
 }
 

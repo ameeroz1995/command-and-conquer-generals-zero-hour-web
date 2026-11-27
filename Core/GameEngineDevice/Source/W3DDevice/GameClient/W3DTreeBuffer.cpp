@@ -1525,6 +1525,9 @@ DECLARE_PERF_TIMER(Tree_Render)
 //=============================================================================
 void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pDynamicLightsIterator)
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(11); // draw counts by kind (benchmark)
+#endif
 	USE_PERF_TIMER(Tree_Render)
 	if (!m_isTerrainPass) {
 		return;

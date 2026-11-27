@@ -328,6 +328,9 @@ int SegmentedLineClass::Get_Num_Polys() const
 
 void SegmentedLineClass::Render(RenderInfoClass & rinfo)
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(10); // draw counts by kind (benchmark)
+#endif
 	if (Is_Not_Hidden_At_All() == false) {
 		return ;
 	}

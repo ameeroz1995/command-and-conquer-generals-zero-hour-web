@@ -84,6 +84,8 @@ public:
 		m_template = nullptr;
 	}
 
+	const ArmorTemplate *gxTemplate() const { return m_template; }	///< combat, damageTable (Weapon.cpp)
+
 private:
 	const ArmorTemplate* m_template;		///< the kind of armor this is
 };

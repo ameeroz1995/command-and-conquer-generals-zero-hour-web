@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/SlowDeathBehavior.h"
+#include "Common/GxComponentPool.h"
 
 class FXList;
 
@@ -103,9 +104,17 @@ protected:
 	void doBlast( const BlastInfo *blastInfo );				 ///< do blast
 	void doScorchBlast( const BlastInfo *blastInfo );  ///< do a scorch blast ring
 
-	UnsignedInt m_activationFrame;									///< frame we were activated on
-	Bool m_completedBlasts[ MAX_NEUTRON_BLASTS ];		///< blasts indexes we've already done
-	Bool m_completedScorchBlasts[ MAX_NEUTRON_BLASTS ];		///< scorch blast indexes we've already done
-	Bool m_scorchPlaced;														///< TRUE once we've placed the scorch mark
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		UnsignedInt m_activationFrame;									///< frame we were activated on
+		Bool m_completedBlasts[ MAX_NEUTRON_BLASTS ];		///< blasts indexes we've already done
+		Bool m_completedScorchBlasts[ MAX_NEUTRON_BLASTS ];		///< scorch blast indexes we've already done
+		Bool m_scorchPlaced;														///< TRUE once we've placed the scorch mark
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 };

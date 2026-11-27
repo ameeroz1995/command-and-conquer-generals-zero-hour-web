@@ -50,6 +50,7 @@
 //           Includes
 //-----------------------------------------------------------------------------
 #include "Common/GameCommon.h"	// ensure we get DUMP_PERF_STATS, or not
+#include "Common/GxUnitStore.h"	// web port (round 5): PartitionData's per-unit state lives in the store
 #include "GameLogic/ObjectIter.h"
 #include "Common/ObjectStatusTypes.h"
 #include "Common/KindOf.h"
@@ -449,11 +450,6 @@ private:
 	ObjectShroudStatus					m_shroudedness[MAX_PLAYER_COUNT];
 	ObjectShroudStatus					m_shroudednessPrevious[MAX_PLAYER_COUNT];	///<previous frames value of m_shroudedness
 	Bool												m_everSeenByPlayer[MAX_PLAYER_COUNT];		///<whether this object has ever been seen by a given player.
-	// web port (switch fogKeep, fourth word bit 15): per player, the cached status came from a branch that
-	// reads only the cells' shroud (off map, all shrouded, all clear, partly clear), so a move that keeps
-	// the same cells need not invalidate it; verify mode invalidates anyway and checks the kept value.
-	UnsignedShort								m_gxPure, m_gxKeptMask;
-	ObjectShroudStatus					m_gxKept[MAX_PLAYER_COUNT];
 	const PartitionCell					*m_lastCell;							///< The last cell I thought my center was in.
 	UnsignedInt									m_gxDeferStamp;						///< web port (collideStagger): frame stamp when this unit waits its turn
 	Int													m_gxFillKey[8];						///< web port (cellReuse): what the last cell fill depended on; [0] == 0: none
@@ -462,11 +458,13 @@ public:
 	/// web port (switch searchCache): copy the object's position and radius into every COI in use
 	void gxRefreshPlace();
 	/// web port (switches pairPlace / pairOffer): the same copy kept here, for the touching-pair tests
-	Real gxX() const { return m_gxX; }
-	Real gxY() const { return m_gxY; }
-	Real gxR() const { return m_gxR; }
+	/// web port (round 5): this object's slot in TheGxUnitStore, which holds its cached place and fog
+	/// bits (query block); -1 for a ghost-only PartitionData (no place: never turned away; nothing kept)
+	Int gxSlot() const;
+	Real gxX() const { const Int s = gxSlot(); return s >= 0 ? TheGxUnitStore.placeX[s] : 0.0f; }
+	Real gxY() const { const Int s = gxSlot(); return s >= 0 ? TheGxUnitStore.placeY[s] : 0.0f; }
+	Real gxR() const { const Int s = gxSlot(); return s >= 0 ? TheGxUnitStore.placeR[s] : HUGE_DIST; }
 private:
-	Real												m_gxX, m_gxY, m_gxR;
 
 	/**
 		Given a shape's geometry and size parameters, calculate the maximum number of COIs
@@ -622,6 +620,8 @@ public:
 	void friend_removeAllTouchedCells() { removeAllTouchedCells(); }	///< this is only for use by PartitionManager
 	void friend_updateCellsTouched()	{ updateCellsTouched(); } ///< this is only for use by PartitionManager
 	Int friend_getCoiInUseCount() { return m_coiInUseCount; } ///< this is only for use by PartitionManager
+	CellAndObjectIntersection *friend_getCoiArray() { return m_coiArray; }	///< combat, splashSimd (PartitionManager::gxSplashSearch)
+	Int friend_getCoiArrayCount() const { return m_coiArrayCount; }
 	Bool friend_collidesWith(const PartitionData *that, CollideLocAndNormal *cinfo) const { return collidesWith(that, cinfo); }	///< this is only for use by PartitionContactList
 
 	// these are only for use by getClosestObjects.
@@ -1517,6 +1517,10 @@ public:
 		PartitionFilter **filters = nullptr,
 		IterOrderType order = ITER_FASTEST
 	);
+	/// combat, round 5 (fourth word bit 25, splashSimd; same game): iterateObjectsInRange(pos, maxDist, dc)
+	/// with no filters, found by a SIMD pass over the unit store's x/y/radius columns and put in the
+	/// cell walk's order. Returns nullptr when it can't promise the walk's answer (caller walks).
+	SimpleObjectIterator *gxSplashSearch(const Coord3D *pos, Real maxDist, DistanceCalculationType dc);
 
 	SimpleObjectIterator *iterateAllObjects(PartitionFilter **filters = nullptr);
 

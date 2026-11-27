@@ -34,6 +34,7 @@
 #include "GameLogic/Module/DynamicGeometryInfoUpdate.h"
 #include "GameLogic/Object.h"
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 DynamicGeometryInfoUpdateModuleData::DynamicGeometryInfoUpdateModuleData()
@@ -84,24 +85,25 @@ DynamicGeometryInfoUpdateModuleData::DynamicGeometryInfoUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 DynamicGeometryInfoUpdate::DynamicGeometryInfoUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+
 	DynamicGeometryInfoUpdateModuleData *modData = (DynamicGeometryInfoUpdateModuleData *)moduleData;
-	m_startingDelayCountdown = modData->m_initialDelay;
-	m_startingDelayCountdown = max( m_startingDelayCountdown, 1u );
-	m_timeActive = 0;
+	GD().m_startingDelayCountdown = modData->m_initialDelay;
+	GD().m_startingDelayCountdown = max( GD().m_startingDelayCountdown, 1u );
+	GD().m_timeActive = 0;
 
-	m_started = FALSE;
-	m_finished = FALSE;
+	GD().m_started = FALSE;
+	GD().m_finished = FALSE;
 
-	m_reverseAtTransitionTime = modData->m_reverseAtTransitionTime;
-	m_switchedDirections = FALSE;
+	GD().m_reverseAtTransitionTime = modData->m_reverseAtTransitionTime;
+	GD().m_switchedDirections = FALSE;
 
 	// record in our instance what initial and final height are
-	m_initialHeight = modData->m_initialHeight;
-	m_initialMajorRadius = modData->m_initialMajorRadius;
-	m_initialMinorRadius = modData->m_initialMinorRadius;
-	m_finalHeight = modData->m_finalHeight;
-	m_finalMajorRadius = modData->m_finalMajorRadius;
-	m_finalMinorRadius = modData->m_finalMinorRadius;
+	GD().m_initialHeight = modData->m_initialHeight;
+	GD().m_initialMajorRadius = modData->m_initialMajorRadius;
+	GD().m_initialMinorRadius = modData->m_initialMinorRadius;
+	GD().m_finalHeight = modData->m_finalHeight;
+	GD().m_finalMajorRadius = modData->m_finalMajorRadius;
+	GD().m_finalMinorRadius = modData->m_finalMinorRadius;
 
 }
 
@@ -117,17 +119,17 @@ DynamicGeometryInfoUpdate::~DynamicGeometryInfoUpdate()
 UpdateSleepTime DynamicGeometryInfoUpdate::update()
 {
 /// @todo srj use SLEEPY_UPDATE here
-	if( m_finished )
+	if( GD().m_finished )
 		return UPDATE_SLEEP_NONE;
 
-	if( !m_started )
+	if( !GD().m_started )
 	{
 
-		m_startingDelayCountdown--;
-		if( m_startingDelayCountdown > 0 )
+		GD().m_startingDelayCountdown--;
+		if( GD().m_startingDelayCountdown > 0 )
 			return UPDATE_SLEEP_NONE;
 
-		m_started = TRUE;
+		GD().m_started = TRUE;
 
 	}
 
@@ -136,11 +138,11 @@ UpdateSleepTime DynamicGeometryInfoUpdate::update()
 	Object *me = getObject();
 	Real newHeight, newMajor, newMinor;
 
-	Real ratio = (float)m_timeActive / (float)data->m_transitionTime;
+	Real ratio = (float)GD().m_timeActive / (float)data->m_transitionTime;
 
-	newHeight = m_initialHeight + (ratio * (m_finalHeight - m_initialHeight));
-	newMajor = m_initialMajorRadius + (ratio * (m_finalMajorRadius - m_initialMajorRadius));
-	newMinor = m_initialMinorRadius + (ratio * (m_finalMinorRadius - m_initialMinorRadius));
+	newHeight = GD().m_initialHeight + (ratio * (GD().m_finalHeight - GD().m_initialHeight));
+	newMajor = GD().m_initialMajorRadius + (ratio * (GD().m_finalMajorRadius - GD().m_initialMajorRadius));
+	newMinor = GD().m_initialMinorRadius + (ratio * (GD().m_finalMinorRadius - GD().m_initialMinorRadius));
 
 	// make a new geometry info with the new values
 	const GeometryInfo oldGeom = me->getGeometryInfo();
@@ -148,35 +150,35 @@ UpdateSleepTime DynamicGeometryInfoUpdate::update()
 	me->setGeometryInfo( newGeom );
 
 	// we've not been active another frame .. increment out counter
-	m_timeActive++;
+	GD().m_timeActive++;
 
 	// greater, so an update that is exactly right will be done
-	if( m_timeActive > data->m_transitionTime )
+	if( GD().m_timeActive > data->m_transitionTime )
 	{
 
 		// if we're supposed to reverse at transition time do so now if we haven't already
-		if( m_reverseAtTransitionTime == TRUE )
+		if( GD().m_reverseAtTransitionTime == TRUE )
 		{
 
 			// switch directions, reset time active, and turn off the switch at transition time
-			m_switchedDirections = TRUE;
-			m_timeActive = 0;
-			m_reverseAtTransitionTime = FALSE;
+			GD().m_switchedDirections = TRUE;
+			GD().m_timeActive = 0;
+			GD().m_reverseAtTransitionTime = FALSE;
 
 			// swap the initial and final values
-			m_initialHeight = data->m_finalHeight;
-			m_initialMajorRadius = data->m_finalMajorRadius;
-			m_initialMinorRadius = data->m_finalMinorRadius;
-			m_finalHeight = data->m_initialHeight;
-			m_finalMajorRadius = data->m_initialMajorRadius;
-			m_finalMinorRadius = data->m_initialMinorRadius;
+			GD().m_initialHeight = data->m_finalHeight;
+			GD().m_initialMajorRadius = data->m_finalMajorRadius;
+			GD().m_initialMinorRadius = data->m_finalMinorRadius;
+			GD().m_finalHeight = data->m_initialHeight;
+			GD().m_finalMajorRadius = data->m_initialMajorRadius;
+			GD().m_finalMinorRadius = data->m_initialMinorRadius;
 
 		}
 		else
 		{
 
 			// no switch needed ... we're all done
-			m_finished = TRUE;
+			GD().m_finished = TRUE;
 
 		}
 
@@ -213,43 +215,43 @@ void DynamicGeometryInfoUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// starting delay countdown
-	xfer->xferUnsignedInt( &m_startingDelayCountdown );
+	xfer->xferUnsignedInt( &GD().m_startingDelayCountdown );
 
 	// time active
-	xfer->xferUnsignedInt( &m_timeActive );
+	xfer->xferUnsignedInt( &GD().m_timeActive );
 
 	// started
-	xfer->xferBool( &m_started );
+	xfer->xferBool( &GD().m_started );
 
 	// finished
-	xfer->xferBool( &m_finished );
+	xfer->xferBool( &GD().m_finished );
 
 	// reverse at transition time
-	xfer->xferBool( &m_reverseAtTransitionTime );
+	xfer->xferBool( &GD().m_reverseAtTransitionTime );
 
 	// direction
-	xfer->xferUser( &m_direction, sizeof( DynamicGeometryDirection ) );
+	xfer->xferUser( &GD().m_direction, sizeof( DynamicGeometryDirection ) );
 
 	// switched directions
-	xfer->xferBool( &m_switchedDirections );
+	xfer->xferBool( &GD().m_switchedDirections );
 
 	// initial height
-	xfer->xferReal( &m_initialHeight );
+	xfer->xferReal( &GD().m_initialHeight );
 
 	// initial major radius
-	xfer->xferReal( &m_initialMajorRadius );
+	xfer->xferReal( &GD().m_initialMajorRadius );
 
 	// initial minor radius
-	xfer->xferReal( &m_initialMinorRadius );
+	xfer->xferReal( &GD().m_initialMinorRadius );
 
 	// final height
-	xfer->xferReal( &m_finalHeight );
+	xfer->xferReal( &GD().m_finalHeight );
 
 	// final major radius
-	xfer->xferReal( &m_finalMajorRadius );
+	xfer->xferReal( &GD().m_finalMajorRadius );
 
 	// final minor radius
-	xfer->xferReal( &m_finalMinorRadius );
+	xfer->xferReal( &GD().m_finalMinorRadius );
 
 }
 

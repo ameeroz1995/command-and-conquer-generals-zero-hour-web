@@ -4122,6 +4122,7 @@ void GameLogic::update()
 	}
 #endif
 
+	{ extern void gxWeaponReloadSystem(); gxWeaponReloadSystem(); }	// combat, round 5: weapon reloads as a system (fourth word bit 24)
 	{ GxTimeScope gxLoopScope(GXT_AI_LOOP);	// tickTiming: the update loop (queue, passes, kernels)
 	extern bool gxMatchRule(unsigned int rule);
 	if (gxMatchRule(131072))

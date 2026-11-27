@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/KindOf.h"
 #include "GameLogic/Module/SpecialPowerUpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class SpecialPowerModule;
@@ -149,7 +150,7 @@ public:
 	virtual Bool initiateIntentToDoSpecialPower(const SpecialPowerTemplate *specialPowerTemplate, const Object *targetObj, const Coord3D *targetPos, const Waypoint *way, UnsignedInt commandOptions );
 	virtual Bool isSpecialAbility() const { return false; }
 	virtual Bool isSpecialPower() const { return true; }
-	virtual Bool isActive() const {return m_status != TRANSITIONSTATUS_IDLE;}
+	virtual Bool isActive() const {return D().m_status != TRANSITIONSTATUS_IDLE;}
 	virtual SpecialPowerUpdateInterface* getSpecialPowerUpdateInterface() { return this; }
 	virtual Bool doesSpecialPowerHaveOverridableDestinationActive() const { return false; } //Is it active now?
 	virtual Bool doesSpecialPowerHaveOverridableDestination() const { return false; }	//Does it have it, even if it's not active?
@@ -173,29 +174,37 @@ protected:
 	void setBattlePlan( BattlePlanStatus plan );
 	void createVisionObject();
 
-	BattlePlanStatus m_currentPlan;	//The current battle plan displayed by the building (includes packing & unpacking)
-	BattlePlanStatus m_desiredPlan; //The user desired battle plan
-	BattlePlanStatus m_planAffectingArmy; //The current battle plan that is affecting troops!
-	TransitionStatus m_status;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		BattlePlanStatus m_currentPlan;	//The current battle plan displayed by the building (includes packing & unpacking)
+		BattlePlanStatus m_desiredPlan; //The user desired battle plan
+		BattlePlanStatus m_planAffectingArmy; //The current battle plan that is affecting troops!
+		TransitionStatus m_status;
+		UnsignedInt m_nextReadyFrame;
+		SpecialPowerModuleInterface *m_specialPowerModule;
+		Bool				m_invalidSettings;
+		Bool				m_centeringTurret;
+		BattlePlanBonuses* m_bonuses;
+		AudioEventRTS		m_bombardmentUnpack;
+		AudioEventRTS		m_bombardmentPack;
+		AudioEventRTS   m_bombardmentAnnouncement;
+		AudioEventRTS		m_searchAndDestroyUnpack;
+		AudioEventRTS   m_searchAndDestroyIdle;
+		AudioEventRTS		m_searchAndDestroyPack;
+		AudioEventRTS   m_searchAndDestroyAnnouncement;
+		AudioEventRTS   m_holdTheLineUnpack;
+		AudioEventRTS   m_holdTheLinePack;
+		AudioEventRTS   m_holdTheLineAnnouncement;
+		ObjectID m_visionObjectID;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
-	UnsignedInt m_nextReadyFrame;
-	SpecialPowerModuleInterface *m_specialPowerModule;
-	Bool				m_invalidSettings;
-	Bool				m_centeringTurret;
-	BattlePlanBonuses* m_bonuses;
 
-	AudioEventRTS		m_bombardmentUnpack;
-	AudioEventRTS		m_bombardmentPack;
-	AudioEventRTS   m_bombardmentAnnouncement;
-	AudioEventRTS		m_searchAndDestroyUnpack;
-	AudioEventRTS   m_searchAndDestroyIdle;
-	AudioEventRTS		m_searchAndDestroyPack;
-	AudioEventRTS   m_searchAndDestroyAnnouncement;
-	AudioEventRTS   m_holdTheLineUnpack;
-	AudioEventRTS   m_holdTheLinePack;
-	AudioEventRTS   m_holdTheLineAnnouncement;
 
 	// vision object - hang on to this so we can delete it on destruction
-	ObjectID m_visionObjectID;
 
 };

@@ -31,6 +31,7 @@
 #pragma once
 
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 class WeaponTemplate;
 class FXList;
@@ -84,14 +85,22 @@ public:
 
 	void initStickyBomb( Object *object, const Object *bomber, const Coord3D *specificPos = nullptr );
 	void detonate();
-	Bool isTimedBomb() const { return m_dieFrame > 0; }
-	UnsignedInt getDetonationFrame() const { return m_dieFrame; }
+	Bool isTimedBomb() const { return D().m_dieFrame > 0; }
+	UnsignedInt getDetonationFrame() const { return D().m_dieFrame; }
 	Object* getTargetObject() const;
 	void setTargetObject( Object *obj );
 
 private:
 
-	ObjectID			m_targetID;
-	UnsignedInt		m_dieFrame;
-	UnsignedInt   m_nextPingFrame;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		ObjectID			m_targetID;
+		UnsignedInt		m_dieFrame;
+		UnsignedInt   m_nextPingFrame;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+private:
 };

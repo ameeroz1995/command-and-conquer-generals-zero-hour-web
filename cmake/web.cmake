@@ -140,6 +140,7 @@ set(WW3D2_DIR ${CMAKE_SOURCE_DIR}/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2
 
 set(GLES3_WEB_SOURCES
     ${WW3D2_DIR}/gles3_wrapper.cpp
+    ${WW3D2_DIR}/gles3_webgpu.cpp
     ${WW3D2_DIR}/gles3_fvf.cpp
     ${WW3D2_DIR}/gles3_texture_utils.cpp
     ${WW3D2_DIR}/gles3_big_vfs.cpp

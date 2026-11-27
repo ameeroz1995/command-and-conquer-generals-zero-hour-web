@@ -46,7 +46,10 @@ void gxCountdownKernel(GxComponentPool<Row> &t, int begin, int end, unsigned int
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches4();
 #else
+#ifndef GX_SWITCHES4_FALLBACK
+#define GX_SWITCHES4_FALLBACK
 static inline int GLES3_Page_Switches4() { return 0; }
+#endif
 #endif
 
 /// Apply-step commit: the row's delay takes its next value; returns TRUE when the scan is due.

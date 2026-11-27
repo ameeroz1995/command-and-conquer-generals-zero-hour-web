@@ -37,12 +37,14 @@
 #include "GameLogic/Object.h"
 
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 LifetimeUpdate::LifetimeUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+
 	const LifetimeUpdateModuleData* d = getLifetimeUpdateModuleData();
-	m_dieFrame = 0;
+	D().m_dieFrame = 0;
 	UnsignedInt delay;
 	if( getObject()->isKindOf( KINDOF_HULK ) && TheGameLogic->getHulkMaxLifetimeOverride() != -1 )
 	{
@@ -76,7 +78,7 @@ UnsignedInt LifetimeUpdate::calcSleepDelay(UnsignedInt minFrames, UnsignedInt ma
 {
 	UnsignedInt delay = GameLogicRandomValue( minFrames, maxFrames );
 	if (delay < 1) delay = 1;
-	m_dieFrame = TheGameLogic->getFrame() + delay;
+	D().m_dieFrame = TheGameLogic->getFrame() + delay;
 	return delay;
 }
 
@@ -117,7 +119,7 @@ void LifetimeUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// die frame
-	xfer->xferUnsignedInt( &m_dieFrame );
+	xfer->xferUnsignedInt( &D().m_dieFrame );
 
 }
 

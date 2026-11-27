@@ -46,6 +46,13 @@ public:
 	static void buildFieldParse(MultiIniFieldParse& p);
 };
 
+// web port (round 5, units are pure data): UndeadBody's per-unit state, one row per module in
+// GxComponentPool<UndeadBodyRow> (the module keeps only the row, m_gxUndeadBody)
+struct UndeadBodyRow
+{
+	Bool m_isSecondLife = false;	///< false until I detect death the first time, then I change my Max, Initial, and Current health and stop intercepting anything
+};
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 class UndeadBody : public ActiveBody
@@ -63,9 +70,7 @@ public:
 
 protected:
 
-	Bool m_isSecondLife;	/** This is false until I detect death the first time, then I
-														change my Max, Initial, and Current health and stop intercepting anything.
-												*/
+	GxRow<UndeadBodyRow> m_gxUndeadBody;	///< web port (round 5): this module's state, a row of its component pool
 	void startSecondLife(DamageInfo *damageInfo);
 
 };
