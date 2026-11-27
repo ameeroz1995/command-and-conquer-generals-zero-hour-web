@@ -4498,3 +4498,16 @@ Level within noise (the ceiling was the call's 0.4% self share).
   628 -> 168). Timing (pinned slot), alternating off/on: pair 1 discarded (load 12); pair 2 (load 6-7)
   logic 36.03 / 32.40 ms/tick, pathfind 4.47 / 4.17; pair 3 (load 4-5) logic 32.30 / 32.15, pathfind
   4.13 / 4.18. Lower in both clean pairs (pair 3 within noise), so ON by default.
+
+## 2026-11-27 — paths: straight-line route following re-timed: cpopSegments now ON (same game)
+- The path kernel's straight-line form already existed: cpopSegments (flat segment columns per route)
+  plus cpopSimd (closest segment 8 per step, two 4-lane chains, selects, no FMA, ties to the lowest
+  index; the loop is call-free). It was left off on 11-25 after one A/B at load 12-17 in the old regime.
+- Re-timed no-draw (paths-np2, nodePool on, pinned slot, waiting for load < 8 at each start), off/on x2:
+  movement kernel 1.857 / 1.198, 1.855 / 1.301 ms/tick (-30 to -35%); movement pass 4.67 / 3.64,
+  4.70 / 3.89; logic 41.54 / 35.43, 42.51 / 38.33 ms/tick; p99 109.4 / 96.5, 112.0 / 108.0 ms.
+  Routes average 58 segments per closest-point search (25,180 SIMD segments over 434.7 searches a tick).
+  An earlier pair at load 14-17 gave the same kernel drop (2.18 / 1.61, 1.89 / 1.49).
+- Checks with it on: referee.rep, paths-long-up.rep, paths-loco.rep, paths-oq.rep, paths-def.rep match;
+  battle verify: cpopSimd 760,000 searches (44.1 M segments) against the node walk, 0 mismatches.
+  ON by default (third word bit 0).

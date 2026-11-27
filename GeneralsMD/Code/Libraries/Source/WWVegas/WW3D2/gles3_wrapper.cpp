@@ -58,7 +58,7 @@ static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
-static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 134217728;	// collide 4-5, ai 8, particleWorker 24 on
+static int g_PageSwitches3 = 0 | 1 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 134217728;	// cpopSegments 0, collide 4-5, ai 8, particleWorker 24 on
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // Fourth switch word (round 5: units as pure data). Bits by owner: collide 0-5, ai 6-11, query 12-17,
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
@@ -526,7 +526,7 @@ void GLES3_Begin_Scene() {
                  | (o.multiLights === true ? 536870912 : 0)   // bit 29: ... each with its own lights, so parts in different light join too
                  | (o.uiMerge === false ? 0 : 268435456)       // bit 28: consecutive interface pictures with one texture drawn together (render2d.cpp)
                  | (o.sortMaterials === false ? 0 : 67108864)   // bit 26: see-through draws with equal materials merge (sortingrenderer.cpp)
-                 | (o.cpopSegments === true ? 1 : 0)   // bit 0: route-following reads each route's segments from one flat array (AIPathfind.cpp; same game)
+                 | (o.cpopSegments === false ? 0 : 1)   // bit 0: route-following reads each route's segments from one flat array (AIPathfind.cpp; same game)
                  | (o.moveAfterTick === true ? 2 : 0)   // bit 1: match rule moveAfterTick, every unit's locomotion in one pass at the end of the tick (AIUpdate.cpp)
                  | (o.groupRoute === true ? 4 : 0)      // bit 2: match rule groupRoute, one route search per group order (AIGroup.cpp)
                  | (o.routeQueue === true ? 8 : 0)      // bit 3: match rule routeQueue, no dropped route requests (AIPathfind.cpp)
