@@ -113,6 +113,7 @@
 #include "Common/MiscAudio.h"
 #include "Common/AudioEventInfo.h"
 #include "Common/DynamicAudioEventInfo.h"
+#include "Common/GxEventIndex.h"
 
 
 #ifdef DEBUG_OBJECT_ID_EXISTS
@@ -4818,6 +4819,17 @@ void Object::onDie( DamageInfo *damageInfo )
 			}
 
 			//Transfer any attackers from the destroyed building to the hole.
+			if (gxEventIndexOn())
+			{
+				// #11 eventIndex: the AI objects, in object-list order
+				std::vector<Object *> ais;
+				TheGxEventIndex.get(GX_EV_AI, ais);
+				gxEventIndexVerify(GX_EV_AI, ais);
+				gxCount(GXC_EVENT_WALK, ais.size());
+				for (Object *obj : ais)
+					obj->getAI()->transferAttack( getID(), hole->getID() );
+			}
+			else
 			for ( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 			{
 				gxCount(GXC_EVENT_WALK);
@@ -6468,6 +6480,18 @@ void Object::defect( Team* newTeam, UnsignedInt detectionTime )
 	// unfortunately, structures don't keep a list of mines they own, so we must do
 	// this the hard way :-( [fortunately, this doesn't happen very often, so this
 	// is probably an acceptable, if icky, solution.] (srj)
+	if (gxEventIndexOn())
+	{
+		// #11 eventIndex: the mines, in object-list order
+		std::vector<Object *> mines;
+		TheGxEventIndex.get(GX_EV_MINES, mines);
+		gxEventIndexVerify(GX_EV_MINES, mines);
+		gxCount(GXC_EVENT_WALK, mines.size());
+		for (Object *mine : mines)
+			if (mine->getProducerID() == this->getID())
+				mine->setTeam(newTeam);
+	}
+	else
 	for (Object* mine = TheGameLogic->getFirstObject(); mine; mine = mine->getNextObject())
 	{
 		gxCount(GXC_EVENT_WALK);

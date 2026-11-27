@@ -123,6 +123,8 @@
 DECLARE_PERF_TIMER(SleepyMaintenance)
 
 #include "Common/UnitTimings.h" //Contains the DO_UNIT_TIMINGS define jba.
+#include "Common/GxEventIndex.h"
+GxEventIndex TheGxEventIndex;	// #11
 // If defined, the game times various units.
 #ifdef DO_UNIT_TIMINGS
 #pragma MESSAGE("*** WARNING *** DOING DO_UNIT_TIMINGS!!!!")
@@ -407,6 +409,7 @@ void GameLogic::reset()
 	m_objVector.resize(OBJ_HASH_SIZE, nullptr);
 	m_gxDisabledObjs.clear();
 	m_gxDisabledListValid = false;
+	++m_gxListEpoch;	// #11
 
 	m_pauseFrame = 0;
 	m_gamePaused = FALSE;
@@ -4708,6 +4711,7 @@ void GameLogic::registerObject( Object *obj )
 
 	// add object to lookup table
 	addObjectToLookupTable( obj );
+	if (gxEventIndexOn()) TheGxEventIndex.note(obj);	// #11
 
 	UnsignedInt now = getFrame();
 	if (now == 0)
@@ -5957,6 +5961,7 @@ void GameLogic::xfer( Xfer *xfer )
 void GameLogic::loadPostProcess()
 {
 	m_gxDisabledListValid = false;	// web port: the object list was rebuilt; the disabled list is rebuilt from it
+	++m_gxListEpoch;	// #11
 
 	//
 	// the act of loading objects can (theoretically) as a side effect create other objects,

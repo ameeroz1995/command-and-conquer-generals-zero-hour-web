@@ -177,6 +177,7 @@ public:
 	Object *friend_createObject( const ThingTemplate *thing, const ObjectStatusMaskType &objectStatusMask, Team *team );
 	void destroyObject( Object *obj );							///< Mark object as destroyed for later deletion
 	Object *findObjectByID( ObjectID id );								///< Given an ObjectID, return a pointer to the object.
+	UnsignedInt gxListEpoch() const { return m_gxListEpoch; }	///< #11 (combat): changes when the object list is rebuilt
  	Object *getFirstObject();									///< Returns the "first" object in the world. When used with the object method "getNextObject()", all objects in the world can be iterated.
 	ObjectID allocateObjectID();							///< Returns a new unique object id
 
@@ -392,6 +393,7 @@ private:
 	// (descending m_gxListSeq). Rebuilt from the list after a reset or a load.
 	std::vector<Object *> m_gxDisabledObjs;
 	UnsignedInt m_gxListSeqNext = 0;
+	UnsignedInt m_gxListEpoch = 0;	///< #11 (combat): bumped when the object list is rebuilt (reset, load)
 	Bool m_gxDisabledListValid = false;
 	void gxCheckDisabledObjects();
 	std::vector<UnsignedInt> m_gxSleepyKey;	///< web port (switch sleepyKeys): each entry's priority, kept beside m_sleepyUpdates so the heap compares without touching the modules

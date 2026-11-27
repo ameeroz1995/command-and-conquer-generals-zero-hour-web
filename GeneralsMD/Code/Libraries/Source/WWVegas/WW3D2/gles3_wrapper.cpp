@@ -509,6 +509,7 @@ void GLES3_Begin_Scene() {
                  | (o.tmplIndex === true ? 16777216 : 0)   // bit 24 (combat, hash-map #1): per-player template counts kept on team join / leave answer countObjectsByThingTemplate (Player.cpp; same game)
                  | (o.assistList === true ? 33554432 : 0)   // bit 25 (combat, hash-map #8): per-player list of assist-capable units in walk order answers weapon assist requests (Weapon.cpp; same game)
                  | (o.buildMoreIndex === true ? 67108864 : 0)   // bit 26 (combat, hash-map #2): per-player objects by template answer canBuildMoreOfType (Player.cpp; same game)
+                 | (o.eventIndex === true ? 134217728 : 0)   // bit 27 (combat, hash-map #11): mines and AI objects listed in object-list order answer building sale / capture / rebuild-hole events (GxEventIndex.h; same game)
                  | (o.scanAlign === true ? 8 : 0);   // value 8: scanAlign, routine mood checks on every 4th frame so batchScan batches more (match rule; AIUpdate.cpp; off until timed)
         });
         g_PageSwitches3 = EM_ASM_INT({
