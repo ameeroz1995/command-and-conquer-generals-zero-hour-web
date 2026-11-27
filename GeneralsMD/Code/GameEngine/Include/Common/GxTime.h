@@ -45,7 +45,7 @@ enum GxCountId
 	GXC_PHYS_UNITS, GXC_COLLIDE_SEEKERS, GXC_PAIR_CELLS, GXC_PAIR_TESTS, GXC_PAIRS, GXC_ALLOCS,
 	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES,
 	GXC_PATH_FINDS, GXC_PATH_CELLS, GXC_LOCO_CALLS, GXC_CPOP_CALLS, GXC_CPOP_SIMD_SEGS, GXC_LOCO_SIMD_ANGLES, GXC_LOCO_ANGLE_HITS, GXC_LOCO_ANGLES,
-	GXC_SHARE_NOTED, GXC_SHARE_SEARCHES, GXC_SHARE_TAKEN, GXC_GROUP_SPOTS, GXC_PATH_ALLOCS, GXC_PATH_BIG_ALLOCS, GXC_FAIL_CACHED,
+	GXC_SHARE_NOTED, GXC_SHARE_SEARCHES, GXC_SHARE_TAKEN, GXC_GROUP_SPOTS, GXC_PATH_ALLOCS, GXC_PATH_BIG_ALLOCS, GXC_FAIL_CACHED, GXC_LINE_STEPS, GXC_NBR_TRIED, GXC_NBR_MOVECHECK, GXC_OPEN_INSERTS,
 	GXC_COUNT
 };
 
@@ -115,7 +115,7 @@ inline void gxTimePrint(const char *tag)
 		"pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches",
 
 		"pathFinds", "pathCells", "locoCalls", "cpopCalls", "cpopSimdSegs", "locoSimdAngles", "locoAngleHits", "locoAngles",
-		"shareNoted", "shareSearches", "shareTaken", "groupSpots", "pathAllocs", "pathBigAllocs", "failCached" };
+		"shareNoted", "shareSearches", "shareTaken", "groupSpots", "pathAllocs", "pathBigAllocs", "failCached", "lineSteps", "nbrTried", "nbrMoveChecks", "openInserts" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())

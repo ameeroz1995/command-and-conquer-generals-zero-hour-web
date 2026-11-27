@@ -2166,6 +2166,7 @@ void PathfindCellList::gxToList()
 
 void PathfindCell::putOnSortedOpenList( PathfindCellList &list )
 {
+	gxCount(GXC_OPEN_INSERTS);	// web port: GXTIME
 	DEBUG_ASSERTCRASH(m_info, ("Has to have info."));
 	DEBUG_ASSERTCRASH(m_info->m_closed == FALSE && m_info->m_open == FALSE, ("Serious error - Invalid flags. jba"));
 
@@ -5556,6 +5557,7 @@ Bool Pathfinder::checkDestination(const Object *obj, Int cellX, Int cellY, Pathf
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
 static Bool s_gxPlanIgnoringUnits = false;
+static Bool s_gxSearchKernel = false;	// web port: switch searchKernel, read at each expansion
 static int s_gxIgnorePlans = 0, s_gxIgnoreSkippedBlocked = 0;
 // switch ignoreUnitsInPaths (page switch bit 27): single player only, never network games or replays
 static Bool gxIgnoreUnitsFor(const Object *obj)
@@ -5607,6 +5609,27 @@ Bool Pathfinder::gxCheckForMovement(const Object *obj, TCheckMovementInfo &info,
 
 	if (!obj) {
 		return true; // not object can move there.
+	}
+
+	// switch searchKernel: planning around terrain and buildings only, every cell of the block answers
+	// "go on", so a ground block wholly on the map can move there (the walk below says the same)
+	if (s_gxSearchKernel && s_gxPlanIgnoringUnits && info.layer == LAYER_GROUND) {
+		const Int above = info.centerInCell ? info.radius + 1 : info.radius;
+		const Int bx0 = info.cell.x - info.radius, bx1 = info.cell.x + above - 1;
+		const Int by0 = info.cell.y - info.radius, by1 = info.cell.y + above - 1;
+		if (bx0 >= m_extent.lo.x && bx1 <= m_extent.hi.x && by0 >= m_extent.lo.y && by1 <= m_extent.hi.y) {
+			if (GLES3_Page_Switches() & 2097152) {	// verify mode: the walk must say the same
+				static long long s_checked = 0; static int s_bad = 0;
+				s_gxSearchKernel = false;
+				TCheckMovementInfo c = info;
+				const Bool r = gxCheckForMovement(obj, c, useBits);
+				s_gxSearchKernel = true;
+				if ((!r || c.allyFixedCount || c.allyMoving || c.allyGoal || c.enemyFixed) && ++s_bad <= 20)
+					printf("GXVERIFY searchKernel mismatch at %d,%d r%d: walk %d/%d%d%d%d\n", info.cell.x, info.cell.y, info.radius, r, c.allyFixedCount, c.allyMoving, c.allyGoal, c.enemyFixed);
+				if (++s_checked % 1000000 == 0) printf("GXVERIFY searchKernel checked %lld, mismatches %d\n", s_checked, s_bad);
+			}
+			return true;
+		}
 	}
 
 	ObjectID ignoreId = INVALID_ID;
@@ -6822,6 +6845,7 @@ bool Pathfinder::checkCellOutsideExtents(ICoord2D& cell) {
 
 struct ExamineCellsStruct
 {
+	Bool								isCrusher;	///< web port (switch searchKernel): the mover's crusher test, once per expansion
 	Pathfinder					*thePathfinder;
 	const LocomotorSet	*theLoco;
 	Bool								centerInCell;
@@ -6833,8 +6857,9 @@ struct ExamineCellsStruct
 
 /*static*/ Int Pathfinder::examineCellsCallback(Pathfinder* pathfinder, PathfindCell* from, PathfindCell* to, Int to_x, Int to_y, void* userData)
 {
+	gxCount(GXC_LINE_STEPS);	// web port: GXTIME
 	ExamineCellsStruct* d = (ExamineCellsStruct*)userData;
-	Bool isCrusher = d->obj ? d->obj->getCrusherLevel() > 0 : false;
+	const Bool isCrusher = s_gxSearchKernel ? d->isCrusher : (d->obj ? d->obj->getCrusherLevel() > 0 : false);
 	if (d->thePathfinder->m_isTunneling) return 1; // abort.
 	if (from && to) {
 			if (!d->thePathfinder->validMovementPosition( isCrusher, d->theLoco->getValidSurfaces(), to, from )) {
@@ -6929,6 +6954,9 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
 	gxCount(GXC_PATH_CELLS);	// web port: GXTIME work counter (cell expansions)
 	gxPkCell();
 	++gxExpansions;	// web port (failCache verify)
+#ifdef __EMSCRIPTEN__
+	{ extern int GLES3_Page_Switches7(); s_gxSearchKernel = (GLES3_Page_Switches7() & 16) != 0; }	// switch searchKernel (seventh word bit 4)
+#endif
 		Bool canPathThroughUnits = false;
 		if (obj && obj->getAIUpdateInterface()) {
 			canPathThroughUnits = obj->getAIUpdateInterface()->canPathThroughUnits();
@@ -6936,6 +6964,7 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
 		Bool isCrusher = obj ? obj->getCrusherLevel() > 0 : false;
 		if (attackDistance==NO_ATTACK && !m_isTunneling && !locomotorSet.isDownhillOnly() && goalCell) {
 			ExamineCellsStruct info;
+			info.isCrusher = isCrusher;
 			info.thePathfinder = this;
 			info.theLoco = &locomotorSet;
 			info.centerInCell = centerInCell;
@@ -6981,6 +7010,7 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
 			if (!newCell)
 				continue;
 
+			gxCount(GXC_NBR_TRIED);	// web port: GXTIME
 			Bool notZonePassable = false;
 			if ((newCell->getLayer()==LAYER_GROUND) && !m_zoneManager.isPassable(newCellCoord.x, newCellCoord.y)) {
 				notZonePassable = true;
@@ -7043,6 +7073,7 @@ Int Pathfinder::examineNeighboringCells(PathfindCell *parentCell, PathfindCell *
 			info.radius = radius;
 			info.considerTransient = false;
 			info.acceptableSurfaces = locomotorSet.getValidSurfaces();
+			gxCount(GXC_NBR_MOVECHECK);	// web port: GXTIME
 			Int dx = newCellCoord.x-startCellNdx.x;
 			Int dy = newCellCoord.y-startCellNdx.y;
 			if (dx<0) dx = -dx;

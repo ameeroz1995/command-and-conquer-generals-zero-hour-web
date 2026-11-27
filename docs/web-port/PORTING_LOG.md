@@ -4576,3 +4576,23 @@ Level within noise (the ceiling was the call's 0.4% self share).
   played a different game (verify replay of the rule-on recording left it at frame 20,402). The budget is
   now reset to the cached charge after the check; the verify replay matches all 36,000 frames: 1,500 hits
   checked, 0 where the search would have found a route, 1,493 where only the cells spent differ.
+
+## 2026-11-27 — paths: straight-line route search, step 1: searchKernel (seventh word bit 4, ON; same game)
+- Seventh switch word GLES3_Page_Switches7 added with collide's lines (bit 0 aiScripts; it does nothing
+  on this branch until the AI-script fix merges). Ranges: collide 0-3, paths 4-7, combat 8-11, ai 12-15,
+  query 16-19.
+- Where the route search spends (new GXTIME counters, heavy 7-AI recording, per tick): 4,199 cell
+  expansions, 33,365 neighbours tried, 2,875 full movement checks, 4,636 open-list inserts, and 88,361
+  steps of the straight-line walk toward the goal that every expansion starts with (examineCellsCallback,
+  ~21 steps per expansion; the failing floods are long). So the line walk is the hot loop.
+- searchKernel: (a) the walk's crusher test comes once per expansion (was a virtual call per step);
+  (b) while planning around terrain and buildings only, a ground movement check whose whole block is on
+  the map answers "yes" from the bounds (every cell's visit returns "go on" there, so the walk can only
+  say yes), skipping the virtual ignored-obstacle lookup and the block walk.
+- Verify (runs the walk with the kernel off and compares answer and flags): heavy recording ~2.97
+  billion checks, battle 22 M, 0 mismatches. Replays referee, long-up, loco, oq, def, and the heavy
+  recording paths-heavy-fcon.rep match.
+- Timing, heavy recording (same game both ways, timing slot), off/on x2, load 4.5-8: route search
+  7.446 / 5.712, 7.084 / 5.148 ms/tick (-23 to -27%); logic 12.89 / 11.41, 12.74 / 10.10; frames over
+  100 ms 1,022 / 375, 769 / 261; p99 127.9 / 101.1, 119.8 / 87.3 ms. Battle no-draw: route search
+  4.556 / 4.551, 4.795 / 4.364; logic 33.94 / 34.19, 35.24 / 33.18 (level to slightly better). ON.
