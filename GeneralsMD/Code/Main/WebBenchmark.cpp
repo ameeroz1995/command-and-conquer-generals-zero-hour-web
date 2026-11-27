@@ -164,7 +164,7 @@ AsciiString findMap(const char *name)
 	return AsciiString::TheEmptyString;
 }
 
-bool startSkirmish(const char *mapName, bool withEnemy, bool observe = false)
+bool startSkirmish(const char *mapName, bool withEnemy, bool observe = false, int aiCount = 0)
 {
 	AsciiString map = findMap(mapName);
 	if (map.isEmpty()) return false;
@@ -200,6 +200,21 @@ bool startSkirmish(const char *mapName, bool withEnemy, bool observe = false)
 		if (players == 4 && !observe) { GameSlot me0 = *TheSkirmishGameInfo->getSlot(0); me0.setTeamNumber(0); TheSkirmishGameInfo->setSlot(0, me0); }
 		if (observe) {	// referee recording: the AIs play 2 v 1 (team 0 = slot 1, team 1 = slots 2-3)
 			for (int i = 1; i < players; ++i) { GameSlot g = *TheSkirmishGameInfo->getSlot(i); g.setTeamNumber(i == 1 ? 0 : 1); TheSkirmishGameInfo->setSlot(i, g); }
+		}
+		// heavy referee recording (settings recordAIs): aiCount brutal AIs, factions in turn, two
+		// teams alternating by slot; start positions 1..aiCount (the observer keeps 0)
+		if (observe && aiCount > 0) {
+			const int n = mmd ? (aiCount < mmd->m_numPlayers - 1 ? aiCount : mmd->m_numPlayers - 1) : 0;
+			const char *fac[3] = { "FactionAmerica", "FactionChina", "FactionGLA" };
+			for (int i = 1; i <= n; ++i) {
+				GameSlot ai;
+				ai.setState(SLOT_BRUTAL_AI);
+				ai.setColor(i - 1);
+				ai.setPlayerTemplate(ThePlayerTemplateStore->getTemplateNumByName(fac[(i - 1) % 3]));
+				ai.setStartPos(i);
+				ai.setTeamNumber((i - 1) % 2);
+				TheSkirmishGameInfo->setSlot(i, ai);
+			}
 		}
 	}
 	TheSkirmishGameInfo->setSeed(12345);	// same battle every run
@@ -637,7 +652,16 @@ void onFrame(double workMs)
 	switch (B.stage) {
 	case RECORD_WAIT:	// referee recording: start an AI-only match (we observe) once the menu is up
 		if (TheGameLogic && TheShell && TheShell->getScreenCount() > 0 && !TheGameLogic->isLoadingMap() && (!TheGameLogic->isInGame() || TheGameLogic->isInShellGame())) {
-			if (!startSkirmish(kBattleMap, true, true)) { recordDone("battle map not found"); break; }
+			// optional settings recordMap / recordAIs (bench_record settings) pick a bigger AI game
+			char recMap[96] = { 0 };
+			const int recAIs = MAIN_THREAD_EM_ASM_INT({
+				var o = {}; try { o = JSON.parse(localStorage.getItem("generalsx_settings") || "{}"); } catch (e) {}
+				var m = String(o.recordMap || "").slice(0, 90);
+				for (var i = 0; i < m.length; ++i) HEAPU8[$0 + i] = m.charCodeAt(i) & 0x7f;
+				HEAPU8[$0 + m.length] = 0;
+				return o.recordAIs | 0;
+			}, recMap);
+			if (!startSkirmish(recMap[0] ? recMap : kBattleMap, true, true, recAIs)) { recordDone("battle map not found"); break; }
 			B.stage = RECORD_LOAD; B.stageStart = t;
 			progress("Recording: AI match loading");
 		}
