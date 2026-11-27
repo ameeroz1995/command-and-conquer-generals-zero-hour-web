@@ -4468,3 +4468,18 @@ Level within noise (the ceiling was the call's 0.4% self share).
 | rowKernels (q33) | 22.1 -> 22.2 | - | same work (main thread) | 126.9 -> 127.5 | 73 -> 81 |
 - fogKeep is the one clear gain; the SIMD culls halve the scalar tests but the search cost is the per-unit
   body after the cull (distProc, filters), so ms/tick barely moves; rowKernels on one thread is neutral.
+
+## 2026-11-27 — paths: pathTail (fifth word bit 17, ON; same game) + checks of today's defaults
+- From ai's heap-churn report (Path::appendNode in the profile): the cost was not the allocation
+  (PathNode is a pool object) but PathNode::appendToList walking the whole route to its tail on every
+  append, so building a route was O(nodes^2). Path already keeps m_pathTail (only getAircraftPath
+  inserts nodes, always before an existing next node, so the tail stays right); appendNode now links
+  after it. Verify mode walks the list and compares: 600,000 appends, 0 mismatches.
+- Checks (paths-pt2: merge of perf/low-end 9488239; locoSimd, orderQueue, pathTail on): referee.rep,
+  paths-long-up.rep, paths-loco.rep, paths-oq.rep match; new recording with today's defaults
+  paths-def.rep (GX=28FEE6E7: locoSimd + orderQueue) replays to a match with pathTail on and off.
+  Battle verify (draw=False): every GXVERIFY 0 mismatches, locoSimd 840,000 lanes, max 2.72e-7 rad.
+- Timing, new regime (bench_run draw=False, pinned slot, same game every run: 1189.9 movers, 14.6
+  searches, 679.8 cells per tick in all four), alternating off/on x2, load 4.2-8.6:
+  logic off 42.12 / on 37.88, off 38.43 / on 41.70 ms/tick; pathfind off 5.05 / on 4.64, off 4.76 / on 4.95.
+  Level within the run-to-run spread (routes here are a few nodes long). Exact, so kept on.
