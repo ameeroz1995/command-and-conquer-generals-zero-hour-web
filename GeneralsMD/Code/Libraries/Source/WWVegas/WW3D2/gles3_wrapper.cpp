@@ -506,6 +506,11 @@ void GLES3_Begin_Scene() {
                  | (o.aiScripts === false ? 0 : 1)   // bit 0 (collide): the skirmish / multiplayer AI scripts (Data/Scripts/*.scb, loose files) are loaded at boot (EmscriptenMain.cpp, which reads the same setting at boot; changes the game: off for recordings made before 2c7e213)
                  | (o.splashFlat === true ? 256 : 0);   // bit 8 (combat, straight-line kernels): splash near-slot pass over restrict column pointers with branchless compaction into a sized buffer (PartitionManager.cpp; same game)
         });
+        g_PageSwitches7 = EM_ASM_INT({
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            return 0   // seventh word: bit 0 collide, 1-31 spare
+                 | (o.aiScripts === false ? 0 : 1);   // bit 0 (collide): the skirmish / multiplayer AI scripts (Data/Scripts/*.scb, loose files) are loaded at boot (EmscriptenMain.cpp, which reads the same setting at boot; changes the game: off for recordings made before 2c7e213)
+        });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)

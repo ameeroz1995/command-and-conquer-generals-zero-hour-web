@@ -745,8 +745,11 @@ int main(int argc, char *argv[]) {
       // skirmish get no scripts and never build (SidesList::prepareForMP_or_Skirmish). Read
       // from assets/Data/Scripts/ into MEMFS at the path LocalFile opens (lower case,
       // forward slashes, relative to /). A missing file is only logged, as before.
+      // Switch aiScripts (seventh word bit 0, on): off = no scripts, as before the fix, so
+      // replays recorded before it still match (the files enter the exe CRC and the AI).
       EM_ASM({
         (function (base) {
+          if (((window.GeneralsX && window.GeneralsX.opt) || {}).aiScripts === false) { console.log("[GeneralsX] aiScripts off: no loose AI scripts"); return; }
           ["SkirmishScripts.scb", "MultiplayerScripts.scb"].forEach(function (f) {
             try {
               var x = new XMLHttpRequest();
