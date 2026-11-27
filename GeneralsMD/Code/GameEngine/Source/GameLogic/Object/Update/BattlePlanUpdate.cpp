@@ -62,6 +62,7 @@
 #include "GameLogic/Module/StealthDetectorUpdate.h"
 
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 BattlePlanUpdateModuleData::BattlePlanUpdateModuleData()
@@ -129,40 +130,40 @@ BattlePlanUpdateModuleData::BattlePlanUpdateModuleData()
 }
 
 //-------------------------------------------------------------------------------------------------
-BattlePlanUpdate::BattlePlanUpdate( Thing *thing, const ModuleData* moduleData ) :
-	SpecialPowerUpdateModule( thing, moduleData ),
-	m_bonuses(nullptr)
+BattlePlanUpdate::BattlePlanUpdate( Thing *thing, const ModuleData* moduleData ) : SpecialPowerUpdateModule( thing, moduleData )
 {
+	D().m_bonuses = nullptr;
+
 	const BattlePlanUpdateModuleData *data = getBattlePlanUpdateModuleData();
 
-	m_status								= TRANSITIONSTATUS_IDLE;
-	m_currentPlan						= PLANSTATUS_NONE;
-	m_desiredPlan						= PLANSTATUS_NONE;
-	m_planAffectingArmy			= PLANSTATUS_NONE;
-	m_nextReadyFrame				= 0;
-	m_invalidSettings				= false;
-	m_centeringTurret				= false;
+	D().m_status								= TRANSITIONSTATUS_IDLE;
+	D().m_currentPlan						= PLANSTATUS_NONE;
+	D().m_desiredPlan						= PLANSTATUS_NONE;
+	D().m_planAffectingArmy			= PLANSTATUS_NONE;
+	D().m_nextReadyFrame				= 0;
+	D().m_invalidSettings				= false;
+	D().m_centeringTurret				= false;
 
-	m_bonuses = newInstance(BattlePlanBonuses);
-	m_bonuses->m_validKindOf = data->m_validMemberKindOf;
-	m_bonuses->m_invalidKindOf = data->m_invalidMemberKindOf;
+	D().m_bonuses = newInstance(BattlePlanBonuses);
+	D().m_bonuses->m_validKindOf = data->m_validMemberKindOf;
+	D().m_bonuses->m_invalidKindOf = data->m_invalidMemberKindOf;
 
-	m_visionObjectID = INVALID_ID;
+	D().m_visionObjectID = INVALID_ID;
 
-	m_specialPowerModule   = nullptr;
+	D().m_specialPowerModule   = nullptr;
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 BattlePlanUpdate::~BattlePlanUpdate()
 {
-	TheAudio->removeAudioEvent( m_bombardmentUnpack.getPlayingHandle() );
-	TheAudio->removeAudioEvent( m_bombardmentPack.getPlayingHandle() );
-	TheAudio->removeAudioEvent( m_searchAndDestroyUnpack.getPlayingHandle() );
-	TheAudio->removeAudioEvent( m_searchAndDestroyIdle.getPlayingHandle() );
-	TheAudio->removeAudioEvent( m_searchAndDestroyPack.getPlayingHandle() );
-	TheAudio->removeAudioEvent( m_holdTheLineUnpack.getPlayingHandle() );
-	TheAudio->removeAudioEvent( m_holdTheLinePack.getPlayingHandle() );
+	TheAudio->removeAudioEvent( D().m_bombardmentUnpack.getPlayingHandle() );
+	TheAudio->removeAudioEvent( D().m_bombardmentPack.getPlayingHandle() );
+	TheAudio->removeAudioEvent( D().m_searchAndDestroyUnpack.getPlayingHandle() );
+	TheAudio->removeAudioEvent( D().m_searchAndDestroyIdle.getPlayingHandle() );
+	TheAudio->removeAudioEvent( D().m_searchAndDestroyPack.getPlayingHandle() );
+	TheAudio->removeAudioEvent( D().m_holdTheLineUnpack.getPlayingHandle() );
+	TheAudio->removeAudioEvent( D().m_holdTheLinePack.getPlayingHandle() );
 
 }
 
@@ -177,9 +178,9 @@ void BattlePlanUpdate::onDelete()
 
 	// delete our vision object, if it exists
 	Object *obj;
-	if( m_visionObjectID != INVALID_ID )
+	if( D().m_visionObjectID != INVALID_ID )
 	{
-		obj = TheGameLogic->findObjectByID( m_visionObjectID );
+		obj = TheGameLogic->findObjectByID( D().m_visionObjectID );
 		if( obj )
 			TheGameLogic->destroyObject( obj );
 	}
@@ -191,9 +192,9 @@ void BattlePlanUpdate::onDelete()
 	// however, player CAN legitimately be null during game reset cycles
 	// (and which point it doesn't really matter if we can remove the bonus or not)
 	//DEBUG_ASSERTCRASH(player != nullptr, ("Hmm, controller is null"));
-	if( player && m_planAffectingArmy != PLANSTATUS_NONE )
+	if( player && D().m_planAffectingArmy != PLANSTATUS_NONE )
 	{
-		player->changeBattlePlan( m_planAffectingArmy, -1, m_bonuses );
+		player->changeBattlePlan( D().m_planAffectingArmy, -1, D().m_bonuses );
 	}
 
 }
@@ -209,33 +210,33 @@ void BattlePlanUpdate::onObjectCreated()
 	if( !data->m_specialPowerTemplate )
 	{
 		DEBUG_CRASH( ("%s object's BattlePlanUpdate lacks access to the SpecialPowerTemplate. Needs to be specified in ini.", obj->getTemplate()->getName().str() ) );
-		m_invalidSettings = true;
+		D().m_invalidSettings = true;
 		return;
 	}
 
-	m_specialPowerModule = obj->getSpecialPowerModule( data->m_specialPowerTemplate );
+	D().m_specialPowerModule = obj->getSpecialPowerModule( data->m_specialPowerTemplate );
 
 	//Create instances of the sounds required.
-	m_bombardmentUnpack.setEventName( data->m_bombardmentUnpackName );
-	m_bombardmentPack.setEventName(	data->m_bombardmentPackName );
-	m_bombardmentAnnouncement.setEventName( data->m_bombardmentAnnouncementName );
-	m_searchAndDestroyUnpack.setEventName( data->m_searchAndDestroyUnpackName );
-	m_searchAndDestroyIdle.setEventName( data->m_searchAndDestroyIdleName );
-	m_searchAndDestroyPack.setEventName( data->m_searchAndDestroyPackName );
-	m_searchAndDestroyAnnouncement.setEventName( data->m_searchAndDestroyAnnouncementName );
-	m_holdTheLineUnpack.setEventName( data->m_holdTheLineUnpackName );
-	m_holdTheLinePack.setEventName(	data->m_holdTheLinePackName );
-	m_holdTheLineAnnouncement.setEventName( data->m_holdTheLineAnnouncementName );
-	TheAudio->getInfoForAudioEvent( &m_bombardmentUnpack );
-	TheAudio->getInfoForAudioEvent( &m_bombardmentPack );
-	TheAudio->getInfoForAudioEvent( &m_bombardmentAnnouncement );
-	TheAudio->getInfoForAudioEvent( &m_searchAndDestroyUnpack );
-	TheAudio->getInfoForAudioEvent( &m_searchAndDestroyIdle );
-	TheAudio->getInfoForAudioEvent( &m_searchAndDestroyPack );
-	TheAudio->getInfoForAudioEvent( &m_searchAndDestroyAnnouncement );
-	TheAudio->getInfoForAudioEvent( &m_holdTheLineUnpack );
-	TheAudio->getInfoForAudioEvent( &m_holdTheLinePack );
-	TheAudio->getInfoForAudioEvent( &m_holdTheLineAnnouncement );
+	D().m_bombardmentUnpack.setEventName( data->m_bombardmentUnpackName );
+	D().m_bombardmentPack.setEventName(	data->m_bombardmentPackName );
+	D().m_bombardmentAnnouncement.setEventName( data->m_bombardmentAnnouncementName );
+	D().m_searchAndDestroyUnpack.setEventName( data->m_searchAndDestroyUnpackName );
+	D().m_searchAndDestroyIdle.setEventName( data->m_searchAndDestroyIdleName );
+	D().m_searchAndDestroyPack.setEventName( data->m_searchAndDestroyPackName );
+	D().m_searchAndDestroyAnnouncement.setEventName( data->m_searchAndDestroyAnnouncementName );
+	D().m_holdTheLineUnpack.setEventName( data->m_holdTheLineUnpackName );
+	D().m_holdTheLinePack.setEventName(	data->m_holdTheLinePackName );
+	D().m_holdTheLineAnnouncement.setEventName( data->m_holdTheLineAnnouncementName );
+	TheAudio->getInfoForAudioEvent( &D().m_bombardmentUnpack );
+	TheAudio->getInfoForAudioEvent( &D().m_bombardmentPack );
+	TheAudio->getInfoForAudioEvent( &D().m_bombardmentAnnouncement );
+	TheAudio->getInfoForAudioEvent( &D().m_searchAndDestroyUnpack );
+	TheAudio->getInfoForAudioEvent( &D().m_searchAndDestroyIdle );
+	TheAudio->getInfoForAudioEvent( &D().m_searchAndDestroyPack );
+	TheAudio->getInfoForAudioEvent( &D().m_searchAndDestroyAnnouncement );
+	TheAudio->getInfoForAudioEvent( &D().m_holdTheLineUnpack );
+	TheAudio->getInfoForAudioEvent( &D().m_holdTheLinePack );
+	TheAudio->getInfoForAudioEvent( &D().m_holdTheLineAnnouncement );
 
 	getObject()->setWeaponSetFlag( WEAPONSET_VETERAN );
 	AIUpdateInterface *ai = obj->getAI();
@@ -250,7 +251,7 @@ void BattlePlanUpdate::onObjectCreated()
 //-------------------------------------------------------------------------------------------------
 Bool BattlePlanUpdate::initiateIntentToDoSpecialPower(const SpecialPowerTemplate *specialPowerTemplate, const Object *targetObj, const Coord3D *targetPos, const Waypoint *way, UnsignedInt commandOptions )
 {
-	if( m_specialPowerModule->getSpecialPowerTemplate() != specialPowerTemplate )
+	if( D().m_specialPowerModule->getSpecialPowerTemplate() != specialPowerTemplate )
 	{
 		//Check to make sure our modules are connected.
 		return FALSE;
@@ -259,15 +260,15 @@ Bool BattlePlanUpdate::initiateIntentToDoSpecialPower(const SpecialPowerTemplate
 	//Set the desired status based on the command button option!
 	if( BitIsSet( commandOptions, OPTION_ONE ) )
 	{
-		m_desiredPlan = PLANSTATUS_BOMBARDMENT;
+		D().m_desiredPlan = PLANSTATUS_BOMBARDMENT;
 	}
 	else if( BitIsSet( commandOptions, OPTION_TWO ) )
 	{
-		m_desiredPlan = PLANSTATUS_HOLDTHELINE;
+		D().m_desiredPlan = PLANSTATUS_HOLDTHELINE;
 	}
 	else if( BitIsSet( commandOptions, OPTION_THREE ) )
 	{
-		m_desiredPlan = PLANSTATUS_SEARCHANDDESTROY;
+		D().m_desiredPlan = PLANSTATUS_SEARCHANDDESTROY;
 	}
 	else
 	{
@@ -288,7 +289,7 @@ Bool BattlePlanUpdate::isPowerCurrentlyInUse( const CommandButton *command ) con
 //-------------------------------------------------------------------------------------------------
 CommandOption BattlePlanUpdate::getCommandOption() const
 {
-	switch( m_desiredPlan )
+	switch( D().m_desiredPlan )
 	{
 		case PLANSTATUS_BOMBARDMENT:
 			return OPTION_ONE;
@@ -306,7 +307,7 @@ CommandOption BattlePlanUpdate::getCommandOption() const
 UpdateSleepTime BattlePlanUpdate::update()
 {
 
-	if( m_invalidSettings )
+	if( D().m_invalidSettings )
 	{
 		// can't return UPDATE_SLEEP_FOREVER unless we are sleepy...
 		return UPDATE_SLEEP_NONE;
@@ -318,17 +319,17 @@ UpdateSleepTime BattlePlanUpdate::update()
 
 	UnsignedInt now = TheGameLogic->getFrame();
 
-	if( m_nextReadyFrame <= now )
+	if( D().m_nextReadyFrame <= now )
 	{
-		switch( m_status )
+		switch( D().m_status )
 		{
 			case TRANSITIONSTATUS_IDLE:
 				//There's only two cases where we are in an idle status -- upon initialization
 				//when no plan has yet been selected. The other case is after we've finished
 				//packing the previous plan up and are waiting to unpack the new state.
-				if( m_desiredPlan != PLANSTATUS_NONE )
+				if( D().m_desiredPlan != PLANSTATUS_NONE )
 				{
-					m_currentPlan = m_desiredPlan;
+					D().m_currentPlan = D().m_desiredPlan;
 					setStatus( TRANSITIONSTATUS_UNPACKING );
 				}
 				break;
@@ -337,7 +338,7 @@ UpdateSleepTime BattlePlanUpdate::update()
 				//before allowing him to select a new plan. The plan doesn't become active until
 				//we're finished unpacking.
 				setStatus( TRANSITIONSTATUS_ACTIVE );
-				if( m_currentPlan == PLANSTATUS_BOMBARDMENT )
+				if( D().m_currentPlan == PLANSTATUS_BOMBARDMENT )
 				{
 					enableTurret( true );
 				}
@@ -345,9 +346,9 @@ UpdateSleepTime BattlePlanUpdate::update()
 			case TRANSITIONSTATUS_ACTIVE:
 				//If we're active and the user has selected a different plan, then we need to
 				//pack up.
-				if( m_currentPlan != m_desiredPlan )
+				if( D().m_currentPlan != D().m_desiredPlan )
 				{
-					if( m_currentPlan == PLANSTATUS_BOMBARDMENT )
+					if( D().m_currentPlan == PLANSTATUS_BOMBARDMENT )
 					{
 						//Special case situation -- in bombardment status, we need to center
 						//the turret prior to packing up, so handle it here.
@@ -358,10 +359,10 @@ UpdateSleepTime BattlePlanUpdate::update()
 							{
 								//It's centered, so pack
 								setStatus( TRANSITIONSTATUS_PACKING );
-								m_centeringTurret = false;
+								D().m_centeringTurret = false;
 								enableTurret( false );
 							}
-							else if( !m_centeringTurret )
+							else if( !D().m_centeringTurret )
 							{
 								//It's not centered, and not trying to center, so order it to center.
 								ai->aiIdle( CMD_FROM_AI );
@@ -370,7 +371,7 @@ UpdateSleepTime BattlePlanUpdate::update()
 								enableTurret(false);
 #endif
 								recenterTurret();
-								m_centeringTurret = true;
+								D().m_centeringTurret = true;
 							}
 						}
 					}
@@ -395,7 +396,7 @@ UpdateSleepTime BattlePlanUpdate::update()
 // ------------------------------------------------------------------------------------------------
 void BattlePlanUpdate::createVisionObject()
 {
-	if (m_visionObjectID != INVALID_ID) // don't want two.
+	if (D().m_visionObjectID != INVALID_ID) // don't want two.
 		return;
 
 	const BattlePlanUpdateModuleData *data = getBattlePlanUpdateModuleData();
@@ -422,7 +423,7 @@ void BattlePlanUpdate::createVisionObject()
 	{
 
 		// record we have an object
-		m_visionObjectID = visionObject->getID();
+		D().m_visionObjectID = visionObject->getID();
 
 		// set position
 		visionObject->setPosition( obj->getPosition() );
@@ -440,12 +441,12 @@ void BattlePlanUpdate::setStatus( TransitionStatus newStatus )
 	const BattlePlanUpdateModuleData *data = getBattlePlanUpdateModuleData();
 	Object *obj = getObject();
 
-	if( m_status == newStatus )
+	if( D().m_status == newStatus )
 	{
 		return;
 	}
 
-	TransitionStatus oldStatus = m_status;
+	TransitionStatus oldStatus = D().m_status;
 
 	//Turn off old defining states and sounds
 	switch( oldStatus )
@@ -454,25 +455,25 @@ void BattlePlanUpdate::setStatus( TransitionStatus newStatus )
 			break;
 
 		case TRANSITIONSTATUS_UNPACKING:
-			switch( m_currentPlan )
+			switch( D().m_currentPlan )
 			{
 				case PLANSTATUS_BOMBARDMENT:
 					obj->clearModelConditionState( MODELCONDITION_DOOR_1_OPENING );
-					TheAudio->removeAudioEvent( m_bombardmentUnpack.getPlayingHandle() );
+					TheAudio->removeAudioEvent( D().m_bombardmentUnpack.getPlayingHandle() );
 					break;
 				case PLANSTATUS_HOLDTHELINE:
 					obj->clearModelConditionState( MODELCONDITION_DOOR_2_OPENING );
-					TheAudio->removeAudioEvent( m_holdTheLineUnpack.getPlayingHandle() );
+					TheAudio->removeAudioEvent( D().m_holdTheLineUnpack.getPlayingHandle() );
 					break;
 				case PLANSTATUS_SEARCHANDDESTROY:
 					obj->clearModelConditionState( MODELCONDITION_DOOR_3_OPENING );
-					TheAudio->removeAudioEvent( m_searchAndDestroyUnpack.getPlayingHandle() );
+					TheAudio->removeAudioEvent( D().m_searchAndDestroyUnpack.getPlayingHandle() );
 					break;
 			}
 			break;
 
 		case TRANSITIONSTATUS_ACTIVE:
-			switch( m_currentPlan )
+			switch( D().m_currentPlan )
 			{
 				case PLANSTATUS_BOMBARDMENT:
 					obj->clearModelConditionState( MODELCONDITION_DOOR_1_WAITING_TO_CLOSE );
@@ -482,25 +483,25 @@ void BattlePlanUpdate::setStatus( TransitionStatus newStatus )
 					break;
 				case PLANSTATUS_SEARCHANDDESTROY:
 					obj->clearModelConditionState( MODELCONDITION_DOOR_3_WAITING_TO_CLOSE );
-					TheAudio->removeAudioEvent( m_searchAndDestroyIdle.getPlayingHandle() );
+					TheAudio->removeAudioEvent( D().m_searchAndDestroyIdle.getPlayingHandle() );
 					break;
 			}
 			break;
 
 		case TRANSITIONSTATUS_PACKING:
-			switch( m_currentPlan )
+			switch( D().m_currentPlan )
 			{
 				case PLANSTATUS_BOMBARDMENT:
 					obj->clearModelConditionState( MODELCONDITION_DOOR_1_CLOSING );
-					TheAudio->removeAudioEvent( m_bombardmentPack.getPlayingHandle() );
+					TheAudio->removeAudioEvent( D().m_bombardmentPack.getPlayingHandle() );
 					break;
 				case PLANSTATUS_HOLDTHELINE:
 					obj->clearModelConditionState( MODELCONDITION_DOOR_2_CLOSING );
-					TheAudio->removeAudioEvent( m_holdTheLinePack.getPlayingHandle() );
+					TheAudio->removeAudioEvent( D().m_holdTheLinePack.getPlayingHandle() );
 					break;
 				case PLANSTATUS_SEARCHANDDESTROY:
 					obj->clearModelConditionState( MODELCONDITION_DOOR_3_CLOSING );
-					TheAudio->removeAudioEvent( m_searchAndDestroyPack.getPlayingHandle() );
+					TheAudio->removeAudioEvent( D().m_searchAndDestroyPack.getPlayingHandle() );
 					break;
 			}
 			break;
@@ -513,8 +514,8 @@ void BattlePlanUpdate::setStatus( TransitionStatus newStatus )
 	{
 		case TRANSITIONSTATUS_IDLE:
 		{
-			m_currentPlan = PLANSTATUS_NONE;
-			m_nextReadyFrame = now + data->m_transitionIdleFrames;
+			D().m_currentPlan = PLANSTATUS_NONE;
+			D().m_nextReadyFrame = now + data->m_transitionIdleFrames;
 			break;
 		}
 
@@ -529,62 +530,62 @@ void BattlePlanUpdate::setStatus( TransitionStatus newStatus )
 			//this is now handled with ShroudRevealToAllRange in thingTemplate
 			//createVisionObject();
 
-			switch( m_currentPlan )
+			switch( D().m_currentPlan )
 			{
 				case PLANSTATUS_BOMBARDMENT:
 					obj->setModelConditionState( MODELCONDITION_DOOR_1_OPENING );
 					obj->getDrawable()->setAnimationLoopDuration( data->m_bombardmentPlanAnimationFrames );
-					m_nextReadyFrame = now + data->m_bombardmentPlanAnimationFrames;
-					if( m_bombardmentUnpack.getEventName().isNotEmpty() )
+					D().m_nextReadyFrame = now + data->m_bombardmentPlanAnimationFrames;
+					if( D().m_bombardmentUnpack.getEventName().isNotEmpty() )
 					{
-						m_bombardmentUnpack.setObjectID( obj->getID() );
-						m_bombardmentUnpack.setPlayingHandle( TheAudio->addAudioEvent( &m_bombardmentUnpack ) );
+						D().m_bombardmentUnpack.setObjectID( obj->getID() );
+						D().m_bombardmentUnpack.setPlayingHandle( TheAudio->addAudioEvent( &D().m_bombardmentUnpack ) );
 					}
 
 					// display a message to *all* users
 					TheInGameUI->message( TheGameText->fetch( data->m_bombardmentMessageLabel ) );
-					if( m_bombardmentAnnouncement.getEventName().isEmpty() == FALSE )
+					if( D().m_bombardmentAnnouncement.getEventName().isEmpty() == FALSE )
 					{
-						m_bombardmentAnnouncement.setPosition( obj->getPosition() );
-						TheAudio->addAudioEvent( &m_bombardmentAnnouncement );
+						D().m_bombardmentAnnouncement.setPosition( obj->getPosition() );
+						TheAudio->addAudioEvent( &D().m_bombardmentAnnouncement );
 					}
 					break;
 
 				case PLANSTATUS_HOLDTHELINE:
 					obj->setModelConditionState( MODELCONDITION_DOOR_2_OPENING );
 					obj->getDrawable()->setAnimationLoopDuration( data->m_holdTheLinePlanAnimationFrames );
-					m_nextReadyFrame = now + data->m_holdTheLinePlanAnimationFrames;
-					if( m_holdTheLineUnpack.getEventName().isNotEmpty() )
+					D().m_nextReadyFrame = now + data->m_holdTheLinePlanAnimationFrames;
+					if( D().m_holdTheLineUnpack.getEventName().isNotEmpty() )
 					{
-						m_holdTheLineUnpack.setObjectID( obj->getID() );
-						m_holdTheLineUnpack.setPlayingHandle( TheAudio->addAudioEvent( &m_holdTheLineUnpack ) );
+						D().m_holdTheLineUnpack.setObjectID( obj->getID() );
+						D().m_holdTheLineUnpack.setPlayingHandle( TheAudio->addAudioEvent( &D().m_holdTheLineUnpack ) );
 					}
 
 					// display a message to *all* users
 					TheInGameUI->message( TheGameText->fetch( data->m_holdTheLineMessageLabel ) );
-					if( m_holdTheLineAnnouncement.getEventName().isEmpty() == FALSE )
+					if( D().m_holdTheLineAnnouncement.getEventName().isEmpty() == FALSE )
 					{
-						m_holdTheLineAnnouncement.setPosition( obj->getPosition() );
-						TheAudio->addAudioEvent( &m_holdTheLineAnnouncement );
+						D().m_holdTheLineAnnouncement.setPosition( obj->getPosition() );
+						TheAudio->addAudioEvent( &D().m_holdTheLineAnnouncement );
 					}
 					break;
 
 				case PLANSTATUS_SEARCHANDDESTROY:
 					obj->setModelConditionState( MODELCONDITION_DOOR_3_OPENING );
 					obj->getDrawable()->setAnimationLoopDuration( data->m_searchAndDestroyPlanAnimationFrames );
-					m_nextReadyFrame = now + data->m_searchAndDestroyPlanAnimationFrames;
-					if( m_searchAndDestroyUnpack.getEventName().isNotEmpty() )
+					D().m_nextReadyFrame = now + data->m_searchAndDestroyPlanAnimationFrames;
+					if( D().m_searchAndDestroyUnpack.getEventName().isNotEmpty() )
 					{
-						m_searchAndDestroyUnpack.setObjectID( obj->getID() );
-						m_searchAndDestroyUnpack.setPlayingHandle( TheAudio->addAudioEvent( &m_searchAndDestroyUnpack ) );
+						D().m_searchAndDestroyUnpack.setObjectID( obj->getID() );
+						D().m_searchAndDestroyUnpack.setPlayingHandle( TheAudio->addAudioEvent( &D().m_searchAndDestroyUnpack ) );
 					}
 
 					// display a message to *all* users
 					TheInGameUI->message( TheGameText->fetch( data->m_searchAndDestroyMessageLabel ) );
-					if( m_searchAndDestroyAnnouncement.getEventName().isEmpty() == FALSE )
+					if( D().m_searchAndDestroyAnnouncement.getEventName().isEmpty() == FALSE )
 					{
-						m_searchAndDestroyAnnouncement.setPosition( obj->getPosition() );
-						TheAudio->addAudioEvent( &m_searchAndDestroyAnnouncement );
+						D().m_searchAndDestroyAnnouncement.setPosition( obj->getPosition() );
+						TheAudio->addAudioEvent( &D().m_searchAndDestroyAnnouncement );
 					}
 					break;
 
@@ -596,9 +597,9 @@ void BattlePlanUpdate::setStatus( TransitionStatus newStatus )
 
 		case TRANSITIONSTATUS_ACTIVE:
 
-			setBattlePlan( m_currentPlan );
+			setBattlePlan( D().m_currentPlan );
 
-			switch( m_currentPlan )
+			switch( D().m_currentPlan )
 			{
 				case PLANSTATUS_BOMBARDMENT:
 					obj->setModelConditionState( MODELCONDITION_DOOR_1_WAITING_TO_CLOSE );
@@ -608,10 +609,10 @@ void BattlePlanUpdate::setStatus( TransitionStatus newStatus )
 					break;
 				case PLANSTATUS_SEARCHANDDESTROY:
 					obj->setModelConditionState( MODELCONDITION_DOOR_3_WAITING_TO_CLOSE );
-					if( m_searchAndDestroyIdle.getEventName().isNotEmpty() )
+					if( D().m_searchAndDestroyIdle.getEventName().isNotEmpty() )
 					{
-						m_searchAndDestroyIdle.setObjectID( obj->getID() );
-						m_searchAndDestroyIdle.setPlayingHandle( TheAudio->addAudioEvent( &m_searchAndDestroyIdle ) );
+						D().m_searchAndDestroyIdle.setObjectID( obj->getID() );
+						D().m_searchAndDestroyIdle.setPlayingHandle( TheAudio->addAudioEvent( &D().m_searchAndDestroyIdle ) );
 					}
 					break;
 			}
@@ -621,36 +622,36 @@ void BattlePlanUpdate::setStatus( TransitionStatus newStatus )
 
 			setBattlePlan( PLANSTATUS_NONE );
 
-			switch( m_currentPlan )
+			switch( D().m_currentPlan )
 			{
 				case PLANSTATUS_BOMBARDMENT:
 					obj->setModelConditionState( MODELCONDITION_DOOR_1_CLOSING );
 					obj->getDrawable()->setAnimationLoopDuration( data->m_bombardmentPlanAnimationFrames );
-					m_nextReadyFrame = now + data->m_bombardmentPlanAnimationFrames;
-					if( m_bombardmentUnpack.getEventName().isNotEmpty() )
+					D().m_nextReadyFrame = now + data->m_bombardmentPlanAnimationFrames;
+					if( D().m_bombardmentUnpack.getEventName().isNotEmpty() )
 					{
-						m_bombardmentPack.setObjectID( obj->getID() );
-						m_bombardmentPack.setPlayingHandle( TheAudio->addAudioEvent( &m_bombardmentPack ) );
+						D().m_bombardmentPack.setObjectID( obj->getID() );
+						D().m_bombardmentPack.setPlayingHandle( TheAudio->addAudioEvent( &D().m_bombardmentPack ) );
 					}
 					break;
 				case PLANSTATUS_HOLDTHELINE:
 					obj->setModelConditionState( MODELCONDITION_DOOR_2_CLOSING );
 					obj->getDrawable()->setAnimationLoopDuration( data->m_holdTheLinePlanAnimationFrames );
-					m_nextReadyFrame = now + data->m_holdTheLinePlanAnimationFrames;
-					if( m_holdTheLineUnpack.getEventName().isNotEmpty() )
+					D().m_nextReadyFrame = now + data->m_holdTheLinePlanAnimationFrames;
+					if( D().m_holdTheLineUnpack.getEventName().isNotEmpty() )
 					{
-						m_holdTheLinePack.setObjectID( obj->getID() );
-						m_holdTheLinePack.setPlayingHandle( TheAudio->addAudioEvent( &m_holdTheLinePack ) );
+						D().m_holdTheLinePack.setObjectID( obj->getID() );
+						D().m_holdTheLinePack.setPlayingHandle( TheAudio->addAudioEvent( &D().m_holdTheLinePack ) );
 					}
 					break;
 				case PLANSTATUS_SEARCHANDDESTROY:
 					obj->setModelConditionState( MODELCONDITION_DOOR_3_CLOSING );
 					obj->getDrawable()->setAnimationLoopDuration( data->m_searchAndDestroyPlanAnimationFrames );
-					m_nextReadyFrame = now + data->m_searchAndDestroyPlanAnimationFrames;
-					if( m_searchAndDestroyUnpack.getEventName().isNotEmpty() )
+					D().m_nextReadyFrame = now + data->m_searchAndDestroyPlanAnimationFrames;
+					if( D().m_searchAndDestroyUnpack.getEventName().isNotEmpty() )
 					{
-						m_searchAndDestroyPack.setObjectID( obj->getID() );
-						m_searchAndDestroyPack.setPlayingHandle( TheAudio->addAudioEvent( &m_searchAndDestroyPack ) );
+						D().m_searchAndDestroyPack.setObjectID( obj->getID() );
+						D().m_searchAndDestroyPack.setPlayingHandle( TheAudio->addAudioEvent( &D().m_searchAndDestroyPack ) );
 					}
 					break;
 			}
@@ -658,7 +659,7 @@ void BattlePlanUpdate::setStatus( TransitionStatus newStatus )
 	}
 
 	//Set new status.
-	m_status = newStatus;
+	D().m_status = newStatus;
 }
 
 //------------------------------------------------------------------------------------------------
@@ -725,12 +726,12 @@ void BattlePlanUpdate::setBattlePlan( BattlePlanStatus plan )
 	Player *player = obj->getControllingPlayer();
 	if( player )
 	{
-		switch( m_planAffectingArmy )
+		switch( D().m_planAffectingArmy )
 		{
 			case PLANSTATUS_BOMBARDMENT:
 			{
 				//Remove the previous plan!
-				player->changeBattlePlan( PLANSTATUS_BOMBARDMENT, -1, m_bonuses );
+				player->changeBattlePlan( PLANSTATUS_BOMBARDMENT, -1, D().m_bonuses );
 
 				//The only building bonus is actually the turret, and that's already handled!
 				break;
@@ -738,7 +739,7 @@ void BattlePlanUpdate::setBattlePlan( BattlePlanStatus plan )
 			case PLANSTATUS_HOLDTHELINE:
 			{
 				//Remove the previous plan!
-				player->changeBattlePlan( PLANSTATUS_HOLDTHELINE, -1, m_bonuses );
+				player->changeBattlePlan( PLANSTATUS_HOLDTHELINE, -1, D().m_bonuses );
 
 				//Remove building health bonuses
 				if( data->m_strategyCenterHoldTheLineMaxHealthScalar != 1.0f )
@@ -751,7 +752,7 @@ void BattlePlanUpdate::setBattlePlan( BattlePlanStatus plan )
 			case PLANSTATUS_SEARCHANDDESTROY:
 			{
 				//Remove the previous plan!
-				player->changeBattlePlan( PLANSTATUS_SEARCHANDDESTROY, -1, m_bonuses );
+				player->changeBattlePlan( PLANSTATUS_SEARCHANDDESTROY, -1, D().m_bonuses );
 
 				//Remove sight range bonus
 				if( data->m_strategyCenterSearchAndDestroySightRangeScalar != 1.0f )
@@ -776,11 +777,11 @@ void BattlePlanUpdate::setBattlePlan( BattlePlanStatus plan )
 		}
 
 		//Revert to default no-bonuses!
-		m_bonuses->m_armorScalar					= 1.0f;
-		m_bonuses->m_sightRangeScalar		= 1.0f;
-		m_bonuses->m_bombardment					= 0;
-		m_bonuses->m_searchAndDestroy		= 0;
-		m_bonuses->m_holdTheLine					= 0;
+		D().m_bonuses->m_armorScalar					= 1.0f;
+		D().m_bonuses->m_sightRangeScalar		= 1.0f;
+		D().m_bonuses->m_bombardment					= 0;
+		D().m_bonuses->m_searchAndDestroy		= 0;
+		D().m_bonuses->m_holdTheLine					= 0;
 
 		//Add new bonuses!
 		switch( plan )
@@ -792,10 +793,10 @@ void BattlePlanUpdate::setBattlePlan( BattlePlanStatus plan )
 
 			case PLANSTATUS_BOMBARDMENT:
 				//Set the bombardment bonuses
-				m_bonuses->m_bombardment	= 1; //for weapon bonuses
+				D().m_bonuses->m_bombardment	= 1; //for weapon bonuses
 
 				//Add the new plan!
-				player->changeBattlePlan( PLANSTATUS_BOMBARDMENT, 1, m_bonuses );
+				player->changeBattlePlan( PLANSTATUS_BOMBARDMENT, 1, D().m_bonuses );
 				break;
 
 			case PLANSTATUS_HOLDTHELINE:
@@ -807,11 +808,11 @@ void BattlePlanUpdate::setBattlePlan( BattlePlanStatus plan )
 				}
 
 				//Set the hold-the-line bonuses
-				m_bonuses->m_armorScalar = data->m_holdTheLineArmorDamageScalar;
-				m_bonuses->m_holdTheLine	= 1; //for weapon bonuses
+				D().m_bonuses->m_armorScalar = data->m_holdTheLineArmorDamageScalar;
+				D().m_bonuses->m_holdTheLine	= 1; //for weapon bonuses
 
 				//Add the new plan!
-				player->changeBattlePlan( PLANSTATUS_HOLDTHELINE, 1, m_bonuses );
+				player->changeBattlePlan( PLANSTATUS_HOLDTHELINE, 1, D().m_bonuses );
 				break;
 			case PLANSTATUS_SEARCHANDDESTROY:
 				//Add sight range bonus
@@ -833,14 +834,14 @@ void BattlePlanUpdate::setBattlePlan( BattlePlanStatus plan )
 				}
 
 				//Set the search-and-destroy bonuses
-				m_bonuses->m_searchAndDestroy	= 1; //for weapon bonuses
-				m_bonuses->m_sightRangeScalar	= data->m_searchAndDestroySightRangeScalar;
+				D().m_bonuses->m_searchAndDestroy	= 1; //for weapon bonuses
+				D().m_bonuses->m_sightRangeScalar	= data->m_searchAndDestroySightRangeScalar;
 
 				//Add the new plan!
-				player->changeBattlePlan( PLANSTATUS_SEARCHANDDESTROY, 1, m_bonuses );
+				player->changeBattlePlan( PLANSTATUS_SEARCHANDDESTROY, 1, D().m_bonuses );
 				break;
 		}
-		m_planAffectingArmy = plan;
+		D().m_planAffectingArmy = plan;
 	}
 }
 
@@ -850,9 +851,9 @@ void BattlePlanUpdate::setBattlePlan( BattlePlanStatus plan )
 //------------------------------------------------------------------------------------------------
 BattlePlanStatus BattlePlanUpdate::getActiveBattlePlan() const
 {
-	if( m_status == TRANSITIONSTATUS_ACTIVE )
+	if( D().m_status == TRANSITIONSTATUS_ACTIVE )
 	{
-		return m_planAffectingArmy;
+		return D().m_planAffectingArmy;
 	}
 	return PLANSTATUS_NONE;
 }
@@ -883,40 +884,40 @@ void BattlePlanUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// current plan
-	xfer->xferUser( &m_currentPlan, sizeof( BattlePlanStatus ) );
+	xfer->xferUser( &D().m_currentPlan, sizeof( BattlePlanStatus ) );
 
 	// desired plan
-	xfer->xferUser( &m_desiredPlan, sizeof( BattlePlanStatus ) );
+	xfer->xferUser( &D().m_desiredPlan, sizeof( BattlePlanStatus ) );
 
 	// plan affecting army
-	xfer->xferUser( &m_planAffectingArmy, sizeof( BattlePlanStatus ) );
+	xfer->xferUser( &D().m_planAffectingArmy, sizeof( BattlePlanStatus ) );
 
 	// status
-	xfer->xferUser( &m_status, sizeof( TransitionStatus ) );
+	xfer->xferUser( &D().m_status, sizeof( TransitionStatus ) );
 
 	// next ready frame
-	xfer->xferUnsignedInt( &m_nextReadyFrame );
+	xfer->xferUnsignedInt( &D().m_nextReadyFrame );
 
 	// don't need to save this interface, it's retrieved on object creation
-	// SpecialPowerModuleInterface *m_specialPowerModule;
+	// SpecialPowerModuleInterface *D().m_specialPowerModule;
 
 	// invalid settings
-	xfer->xferBool( &m_invalidSettings );
+	xfer->xferBool( &D().m_invalidSettings );
 
 	// centering turret
-	xfer->xferBool( &m_centeringTurret );
+	xfer->xferBool( &D().m_centeringTurret );
 
 	// bonuses
-	xfer->xferReal( &m_bonuses->m_armorScalar );
-	xfer->xferInt( &m_bonuses->m_bombardment );
-	xfer->xferInt( &m_bonuses->m_searchAndDestroy );
-	xfer->xferInt( &m_bonuses->m_holdTheLine );
-	xfer->xferReal( &m_bonuses->m_sightRangeScalar );
-	m_bonuses->m_validKindOf.xfer( xfer );
-	m_bonuses->m_invalidKindOf.xfer( xfer );
+	xfer->xferReal( &D().m_bonuses->m_armorScalar );
+	xfer->xferInt( &D().m_bonuses->m_bombardment );
+	xfer->xferInt( &D().m_bonuses->m_searchAndDestroy );
+	xfer->xferInt( &D().m_bonuses->m_holdTheLine );
+	xfer->xferReal( &D().m_bonuses->m_sightRangeScalar );
+	D().m_bonuses->m_validKindOf.xfer( xfer );
+	D().m_bonuses->m_invalidKindOf.xfer( xfer );
 
 	// vision object data
-	xfer->xferObjectID( &m_visionObjectID );
+	xfer->xferObjectID( &D().m_visionObjectID );
 
 }
 

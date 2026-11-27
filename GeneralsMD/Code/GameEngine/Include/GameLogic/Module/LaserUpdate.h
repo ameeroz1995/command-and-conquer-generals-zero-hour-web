@@ -32,6 +32,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/ClientUpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class Thing;
@@ -96,18 +97,18 @@ public:
 	//Actually puts the laser in the world.
 	void initLaser( const Object *parent, const Object *target, const Coord3D *startPos, const Coord3D *endPos, AsciiString parentBoneName, Int sizeDeltaFrames = 0 );
 
-	const LaserRadiusUpdate& getLaserRadiusUpdate() const { return m_laserRadius; }
-	void setDecayFrames( UnsignedInt decayFrames ) { m_laserRadius.setDecayFrames(decayFrames); }
-	Real getWidthScale() const { return m_laserRadius.getWidthScale(); }
+	const LaserRadiusUpdate& getLaserRadiusUpdate() const { return D().m_laserRadius; }
+	void setDecayFrames( UnsignedInt decayFrames ) { D().m_laserRadius.setDecayFrames(decayFrames); }
+	Real getWidthScale() const { return D().m_laserRadius.getWidthScale(); }
 
-	const Coord3D* getStartPos() const { return &m_startPos; }
-	const Coord3D* getEndPos() const { return &m_endPos; }
+	const Coord3D* getStartPos() const { return &D().m_startPos; }
+	const Coord3D* getEndPos() const { return &D().m_endPos; }
 
 	Real getTemplateLaserRadius() const;
 	Real getCurrentLaserRadius() const;
 
-	void setDirty( Bool dirty ) { m_dirty = dirty; }
-	Bool isDirty() const { return m_dirty; }
+	void setDirty( Bool dirty ) { D().m_dirty = dirty; }
+	Bool isDirty() const { return D().m_dirty; }
 
 	virtual void clientUpdate();
 
@@ -117,16 +118,24 @@ protected:
 	void updateEndPos(); ///< figures out and sets endPos
 
 	//If the master dies, so will this laser (although if it has a fade delay, it'll just skip to the fade)
-	Coord3D m_startPos;
-	Coord3D m_endPos;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		Coord3D m_startPos;
+		Coord3D m_endPos;
+		DrawableID m_parentID;
+		DrawableID m_targetID;
+		Bool m_dirty;
+		ParticleSystemID m_particleSystemID;
+		ParticleSystemID m_targetParticleSystemID;
+		AsciiString m_parentBoneName;
+		LaserRadiusUpdate m_laserRadius;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
-	DrawableID m_parentID;
-	DrawableID m_targetID;
 
-	Bool m_dirty;
-	ParticleSystemID m_particleSystemID;
-	ParticleSystemID m_targetParticleSystemID;
-	AsciiString m_parentBoneName;
 
-	LaserRadiusUpdate m_laserRadius;
 };

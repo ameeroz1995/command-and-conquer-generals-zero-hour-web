@@ -4262,6 +4262,7 @@ void GameLogic::update()
 	if (m_gxHeap4 && (GLES3_Page_Switches() & 2097152) && getFrame() % 150 == 0)
 		gx4VerifySleepyUpdate();
 #endif
+	{ extern void gxWeaponReloadSystem(); gxWeaponReloadSystem(); }	// combat, round 5: weapon reloads as a system (fourth word bit 24)
 	{ GxTimeScope gxLoopScope(GXT_AI_LOOP);	// tickTiming: the update loop (queue, passes, kernels)
 	GxAllocScope gxLoopAllocs(GXC_AI_ALLOCS);
 	extern bool gxMatchRule(unsigned int rule);

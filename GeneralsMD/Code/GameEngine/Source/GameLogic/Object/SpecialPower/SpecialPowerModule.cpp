@@ -56,6 +56,7 @@
 
 
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 SpecialPowerModuleData::SpecialPowerModuleData()
@@ -93,18 +94,18 @@ SpecialPowerModuleData::SpecialPowerModuleData()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-SpecialPowerModule::SpecialPowerModule( Thing *thing, const ModuleData *moduleData )
-									: BehaviorModule( thing, moduleData )
+SpecialPowerModule::SpecialPowerModule( Thing *thing, const ModuleData *moduleData ) : BehaviorModule( thing, moduleData )
 {
 
+
 #if RETAIL_COMPATIBLE_CRC
-	m_availableOnFrame = 0;
+	PD().m_availableOnFrame = 0;
 #else
-	m_availableOnFrame = 0xFFFFFFFF;
+	PD().m_availableOnFrame = 0xFFFFFFFF;
 #endif
-	m_pausedCount = 0;
-	m_pausedOnFrame = 0;
-	m_pausedPercent = 0.0f;
+	PD().m_pausedCount = 0;
+	PD().m_pausedOnFrame = 0;
+	PD().m_pausedPercent = 0.0f;
 
 	// we won't be able to use the power for X number of frames now
 
@@ -130,7 +131,7 @@ SpecialPowerModule::SpecialPowerModule( Thing *thing, const ModuleData *moduleDa
 	// but there is already a science granted for our shared superweapon,
 	// lets make sure TheIngameUI knows about our public timer
 	// add this weapon to the UI if it has a public timer for all to see
-	if( m_pausedCount == 0 &&
+	if( PD().m_pausedCount == 0 &&
 			getSpecialPowerTemplate()->isSharedNSync() == TRUE &&
 			getSpecialPowerTemplate()->hasPublicTimer() == TRUE &&
 			getObject()->getControllingPlayer() &&
@@ -168,11 +169,11 @@ SpecialPowerModule::~SpecialPowerModule()
 //-------------------------------------------------------------------------------------------------
 void SpecialPowerModule::setReadyFrame( UnsignedInt frame )
 {
-	m_availableOnFrame = frame;
+	PD().m_availableOnFrame = frame;
 
 	//If a script should change the ready frame, we need to update the paused frame. This value isn't
-	//used directly to determine if paused or not... it uses m_pausedCount.
-	m_pausedOnFrame = TheGameLogic->getFrame();
+	//used directly to determine if paused or not... it uses PD().m_pausedCount.
+	PD().m_pausedOnFrame = TheGameLogic->getFrame();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -215,7 +216,7 @@ void SpecialPowerModule::onSpecialPowerCreation()
 		if ( player )
 		{
 			player->expressSpecialPowerReadyFrame( getSpecialPowerTemplate(), TheGameLogic->getFrame() );
-			m_availableOnFrame = player->getOrStartSpecialPowerReadyFrame( getSpecialPowerTemplate() );
+			PD().m_availableOnFrame = player->getOrStartSpecialPowerReadyFrame( getSpecialPowerTemplate() );
 		}
 	}
 
@@ -307,7 +308,7 @@ Bool SpecialPowerModule::isReady() const
 		}
 	}
 
-	return (m_pausedCount == 0) && (TheGameLogic->getFrame() >= m_availableOnFrame);
+	return (PD().m_pausedCount == 0) && (TheGameLogic->getFrame() >= PD().m_availableOnFrame);
 
 }
 
@@ -320,7 +321,7 @@ Bool SpecialPowerModule::isReady() const
 //-------------------------------------------------------------------------------------------------
 Real SpecialPowerModule::getPercentReady() const
 {
-	if( m_pausedCount > 0 && m_pausedPercent == 1.0f )
+	if( PD().m_pausedCount > 0 && PD().m_pausedPercent == 1.0f )
 	{
 			//Don't consider it ready if paused.
 		return 0.99999f;
@@ -335,9 +336,9 @@ Real SpecialPowerModule::getPercentReady() const
 	if( isReady() )
 		return 1.0f;
 
-	if( m_pausedCount > 0 )
+	if( PD().m_pausedCount > 0 )
 	{
-		return m_pausedPercent;
+		return PD().m_pausedPercent;
 	}
 
 	// get the module data
@@ -347,7 +348,7 @@ Real SpecialPowerModule::getPercentReady() const
 	if( modData->m_specialPowerTemplate == nullptr )
 		return 0.0f;
 
-	UnsignedInt readyFrame = m_availableOnFrame;
+	UnsignedInt readyFrame = PD().m_availableOnFrame;
 
 	//unless
 	const Object* obj = getObject();
@@ -421,7 +422,7 @@ void SpecialPowerModule::startPowerRecharge()
 	else
 	{
 		// set the frame we will be 100% available on now
-		m_availableOnFrame = TheGameLogic->getFrame() + getSpecialPowerTemplate()->getReloadTime();
+		PD().m_availableOnFrame = TheGameLogic->getFrame() + getSpecialPowerTemplate()->getReloadTime();
 	}
 }
 
@@ -457,7 +458,7 @@ Bool SpecialPowerModule::initiateIntentToDoSpecialPower( const Object *targetObj
 
 #if RETAIL_COMPATIBLE_CRC
 	// TheSuperHackers @info we need to leave early if we are in the MissileLauncherBuildingUpdate crash fix codepath
-	if (m_availableOnFrame == 0xFFFFFFFF)
+	if (PD().m_availableOnFrame == 0xFFFFFFFF)
 	{
 		DEBUG_ASSERTCRASH(!valid, ("Using MissileLauncherBuildingUpdate escape path when valid is set to true"));
 		return false;
@@ -673,7 +674,7 @@ void SpecialPowerModule::aboutToDoSpecialPower( const Coord3D *location )
 //-------------------------------------------------------------------------------------------------
 void SpecialPowerModule::doSpecialPower( UnsignedInt commandOptions )
 {
-	if (m_pausedCount > 0 || getObject()->isDisabled()) {
+	if (PD().m_pausedCount > 0 || getObject()->isDisabled()) {
 		return;
 	}
 
@@ -695,7 +696,7 @@ void SpecialPowerModule::doSpecialPower( UnsignedInt commandOptions )
 //-------------------------------------------------------------------------------------------------
 void SpecialPowerModule::doSpecialPowerAtObject( Object *obj, UnsignedInt commandOptions )
 {
-	if (m_pausedCount > 0 || getObject()->isDisabled()) {
+	if (PD().m_pausedCount > 0 || getObject()->isDisabled()) {
 		return;
 	}
 
@@ -717,7 +718,7 @@ void SpecialPowerModule::doSpecialPowerAtObject( Object *obj, UnsignedInt comman
 //-------------------------------------------------------------------------------------------------
 void SpecialPowerModule::doSpecialPowerAtLocation( const Coord3D *loc, Real angle, UnsignedInt commandOptions )
 {
-	if (m_pausedCount > 0 || getObject()->isDisabled()) {
+	if (PD().m_pausedCount > 0 || getObject()->isDisabled()) {
 		return;
 	}
 
@@ -727,7 +728,7 @@ void SpecialPowerModule::doSpecialPowerAtLocation( const Coord3D *loc, Real angl
 
 #if RETAIL_COMPATIBLE_CRC
 	// TheSuperHackers @info we need to leave early if we are in the MissileLauncherBuildingUpdate crash fix codepath
-	if (m_availableOnFrame == 0xFFFFFFFF)
+	if (PD().m_availableOnFrame == 0xFFFFFFFF)
 		return;
 #endif
 
@@ -745,7 +746,7 @@ void SpecialPowerModule::doSpecialPowerAtLocation( const Coord3D *loc, Real angl
 //-------------------------------------------------------------------------------------------------
 void SpecialPowerModule::doSpecialPowerUsingWaypoints( const Waypoint *way, UnsignedInt commandOptions )
 {
-	if (m_pausedCount > 0 || getObject()->isDisabled()) {
+	if (PD().m_pausedCount > 0 || getObject()->isDisabled()) {
 		return;
 	}
 
@@ -769,24 +770,24 @@ void SpecialPowerModule::pauseCountdown( Bool pause )
 {
 	if (pause)// If pausing
 	{
-		if( m_pausedCount == 0 )
+		if( PD().m_pausedCount == 0 )
 		{
 			// Only record this with the first pausing, otherwise upon final unpausing you would get credited the time
 			// between pauses as time served.
-			m_pausedOnFrame = TheGameLogic->getFrame();
-			m_pausedPercent = getPercentReady();
+			PD().m_pausedOnFrame = TheGameLogic->getFrame();
+			PD().m_pausedPercent = getPercentReady();
 		}
 
-		++m_pausedCount;
+		++PD().m_pausedCount;
 	}
-	else if( m_pausedCount > 0 )//Else if unpausing, but only if I am in fact paused, so multiple unpauses don't break.
+	else if( PD().m_pausedCount > 0 )//Else if unpausing, but only if I am in fact paused, so multiple unpauses don't break.
 	{
-		--m_pausedCount;
+		--PD().m_pausedCount;
 
 		// And only update the ready time if we are fully unpaused now.
-		if( m_pausedCount == 0 )
+		if( PD().m_pausedCount == 0 )
 		{
-			m_availableOnFrame += (TheGameLogic->getFrame() - m_pausedOnFrame);
+			PD().m_availableOnFrame += (TheGameLogic->getFrame() - PD().m_pausedOnFrame);
 		}
 	}
 }
@@ -806,14 +807,14 @@ UnsignedInt SpecialPowerModule::getReadyFrame() const
 		}
 	}
 
-	if (m_pausedCount > 0 || getObject()->isDisabled())
+	if (PD().m_pausedCount > 0 || getObject()->isDisabled())
 	{
-		Int pausedFrames = TheGameLogic->getFrame() - m_pausedOnFrame;
-		return m_availableOnFrame + pausedFrames;
+		Int pausedFrames = TheGameLogic->getFrame() - PD().m_pausedOnFrame;
+		return PD().m_availableOnFrame + pausedFrames;
 	}
 	else
 	{
-		return m_availableOnFrame;
+		return PD().m_availableOnFrame;
 	}
 }
 
@@ -845,16 +846,16 @@ void SpecialPowerModule::xfer( Xfer *xfer )
 	BehaviorModule::xfer( xfer );
 
 	// available on frame
-	xfer->xferUnsignedInt( &m_availableOnFrame );
+	xfer->xferUnsignedInt( &PD().m_availableOnFrame );
 
 	// paused by script
-	xfer->xferInt( &m_pausedCount );
+	xfer->xferInt( &PD().m_pausedCount );
 
 	// paused on frame
-	xfer->xferUnsignedInt( &m_pausedOnFrame );
+	xfer->xferUnsignedInt( &PD().m_pausedOnFrame );
 
 	// paused percent
-	xfer->xferReal( &m_pausedPercent );
+	xfer->xferReal( &PD().m_pausedPercent );
 
 }
 
@@ -873,7 +874,7 @@ void SpecialPowerModule::loadPostProcess()
 	// but there is already a science granted for our shared superweapon,
 	// lets make sure TheIngameUI knows about our public timer
 	// add this weapon to the UI if it has a public timer for all to see
-	if( m_pausedCount == 0 &&
+	if( PD().m_pausedCount == 0 &&
 			getSpecialPowerTemplate()->isSharedNSync() == TRUE &&
 			getSpecialPowerTemplate()->hasPublicTimer() == TRUE &&
 			getObject()->getControllingPlayer() &&

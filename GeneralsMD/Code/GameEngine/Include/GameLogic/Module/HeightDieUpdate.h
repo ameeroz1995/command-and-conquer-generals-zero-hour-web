@@ -31,6 +31,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -69,10 +70,32 @@ public:
 
 protected:
 
+	// combat, kind kernel (ai's GameLogic::gxRegisterKindKernel; match rule updatePasses): the kernel
+	// does every module's quiet frame (not due yet, contained, or above its death height: writes only
+	// its row) and leaves the rest to apply, which runs the full update in object-ID order; a quiet unit
+	// that an earlier death moved or let out is redone in apply from its saved last position
+	static void gxKernel( UpdateModulePtr *mods, Int begin, Int end );
+	static void gxApply( UpdateModulePtr *mods, Int count );
+	Bool gxQuiet( UnsignedInt now, const Coord3D *pos );
+	UpdateSleepTime gxFullUpdate();
 
-	Bool m_hasDied;							///< TRUE once we have triggered death
-	Bool m_particlesDestroyed;	///< TRUE once we destroy attached systems (so we do it only once)
-	Coord3D m_lastPosition;			///< we record our last position for logic that needs to know our direction of travel
-	UnsignedInt m_earliestDeathFrame; ///< Earliest we are allowed to think about dying
+
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		Bool m_hasDied;							///< TRUE once we have triggered death
+		Bool m_particlesDestroyed;	///< TRUE once we destroy attached systems (so we do it only once)
+		Coord3D m_lastPosition;			///< we record our last position for logic that needs to know our direction of travel
+		UnsignedInt m_earliestDeathFrame; ///< Earliest we are allowed to think about dying
+		UnsignedInt gxKernelFrame = 0;	///< frame the kind kernel ran for (0: never)
+		Bool gxFull = FALSE;	///< the kernel left this frame to apply
+		Bool gxContained = FALSE;	///< contained when the kernel looked
+		Coord3D gxPos = {};	///< position the kernel saw
+		Coord3D gxPrevLast = {};	///< m_lastPosition before the kernel's quiet frame
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
 };

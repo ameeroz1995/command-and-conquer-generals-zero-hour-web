@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "GameLogic/Module/UpdateModule.h"
 #include "Common/KindOf.h"
+#include "Common/GxComponentPool.h"
 
 
 //-------------------------------------------------------------------------------------------------
@@ -77,11 +78,19 @@ public:
 	virtual UpdateSleepTime update();
 
 protected:
-	Bool m_enemyNear;
-	Bool m_allyNear;
-	Real m_maxMinorRadius;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		Bool m_enemyNear;
+		Bool m_allyNear;
+		Real m_maxMinorRadius;
+		UnsignedInt m_enemyScanDelay;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 
-	UnsignedInt m_enemyScanDelay;
 	void checkForAlliesAndEnemies();
 
 };

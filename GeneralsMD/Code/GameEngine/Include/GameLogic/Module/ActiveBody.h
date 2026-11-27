@@ -151,6 +151,9 @@ public:
 	// Subdual Damage
 	virtual Bool isSubdued() const;
 	virtual Bool canBeSubdued() const;
+	/// combat, damageTable (Weapon.cpp): the armor estimateDamage() would use now (validated first)
+	void gxSyncHealth() const;	///< combat: health column in the unit store (write-through)
+	const ArmorTemplate *gxArmorTemplate() const { validateArmorAndDamageFX(); return m_gxActiveBody->m_curArmor.gxTemplate(); }
 	virtual void onSubdualChange( Bool isNowSubdued );///< Override this if you want a totally different effect than DISABLED_SUBDUED
 
 protected:

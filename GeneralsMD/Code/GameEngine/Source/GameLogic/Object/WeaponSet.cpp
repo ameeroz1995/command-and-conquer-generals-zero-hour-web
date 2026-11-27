@@ -30,6 +30,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxTime.h"
 #include "Common/GxUnitStore.h"
 
 #define DEFINE_WEAPONSLOTTYPE_NAMES
@@ -174,25 +175,55 @@ Bool WeaponTemplateSet::testWeaponSetFlag( WeaponSetType wst ) const
 //-------------------------------------------------------------------------------------------------
 
 //-------------------------------------------------------------------------------------------------
-WeaponSet::WeaponSet()
+WeaponSet::WeaponSet() : m_row(TheGxWeaponSets.alloc())
 {
-	m_curWeapon = PRIMARY_WEAPON; gxTouch();
-	m_curWeaponLockedStatus = NOT_LOCKED;
-	m_curWeaponTemplateSet = nullptr;
-	m_filledWeaponSlotMask = 0;
-	m_totalAntiMask = 0;
-	m_totalDamageTypeMask.clear();
-	m_hasPitchLimit = false;
-	m_hasDamageWeapon = false;
+	TheGxWeaponSets.cur[m_row] = PRIMARY_WEAPON; gxTouch();
+	TheGxWeaponSets.lock[m_row] = NOT_LOCKED;
+	TheGxWeaponSets.tmplSet[m_row] = nullptr;
+	TheGxWeaponSets.filledMask[m_row] = 0;
+	TheGxWeaponSets.antiMask[m_row] = 0;
+	TheGxWeaponSets.damageMask[m_row].clear();
+	TheGxWeaponSets.hasPitchLimit[m_row] = false;
+	TheGxWeaponSets.hasDamageWeapon[m_row] = false;
 	for (Int i = 0; i < WEAPONSLOT_COUNT; ++i)
-		m_weapons[i] = nullptr;
+		TheGxWeaponSets.weapons[m_row][i] = nullptr;
 }
 
 //-------------------------------------------------------------------------------------------------
 WeaponSet::~WeaponSet()
 {
 	for (Int i = 0; i < WEAPONSLOT_COUNT; ++i)
-		deleteInstance(m_weapons[i]);
+		deleteInstance(TheGxWeaponSets.weapons[m_row][i]);
+	TheGxWeaponSets.release(m_row);
+}
+
+//-------------------------------------------------------------------------------------------------
+GxWeaponSetRows TheGxWeaponSets;
+
+Int GxWeaponSetRows::alloc()
+{
+	Int r;
+	if (!freeRows.empty())
+	{
+		r = freeRows.back();
+		freeRows.pop_back();
+	}
+	else
+	{
+		r = (Int)tmplSet.size();
+		const size_t n = r + 1;
+		tmplSet.resize(n); weapons.resize(n); cur.resize(n); owner.resize(n); lock.resize(n);
+		filledMask.resize(n); antiMask.resize(n); damageMask.resize(n); hasPitchLimit.resize(n);
+		hasDamageWeapon.resize(n);
+	}
+	owner[r] = INVALID_ID;
+	return r;
+}
+
+void GxWeaponSetRows::release(Int r)
+{
+	owner[r] = INVALID_ID;
+	freeRows.push_back(r);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -232,7 +263,7 @@ void WeaponSet::xfer( Xfer *xfer )
 
 		if (ttName.isEmpty())
 		{
-			m_curWeaponTemplateSet = nullptr;
+			TheGxWeaponSets.tmplSet[m_row] = nullptr;
 		}
 		else
 		{
@@ -240,8 +271,8 @@ void WeaponSet::xfer( Xfer *xfer )
 			if (tt == nullptr)
 				throw INI_INVALID_DATA;
 
-			m_curWeaponTemplateSet = tt->findWeaponTemplateSet(wsFlags);
-			if (m_curWeaponTemplateSet == nullptr)
+			TheGxWeaponSets.tmplSet[m_row] = tt->findWeaponTemplateSet(wsFlags);
+			if (TheGxWeaponSets.tmplSet[m_row] == nullptr)
 				throw INI_INVALID_DATA;
 		}
 	}
@@ -249,14 +280,14 @@ void WeaponSet::xfer( Xfer *xfer )
 	{
 		AsciiString ttName;				// leave 'em empty in case we're null
 		WeaponSetFlags wsFlags;
-		if (m_curWeaponTemplateSet != nullptr)
+		if (TheGxWeaponSets.tmplSet[m_row] != nullptr)
 		{
-			const ThingTemplate* tt = m_curWeaponTemplateSet->friend_getThingTemplate();
+			const ThingTemplate* tt = TheGxWeaponSets.tmplSet[m_row]->friend_getThingTemplate();
 			if (tt == nullptr)
 				throw INI_INVALID_DATA;
 
 			ttName = tt->getName();
-			wsFlags = m_curWeaponTemplateSet->friend_getWeaponSetFlags();
+			wsFlags = TheGxWeaponSets.tmplSet[m_row]->friend_getWeaponSetFlags();
 		}
 		xfer->xferAsciiString(&ttName);
 		wsFlags.xfer( xfer );
@@ -264,44 +295,44 @@ void WeaponSet::xfer( Xfer *xfer )
 
 	for (Int i = 0; i < WEAPONSLOT_COUNT; ++i)
 	{
-		Bool hasWeaponInSlot = (m_weapons[i] != nullptr);
+		Bool hasWeaponInSlot = (TheGxWeaponSets.weapons[m_row][i] != nullptr);
 		xfer->xferBool(&hasWeaponInSlot);
 		if (hasWeaponInSlot)
 		{
-			if (xfer->getXferMode() == XFER_LOAD && m_weapons[i] == nullptr)
+			if (xfer->getXferMode() == XFER_LOAD && TheGxWeaponSets.weapons[m_row][i] == nullptr)
 			{
-				const WeaponTemplate* wt = m_curWeaponTemplateSet->getNth((WeaponSlotType)i);
+				const WeaponTemplate* wt = TheGxWeaponSets.tmplSet[m_row]->getNth((WeaponSlotType)i);
 				if (wt==nullptr) {
 					DEBUG_CRASH(("xfer backwards compatibility code - old save file??? jba."));
-					wt = m_curWeaponTemplateSet->getNth((WeaponSlotType)0);
+					wt = TheGxWeaponSets.tmplSet[m_row]->getNth((WeaponSlotType)0);
 				}
-				m_weapons[i] = TheWeaponStore->allocateNewWeapon(wt, (WeaponSlotType)i);
+				TheGxWeaponSets.weapons[m_row][i] = TheWeaponStore->allocateNewWeapon(wt, (WeaponSlotType)i);
 			}
-			xfer->xferSnapshot(m_weapons[i]);
+			xfer->xferSnapshot(TheGxWeaponSets.weapons[m_row][i]);
 		}
 	}
-	xfer->xferUser(&m_curWeapon, sizeof(m_curWeapon));
-	xfer->xferUser(&m_curWeaponLockedStatus, sizeof(m_curWeaponLockedStatus));
-	xfer->xferUnsignedInt(&m_filledWeaponSlotMask);
-	xfer->xferInt(&m_totalAntiMask);
+	xfer->xferUser(&TheGxWeaponSets.cur[m_row], sizeof(TheGxWeaponSets.cur[m_row]));
+	xfer->xferUser(&TheGxWeaponSets.lock[m_row], sizeof(TheGxWeaponSets.lock[m_row]));
+	xfer->xferUnsignedInt(&TheGxWeaponSets.filledMask[m_row]);
+	xfer->xferInt(&TheGxWeaponSets.antiMask[m_row]);
 
 #if RTS_GENERALS
 	if (version < 2)
 	{
-		UnsignedInt totalDamageTypeMask = m_totalDamageTypeMask.toUnsignedInt();
+		UnsignedInt totalDamageTypeMask = TheGxWeaponSets.damageMask[m_row].toUnsignedInt();
 		xfer->xferUnsignedInt(&totalDamageTypeMask);
-		m_totalDamageTypeMask = DamageTypeFlags(totalDamageTypeMask);
+		TheGxWeaponSets.damageMask[m_row] = DamageTypeFlags(totalDamageTypeMask);
 	}
 #endif
 
-	xfer->xferBool(&m_hasDamageWeapon);
-	xfer->xferBool(&m_hasDamageWeapon);
+	{ Bool b = TheGxWeaponSets.hasDamageWeapon[m_row] != 0; xfer->xferBool(&b); TheGxWeaponSets.hasDamageWeapon[m_row] = b; }
+	{ Bool b = TheGxWeaponSets.hasDamageWeapon[m_row] != 0; xfer->xferBool(&b); TheGxWeaponSets.hasDamageWeapon[m_row] = b; }
 
 #if RTS_GENERALS
 	if (version >= 2)
 #endif
 	{
-		m_totalDamageTypeMask.xfer(xfer);// BitSet has built in xfer
+		TheGxWeaponSets.damageMask[m_row].xfer(xfer);// BitSet has built in xfer
 	}
 }
 
@@ -318,43 +349,43 @@ void WeaponSet::updateWeaponSet(const Object* obj)
 {
 	const WeaponTemplateSet* set = obj->getTemplate()->findWeaponTemplateSet(obj->getWeaponSetFlags());
 	DEBUG_ASSERTCRASH(set, ("findWeaponSet should never return null"));
-	if (set && set != m_curWeaponTemplateSet)
+	if (set && set != TheGxWeaponSets.tmplSet[m_row])
 	{
 		if( ! set->isWeaponLockSharedAcrossSets() )
 		{
 			DEBUG_ASSERTLOG(!isCurWeaponLocked(), ("changing WeaponSet while Weapon is Locked... implicit unlock occurring!"));
 			releaseWeaponLock(LOCKED_PERMANENTLY);	// release all locks. sorry!
-			m_curWeapon = PRIMARY_WEAPON; gxTouch();
+			TheGxWeaponSets.cur[m_row] = PRIMARY_WEAPON; gxTouch();
 		}
-		m_filledWeaponSlotMask = 0;
-		m_totalAntiMask = 0;
-		m_totalDamageTypeMask.clear();
-		m_hasPitchLimit = false;
-		m_hasDamageWeapon = false;
+		TheGxWeaponSets.filledMask[m_row] = 0;
+		TheGxWeaponSets.antiMask[m_row] = 0;
+		TheGxWeaponSets.damageMask[m_row].clear();
+		TheGxWeaponSets.hasPitchLimit[m_row] = false;
+		TheGxWeaponSets.hasDamageWeapon[m_row] = false;
 		for (Int i = WEAPONSLOT_COUNT - 1; i >= PRIMARY_WEAPON ; --i)
 		{
-			deleteInstance(m_weapons[i]);
-			m_weapons[i] = nullptr;
+			deleteInstance(TheGxWeaponSets.weapons[m_row][i]);
+			TheGxWeaponSets.weapons[m_row][i] = nullptr;
 
 			if (set->getNth((WeaponSlotType)i))
 			{
-				m_weapons[i] = TheWeaponStore->allocateNewWeapon(set->getNth((WeaponSlotType)i), (WeaponSlotType)i);
-				m_weapons[i]->loadAmmoNow(obj);	// start 'em all with full clips.
-				m_filledWeaponSlotMask |= (1 << i);
-				m_totalAntiMask |= m_weapons[i]->getAntiMask();
-				m_totalDamageTypeMask.set(m_weapons[i]->getDamageType());
-				if (m_weapons[i]->isPitchLimited())
-					m_hasPitchLimit = true;
-				if (m_weapons[i]->isDamageWeapon())
-					m_hasDamageWeapon = true;
+				TheGxWeaponSets.weapons[m_row][i] = TheWeaponStore->allocateNewWeapon(set->getNth((WeaponSlotType)i), (WeaponSlotType)i);
+				TheGxWeaponSets.weapons[m_row][i]->loadAmmoNow(obj);	// start 'em all with full clips.
+				TheGxWeaponSets.filledMask[m_row] |= (1 << i);
+				TheGxWeaponSets.antiMask[m_row] |= TheGxWeaponSets.weapons[m_row][i]->getAntiMask();
+				TheGxWeaponSets.damageMask[m_row].set(TheGxWeaponSets.weapons[m_row][i]->getDamageType());
+				if (TheGxWeaponSets.weapons[m_row][i]->isPitchLimited())
+					TheGxWeaponSets.hasPitchLimit[m_row] = true;
+				if (TheGxWeaponSets.weapons[m_row][i]->isDamageWeapon())
+					TheGxWeaponSets.hasDamageWeapon[m_row] = true;
 
 				// no, do NOT do this; always start with the cur weapon being primary, even if there is no primary
 				// weapon. this is by design, to allow us to have units that have only "spell" weapons and no
 				// "normal" weapons. (srj)
-				// m_curWeapon = (WeaponSlotType)i; gxTouch();
+				// TheGxWeaponSets.cur[m_row] = (WeaponSlotType)i; gxTouch();
 			}
 		}
-		m_curWeaponTemplateSet = set;
+		TheGxWeaponSets.tmplSet[m_row] = set;
 		//DEBUG_LOG(("WeaponSet::updateWeaponSet -- changed curweapon to %s",getCurWeapon()->getName().str()));
 		gxSetOwner(obj->getID());	// weaponSkip: the new weapons know their unit
 	}
@@ -363,17 +394,17 @@ void WeaponSet::updateWeaponSet(const Object* obj)
 // weaponSkip (combat): this set's unit; its weapons report their changes to the store under it
 void WeaponSet::gxSetOwner(ObjectID id)
 {
-	m_gxOwner = id;
+	TheGxWeaponSets.owner[m_row] = id;
 	for (Int i = 0; i < WEAPONSLOT_COUNT; ++i)
-		if (m_weapons[i])
-			m_weapons[i]->gxSetOwner(id);
+		if (TheGxWeaponSets.weapons[m_row][i])
+			TheGxWeaponSets.weapons[m_row][i]->gxSetOwner(id);
 	gxTouch();
 }
 
 void WeaponSet::gxTouch() const
 {
-	if (m_gxOwner != INVALID_ID)
-		TheGxUnitStore.weaponTouch((int)m_gxOwner);
+	if (TheGxWeaponSets.owner[m_row] != INVALID_ID)
+		TheGxUnitStore.weaponTouch((int)TheGxWeaponSets.owner[m_row]);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -450,7 +481,7 @@ void WeaponSet::weaponSetOnWeaponBonusChange(const Object *source)
 {
 	for( Int i = 0; i < WEAPONSLOT_COUNT;	i++ )
 	{
-		Weapon *weapon = m_weapons[ i ];
+		Weapon *weapon = TheGxWeaponSets.weapons[m_row][ i ];
 		if( weapon )
 		{
 			weapon->onWeaponBonusChange(source);
@@ -461,12 +492,12 @@ void WeaponSet::weaponSetOnWeaponBonusChange(const Object *source)
 //-------------------------------------------------------------------------------------------------
 Bool WeaponSet::isAnyWithinTargetPitch(const Object* obj, const Object* victim) const
 {
-	if (!m_hasPitchLimit)
+	if (!TheGxWeaponSets.hasPitchLimit[m_row])
 		return true;
 
 	for( Int i = 0; i < WEAPONSLOT_COUNT;	i++ )
 	{
-		const Weapon* weapon = m_weapons[ i ];
+		const Weapon* weapon = TheGxWeaponSets.weapons[m_row][ i ];
 		if (weapon && weapon->isWithinTargetPitch(obj, victim))
 		{
 			return true;
@@ -676,11 +707,11 @@ CanAttackResult WeaponSet::getAbleToUseWeaponAgainstTarget( AbleToAttackType att
 	Bool hasAWeapon				 = FALSE;
 	for (Int slot = 0; slot < WEAPONSLOT_COUNT - 1; ++slot)
 	{
-		Weapon *weaponToTestForRange = m_weapons[ m_curWeapon ];
+		Weapon *weaponToTestForRange = TheGxWeaponSets.weapons[m_row][ TheGxWeaponSets.cur[m_row] ];
 		if ( weaponToTestForRange )
 		{
 			hasAWeapon = TRUE;
-			if ((m_totalAntiMask & targetAntiMask) == 0)//we don't care to check for this weapon
+			if ((TheGxWeaponSets.antiMask[m_row] & targetAntiMask) == 0)//we don't care to check for this weapon
 				continue;
 
 			Bool handled = FALSE;
@@ -723,7 +754,7 @@ CanAttackResult WeaponSet::getAbleToUseWeaponAgainstTarget( AbleToAttackType att
 
 	if (hasAnyDamageWeapon())
 	{
-		if ((m_totalAntiMask & targetAntiMask) == 0)
+		if ((TheGxWeaponSets.antiMask[m_row] & targetAntiMask) == 0)
 			return ATTACKRESULT_INVALID_SHOT;
 
 		//If we don't have a victim, we are force attacking a position. Because
@@ -737,8 +768,8 @@ CanAttackResult WeaponSet::getAbleToUseWeaponAgainstTarget( AbleToAttackType att
 		Int first, last;
 		if( isCurWeaponLocked() )
 		{
-			first = m_curWeapon;
-			last = m_curWeapon;
+			first = TheGxWeaponSets.cur[m_row];
+			last = TheGxWeaponSets.cur[m_row];
 		}
 		else if( specificSlot != (WeaponSlotType)-1 )
 		{
@@ -754,12 +785,12 @@ CanAttackResult WeaponSet::getAbleToUseWeaponAgainstTarget( AbleToAttackType att
 		//Check each weapon, until we find one that can do damage (or fail)
 		for( Int i = first; i >= last ; --i )
 		{
-			Weapon *weapon = m_weapons[ i ];
+			Weapon *weapon = TheGxWeaponSets.weapons[m_row][ i ];
 			if (weapon && weapon->estimateWeaponDamage( source, victim ))
 			{
 				//Kris: Aug 22, 2003
 				//Surgical fix so Jarmen Kell doesn't get a targeting cursor on enemy vehicles unless he is in snipe mode.
-				if( weapon->getDamageType() == DAMAGE_KILLPILOT && source->isKindOf( KINDOF_HERO ) && m_curWeapon == PRIMARY_WEAPON && specificSlot == (WeaponSlotType)-1 )
+				if( weapon->getDamageType() == DAMAGE_KILLPILOT && source->isKindOf( KINDOF_HERO ) && TheGxWeaponSets.cur[m_row] == PRIMARY_WEAPON && specificSlot == (WeaponSlotType)-1 )
 				{
 					continue;
 				}
@@ -819,6 +850,7 @@ CanAttackResult WeaponSet::getAbleToUseWeaponAgainstTarget( AbleToAttackType att
 //-------------------------------------------------------------------------------------------------
 Bool WeaponSet::chooseBestWeaponForTarget(const Object* obj, const Object* victim, WeaponChoiceCriteria criteria, CommandSourceType cmdSource)
 {
+	GxAllocScope gxA(GXC_ALLOC_ESTIMATE); // tickTiming: allocations in target / weapon choice
 	/*
 		1) The first criteria is weapon fitness.  If the object has two weapons that can fire concurrently,
 			find the set of weapons that can hit the given target.  If two weapons can hit the given target,
@@ -842,7 +874,7 @@ Bool WeaponSet::chooseBestWeaponForTarget(const Object* obj, const Object* victi
 	{
 		// Weapon lock is checked first for specific attack- ground powers.  Otherwise, we will reproduce the old behavior
 		// and make only Primary attack the ground.
-		m_curWeapon = PRIMARY_WEAPON; gxTouch();
+		TheGxWeaponSets.cur[m_row] = PRIMARY_WEAPON; gxTouch();
 		return TRUE;
 	}
 
@@ -865,11 +897,11 @@ Bool WeaponSet::chooseBestWeaponForTarget(const Object* obj, const Object* victi
 		*/
 
 		// no weapon in this slot.
-		if (!m_weapons[i])
+		if (!TheGxWeaponSets.weapons[m_row][i])
 			continue;
 
 		// weapon not allowed to be specified via this command source.
-		CommandSourceMask okSrcs = m_curWeaponTemplateSet->getNthCommandSourceMask((WeaponSlotType)i);
+		CommandSourceMask okSrcs = TheGxWeaponSets.tmplSet[m_row]->getNthCommandSourceMask((WeaponSlotType)i);
 		if( ( okSrcs & (1 << cmdSource) ) == 0 )
 		{
 			if( !( okSrcs & CMD_DEFAULT_SWITCH_WEAPON ) )
@@ -878,7 +910,7 @@ Bool WeaponSet::chooseBestWeaponForTarget(const Object* obj, const Object* victi
 			}
 		}
 
-		Weapon* weapon = m_weapons[i];
+		Weapon* weapon = TheGxWeaponSets.weapons[m_row][i];
 		if (weapon == nullptr)
 			continue;
 
@@ -922,7 +954,7 @@ Bool WeaponSet::chooseBestWeaponForTarget(const Object* obj, const Object* victi
 			than its antitank missiles.) we accomplish this cheesily, by magnifying the damage/range, and by declaring
 			the weapon "ready" in a more liberal manner.
 		*/
-		const KindOfMaskType& preferredAgainst = m_curWeaponTemplateSet->getNthPreferredAgainstMask((WeaponSlotType)i);
+		const KindOfMaskType& preferredAgainst = TheGxWeaponSets.tmplSet[m_row]->getNthPreferredAgainstMask((WeaponSlotType)i);
 		if (KINDOFMASK_ANY_SET(preferredAgainst) && victim->isKindOfMulti(preferredAgainst, KINDOFMASK_NONE))
 		{
 			const Real HUGE_DAMAGE = 1e10;		// wow, that's a lot of damage.
@@ -984,18 +1016,18 @@ Bool WeaponSet::chooseBestWeaponForTarget(const Object* obj, const Object* victi
 	if ( found )
 	{
 		// If we found a good best one, then just use it
-		m_curWeapon = currentDecision; gxTouch();
+		TheGxWeaponSets.cur[m_row] = currentDecision; gxTouch();
 	}
 	else if ( foundBackup )
 	{
 		// No ready weapon was found, so return the most suitable unready one.
-		m_curWeapon = currentDecisionBackup; gxTouch();
+		TheGxWeaponSets.cur[m_row] = currentDecisionBackup; gxTouch();
 		found = TRUE;
 	}
 	else
 	{
 		// No weapon at all was found, so we go back to primary.
-		m_curWeapon = PRIMARY_WEAPON; gxTouch();
+		TheGxWeaponSets.cur[m_row] = PRIMARY_WEAPON; gxTouch();
 	}
 
 	//DEBUG_LOG(("WeaponSet::chooseBestWeaponForTarget -- changed curweapon to %s",getCurWeapon()->getName().str()));
@@ -1009,7 +1041,7 @@ void WeaponSet::reloadAllAmmo(const Object *obj, Bool now)
 {
 	for( Int i = 0; i < WEAPONSLOT_COUNT;	i++ )
 	{
-		Weapon* weapon = m_weapons[i];
+		Weapon* weapon = TheGxWeaponSets.weapons[m_row][i];
 		if (weapon != nullptr)
 		{
 			if (now)
@@ -1025,7 +1057,7 @@ Bool WeaponSet::isOutOfAmmo() const
 {
 	for( Int i = 0; i < WEAPONSLOT_COUNT;	i++ )
 	{
-		const Weapon* weapon = m_weapons[i];
+		const Weapon* weapon = TheGxWeaponSets.weapons[m_row][i];
 		if (weapon == nullptr)
 			continue;
 		if (weapon->getStatus() != OUT_OF_AMMO)
@@ -1041,7 +1073,7 @@ const Weapon* WeaponSet::findAmmoPipShowingWeapon() const
 {
 	for( Int i = 0; i < WEAPONSLOT_COUNT;	i++ )
 	{
-		const Weapon *weapon = m_weapons[ i ];
+		const Weapon *weapon = TheGxWeaponSets.weapons[m_row][ i ];
 		if (weapon && weapon->isShowsAmmoPips())
 		{
 			return weapon;
@@ -1055,9 +1087,9 @@ Weapon* WeaponSet::findWaypointFollowingCapableWeapon()
 {
 	for( Int i = WEAPONSLOT_COUNT - 1; i >= PRIMARY_WEAPON; i-- )
 	{
-		if( m_weapons[i] && m_weapons[i]->isCapableOfFollowingWaypoint() )
+		if( TheGxWeaponSets.weapons[m_row][i] && TheGxWeaponSets.weapons[m_row][i]->isCapableOfFollowingWaypoint() )
 		{
-			return m_weapons[i];
+			return TheGxWeaponSets.weapons[m_row][i];
 		}
 	}
 	return nullptr;
@@ -1069,9 +1101,9 @@ UnsignedInt WeaponSet::getMostPercentReadyToFireAnyWeapon() const
 	UnsignedInt mostReady = 0;
 	for( Int i = 0; i < WEAPONSLOT_COUNT;	i++ )
 	{
-		if( m_weapons[ i ] )
+		if( TheGxWeaponSets.weapons[m_row][ i ] )
 		{
-			UnsignedInt percentage = (UnsignedInt)(m_weapons[ i ]->getPercentReadyToFire() * 100.0f);
+			UnsignedInt percentage = (UnsignedInt)(TheGxWeaponSets.weapons[m_row][ i ]->getPercentReadyToFire() * 100.0f);
 			if( percentage > mostReady )
 			{
 				mostReady = percentage;
@@ -1098,18 +1130,18 @@ Bool WeaponSet::setWeaponLock( WeaponSlotType weaponSlot, WeaponLockType lockTyp
 
 	// Verify the asked for weapon exists , choose it, and then lock it as chosen until unlocked
 	// the old code was just plain wrong. (look at it in perforce and you'll see...)
-	if (m_weapons[weaponSlot] != nullptr)
+	if (TheGxWeaponSets.weapons[m_row][weaponSlot] != nullptr)
 	{
 		if( lockType == LOCKED_PERMANENTLY )
 		{
-			m_curWeapon = weaponSlot; gxTouch();
-			m_curWeaponLockedStatus = lockType;
+			TheGxWeaponSets.cur[m_row] = weaponSlot; gxTouch();
+			TheGxWeaponSets.lock[m_row] = lockType;
 			//DEBUG_LOG(("WeaponSet::setWeaponLock permanently -- changed curweapon to %s",getCurWeapon()->getName().str()));
 		}
-		else if( lockType == LOCKED_TEMPORARILY && m_curWeaponLockedStatus != LOCKED_PERMANENTLY )
+		else if( lockType == LOCKED_TEMPORARILY && TheGxWeaponSets.lock[m_row] != LOCKED_PERMANENTLY )
 		{
-			m_curWeapon = weaponSlot; gxTouch();
-			m_curWeaponLockedStatus = lockType;
+			TheGxWeaponSets.cur[m_row] = weaponSlot; gxTouch();
+			TheGxWeaponSets.lock[m_row] = lockType;
 			//DEBUG_LOG(("WeaponSet::setWeaponLock temporarily -- changed curweapon to %s",getCurWeapon()->getName().str()));
 		}
 
@@ -1125,19 +1157,19 @@ Bool WeaponSet::setWeaponLock( WeaponSlotType weaponSlot, WeaponLockType lockTyp
 // weaponsets entirely, or any Player issued command besides special attack has been given.
 void WeaponSet::releaseWeaponLock(WeaponLockType lockType)
 {
-	if( m_curWeaponLockedStatus == NOT_LOCKED )
+	if( TheGxWeaponSets.lock[m_row] == NOT_LOCKED )
 		return;// Nothing to do
 
 	if (lockType == LOCKED_PERMANENTLY)
 	{
 		// all locks released.
-		m_curWeaponLockedStatus = NOT_LOCKED;
+		TheGxWeaponSets.lock[m_row] = NOT_LOCKED;
 	}
 	else if (lockType == LOCKED_TEMPORARILY)
 	{
 		// only unlocked if the current lock is temporary.
-		if (m_curWeaponLockedStatus == LOCKED_TEMPORARILY)
-			m_curWeaponLockedStatus = NOT_LOCKED;
+		if (TheGxWeaponSets.lock[m_row] == LOCKED_TEMPORARILY)
+			TheGxWeaponSets.lock[m_row] = NOT_LOCKED;
 	}
 	else
 	{
@@ -1148,7 +1180,7 @@ void WeaponSet::releaseWeaponLock(WeaponLockType lockType)
 //-------------------------------------------------------------------------------------------------
 Weapon* WeaponSet::getWeaponInWeaponSlot(WeaponSlotType wslot) const
 {
-	return m_weapons[wslot];
+	return TheGxWeaponSets.weapons[m_row][wslot];
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1158,7 +1190,7 @@ void WeaponSet::clearLeechRangeModeForAllWeapons()
 {
 	for( Int i = 0; i < WEAPONSLOT_COUNT;	i++ )
 	{
-		Weapon* weapon = m_weapons[ i ];
+		Weapon* weapon = TheGxWeaponSets.weapons[m_row][ i ];
 		if( weapon )
 		{
 			//Just clear the leech range active flag.
@@ -1170,8 +1202,8 @@ void WeaponSet::clearLeechRangeModeForAllWeapons()
 //-------------------------------------------------------------------------------------------------
 Bool WeaponSet::isSharedReloadTime() const
 {
-	if (m_curWeaponTemplateSet)
-		return m_curWeaponTemplateSet->isSharedReloadTime();
+	if (TheGxWeaponSets.tmplSet[m_row])
+		return TheGxWeaponSets.tmplSet[m_row]->isSharedReloadTime();
 	return false;
 }
 

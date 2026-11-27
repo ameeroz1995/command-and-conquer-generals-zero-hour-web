@@ -58,6 +58,7 @@
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Module/ActiveBody.h"
 
+
 // TheSuperHackers @fix Mirelle 04/02/2026: Raised from 500.0f so that
 // enormous camera heights cannot see above the laser origin.
 constexpr const Real ORBITAL_BEAM_Z_OFFSET = 3500.0f;
@@ -163,44 +164,45 @@ ParticleUplinkCannonUpdateModuleData::ParticleUplinkCannonUpdateModuleData()
 ParticleUplinkCannonUpdate::ParticleUplinkCannonUpdate( Thing *thing, const ModuleData* moduleData ) : SpecialPowerUpdateModule( thing, moduleData )
 {
 
-	m_status = STATUS_IDLE;
-	m_laserStatus = LASERSTATUS_NONE;
-	m_frames = 0;
-	m_specialPowerModule = nullptr;
-	m_groundToOrbitBeamID = INVALID_DRAWABLE_ID;
-	m_orbitToTargetBeamID = INVALID_DRAWABLE_ID;
-	m_connectorSystemID = INVALID_PARTICLE_SYSTEM_ID;
-	m_laserBaseSystemID = INVALID_PARTICLE_SYSTEM_ID;
-	m_connectorNodePosition.zero();
-	m_laserOriginPosition.zero();
-	m_upBonesCached = FALSE;
-	m_defaultInfoCached = FALSE;
-	m_invalidSettings = FALSE;
-	m_manualTargetMode = FALSE;
-	m_scriptedWaypointMode = FALSE;
-	m_nextDestWaypointID = 0;
-	m_xferVersion = 1;
-	m_initialTargetPosition.zero();
-	m_currentTargetPosition.zero();
-	m_overrideTargetDestination.zero();
-	m_scorchMarksMade= 0;
-	m_nextScorchMarkFrame = 0;
-	m_nextLaunchFXFrame = 0;
-	m_damagePulsesMade = 0;
-	m_nextDamagePulseFrame = 0;
-	m_startAttackFrame = 0;
-	m_startDecayFrame = 0;
-	m_lastDrivingClickFrame = 0;
-	m_2ndLastDrivingClickFrame = 0;
-	m_clientShroudedLastFrame = FALSE;
+
+	D().m_status = STATUS_IDLE;
+	D().m_laserStatus = LASERSTATUS_NONE;
+	D().m_frames = 0;
+	D().m_specialPowerModule = nullptr;
+	D().m_groundToOrbitBeamID = INVALID_DRAWABLE_ID;
+	D().m_orbitToTargetBeamID = INVALID_DRAWABLE_ID;
+	D().m_connectorSystemID = INVALID_PARTICLE_SYSTEM_ID;
+	D().m_laserBaseSystemID = INVALID_PARTICLE_SYSTEM_ID;
+	D().m_connectorNodePosition.zero();
+	D().m_laserOriginPosition.zero();
+	D().m_upBonesCached = FALSE;
+	D().m_defaultInfoCached = FALSE;
+	D().m_invalidSettings = FALSE;
+	D().m_manualTargetMode = FALSE;
+	D().m_scriptedWaypointMode = FALSE;
+	D().m_nextDestWaypointID = 0;
+	D().m_xferVersion = 1;
+	D().m_initialTargetPosition.zero();
+	D().m_currentTargetPosition.zero();
+	D().m_overrideTargetDestination.zero();
+	D().m_scorchMarksMade= 0;
+	D().m_nextScorchMarkFrame = 0;
+	D().m_nextLaunchFXFrame = 0;
+	D().m_damagePulsesMade = 0;
+	D().m_nextDamagePulseFrame = 0;
+	D().m_startAttackFrame = 0;
+	D().m_startDecayFrame = 0;
+	D().m_lastDrivingClickFrame = 0;
+	D().m_2ndLastDrivingClickFrame = 0;
+	D().m_clientShroudedLastFrame = FALSE;
 
 	for( Int i = 0; i < MAX_OUTER_NODES; i++ )
 	{
-		m_outerSystemIDs[ i ] =	INVALID_PARTICLE_SYSTEM_ID;
-		m_laserBeamIDs[ i ] = INVALID_DRAWABLE_ID;
+		D().m_outerSystemIDs[ i ] =	INVALID_PARTICLE_SYSTEM_ID;
+		D().m_laserBeamIDs[ i ] = INVALID_DRAWABLE_ID;
 		//Initializing (even though they will get cached properly).
-		m_outerNodePositions[ i ].zero();
-		m_outerNodeOrientations[ i ].Make_Identity();
+		D().m_outerNodePositions[ i ].zero();
+		D().m_outerNodeOrientations[ i ].Make_Identity();
 	}
 }
 
@@ -211,21 +213,21 @@ void ParticleUplinkCannonUpdate::killEverything()
 	removeAllEffects();
 
 	//This laser is independent from the other effects and needs to be specially handled.
-	if( m_orbitToTargetBeamID != INVALID_DRAWABLE_ID )
+	if( D().m_orbitToTargetBeamID != INVALID_DRAWABLE_ID )
 	{
-		Drawable *beam = TheGameClient->findDrawableByID( m_orbitToTargetBeamID );
+		Drawable *beam = TheGameClient->findDrawableByID( D().m_orbitToTargetBeamID );
 		if( beam )
 		{
 			TheGameClient->destroyDrawable( beam );
 		}
-		m_orbitToTargetBeamID = INVALID_DRAWABLE_ID;
+		D().m_orbitToTargetBeamID = INVALID_DRAWABLE_ID;
 	}
-	m_orbitToTargetLaserRadius = LaserRadiusUpdate();
+	D().m_orbitToTargetLaserRadius = LaserRadiusUpdate();
 
-	TheAudio->removeAudioEvent( m_powerupSound.getPlayingHandle() );
-	TheAudio->removeAudioEvent( m_unpackToReadySound.getPlayingHandle() );
-	TheAudio->removeAudioEvent( m_firingToIdleSound.getPlayingHandle() );
-	TheAudio->removeAudioEvent( m_annihilationSound.getPlayingHandle() );
+	TheAudio->removeAudioEvent( D().m_powerupSound.getPlayingHandle() );
+	TheAudio->removeAudioEvent( D().m_unpackToReadySound.getPlayingHandle() );
+	TheAudio->removeAudioEvent( D().m_firingToIdleSound.getPlayingHandle() );
+	TheAudio->removeAudioEvent( D().m_annihilationSound.getPlayingHandle() );
 
 }
 
@@ -248,23 +250,23 @@ void ParticleUplinkCannonUpdate::onObjectCreated()
 	if( !data->m_specialPowerTemplate )
 	{
 		DEBUG_CRASH( ("%s object's ParticleUplinkCannonUpdate lacks access to the SpecialPowerTemplate. Needs to be specified in ini.", obj->getTemplate()->getName().str() ) );
-		m_invalidSettings = TRUE;
+		D().m_invalidSettings = TRUE;
 		return;
 	}
 
-	m_specialPowerModule = obj->getSpecialPowerModule( data->m_specialPowerTemplate );
-	m_connectorNodePosition.set( obj->getPosition() );
-	m_laserOriginPosition.set( obj->getPosition() );
+	D().m_specialPowerModule = obj->getSpecialPowerModule( data->m_specialPowerTemplate );
+	D().m_connectorNodePosition.set( obj->getPosition() );
+	D().m_laserOriginPosition.set( obj->getPosition() );
 
 	//Create instances of the sounds required.
-	m_powerupSound.setEventName( data->m_powerupSoundName );
-	m_unpackToReadySound.setEventName( data->m_unpackToReadySoundName );
-	m_firingToIdleSound.setEventName( data->m_firingToIdleSoundName );
-	m_annihilationSound.setEventName( data->m_annihilationSoundName );
-	TheAudio->getInfoForAudioEvent( &m_powerupSound );
-	TheAudio->getInfoForAudioEvent( &m_unpackToReadySound );
-	TheAudio->getInfoForAudioEvent( &m_firingToIdleSound );
-	TheAudio->getInfoForAudioEvent( &m_annihilationSound );
+	D().m_powerupSound.setEventName( data->m_powerupSoundName );
+	D().m_unpackToReadySound.setEventName( data->m_unpackToReadySoundName );
+	D().m_firingToIdleSound.setEventName( data->m_firingToIdleSoundName );
+	D().m_annihilationSound.setEventName( data->m_annihilationSoundName );
+	TheAudio->getInfoForAudioEvent( &D().m_powerupSound );
+	TheAudio->getInfoForAudioEvent( &D().m_unpackToReadySound );
+	TheAudio->getInfoForAudioEvent( &D().m_firingToIdleSound );
+	TheAudio->getInfoForAudioEvent( &D().m_annihilationSound );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -272,7 +274,7 @@ Bool ParticleUplinkCannonUpdate::initiateIntentToDoSpecialPower(const SpecialPow
 {
 	const ParticleUplinkCannonUpdateModuleData *data = getParticleUplinkCannonUpdateModuleData();
 
-	if( m_specialPowerModule->getSpecialPowerTemplate() != specialPowerTemplate )
+	if( D().m_specialPowerModule->getSpecialPowerTemplate() != specialPowerTemplate )
 	{
 		//Check to make sure our modules are connected.
 		return FALSE;
@@ -283,15 +285,15 @@ Bool ParticleUplinkCannonUpdate::initiateIntentToDoSpecialPower(const SpecialPow
 		DEBUG_ASSERTCRASH(targetPos, ("Particle Cannon target data must not be null"));
 
 		//All human players have manual control and must "drive" the beam around!
-		m_startAttackFrame = TheGameLogic->getFrame();
-		m_laserStatus = LASERSTATUS_NONE;
-		m_manualTargetMode = TRUE;
+		D().m_startAttackFrame = TheGameLogic->getFrame();
+		D().m_laserStatus = LASERSTATUS_NONE;
+		D().m_manualTargetMode = TRUE;
 #if !RETAIL_COMPATIBLE_CRC
-		m_scriptedWaypointMode = FALSE;
+		D().m_scriptedWaypointMode = FALSE;
 #endif
-		m_initialTargetPosition.set( targetPos );
-		m_overrideTargetDestination.set( targetPos );
-		m_currentTargetPosition.set( targetPos );
+		D().m_initialTargetPosition.set( targetPos );
+		D().m_overrideTargetDestination.set( targetPos );
+		D().m_currentTargetPosition.set( targetPos );
 	}
 	else if( way )
 	{
@@ -301,28 +303,28 @@ Bool ParticleUplinkCannonUpdate::initiateIntentToDoSpecialPower(const SpecialPow
 		Coord3D pos;
 		pos.set( way->getLocation() );
 
-		m_startAttackFrame = max( now, (UnsignedInt)1 );
+		D().m_startAttackFrame = max( now, (UnsignedInt)1 );
 #if !RETAIL_COMPATIBLE_CRC
-		m_manualTargetMode = FALSE;
+		D().m_manualTargetMode = FALSE;
 #endif
-		m_scriptedWaypointMode = TRUE;
-		m_laserStatus = LASERSTATUS_NONE;
+		D().m_scriptedWaypointMode = TRUE;
+		D().m_laserStatus = LASERSTATUS_NONE;
 		setLogicalStatus( STATUS_READY_TO_FIRE );
-		m_specialPowerModule->setReadyFrame( now );
-		m_initialTargetPosition.set( &pos );
-		m_currentTargetPosition.set( &pos );
+		D().m_specialPowerModule->setReadyFrame( now );
+		D().m_initialTargetPosition.set( &pos );
+		D().m_currentTargetPosition.set( &pos );
 
 		Int linkCount = way->getNumLinks();
 		Int which = GameLogicRandomValue( 0, linkCount-1 );
 		Waypoint *next = way->getLink( which );
 		if( next )
 		{
-			m_nextDestWaypointID = next->getID();
-			m_overrideTargetDestination.set( next->getLocation() );
+			D().m_nextDestWaypointID = next->getID();
+			D().m_overrideTargetDestination.set( next->getLocation() );
 		}
 		else
 		{
-			m_nextDestWaypointID = way->getID();
+			D().m_nextDestWaypointID = way->getID();
 		}
 	}
 	else
@@ -342,23 +344,23 @@ Bool ParticleUplinkCannonUpdate::initiateIntentToDoSpecialPower(const SpecialPow
 			pos.set( targetObj->getPosition() );
 		}
 #if !RETAIL_COMPATIBLE_CRC
-		m_manualTargetMode = FALSE;
-		m_scriptedWaypointMode = FALSE;
+		D().m_manualTargetMode = FALSE;
+		D().m_scriptedWaypointMode = FALSE;
 #endif
-		m_initialTargetPosition.set( &pos );
-		m_startAttackFrame = max( now, (UnsignedInt)1 );
-		m_laserStatus = LASERSTATUS_NONE;
+		D().m_initialTargetPosition.set( &pos );
+		D().m_startAttackFrame = max( now, (UnsignedInt)1 );
+		D().m_laserStatus = LASERSTATUS_NONE;
 		setLogicalStatus( STATUS_READY_TO_FIRE );
-		m_specialPowerModule->setReadyFrame( now );
+		D().m_specialPowerModule->setReadyFrame( now );
 	}
 
-	m_startDecayFrame = m_startAttackFrame + data->m_totalFiringFrames;
+	D().m_startDecayFrame = D().m_startAttackFrame + data->m_totalFiringFrames;
 
 	SpecialPowerModuleInterface *spmInterface = getObject()->getSpecialPowerModule( specialPowerTemplate );
 	if( spmInterface )
 	{
 		SpecialPowerModule *spModule = (SpecialPowerModule*)spmInterface;
-		spModule->markSpecialPowerTriggered( &m_initialTargetPosition );
+		spModule->markSpecialPowerTriggered( &D().m_initialTargetPosition );
 	}
 	return TRUE;
 }
@@ -366,7 +368,7 @@ Bool ParticleUplinkCannonUpdate::initiateIntentToDoSpecialPower(const SpecialPow
 //-------------------------------------------------------------------------------------------------
 Bool ParticleUplinkCannonUpdate::isPowerCurrentlyInUse( const CommandButton *command ) const
 {
-	if( m_startAttackFrame != 0 && m_startAttackFrame <= TheGameLogic->getFrame() )
+	if( D().m_startAttackFrame != 0 && D().m_startAttackFrame <= TheGameLogic->getFrame() )
 	{
 		return TRUE;
 	}
@@ -378,10 +380,10 @@ void ParticleUplinkCannonUpdate::setSpecialPowerOverridableDestination( const Co
 {
 	if( !getObject()->isDisabled() )
 	{
-		m_overrideTargetDestination = *loc;
-		m_manualTargetMode = TRUE;
-		m_2ndLastDrivingClickFrame = m_lastDrivingClickFrame;
-		m_lastDrivingClickFrame = TheGameLogic->getFrame();
+		D().m_overrideTargetDestination = *loc;
+		D().m_manualTargetMode = TRUE;
+		D().m_2ndLastDrivingClickFrame = D().m_lastDrivingClickFrame;
+		D().m_lastDrivingClickFrame = TheGameLogic->getFrame();
 	}
 }
 
@@ -391,7 +393,7 @@ void ParticleUplinkCannonUpdate::setSpecialPowerOverridableDestination( const Co
 //-------------------------------------------------------------------------------------------------
 UpdateSleepTime ParticleUplinkCannonUpdate::update()
 {
-	if( m_invalidSettings )
+	if( D().m_invalidSettings )
 	{
 		// can't return UPDATE_SLEEP_FOREVER unless we are sleepy...
 		return UPDATE_SLEEP_NONE;
@@ -405,7 +407,7 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 	// must test SOLD *before* the others.
 	if( me->testStatus(OBJECT_STATUS_SOLD))
 	{
-		if (m_status != STATUS_IDLE)
+		if (D().m_status != STATUS_IDLE)
 		{
 			setLogicalStatus( STATUS_IDLE );
 			killEverything();
@@ -427,14 +429,14 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 	//1) Idle while waiting to get near the time when we should be preparing to be ready.
 	//2) If superweapon delay is nuked (cheat) then we need to make the building ready now.
 	UnsignedInt now = TheGameLogic->getFrame();
-	UnsignedInt readyToFireFrame = m_specialPowerModule->isReady() ? now : m_specialPowerModule->getReadyFrame();
+	UnsignedInt readyToFireFrame = D().m_specialPowerModule->isReady() ? now : D().m_specialPowerModule->getReadyFrame();
 	UnsignedInt almostReadyFrame = readyToFireFrame - data->m_readyDelayFrames;
 	UnsignedInt raiseAntennaFrame = almostReadyFrame - data->m_raiseAntennaFrames;
 	UnsignedInt beginChargeFrame = raiseAntennaFrame - data->m_beginChargeFrames;
 
-	if( m_startAttackFrame != 0 && m_startAttackFrame <= now )
+	if( D().m_startAttackFrame != 0 && D().m_startAttackFrame <= now )
 	{
-		if( m_startDecayFrame > now )
+		if( D().m_startDecayFrame > now )
 		{
 			if( me->isDisabledByType( DISABLED_UNDERPOWERED ) ||
 					me->isDisabledByType( DISABLED_EMP ) ||
@@ -442,35 +444,35 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 					me->isDisabledByType( DISABLED_HACKED ) )
 			{
 				//We must end the special power early! ABORT! ABORT!
-				m_startDecayFrame = now;
+				D().m_startDecayFrame = now;
 			}
 		}
-		UnsignedInt endDecayFrame			= m_startDecayFrame + data->m_widthGrowFrames;
-		UnsignedInt orbitalBirthFrame = m_startAttackFrame + data->m_beamTravelFrames;
-		UnsignedInt orbitalDecayStart = m_startDecayFrame + data->m_beamTravelFrames;
+		UnsignedInt endDecayFrame			= D().m_startDecayFrame + data->m_widthGrowFrames;
+		UnsignedInt orbitalBirthFrame = D().m_startAttackFrame + data->m_beamTravelFrames;
+		UnsignedInt orbitalDecayStart = D().m_startDecayFrame + data->m_beamTravelFrames;
 		UnsignedInt orbitalDeathFrame = orbitalDecayStart + data->m_widthGrowFrames;
-		switch( m_laserStatus )
+		switch( D().m_laserStatus )
 		{
 			case LASERSTATUS_NONE:
 				//Means we are eligible to fire!
 				if( orbitalBirthFrame <= now )
 				{
 					createOrbitToTargetLaser( data->m_widthGrowFrames );
-					m_laserStatus = LASERSTATUS_BORN;
-					m_scorchMarksMade		= 0;
-					m_nextScorchMarkFrame = now;
-					m_damagePulsesMade = 0;
-					m_nextDamagePulseFrame = now;
+					D().m_laserStatus = LASERSTATUS_BORN;
+					D().m_scorchMarksMade		= 0;
+					D().m_nextScorchMarkFrame = now;
+					D().m_damagePulsesMade = 0;
+					D().m_nextDamagePulseFrame = now;
 				}
 				break;
 			case LASERSTATUS_BORN:
 			{
 				if( orbitalDecayStart <= now )
 				{
-					Drawable *beam = TheGameClient->findDrawableByID( m_orbitToTargetBeamID );
+					Drawable *beam = TheGameClient->findDrawableByID( D().m_orbitToTargetBeamID );
 					if( beam )
 					{
-						//m_annihilationSound.setPosition( beam->getPosition() );
+						//D().m_annihilationSound.setPosition( beam->getPosition() );
 						static NameKeyType nameKeyClientUpdate = NAMEKEY( "LaserUpdate" );
 						LaserUpdate *update = (LaserUpdate*)beam->findClientUpdateModule( nameKeyClientUpdate );
 						if( update )
@@ -478,8 +480,8 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 							update->setDecayFrames( data->m_widthGrowFrames );
 						}
 					}
-					m_orbitToTargetLaserRadius.setDecayFrames( data->m_widthGrowFrames );
-					m_laserStatus = LASERSTATUS_DECAYING;
+					D().m_orbitToTargetLaserRadius.setDecayFrames( data->m_widthGrowFrames );
+					D().m_laserStatus = LASERSTATUS_DECAYING;
 				}
 				break;
 			}
@@ -487,20 +489,20 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 			{
 				if( orbitalDeathFrame <= now )
 				{
-					TheAudio->removeAudioEvent( m_annihilationSound.getPlayingHandle() );
-					if ( m_orbitToTargetBeamID != INVALID_DRAWABLE_ID )
+					TheAudio->removeAudioEvent( D().m_annihilationSound.getPlayingHandle() );
+					if ( D().m_orbitToTargetBeamID != INVALID_DRAWABLE_ID )
 					{
-						Drawable *beam = TheGameClient->findDrawableByID( m_orbitToTargetBeamID );
+						Drawable *beam = TheGameClient->findDrawableByID( D().m_orbitToTargetBeamID );
 						if( beam )
 						{
-							//m_annihilationSound.setPosition( beam->getPosition() );
+							//D().m_annihilationSound.setPosition( beam->getPosition() );
 							TheGameClient->destroyDrawable( beam );
 						}
-						m_orbitToTargetBeamID = INVALID_DRAWABLE_ID;
+						D().m_orbitToTargetBeamID = INVALID_DRAWABLE_ID;
 					}
-					m_orbitToTargetLaserRadius = LaserRadiusUpdate();
-					m_laserStatus = LASERSTATUS_DEAD;
-					m_startAttackFrame = 0;
+					D().m_orbitToTargetLaserRadius = LaserRadiusUpdate();
+					D().m_laserStatus = LASERSTATUS_DEAD;
+					D().m_startAttackFrame = 0;
 					setLogicalStatus( STATUS_IDLE );
 				}
 				break;
@@ -519,7 +521,7 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 		if ( isFiring )
 		{
 
-			if( !m_manualTargetMode && !m_scriptedWaypointMode )
+			if( !D().m_manualTargetMode && !D().m_scriptedWaypointMode )
 			{
 				//Calculate the position of the beam because it swaths -- a nice S curve centering at the target location!
 
@@ -535,21 +537,21 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 				Real cxHeight = height * data->m_swathOfDeathAmplitude;
 
 				Coord3D buildingToInitialTargetVector;
-				buildingToInitialTargetVector.set( &m_initialTargetPosition );
+				buildingToInitialTargetVector.set( &D().m_initialTargetPosition );
 				buildingToInitialTargetVector.sub( me->getPosition() );
 				Real targetDistance = buildingToInitialTargetVector.length();
 
 				//Calculate the point position assuming the target position is on the x axis relative to the building.
-				m_currentTargetPosition.x = cxDistance + targetDistance;
-				m_currentTargetPosition.y = cxHeight;
-				m_currentTargetPosition.z = 0.0f;
-				targetDistance = m_currentTargetPosition.length();
+				D().m_currentTargetPosition.x = cxDistance + targetDistance;
+				D().m_currentTargetPosition.y = cxHeight;
+				D().m_currentTargetPosition.z = 0.0f;
+				targetDistance = D().m_currentTargetPosition.length();
 
 				//Now that we have our cartesian offset relative to the target coordinate, we need to rotate that offset
 				//so it's aligned to along the building -> target vector.
-				Vector2 buildingToTargetVector( m_initialTargetPosition.x - me->getPosition()->x, m_initialTargetPosition.y - me->getPosition()->y );
+				Vector2 buildingToTargetVector( D().m_initialTargetPosition.x - me->getPosition()->x, D().m_initialTargetPosition.y - me->getPosition()->y );
 				buildingToTargetVector.Normalize();
-				Vector2 cartesianTargetVector( m_currentTargetPosition.x, m_currentTargetPosition.y );
+				Vector2 cartesianTargetVector( D().m_currentTargetPosition.x, D().m_currentTargetPosition.y );
 				cartesianTargetVector.Normalize();
 
 				Real dotProduct = Vector2::Dot_Product( buildingToTargetVector, cartesianTargetVector );
@@ -567,13 +569,13 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 
 				Vector3 v = mtx.Get_X_Vector();
 
-				m_currentTargetPosition.x = me->getPosition()->x + v.X;
-				m_currentTargetPosition.y = me->getPosition()->y + v.Y;
+				D().m_currentTargetPosition.x = me->getPosition()->x + v.X;
+				D().m_currentTargetPosition.y = me->getPosition()->y + v.Y;
 			}
 			else
 			{
 				Real speed = data->m_manualDrivingSpeed;
-				if( m_scriptedWaypointMode || m_lastDrivingClickFrame - m_2ndLastDrivingClickFrame < data->m_doubleClickToFastDriveDelay )
+				if( D().m_scriptedWaypointMode || D().m_lastDrivingClickFrame - D().m_2ndLastDrivingClickFrame < data->m_doubleClickToFastDriveDelay )
 				{
 					//Because we double clicked, use the faster driving speed.
 					speed = data->m_manualFastDrivingSpeed;
@@ -583,8 +585,8 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 				speed /= LOGICFRAMES_PER_SECOND;
 
 				//Calculate the distance from our current position to our target dest.
-				Coord3D vector = m_overrideTargetDestination;
-				vector.sub( &m_currentTargetPosition );
+				Coord3D vector = D().m_overrideTargetDestination;
+				vector.sub( &D().m_currentTargetPosition );
 				Real distance = vector.length();
 				if( distance < speed )
 				{
@@ -592,9 +594,9 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 					speed = distance;
 
 					//If we're in scripted waypoint mode, go to the next waypoint!
-					if( m_scriptedWaypointMode )
+					if( D().m_scriptedWaypointMode )
 					{
-						Waypoint *way = TheTerrainLogic->getWaypointByID( m_nextDestWaypointID );
+						Waypoint *way = TheTerrainLogic->getWaypointByID( D().m_nextDestWaypointID );
 						if( way )
 						{
 							//Advance to the next waypoint.
@@ -605,12 +607,12 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 							// TheSuperHackers @bugfix Caball009 27/06/2025 Check if the last way point has been reached before attempting to access the next way point.
 							if ( way )
 							{
-								m_nextDestWaypointID = way->getID();
-								m_overrideTargetDestination.set(way->getLocation());
+								D().m_nextDestWaypointID = way->getID();
+								D().m_overrideTargetDestination.set(way->getLocation());
 							}
 							else
 							{
-								m_nextDestWaypointID = INVALID_WAYPOINT_ID;
+								D().m_nextDestWaypointID = INVALID_WAYPOINT_ID;
 							}
 						}
 					}
@@ -621,15 +623,15 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 				vector.scale( speed );
 
 				//Move the current target position in the desired direction and speed.
-				m_currentTargetPosition.x += vector.x;
-				m_currentTargetPosition.y += vector.y;
+				D().m_currentTargetPosition.x += vector.x;
+				D().m_currentTargetPosition.y += vector.y;
 			}
 
 			//Regardless of which method we used to set the target position, make sure the z position is at the terrain.
-			m_currentTargetPosition.z = TheTerrainLogic->getGroundHeight( m_currentTargetPosition.x, m_currentTargetPosition.y );
+			D().m_currentTargetPosition.z = TheTerrainLogic->getGroundHeight( D().m_currentTargetPosition.x, D().m_currentTargetPosition.y );
 
 			Coord3D orbitPosition;
-			orbitPosition.set( &m_currentTargetPosition );
+			orbitPosition.set( &D().m_currentTargetPosition );
 			orbitPosition.z += ORBITAL_BEAM_Z_OFFSET;
 
 			Real scorchRadius = 0.0f;
@@ -638,28 +640,28 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 			Real visualLaserRadius = 0.0f;
 
 			//Reset the laser position
-			Drawable *beam = TheGameClient->findDrawableByID( m_orbitToTargetBeamID );
+			Drawable *beam = TheGameClient->findDrawableByID( D().m_orbitToTargetBeamID );
 			if ( beam )
 			{
 				static NameKeyType nameKeyClientUpdate = NAMEKEY( "LaserUpdate" );
 				LaserUpdate *update = (LaserUpdate*)beam->findClientUpdateModule( nameKeyClientUpdate );
 				if( update )
 				{
-					update->initLaser( nullptr, nullptr, &orbitPosition, &m_currentTargetPosition, "" );
+					update->initLaser( nullptr, nullptr, &orbitPosition, &D().m_currentTargetPosition, "" );
 					// TheSuperHackers @logic-client-separation The GameLogic has a dependency on this drawable.
 					// The logical laser radius for the damage should probably be part of ParticleUplinkCannonUpdateModuleData.
 					templateLaserRadius = update->getTemplateLaserRadius();
 					visualLaserRadius = update->getCurrentLaserRadius();
 				}
-				Coord3D audioPos = m_currentTargetPosition;
+				Coord3D audioPos = D().m_currentTargetPosition;
 				audioPos.z += ORBITAL_BEAM_AUDIO_Z_OFFSET;
 				beam->setPosition( &audioPos );
 			}
 			// TheSuperHackers @refactor helmutbuhler/xezon 17/05/2025
 			// Originally the damageRadius was calculated with a value updated by LaserUpdate::clientUpdate.
 			// To no longer rely on GameClient updates, this class now maintains a copy of the LaserRadiusUpdate.
-			m_orbitToTargetLaserRadius.updateRadius();
-			const Real logicalLaserRadius = templateLaserRadius * m_orbitToTargetLaserRadius.getWidthScale();
+			D().m_orbitToTargetLaserRadius.updateRadius();
+			const Real logicalLaserRadius = templateLaserRadius * D().m_orbitToTargetLaserRadius.getWidthScale();
 			damageRadius = logicalLaserRadius * data->m_damageRadiusScalar;
 			scorchRadius = logicalLaserRadius * data->m_scorchMarkScalar;
 #if defined(RETAIL_COMPATIBLE_CRC)
@@ -668,33 +670,33 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 #endif
 
 			//Create scorch marks periodically
-			if( m_nextScorchMarkFrame <= now )
+			if( D().m_nextScorchMarkFrame <= now )
 			{
-				m_scorchMarksMade++;
+				D().m_scorchMarksMade++;
 
 				//Create the scorch mark now!
 				Scorches scorchID = (Scorches)GameClientRandomValue( SCORCH_1, SCORCH_4 ); //Yes, this is just client fluff!
-				TheGameClient->addScorch( &m_currentTargetPosition, scorchRadius, scorchID );
+				TheGameClient->addScorch( &D().m_currentTargetPosition, scorchRadius, scorchID );
 
 				//Calculate next scorch mark frame.
-				Real nextFactor = (Real)m_scorchMarksMade / (Real)data->m_totalScorchMarks;
-				m_nextScorchMarkFrame = orbitalBirthFrame + nextFactor * (orbitalDeathFrame - orbitalBirthFrame);
+				Real nextFactor = (Real)D().m_scorchMarksMade / (Real)data->m_totalScorchMarks;
+				D().m_nextScorchMarkFrame = orbitalBirthFrame + nextFactor * (orbitalDeathFrame - orbitalBirthFrame);
 
 				//Generate iteration of fxlist for beam hitting ground.
 				if( data->m_groundHitFX )
 				{
-					FXList::doFXPos( data->m_groundHitFX, &m_currentTargetPosition, nullptr );
+					FXList::doFXPos( data->m_groundHitFX, &D().m_currentTargetPosition, nullptr );
 				}
 
 				//Also reveal vision because the owning player has full rights to watch the carnage he created!
-				ThePartitionManager->doShroudReveal( m_currentTargetPosition.x, m_currentTargetPosition.y, data->m_revealRange, me->getControllingPlayer()->getPlayerMask() );
-				ThePartitionManager->undoShroudReveal( m_currentTargetPosition.x, m_currentTargetPosition.y, data->m_revealRange, me->getControllingPlayer()->getPlayerMask() );
+				ThePartitionManager->doShroudReveal( D().m_currentTargetPosition.x, D().m_currentTargetPosition.y, data->m_revealRange, me->getControllingPlayer()->getPlayerMask() );
+				ThePartitionManager->undoShroudReveal( D().m_currentTargetPosition.x, D().m_currentTargetPosition.y, data->m_revealRange, me->getControllingPlayer()->getPlayerMask() );
 			}
 
 			//Handle damage pulses
-			if( m_nextDamagePulseFrame <= now )
+			if( D().m_nextDamagePulseFrame <= now )
 			{
-				m_damagePulsesMade++;
+				D().m_damagePulsesMade++;
 
 				DamageInfo damageInfo;
 
@@ -709,7 +711,7 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 				PartitionFilterAlive filterAlive;
 				PartitionFilter *filters[] = { &filterAlive, nullptr };
 
-				ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( &m_currentTargetPosition, damageRadius, FROM_CENTER_2D, filters );
+				ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange( &D().m_currentTargetPosition, damageRadius, FROM_CENTER_2D, filters );
 				MemoryPoolObjectHolder hold( iter );
 				for( Object *obj = iter->first(); obj; obj = iter->next() )
 				{
@@ -730,14 +732,14 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 						Object *remnant = TheThingFactory->newObject( thing, me->getTeam() );
 						if( remnant )
 						{
-							remnant->setPosition( &m_currentTargetPosition );
+							remnant->setPosition( &D().m_currentTargetPosition );
 						}
 					}
 				}
 
 				//Calculate next damage pulse frame.
-				Real nextFactor = (Real)m_damagePulsesMade / (Real)data->m_totalDamagePulses;
-				m_nextDamagePulseFrame = orbitalBirthFrame + nextFactor * (orbitalDeathFrame - orbitalBirthFrame);
+				Real nextFactor = (Real)D().m_damagePulsesMade / (Real)data->m_totalDamagePulses;
+				D().m_nextDamagePulseFrame = orbitalBirthFrame + nextFactor * (orbitalDeathFrame - orbitalBirthFrame);
 			}
 		}
 
@@ -745,7 +747,7 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 		{
 			setLogicalStatus( STATUS_PACKING );
 		}
-		else if( m_startDecayFrame <= now )
+		else if( D().m_startDecayFrame <= now )
 		{
 			setLogicalStatus( STATUS_POSTFIRE );
 		}
@@ -770,27 +772,27 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 	{
 		setLogicalStatus( STATUS_CHARGING );
 	}
-	else if( m_status == STATUS_ALMOST_READY )
+	else if( D().m_status == STATUS_ALMOST_READY )
 	{
 
 	}
-	else if( m_status == STATUS_READY_TO_FIRE )
+	else if( D().m_status == STATUS_READY_TO_FIRE )
 	{
 		//The particle cannon timer has been reset (sabotaged?)
 		//If so, when ready, pack it up again.
 		setLogicalStatus( STATUS_PACKING );
 	}
 
-	if( m_status == STATUS_FIRING )
+	if( D().m_status == STATUS_FIRING )
 	{
-		if( m_nextLaunchFXFrame <= now )
+		if( D().m_nextLaunchFXFrame <= now )
 		{
 			//Generate iteration of fxlist for beam launching
 			if( data->m_beamLaunchFX )
 			{
-				FXList::doFXPos( data->m_beamLaunchFX, &m_laserOriginPosition, nullptr );
+				FXList::doFXPos( data->m_beamLaunchFX, &D().m_laserOriginPosition, nullptr );
 			}
-			m_nextLaunchFXFrame = now + data->m_framesBetweenLaunchFXRefresh;
+			D().m_nextLaunchFXFrame = now + data->m_framesBetweenLaunchFXRefresh;
 		}
 	}
 
@@ -808,15 +810,15 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 		{
 			//We can see it -- we only want to do anything if we just started seeing it, which means
 			//we want to add client effects again.
-			Bool revealThisFrame = m_clientShroudedLastFrame != shrouded;
+			Bool revealThisFrame = D().m_clientShroudedLastFrame != shrouded;
 			if( revealThisFrame )
 			{
 				//Only if we reveal this frame, will we add client effects. The logic can take it from
 				//here on... unless of course we lose sight again.
-				setClientStatus( m_status, revealThisFrame );
+				setClientStatus( D().m_status, revealThisFrame );
 			}
 		}
-		m_clientShroudedLastFrame = shrouded;
+		D().m_clientShroudedLastFrame = shrouded;
 	}
 
 	return UPDATE_SLEEP_NONE;
@@ -853,9 +855,9 @@ void ParticleUplinkCannonUpdate::createOuterNodeParticleSystems( IntensityTypes 
 				system = TheParticleSystemManager->createParticleSystem( tmp );
 				if( system )
 				{
-					m_outerSystemIDs[ i ] = system->getSystemID();
-					system->setPosition( &m_outerNodePositions[ i ] );
-					system->setLocalTransform( &m_outerNodeOrientations[ i ] );
+					D().m_outerSystemIDs[ i ] = system->getSystemID();
+					system->setPosition( &D().m_outerNodePositions[ i ] );
+					system->setLocalTransform( &D().m_outerNodeOrientations[ i ] );
 				}
 			}
 		}
@@ -866,10 +868,10 @@ void ParticleUplinkCannonUpdate::createOuterNodeParticleSystems( IntensityTypes 
 void ParticleUplinkCannonUpdate::createConnectorLasers( IntensityTypes intensity )
 {
 	//Cache bone positions for the laser when it is ready to fire
-	if( !m_upBonesCached )
+	if( !D().m_upBonesCached )
 	{
 		calculateUpBonePositions();
-		m_upBonesCached = TRUE;
+		D().m_upBonesCached = TRUE;
 	}
 
 	const ParticleUplinkCannonUpdateModuleData *data = getParticleUplinkCannonUpdateModuleData();
@@ -898,13 +900,13 @@ void ParticleUplinkCannonUpdate::createConnectorLasers( IntensityTypes intensity
 				Drawable *beam = TheThingFactory->newDrawable( thingTemplate );
 				if( beam )
 				{
-					m_laserBeamIDs[ i ] = beam->getID();
+					D().m_laserBeamIDs[ i ] = beam->getID();
 
 					static NameKeyType nameKeyClientUpdate = NAMEKEY( "LaserUpdate" );
 					LaserUpdate *update = (LaserUpdate*)beam->findClientUpdateModule( nameKeyClientUpdate );
 					if( update )
 					{
-						update->initLaser( nullptr, nullptr, &m_outerNodePositions[ i ], &m_connectorNodePosition, "" );
+						update->initLaser( nullptr, nullptr, &D().m_outerNodePositions[ i ], &D().m_connectorNodePosition, "" );
 					}
 				}
 			}
@@ -940,8 +942,8 @@ void ParticleUplinkCannonUpdate::createConnectorFlare( IntensityTypes intensity 
 			system = TheParticleSystemManager->createParticleSystem( tmp );
 			if( system )
 			{
-				m_connectorSystemID = system->getSystemID();
-				system->setPosition( &m_connectorNodePosition );
+				D().m_connectorSystemID = system->getSystemID();
+				system->setPosition( &D().m_connectorNodePosition );
 			}
 		}
 	}
@@ -975,8 +977,8 @@ void ParticleUplinkCannonUpdate::createLaserBaseFlare( IntensityTypes intensity 
 			ParticleSystem *system = TheParticleSystemManager->createParticleSystem( tmp );
 			if( system )
 			{
-				m_laserBaseSystemID = system->getSystemID();
-				system->setPosition( &m_laserOriginPosition );
+				D().m_laserBaseSystemID = system->getSystemID();
+				system->setPosition( &D().m_laserOriginPosition );
 			}
 		}
 	}
@@ -987,12 +989,12 @@ void ParticleUplinkCannonUpdate::createGroundToOrbitLaser( UnsignedInt growthFra
 {
 	const ParticleUplinkCannonUpdateModuleData *data = getParticleUplinkCannonUpdateModuleData();
 
-	Drawable *beam = TheGameClient->findDrawableByID( m_groundToOrbitBeamID );
+	Drawable *beam = TheGameClient->findDrawableByID( D().m_groundToOrbitBeamID );
 	if( beam )
 	{
 		TheGameClient->destroyDrawable( beam );
 		// TheSuperHackers @fix helmutbuhler 19/04/2025 Invalidate the relevant drawable ID.
-		m_groundToOrbitBeamID = INVALID_DRAWABLE_ID;
+		D().m_groundToOrbitBeamID = INVALID_DRAWABLE_ID;
 	}
 
 	if( data->m_particleBeamLaserName.isNotEmpty() )
@@ -1003,16 +1005,16 @@ void ParticleUplinkCannonUpdate::createGroundToOrbitLaser( UnsignedInt growthFra
 			Drawable *beam = TheThingFactory->newDrawable( thingTemplate );
 			if( beam )
 			{
-				m_groundToOrbitBeamID = beam->getID();
+				D().m_groundToOrbitBeamID = beam->getID();
 
 				static NameKeyType nameKeyClientUpdate = NAMEKEY( "LaserUpdate" );
 				LaserUpdate *update = (LaserUpdate*)beam->findClientUpdateModule( nameKeyClientUpdate );
 				if( update )
 				{
 					Coord3D orbitPosition;
-					orbitPosition.set( &m_laserOriginPosition );
+					orbitPosition.set( &D().m_laserOriginPosition );
 					orbitPosition.z += ORBITAL_BEAM_Z_OFFSET;
-					update->initLaser( nullptr, nullptr, &m_laserOriginPosition, &orbitPosition, "", growthFrames );
+					update->initLaser( nullptr, nullptr, &D().m_laserOriginPosition, &orbitPosition, "", growthFrames );
 				}
 			}
 		}
@@ -1024,15 +1026,15 @@ void ParticleUplinkCannonUpdate::createOrbitToTargetLaser( UnsignedInt growthFra
 {
 	const ParticleUplinkCannonUpdateModuleData *data = getParticleUplinkCannonUpdateModuleData();
 
-	if ( m_orbitToTargetBeamID != INVALID_DRAWABLE_ID )
+	if ( D().m_orbitToTargetBeamID != INVALID_DRAWABLE_ID )
 	{
-		Drawable *beam = TheGameClient->findDrawableByID( m_orbitToTargetBeamID );
+		Drawable *beam = TheGameClient->findDrawableByID( D().m_orbitToTargetBeamID );
 		if( beam )
 		{
-			TheAudio->removeAudioEvent( m_annihilationSound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_annihilationSound.getPlayingHandle() );
 			TheGameClient->destroyDrawable( beam );
 		}
-		m_orbitToTargetBeamID = INVALID_DRAWABLE_ID;
+		D().m_orbitToTargetBeamID = INVALID_DRAWABLE_ID;
 	}
 
 	if( data->m_particleBeamLaserName.isNotEmpty() )
@@ -1043,31 +1045,31 @@ void ParticleUplinkCannonUpdate::createOrbitToTargetLaser( UnsignedInt growthFra
 			Drawable *beam = TheThingFactory->newDrawable( thingTemplate );
 			if( beam )
 			{
-				m_orbitToTargetBeamID = beam->getID();
+				D().m_orbitToTargetBeamID = beam->getID();
 				static NameKeyType nameKeyClientUpdate = NAMEKEY( "LaserUpdate" );
 				LaserUpdate *update = (LaserUpdate*)beam->findClientUpdateModule( nameKeyClientUpdate );
 				if( update )
 				{
 					Coord3D orbitPosition;
-					orbitPosition.set( &m_initialTargetPosition );
+					orbitPosition.set( &D().m_initialTargetPosition );
 					orbitPosition.z += ORBITAL_BEAM_Z_OFFSET;
-					update->initLaser( nullptr, nullptr, &orbitPosition, &m_initialTargetPosition, "", growthFrames );
+					update->initLaser( nullptr, nullptr, &orbitPosition, &D().m_initialTargetPosition, "", growthFrames );
 				}
-				Coord3D audioPos = m_initialTargetPosition;
+				Coord3D audioPos = D().m_initialTargetPosition;
 				audioPos.z += ORBITAL_BEAM_AUDIO_Z_OFFSET;
 				beam->setPosition( &audioPos );
 			}
 		}
-		if( m_annihilationSound.getEventName().isNotEmpty() )
+		if( D().m_annihilationSound.getEventName().isNotEmpty() )
 		{
-			m_annihilationSound.setDrawableID( m_orbitToTargetBeamID );
-			//m_annihilationSound.setPosition( &m_initialTargetPosition );
-			m_annihilationSound.setPlayingHandle( TheAudio->addAudioEvent( &m_annihilationSound ) );
+			D().m_annihilationSound.setDrawableID( D().m_orbitToTargetBeamID );
+			//D().m_annihilationSound.setPosition( &D().m_initialTargetPosition );
+			D().m_annihilationSound.setPlayingHandle( TheAudio->addAudioEvent( &D().m_annihilationSound ) );
 		}
 	}
 
-	m_orbitToTargetLaserRadius = LaserRadiusUpdate();
-	m_orbitToTargetLaserRadius.initRadius( growthFrames );
+	D().m_orbitToTargetLaserRadius = LaserRadiusUpdate();
+	D().m_orbitToTargetLaserRadius.initRadius( growthFrames );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1081,33 +1083,33 @@ void ParticleUplinkCannonUpdate::removeAllEffects()
 	const ParticleUplinkCannonUpdateModuleData *data = getParticleUplinkCannonUpdateModuleData();
 	for( UnsignedInt i = 0; i < data->m_outerEffectNumBones; i++ )
 	{
-		if( m_outerSystemIDs && m_outerSystemIDs[ i ] )
+		if( D().m_outerSystemIDs && D().m_outerSystemIDs[ i ] )
 		{
-			TheParticleSystemManager->destroyParticleSystemByID( m_outerSystemIDs[ i ] );
-			m_outerSystemIDs[ i ] = INVALID_PARTICLE_SYSTEM_ID;
+			TheParticleSystemManager->destroyParticleSystemByID( D().m_outerSystemIDs[ i ] );
+			D().m_outerSystemIDs[ i ] = INVALID_PARTICLE_SYSTEM_ID;
 		}
-		Drawable *beam = TheGameClient->findDrawableByID( m_laserBeamIDs[ i ] );
+		Drawable *beam = TheGameClient->findDrawableByID( D().m_laserBeamIDs[ i ] );
 		if( beam )
 		{
 			TheGameClient->destroyDrawable( beam );
-			m_laserBeamIDs[ i ] = INVALID_DRAWABLE_ID;
+			D().m_laserBeamIDs[ i ] = INVALID_DRAWABLE_ID;
 		}
 	}
-	if( m_connectorSystemID )
+	if( D().m_connectorSystemID )
 	{
-		TheParticleSystemManager->destroyParticleSystemByID( m_connectorSystemID );
-		m_connectorSystemID = INVALID_PARTICLE_SYSTEM_ID;
+		TheParticleSystemManager->destroyParticleSystemByID( D().m_connectorSystemID );
+		D().m_connectorSystemID = INVALID_PARTICLE_SYSTEM_ID;
 	}
-	if( m_laserBaseSystemID )
+	if( D().m_laserBaseSystemID )
 	{
-		TheParticleSystemManager->destroyParticleSystemByID( m_laserBaseSystemID );
-		m_laserBaseSystemID = INVALID_PARTICLE_SYSTEM_ID;
+		TheParticleSystemManager->destroyParticleSystemByID( D().m_laserBaseSystemID );
+		D().m_laserBaseSystemID = INVALID_PARTICLE_SYSTEM_ID;
 	}
-	Drawable *beam = TheGameClient->findDrawableByID( m_groundToOrbitBeamID );
+	Drawable *beam = TheGameClient->findDrawableByID( D().m_groundToOrbitBeamID );
 	if( beam )
 	{
 		TheGameClient->destroyDrawable( beam );
-		m_groundToOrbitBeamID = INVALID_DRAWABLE_ID;
+		D().m_groundToOrbitBeamID = INVALID_DRAWABLE_ID;
 	}
 
 	//Remove all sound hooks
@@ -1128,18 +1130,18 @@ Bool ParticleUplinkCannonUpdate::calculateDefaultInformation()
 	if( numBones != data->m_outerEffectNumBones )
 	{
 		DEBUG_CRASH( ("Particle cannon requires %d outer node bones, but can only find %d bones.", data->m_outerEffectNumBones, numBones ) );
-		m_invalidSettings = TRUE;
+		D().m_invalidSettings = TRUE;
 		return FALSE;
 	}
 
 	for( UnsignedInt i = 0; i < data->m_outerEffectNumBones; i++ )
 	{
-		m_laserBeamIDs[ i ] = INVALID_DRAWABLE_ID;
-		m_outerSystemIDs[ i ] = INVALID_PARTICLE_SYSTEM_ID;
+		D().m_laserBeamIDs[ i ] = INVALID_DRAWABLE_ID;
+		D().m_outerSystemIDs[ i ] = INVALID_PARTICLE_SYSTEM_ID;
 
 		//Convert the local bone position into world space.
 		Matrix3D nodeMatrix;
-		getObject()->convertBonePosToWorldPos( &bonePositions[i], &boneMatrices[i], &m_outerNodePositions[ i ], &m_outerNodeOrientations[ i ] );
+		getObject()->convertBonePosToWorldPos( &bonePositions[i], &boneMatrices[i], &D().m_outerNodePositions[ i ], &D().m_outerNodeOrientations[ i ] );
 	}
 
 	return TRUE;
@@ -1159,11 +1161,11 @@ Bool ParticleUplinkCannonUpdate::calculateUpBonePositions()
 	{
 		if( data->m_connectorBoneName.isNotEmpty() && draw->getCurrentClientBonePositions( data->m_connectorBoneName.str(), 0, &pos, &mtx, 1 ) )
 		{
-			obj->convertBonePosToWorldPos( &pos, &mtx, &m_connectorNodePosition, &mtx );
+			obj->convertBonePosToWorldPos( &pos, &mtx, &D().m_connectorNodePosition, &mtx );
 		}
 		if( data->m_connectorBoneName.isNotEmpty() && draw->getCurrentClientBonePositions( data->m_fireBoneName.str(), 0, &pos, &mtx, 1 ) )
 		{
-			obj->convertBonePosToWorldPos( &pos, &mtx, &m_laserOriginPosition, &mtx );
+			obj->convertBonePosToWorldPos( &pos, &mtx, &D().m_laserOriginPosition, &mtx );
 		}
 	}
 	return TRUE;
@@ -1175,7 +1177,7 @@ void ParticleUplinkCannonUpdate::setLogicalStatus( PUCStatus newStatus )
 {
 	Object *obj = getObject();
 
-	if( m_status == newStatus )
+	if( D().m_status == newStatus )
 	{
 		return;
 	}
@@ -1187,20 +1189,20 @@ void ParticleUplinkCannonUpdate::setLogicalStatus( PUCStatus newStatus )
 		{
 			//Set unpacked animation
 			obj->clearModelConditionFlags( MAKE_MODELCONDITION_MASK3( MODELCONDITION_PACKING, MODELCONDITION_UNPACKING, MODELCONDITION_DEPLOYED ) );
-			TheAudio->removeAudioEvent( m_powerupSound.getPlayingHandle() );
-			TheAudio->removeAudioEvent( m_unpackToReadySound.getPlayingHandle() );
-			TheAudio->removeAudioEvent( m_firingToIdleSound.getPlayingHandle() );
-			TheAudio->removeAudioEvent( m_annihilationSound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_powerupSound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_unpackToReadySound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_firingToIdleSound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_annihilationSound.getPlayingHandle() );
 			break;
 		}
 		case STATUS_CHARGING:
 		{
-			m_laserStatus = LASERSTATUS_NONE;
-			m_powerupSound.setObjectID( obj->getID() );
-			m_powerupSound.setPlayingHandle( TheAudio->addAudioEvent( &m_powerupSound ) );
-			TheAudio->removeAudioEvent( m_unpackToReadySound.getPlayingHandle() );
-			TheAudio->removeAudioEvent( m_firingToIdleSound.getPlayingHandle() );
-			TheAudio->removeAudioEvent( m_annihilationSound.getPlayingHandle() );
+			D().m_laserStatus = LASERSTATUS_NONE;
+			D().m_powerupSound.setObjectID( obj->getID() );
+			D().m_powerupSound.setPlayingHandle( TheAudio->addAudioEvent( &D().m_powerupSound ) );
+			TheAudio->removeAudioEvent( D().m_unpackToReadySound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_firingToIdleSound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_annihilationSound.getPlayingHandle() );
 			break;
 		}
 		case STATUS_PREPARING:
@@ -1208,15 +1210,15 @@ void ParticleUplinkCannonUpdate::setLogicalStatus( PUCStatus newStatus )
 			//Set unpacking animation
 			obj->clearAndSetModelConditionFlags( MAKE_MODELCONDITION_MASK2( MODELCONDITION_PACKING, MODELCONDITION_DEPLOYED ),
 																					MAKE_MODELCONDITION_MASK( MODELCONDITION_UNPACKING ) );
-			if( m_unpackToReadySound.getEventName().isNotEmpty() )
+			if( D().m_unpackToReadySound.getEventName().isNotEmpty() )
 			{
-				m_unpackToReadySound.setObjectID( obj->getID() );
-				m_unpackToReadySound.setPlayingHandle( TheAudio->addAudioEvent( &m_unpackToReadySound ) );
+				D().m_unpackToReadySound.setObjectID( obj->getID() );
+				D().m_unpackToReadySound.setPlayingHandle( TheAudio->addAudioEvent( &D().m_unpackToReadySound ) );
 			}
-			TheAudio->removeAudioEvent( m_firingToIdleSound.getPlayingHandle() );
-			TheAudio->removeAudioEvent( m_annihilationSound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_firingToIdleSound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_annihilationSound.getPlayingHandle() );
 
-			m_laserStatus = LASERSTATUS_NONE;
+			D().m_laserStatus = LASERSTATUS_NONE;
 			break;
 		}
 		case STATUS_ALMOST_READY:
@@ -1224,17 +1226,17 @@ void ParticleUplinkCannonUpdate::setLogicalStatus( PUCStatus newStatus )
 			//Set deployed animation
 			obj->clearAndSetModelConditionFlags( MAKE_MODELCONDITION_MASK2( MODELCONDITION_PACKING, MODELCONDITION_UNPACKING ),
 																					 MAKE_MODELCONDITION_MASK( MODELCONDITION_DEPLOYED ) );
-			m_laserStatus = LASERSTATUS_NONE;
+			D().m_laserStatus = LASERSTATUS_NONE;
 			break;
 		}
 		case STATUS_READY_TO_FIRE:
 		{
 			obj->clearAndSetModelConditionFlags( MAKE_MODELCONDITION_MASK2( MODELCONDITION_PACKING, MODELCONDITION_UNPACKING ),
 																					 MAKE_MODELCONDITION_MASK( MODELCONDITION_DEPLOYED ) );
-			TheAudio->removeAudioEvent( m_powerupSound.getPlayingHandle() );
-			TheAudio->removeAudioEvent( m_firingToIdleSound.getPlayingHandle() );
-			TheAudio->removeAudioEvent( m_annihilationSound.getPlayingHandle() );
-			m_laserStatus = LASERSTATUS_NONE;
+			TheAudio->removeAudioEvent( D().m_powerupSound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_firingToIdleSound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_annihilationSound.getPlayingHandle() );
+			D().m_laserStatus = LASERSTATUS_NONE;
 			break;
 		}
 		case STATUS_PREFIRE:
@@ -1245,15 +1247,15 @@ void ParticleUplinkCannonUpdate::setLogicalStatus( PUCStatus newStatus )
 		{
 			obj->clearAndSetModelConditionFlags( MAKE_MODELCONDITION_MASK2( MODELCONDITION_PACKING, MODELCONDITION_UNPACKING ),
 																					 MAKE_MODELCONDITION_MASK( MODELCONDITION_DEPLOYED ) );
-			if( m_firingToIdleSound.getEventName().isNotEmpty() )
+			if( D().m_firingToIdleSound.getEventName().isNotEmpty() )
 			{
-				m_firingToIdleSound.setObjectID( obj->getID() );
-				m_firingToIdleSound.setPlayingHandle( TheAudio->addAudioEvent( &m_firingToIdleSound ) );
+				D().m_firingToIdleSound.setObjectID( obj->getID() );
+				D().m_firingToIdleSound.setPlayingHandle( TheAudio->addAudioEvent( &D().m_firingToIdleSound ) );
 			}
-			TheAudio->removeAudioEvent( m_powerupSound.getPlayingHandle() );
-			TheAudio->removeAudioEvent( m_unpackToReadySound.getPlayingHandle() );
-			TheAudio->removeAudioEvent( m_annihilationSound.getPlayingHandle() );
-			m_nextLaunchFXFrame = 0;
+			TheAudio->removeAudioEvent( D().m_powerupSound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_unpackToReadySound.getPlayingHandle() );
+			TheAudio->removeAudioEvent( D().m_annihilationSound.getPlayingHandle() );
+			D().m_nextLaunchFXFrame = 0;
 			break;
 		}
 		case STATUS_POSTFIRE:
@@ -1270,9 +1272,9 @@ void ParticleUplinkCannonUpdate::setLogicalStatus( PUCStatus newStatus )
 	}
 
 	//Set new status.
-	m_status = newStatus;
+	D().m_status = newStatus;
 
-	setClientStatus( m_status, FALSE );
+	setClientStatus( D().m_status, FALSE );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1281,14 +1283,14 @@ void ParticleUplinkCannonUpdate::setClientStatus( PUCStatus newStatus, Bool reve
 	const ParticleUplinkCannonUpdateModuleData *data = getParticleUplinkCannonUpdateModuleData();
 
 	//Caches bone positions for positioning the client beams.
-	if( !m_defaultInfoCached )
+	if( !D().m_defaultInfoCached )
 	{
 		if( !calculateDefaultInformation() )
 		{
-			m_invalidSettings = TRUE;
+			D().m_invalidSettings = TRUE;
 			return;
 		}
-		m_defaultInfoCached = TRUE;
+		D().m_defaultInfoCached = TRUE;
 	}
 
 	//This isn't the most efficient way to do this. Various effects can live in more than
@@ -1356,7 +1358,7 @@ void ParticleUplinkCannonUpdate::setClientStatus( PUCStatus newStatus, Bool reve
 			createConnectorFlare( IT_MEDIUM );
 			createLaserBaseFlare( IT_MEDIUM );
 			createGroundToOrbitLaser( 0 );
-			Drawable *beam = TheGameClient->findDrawableByID( m_groundToOrbitBeamID );
+			Drawable *beam = TheGameClient->findDrawableByID( D().m_groundToOrbitBeamID );
 			if( beam )
 			{
 				static NameKeyType nameKeyClientUpdate = NAMEKEY( "LaserUpdate" );
@@ -1386,7 +1388,7 @@ void ParticleUplinkCannonUpdate::setClientStatus( PUCStatus newStatus, Bool reve
 //-------------------------------------------------------------------------------------------------
 Bool ParticleUplinkCannonUpdate::doesSpecialPowerHaveOverridableDestinationActive() const
 {
-	return m_status == STATUS_PREFIRE || m_status == STATUS_FIRING || m_status == STATUS_POSTFIRE;
+	return D().m_status == STATUS_PREFIRE || D().m_status == STATUS_FIRING || D().m_status == STATUS_POSTFIRE;
 }
 
 
@@ -1422,115 +1424,115 @@ void ParticleUplinkCannonUpdate::xfer( Xfer *xfer )
 #endif
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
-	m_xferVersion = version;
+	D().m_xferVersion = version;
 
 	// extend base class
 	UpdateModule::xfer( xfer );
 
 	// status
-	xfer->xferUser( &m_status, sizeof( PUCStatus ) );
+	xfer->xferUser( &D().m_status, sizeof( PUCStatus ) );
 
 	// laser status
-	xfer->xferUser( &m_laserStatus, sizeof( LaserStatus ) );
+	xfer->xferUser( &D().m_laserStatus, sizeof( LaserStatus ) );
 
 	// frames
-	xfer->xferUnsignedInt( &m_frames );
+	xfer->xferUnsignedInt( &D().m_frames );
 
 	// we do not need to tie up the special power module pointer, it is done on object creation
-	// SpecialPowerModuleInterface *m_specialPowerModule;
+	// SpecialPowerModuleInterface *D().m_specialPowerModule;
 
 	// outer system ids
-	xfer->xferUser( m_outerSystemIDs, sizeof( ParticleSystemID ) * MAX_OUTER_NODES );
+	xfer->xferUser( D().m_outerSystemIDs, sizeof( ParticleSystemID ) * MAX_OUTER_NODES );
 
 	// laser beam ids
-	xfer->xferUser( m_laserBeamIDs, sizeof( DrawableID ) * MAX_OUTER_NODES );
+	xfer->xferUser( D().m_laserBeamIDs, sizeof( DrawableID ) * MAX_OUTER_NODES );
 
 	// ground to orbit beam id
-	xfer->xferDrawableID( &m_groundToOrbitBeamID );
+	xfer->xferDrawableID( &D().m_groundToOrbitBeamID );
 
 	// orbit to target beam
-	xfer->xferDrawableID( &m_orbitToTargetBeamID );
+	xfer->xferDrawableID( &D().m_orbitToTargetBeamID );
 
 	// connector system ID
-	xfer->xferUser( &m_connectorSystemID, sizeof( ParticleSystemID ) );
+	xfer->xferUser( &D().m_connectorSystemID, sizeof( ParticleSystemID ) );
 
 	// laser base system id
-	xfer->xferUser( &m_laserBaseSystemID, sizeof( ParticleSystemID ) );
+	xfer->xferUser( &D().m_laserBaseSystemID, sizeof( ParticleSystemID ) );
 
 	// outer node positions
-	xfer->xferUser( m_outerNodePositions, sizeof( Coord3D ) * MAX_OUTER_NODES );
+	xfer->xferUser( D().m_outerNodePositions, sizeof( Coord3D ) * MAX_OUTER_NODES );
 
 	// outer node orientations
-	xfer->xferUser( m_outerNodeOrientations, sizeof( Matrix3D ) * MAX_OUTER_NODES );
+	xfer->xferUser( D().m_outerNodeOrientations, sizeof( Matrix3D ) * MAX_OUTER_NODES );
 
 	// connector node position
-	xfer->xferCoord3D( &m_connectorNodePosition );
+	xfer->xferCoord3D( &D().m_connectorNodePosition );
 
 	// laser origin position
-	xfer->xferCoord3D( &m_laserOriginPosition );
+	xfer->xferCoord3D( &D().m_laserOriginPosition );
 
 	// The manual override target destination.
-	xfer->xferCoord3D( &m_overrideTargetDestination );
+	xfer->xferCoord3D( &D().m_overrideTargetDestination );
 
 	// up bones cached
-	xfer->xferBool( &m_upBonesCached );
+	xfer->xferBool( &D().m_upBonesCached );
 
 	// default info cached
-	xfer->xferBool( &m_defaultInfoCached );
+	xfer->xferBool( &D().m_defaultInfoCached );
 
 	// invalid settings
-	xfer->xferBool( &m_invalidSettings );
+	xfer->xferBool( &D().m_invalidSettings );
 
 	// initial target position
-	xfer->xferCoord3D( &m_initialTargetPosition );
+	xfer->xferCoord3D( &D().m_initialTargetPosition );
 
 	// current target position
-	xfer->xferCoord3D( &m_currentTargetPosition );
+	xfer->xferCoord3D( &D().m_currentTargetPosition );
 
 	// scorch marks make
-	xfer->xferUnsignedInt( &m_scorchMarksMade );
+	xfer->xferUnsignedInt( &D().m_scorchMarksMade );
 
 	// next scorch mark frame
-	xfer->xferUnsignedInt( &m_nextScorchMarkFrame );
+	xfer->xferUnsignedInt( &D().m_nextScorchMarkFrame );
 
 	// next launch FX frame
-	xfer->xferUnsignedInt( &m_nextLaunchFXFrame );
+	xfer->xferUnsignedInt( &D().m_nextLaunchFXFrame );
 
 	// damage pluses made
-	xfer->xferUnsignedInt( &m_damagePulsesMade );
+	xfer->xferUnsignedInt( &D().m_damagePulsesMade );
 
 	// next damage pulse frame
-	xfer->xferUnsignedInt( &m_nextDamagePulseFrame );
+	xfer->xferUnsignedInt( &D().m_nextDamagePulseFrame );
 
 	// start attack frame
-	xfer->xferUnsignedInt( &m_startAttackFrame );
+	xfer->xferUnsignedInt( &D().m_startAttackFrame );
 
 	// start attack frame
 	if( xfer->getXferMode() == XFER_SAVE || version >= 2 )
 	{
-		xfer->xferUnsignedInt( &m_startDecayFrame );
+		xfer->xferUnsignedInt( &D().m_startDecayFrame );
 	}
 	else
 	{
-		m_startDecayFrame = m_startAttackFrame + data->m_totalFiringFrames;
+		D().m_startDecayFrame = D().m_startAttackFrame + data->m_totalFiringFrames;
 	}
 
 	// the time of last manual target click
-	xfer->xferUnsignedInt( & m_lastDrivingClickFrame );
+	xfer->xferUnsignedInt( & D().m_lastDrivingClickFrame );
 
 	// the time of the 2nd last manual target click
-	xfer->xferUnsignedInt( &m_2ndLastDrivingClickFrame );
+	xfer->xferUnsignedInt( &D().m_2ndLastDrivingClickFrame );
 
 	if( version >= 3 )
 	{
-		xfer->xferBool( &m_manualTargetMode );
-		xfer->xferBool( &m_scriptedWaypointMode );
-		xfer->xferUnsignedInt( &m_nextDestWaypointID );
+		xfer->xferBool( &D().m_manualTargetMode );
+		xfer->xferBool( &D().m_scriptedWaypointMode );
+		xfer->xferUnsignedInt( &D().m_nextDestWaypointID );
 	}
 
 	if( version >= 4 )
 	{
-		m_orbitToTargetLaserRadius.xfer( xfer );
+		D().m_orbitToTargetLaserRadius.xfer( xfer );
 	}
 
 }
@@ -1544,58 +1546,58 @@ void ParticleUplinkCannonUpdate::loadPostProcess()
 	// extend base class
 	UpdateModule::loadPostProcess();
 
-	if (m_xferVersion <= 3)
+	if (D().m_xferVersion <= 3)
 	{
 		// TheSuperHackers @info xezon 17/05/2025
 		// For retail game compatibility, this transfers the loaded visual laser radius
 		// settings from the Drawable's LaserUpdate to the local LaserRadiusUpdate.
-		if( m_orbitToTargetBeamID != INVALID_DRAWABLE_ID )
+		if( D().m_orbitToTargetBeamID != INVALID_DRAWABLE_ID )
 		{
-			Drawable* drawable = TheGameClient->findDrawableByID( m_orbitToTargetBeamID );
+			Drawable* drawable = TheGameClient->findDrawableByID( D().m_orbitToTargetBeamID );
 			if( drawable != nullptr )
 			{
 				static NameKeyType nameKeyClientUpdate = NAMEKEY( "LaserUpdate" );
 				LaserUpdate *update = (LaserUpdate*)drawable->findClientUpdateModule( nameKeyClientUpdate );
 				if( update != nullptr )
 				{
-					m_orbitToTargetLaserRadius = update->getLaserRadiusUpdate();
+					D().m_orbitToTargetLaserRadius = update->getLaserRadiusUpdate();
 				}
 			}
 			else
 			{
-				DEBUG_CRASH(( "ParticleUplinkCannonUpdate::loadPostProcess - Unable to find drawable for m_orbitToTargetBeamID" ));
+				DEBUG_CRASH(( "ParticleUplinkCannonUpdate::loadPostProcess - Unable to find drawable for D().m_orbitToTargetBeamID" ));
 			}
 		}
 
 		// TheSuperHackers @bugfix stephanmeesters 13/02/2026
 		// For retail game compatibility, this fixes an issue where particle cannon sounds are not audible after saveload.
-		if( (m_status == STATUS_CHARGING || m_status == STATUS_PREPARING || m_status == STATUS_ALMOST_READY) &&
-			m_powerupSound.getEventName().isNotEmpty() )
+		if( (D().m_status == STATUS_CHARGING || D().m_status == STATUS_PREPARING || D().m_status == STATUS_ALMOST_READY) &&
+			D().m_powerupSound.getEventName().isNotEmpty() )
 		{
-			m_powerupSound.setObjectID( getObject()->getID() );
-			m_powerupSound.setPlayingHandle( TheAudio->addAudioEvent( &m_powerupSound ) );
+			D().m_powerupSound.setObjectID( getObject()->getID() );
+			D().m_powerupSound.setPlayingHandle( TheAudio->addAudioEvent( &D().m_powerupSound ) );
 		}
 
-		if( (m_status == STATUS_PREPARING || m_status == STATUS_ALMOST_READY || m_status == STATUS_READY_TO_FIRE || m_status == STATUS_PREFIRE) &&
-			m_unpackToReadySound.getEventName().isNotEmpty() )
+		if( (D().m_status == STATUS_PREPARING || D().m_status == STATUS_ALMOST_READY || D().m_status == STATUS_READY_TO_FIRE || D().m_status == STATUS_PREFIRE) &&
+			D().m_unpackToReadySound.getEventName().isNotEmpty() )
 		{
-			m_unpackToReadySound.setObjectID( getObject()->getID() );
-			m_unpackToReadySound.setPlayingHandle( TheAudio->addAudioEvent( &m_unpackToReadySound ) );
+			D().m_unpackToReadySound.setObjectID( getObject()->getID() );
+			D().m_unpackToReadySound.setPlayingHandle( TheAudio->addAudioEvent( &D().m_unpackToReadySound ) );
 		}
 
-		if( m_status == STATUS_FIRING || m_status == STATUS_POSTFIRE ||
-			(m_status == STATUS_PACKING && (m_laserStatus == LASERSTATUS_DECAYING || m_laserStatus == LASERSTATUS_DEAD)) )
+		if( D().m_status == STATUS_FIRING || D().m_status == STATUS_POSTFIRE ||
+			(D().m_status == STATUS_PACKING && (D().m_laserStatus == LASERSTATUS_DECAYING || D().m_laserStatus == LASERSTATUS_DEAD)) )
 		{
-			if( m_firingToIdleSound.getEventName().isNotEmpty() )
+			if( D().m_firingToIdleSound.getEventName().isNotEmpty() )
 			{
-				m_firingToIdleSound.setObjectID( getObject()->getID() );
-				m_firingToIdleSound.setPlayingHandle( TheAudio->addAudioEvent( &m_firingToIdleSound ) );
+				D().m_firingToIdleSound.setObjectID( getObject()->getID() );
+				D().m_firingToIdleSound.setPlayingHandle( TheAudio->addAudioEvent( &D().m_firingToIdleSound ) );
 			}
 
-			if( m_orbitToTargetBeamID != INVALID_DRAWABLE_ID && m_annihilationSound.getEventName().isNotEmpty() )
+			if( D().m_orbitToTargetBeamID != INVALID_DRAWABLE_ID && D().m_annihilationSound.getEventName().isNotEmpty() )
 			{
-				m_annihilationSound.setDrawableID( m_orbitToTargetBeamID );
-				m_annihilationSound.setPlayingHandle( TheAudio->addAudioEvent( &m_annihilationSound ) );
+				D().m_annihilationSound.setDrawableID( D().m_orbitToTargetBeamID );
+				D().m_annihilationSound.setPlayingHandle( TheAudio->addAudioEvent( &D().m_annihilationSound ) );
 			}
 		}
 	}

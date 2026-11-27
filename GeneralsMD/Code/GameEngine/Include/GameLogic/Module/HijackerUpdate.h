@@ -35,6 +35,7 @@
 #pragma once
 
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"
 
 //-------------------------------------------------------------------------------------------------
 class HijackerUpdateModuleData : public UpdateModuleData
@@ -74,16 +75,24 @@ public:
 
 	void setTargetObject( const Object *object );
 	Object* getTargetObject() const;
-	void setUpdate(Bool u ) {m_update = u;}
-	void setIsInVehicle(Bool i ) {m_isInVehicle = i;}
+	void setUpdate(Bool u ) {D().m_update = u;}
+	void setIsInVehicle(Bool i ) {D().m_isInVehicle = i;}
 
 private:
 
-	ObjectID m_targetID;
-	Coord3D	 m_ejectPos;
-	Bool     m_update;
-	Bool		 m_isInVehicle;
-	Bool		 m_wasTargetAirborne;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		ObjectID m_targetID;
+		Coord3D	 m_ejectPos;
+		Bool     m_update;
+		Bool		 m_isInVehicle;
+		Bool		 m_wasTargetAirborne;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+private:
 
 //	DieModuleInterface *m_ejectPilotDMI; // point to ejectpilotdiemodule
 																			 // of target vehicle if it has one

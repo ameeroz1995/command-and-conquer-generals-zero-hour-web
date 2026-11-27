@@ -37,6 +37,7 @@
 class DamageInfo; //Ahhhh much better!
 
 #include "GameLogic/Module/BodyModule.h"
+#include "Common/GxComponentPool.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class Thing;
@@ -263,14 +264,22 @@ protected:
 	typedef std::vector<ParticleSystemID> ParticleSystemIDVec;
 
 	/// we keep a record of attached particle system so we can detach and kill them when we want to
-	ParticleSystemIDVec m_particleSystemIDs;
-	Int m_nextFXFrame[ BODYDAMAGETYPE_COUNT ][ BONE_FX_MAX_BONES ];
-	Int m_nextOCLFrame[ BODYDAMAGETYPE_COUNT ][ BONE_FX_MAX_BONES ];
-	Int m_nextParticleSystemFrame[ BODYDAMAGETYPE_COUNT ][ BONE_FX_MAX_BONES ];
-	Coord3D m_FXBonePositions[ BODYDAMAGETYPE_COUNT ][ BONE_FX_MAX_BONES ];
-	Coord3D m_OCLBonePositions[ BODYDAMAGETYPE_COUNT ][ BONE_FX_MAX_BONES ];
-	Coord3D m_PSBonePositions[ BODYDAMAGETYPE_COUNT ][ BONE_FX_MAX_BONES ];
-	BodyDamageType m_curBodyState;
-	Bool m_bonesResolved[BODYDAMAGETYPE_COUNT];
-	Bool m_active;
+	// Round 5: the per-unit state, one row per module (GxComponentPool<Row>, Common/GxComponentPool.h)
+	struct Row
+	{
+		ParticleSystemIDVec m_particleSystemIDs;
+		Int m_nextFXFrame[ BODYDAMAGETYPE_COUNT ][ BONE_FX_MAX_BONES ];
+		Int m_nextOCLFrame[ BODYDAMAGETYPE_COUNT ][ BONE_FX_MAX_BONES ];
+		Int m_nextParticleSystemFrame[ BODYDAMAGETYPE_COUNT ][ BONE_FX_MAX_BONES ];
+		Coord3D m_FXBonePositions[ BODYDAMAGETYPE_COUNT ][ BONE_FX_MAX_BONES ];
+		Coord3D m_OCLBonePositions[ BODYDAMAGETYPE_COUNT ][ BONE_FX_MAX_BONES ];
+		Coord3D m_PSBonePositions[ BODYDAMAGETYPE_COUNT ][ BONE_FX_MAX_BONES ];
+		BodyDamageType m_curBodyState;
+		Bool m_bonesResolved[BODYDAMAGETYPE_COUNT];
+		Bool m_active;
+	};
+	GxRow<Row> m_gx;	///< this module's row in GxComponentPool<Row>; released after the destructor body
+public:
+	Row &D() const { return const_cast<Row &>(*m_gx); }
+protected:
 };

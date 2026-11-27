@@ -45,6 +45,7 @@
 #include "GameLogic/WeaponSet.h"
 #include "GameLogic/Weapon.h"
 
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 DemoTrapUpdateModuleData::DemoTrapUpdateModuleData()
@@ -85,8 +86,9 @@ DemoTrapUpdateModuleData::DemoTrapUpdateModuleData()
 //-------------------------------------------------------------------------------------------------
 DemoTrapUpdate::DemoTrapUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_nextScanFrames = 0;
-	m_detonated = false;
+
+	D().m_nextScanFrames = 0;
+	D().m_detonated = false;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -133,7 +135,7 @@ UpdateSleepTime DemoTrapUpdate::update()
 /// @todo srj use SLEEPY_UPDATE here
 	const DemoTrapUpdateModuleData *data = getDemoTrapUpdateModuleData();
 
-	if( m_detonated )
+	if( D().m_detonated )
 	{
 		return UPDATE_SLEEP_NONE;
 	}
@@ -165,9 +167,9 @@ UpdateSleepTime DemoTrapUpdate::update()
 	}
 
 	//Don't scan every frame for performance reasons.
-	if( m_nextScanFrames > 0 )
+	if( D().m_nextScanFrames > 0 )
 	{
-		m_nextScanFrames--;
+		D().m_nextScanFrames--;
 		return UPDATE_SLEEP_NONE;
 	}
 
@@ -180,7 +182,7 @@ UpdateSleepTime DemoTrapUpdate::update()
 
 	//Reset timer here -- because if we are in manual mode, and switch, we want instant
 	//gratification (if possible).
-	m_nextScanFrames = data->m_scanFrames;
+	D().m_nextScanFrames = data->m_scanFrames;
 
 	//Scan for a valid enemy in proximity range.
 
@@ -271,7 +273,7 @@ void DemoTrapUpdate::detonate()
 		TheWeaponStore->createAndFireTempWeapon( data->m_detonationWeaponTemplate, me, me->getPosition() );
 
 	me->kill();
-	m_detonated = true;
+	D().m_detonated = true;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -302,10 +304,10 @@ void DemoTrapUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// next scan frames
-	xfer->xferInt( &m_nextScanFrames );
+	xfer->xferInt( &D().m_nextScanFrames );
 
 	// detonated
-	xfer->xferBool( &m_detonated );
+	xfer->xferBool( &D().m_detonated );
 
 }
 

@@ -1688,8 +1688,13 @@ Int MemoryPool::freeBlob(MemoryPoolBlob *blob) {
         out the block. if unable to allocate, throw ERROR_OUT_OF_MEMORY. this
         function will never return null.
 */
+// web port: every pool block and every large dynamic block handed out (tickTiming reads the change
+// across each logic tick, GameEngine.cpp)
+unsigned long long g_gxAllocs = 0;
+
 void *
 MemoryPool::allocateBlockDoNotZeroImplementation(DECLARE_LITERALSTRING_ARG1) {
+  ++g_gxAllocs; // web port: allocation count for tickTiming (Common/GxTime.h)
   ScopedCriticalSection scopedCriticalSection(TheMemoryPoolCriticalSection);
 
   if (m_firstBlobWithFreeBlocks != nullptr &&
@@ -1758,9 +1763,7 @@ MemoryPool::allocateBlockDoNotZeroImplementation(DECLARE_LITERALSTRING_ARG1) {
         of the block. if unable to allocate, throw ERROR_OUT_OF_MEMORY. this
         function will never return null.
 */
-unsigned long long g_gxAllocs = 0;	// web port (tickTiming): every pool block and dynamic allocation, for per-tick churn counts
 void *MemoryPool::allocateBlockImplementation(DECLARE_LITERALSTRING_ARG1) {
-  ++g_gxAllocs;
   void *p = allocateBlockDoNotZeroImplementation(
       PASS_LITERALSTRING_ARG1); // throws on failure
   memset(p, 0, getAllocationSize());
@@ -2187,7 +2190,6 @@ void DynamicMemoryAllocator::debugIgnoreLeaksForThisBlock(void *pBlockPtr) {
 */
 void *DynamicMemoryAllocator::allocateBytesDoNotZeroImplementation(
     Int numBytes DECLARE_LITERALSTRING_ARG2) {
-  ++g_gxAllocs;
   ScopedCriticalSection scopedCriticalSection(TheDmaCriticalSection);
 
   void *result = nullptr;
@@ -2220,6 +2222,7 @@ void *DynamicMemoryAllocator::allocateBytesDoNotZeroImplementation(
 #endif // MEMORYPOOL_DEBUG
   } else {
     // too big for our pools -- just go right to the metal.
+    ++g_gxAllocs; // web port: tickTiming (pool-sized ones are counted by their pool)
     MemoryPoolSingleBlock *block =
         MemoryPoolSingleBlock::rawAllocateSingleBlock(
             &m_rawBlocks, numBytes, m_factory PASS_LITERALSTRING_ARG2);

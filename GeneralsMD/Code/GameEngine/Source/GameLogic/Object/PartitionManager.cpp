@@ -54,12 +54,16 @@
 
 #include "Common/GxUnitStore.h"
 #include "Common/GxMatchRules.h"
+#ifdef __wasm_simd128__
+#include <wasm_simd128.h>
+#endif
 #include "Common/ActionManager.h"
 #include "Common/DiscreteCircle.h"
 #include "Common/GxTime.h"	// also declares GLES3_Page_Switches4
 #ifdef __wasm_simd128__
 #include <wasm_simd128.h>
 #endif
+#include <optional>
 #include "Common/GameEngine.h"
 #include "Common/GameState.h"
 #include "Common/GameUtility.h"
@@ -2301,9 +2305,11 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 	const Bool gxOffer = gxMatchRule(8192 /* GXRULE_SPATIAL_PAIRS */) && !g_gxPairOff;
 	const Real gxMx = gxX(), gxMy = gxY(), gxMr = gxR();	// our kept place (store columns; nothing here refreshes it)
 	CellAndObjectIntersection *myCoi = m_coiArray;
+	gxCount(GXC_COLLIDE_SEEKERS);	// tickTiming
 	for (Int i = m_coiInUseCount; i > 0; --i, ++myCoi)
 	{
 		PartitionCell *cell = myCoi->getCell();
+		gxCount(GXC_PAIR_CELLS);	// tickTiming
 		if (cell->getCoiCount() < 2)
 			continue;
 
@@ -2366,6 +2372,7 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 				continue;
 			}
 #endif
+			gxCount(GXC_PAIR_TESTS);	// tickTiming
 			if (gxOffer)
 			{
 				gxCount(GXC_PAIRS_TESTED);
@@ -2381,6 +2388,7 @@ void PartitionData::addPossibleCollisions(PartitionContactList *ctList)
 				// Sorted by object ID (was by address, which can differ between machines)
 				if (g_gxDeferStamp && that->gxDeferStamp() == g_gxDeferStamp && gxBefore(that, this))
 					continue;
+				gxCount(GXC_PAIRS);	// tickTiming: pairs offered to the contact list
 				ctList->addToContactList(this, that);
 			}
 		}
@@ -3710,7 +3718,15 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 			Int *q = &in.rect[in.n * 4];
 			q[0] = max(x0, 0); q[1] = max(y0, 0); q[2] = min(x1, nx - 1); q[3] = min(y1, ny - 1);
 			in.slot[in.n] = s; in.seeker[in.n] = d; ++in.n;
+			if (gxTimingOn())	// tickTiming: the kernel's cells and tests, counted here so it stays free of globals
+				for (Int cy = q[1]; cy <= q[3]; ++cy)
+					for (Int cx = q[0]; cx <= q[2]; ++cx)
+					{
+						gxCount(GXC_PAIR_CELLS);
+						gxCount(GXC_PAIR_TESTS, start[cy * nx + cx + 1] - start[cy * nx + cx]);
+					}
 		}
+		gxCount(GXC_COLLIDE_SEEKERS, in.n);
 		in.nx = nx; in.start = start.data(); in.cslot = cslot.data(); in.cx = cx_.data(); in.cy = cy_.data(); in.cr = cr_.data();
 		in.x = st.x.data(); in.y = st.y.data(); in.radius = st.radius.data();
 		// kernel over all seekers (a job system can split [0, n) into ranges with one output each)
@@ -3719,6 +3735,7 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 		Int got;
 		while ((got = gxPairKernel(in, 0, in.n, out.data(), (Int)out.size())) < 0)
 			out.resize(out.size() * 2);	// full: grow on the main thread and run again
+		gxCount(GXC_PAIRS, got / 2);
 		// apply (main thread, seekers in object-ID order): collideStagger and the contact list
 		for (Int k = 0; k < got; k += 2)
 		{
@@ -3741,24 +3758,30 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 		const Coord3D p = st.posOf(s);
 		const Real e = (r + smallMax) * 1.4143f + 1.0f;
 		Int x0, y0, x1, y1;
+		gxCount(GXC_COLLIDE_SEEKERS);	// tickTiming
 		pm->worldToCell(p.x - e, p.y - e, &x0, &y0);
 		pm->worldToCell(p.x + e, p.y + e, &x1, &y1);
 		x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, nx - 1); y1 = min(y1, ny - 1);
 		for (Int cy = y0; cy <= y1; ++cy)
 			for (Int cx = x0; cx <= x1; ++cx)
+			{
+				gxCount(GXC_PAIR_CELLS);	// tickTiming
 				for (int k = head[cy * nx + cx]; k >= 0; k = next[k])
 				{
 					const int t = item[k];
+					gxCount(GXC_PAIR_TESTS);
 					if (t == s)
 						continue;
 					const Real dx = st.x[t] - p.x, dy = st.y[t] - p.y, lim = (st.radius[t] + r) * 1.4143f + 1.0f;
 					if (dx * dx + dy * dy > lim * lim)
 						continue;
+					gxCount(GXC_PAIRS);
 					PartitionData *that = st.obj[t]->friend_getPartitionData();
 					if (g_gxDeferStamp && that->gxDeferStamp() == g_gxDeferStamp && gxBefore(that, d))
 						continue;	// collideStagger, as in addPossibleCollisions
 					ct->addToContactList(d, that);
 				}
+			}
 	}
 }
 
@@ -3810,6 +3833,7 @@ void PartitionManager::update()
 		s_gxLater.clear();
 		static std::vector<PartitionData*> s_gxSeekers;
 		s_gxSeekers.clear();
+		std::optional<GxTimeScope> gxBuildT(std::in_place, GXT_COLLIDE_BUILD);	// tickTiming: dirty cells + pair offers
 		const Bool gxStorePairs = gxMatchRule(GXRULE_STORE_PAIRS);
 		g_gxDeferStamp = 0;
 		if (gxEvery > 1)
@@ -3863,7 +3887,11 @@ void PartitionManager::update()
 
 		if (gxStorePairs)
 			gxStoreBroadPhase(s_gxSeekers, &ctList);
-		ctList.processContactList();
+		gxBuildT.reset();
+		{
+			GxTimeScope gxProcT(GXT_COLLIDE_PROCESS);	// tickTiming
+			ctList.processContactList();
+		}
 		// put the deferred units back on the dirty list (found by ID: a reaction may have removed them)
 		for (ObjectID id : s_gxLater)
 		{
@@ -5815,6 +5843,149 @@ SimpleObjectIterator *PartitionManager::iterateObjectsInRange(
 	getClosestObjects(nullptr, pos, maxDist, dc, filters, iter, nullptr, nullptr);
 
 	iter->sort(order);
+	iterHolder.release();
+	return iter;
+}
+
+//-----------------------------------------------------------------------------
+// combat, round 5 (fourth word bit 25, splashSimd; same game). A splash (WeaponTemplate::
+// dealDamageInternal) asks for every unit within its radius, no filters. The plain cell walk visits
+// the cells around the blast ring by ring (m_radiusVec) and each cell's COI list (high to low
+// sequence), taking each unit at its first COI. Here:
+//   kernel: a SIMD pass over the store's x/y/sphere columns keeps the slots whose centre is near
+//           enough (a loose test: 2D centre distance against range + bounding sphere radius + 2;
+//           the 3D test measures centre distance minus the sphere, never less than the 2D one);
+//   then, per kept unit, the walk's own distance test and its walk key (ring rank of the first
+//   visited cell that holds one of its COIs, then that COI's sequence, high first); units are put
+//   in the iterator in key order, which is the order the walk would have inserted them in.
+// Not used when match rule scanManager is on (that search answers from its own tick cache).
+SimpleObjectIterator *PartitionManager::gxSplashSearch(const Coord3D *pos, Real maxDist, DistanceCalculationType dc)
+{
+	extern bool gxMatchRule(unsigned int rule);
+	if (gxMatchRule(262144 /* GXRULE_SCAN_MANAGER */) || !m_cells || maxDist >= HUGE_DIST)
+		return nullptr;
+
+	// the walk's ring rank of every cell offset, built once per partition layout
+	static std::vector<Int> rankOf;	// (2R+1)^2, -1: not visited
+	static std::vector<Int> ringOf;
+	static Int rankR = -1, rankRings = -1;
+	if (rankR != m_maxGcoRadius || rankRings != (Int)m_radiusVec.size())
+	{
+		rankR = m_maxGcoRadius;
+		rankRings = (Int)m_radiusVec.size();
+		const Int w = 2 * rankR + 1;
+		rankOf.assign(w * w, -1);
+		ringOf.assign(w * w, -1);
+		Int rank = 0;
+		for (Int r = 0; r < rankRings; ++r)
+			for (OffsetVec::const_iterator it = m_radiusVec[r].begin(); it != m_radiusVec[r].end(); ++it, ++rank)
+			{
+				if (abs(it->x) > rankR || abs(it->y) > rankR)
+					continue;
+				const Int k = (it->y + rankR) * w + (it->x + rankR);
+				if (rankOf[k] < 0) { rankOf[k] = rank; ringOf[k] = r; }
+			}
+	}
+	const Int w = 2 * rankR + 1;
+	const Int limit = minInt(m_maxGcoRadius, worldToCellDist(maxDist));
+	Int ccx, ccy;
+	worldToCell(pos->x, pos->y, &ccx, &ccy);
+
+	// kernel: near slots by the store's columns, 4 per step
+	const GxUnitStore &S = TheGxUnitStore;
+	const Int n = (Int)S.obj.size();
+	static std::vector<Int> near;
+	near.clear();
+	const float px = pos->x, py = pos->y, reach = maxDist + 2.0f;
+	Int s = 0;
+#ifdef __wasm_simd128__
+	{
+		const v128_t vpx = wasm_f32x4_splat(px), vpy = wasm_f32x4_splat(py), vreach = wasm_f32x4_splat(reach);
+		// ILP (fourth word bit 27, splashIlp): 8 slots per step as two independent chains; each lane's
+		// math is the 4-wide step's, so the same slots come out in the same order
+		if (GLES3_Page_Switches4() & 134217728)
+		for (; s + 8 <= n; s += 8)
+		{
+			const v128_t dx0 = wasm_f32x4_sub(wasm_v128_load(&S.x[s]), vpx);
+			const v128_t dx1 = wasm_f32x4_sub(wasm_v128_load(&S.x[s + 4]), vpx);
+			const v128_t dy0 = wasm_f32x4_sub(wasm_v128_load(&S.y[s]), vpy);
+			const v128_t dy1 = wasm_f32x4_sub(wasm_v128_load(&S.y[s + 4]), vpy);
+			const v128_t l0 = wasm_f32x4_add(vreach, wasm_v128_load(&S.sphere[s]));
+			const v128_t l1 = wasm_f32x4_add(vreach, wasm_v128_load(&S.sphere[s + 4]));
+			const v128_t in0 = wasm_f32x4_le(wasm_f32x4_add(wasm_f32x4_mul(dx0, dx0), wasm_f32x4_mul(dy0, dy0)), wasm_f32x4_mul(l0, l0));
+			const v128_t in1 = wasm_f32x4_le(wasm_f32x4_add(wasm_f32x4_mul(dx1, dx1), wasm_f32x4_mul(dy1, dy1)), wasm_f32x4_mul(l1, l1));
+			for (Int m = wasm_i32x4_bitmask(in0) | (wasm_i32x4_bitmask(in1) << 4); m; m &= m - 1)
+				near.push_back(s + __builtin_ctz(m));
+		}
+		for (; s + 4 <= n; s += 4)
+		{
+			const v128_t dx = wasm_f32x4_sub(wasm_v128_load(&S.x[s]), vpx);
+			const v128_t dy = wasm_f32x4_sub(wasm_v128_load(&S.y[s]), vpy);
+			const v128_t lim = wasm_f32x4_add(vreach, wasm_v128_load(&S.sphere[s]));
+			const v128_t in = wasm_f32x4_le(wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)), wasm_f32x4_mul(lim, lim));
+			for (Int m = wasm_i32x4_bitmask(in); m; m &= m - 1)
+				near.push_back(s + __builtin_ctz(m));
+		}
+	}
+#endif
+	for (; s < n; ++s)
+	{
+		const float dx = S.x[s] - px, dy = S.y[s] - py, lim = reach + S.sphere[s];
+		if (dx * dx + dy * dy <= lim * lim)
+			near.push_back(s);
+	}
+
+	gxCount(GXC_SPLASH_SCANNED, n);	// tickTiming
+	gxCount(GXC_SPLASH_NEAR, near.size());
+
+	// the walk's test and key for each near unit
+	struct Hit { long long key; Object *obj; Real distSqr; };
+	static std::vector<Hit> hits;
+	hits.clear();
+	DistCalcProc distProc = theDistCalcProcs[dc];
+	const Real maxDistSqr = maxDist * maxDist;
+	for (size_t i = 0; i < near.size(); ++i)
+	{
+		Object *o = S.obj[near[i]];
+		if (!o)
+			continue;
+		PartitionData *pd = o->friend_getPartitionData();
+		if (!pd)
+			continue;
+		long long best = -1;
+		CellAndObjectIntersection *coi = pd->friend_getCoiArray();
+		for (Int k = pd->friend_getCoiArrayCount(); k; --k, ++coi)
+		{
+			PartitionCell *cell = coi->getCell();
+			if (!cell || coi->getModule() != pd)
+				continue;
+			const Int ox = cell->getCellX() - ccx, oy = cell->getCellY() - ccy;
+			if (abs(ox) > rankR || abs(oy) > rankR)
+				continue;
+			const Int t = (oy + rankR) * w + (ox + rankR);
+			if (rankOf[t] < 0 || ringOf[t] > limit)
+				continue;
+			const long long key = ((long long)rankOf[t] << 32) | (long long)(0xffffffffu - coi->gxSeq());
+			if (best < 0 || key < best)
+				best = key;
+		}
+		if (best < 0)
+			continue;	// none of its cells is on the walk
+		Real d2;
+		Coord3D v;
+		if (!(*distProc)(pos, nullptr, o->getPosition(), o, d2, v, maxDistSqr))
+			continue;
+		Hit h = { best, o, d2 };
+		hits.push_back(h);
+	}
+	std::sort(hits.begin(), hits.end(), [](const Hit &a, const Hit &b) { return a.key < b.key; });
+
+	MemoryPoolObjectHolder iterHolder;
+	SimpleObjectIterator *iter = newInstance(SimpleObjectIterator);
+	iterHolder.hold(iter);
+	for (size_t i = 0; i < hits.size(); ++i)
+		iter->insert(hits[i].obj, hits[i].distSqr);
+	iter->sort(ITER_FASTEST);
 	iterHolder.release();
 	return iter;
 }

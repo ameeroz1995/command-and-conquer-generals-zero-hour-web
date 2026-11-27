@@ -478,10 +478,16 @@ void GLES3_Begin_Scene() {
         g_PageSwitches4 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
+                 | (o.weaponReload === true ? 16777216 : 0)   // bit 24: weaponReload, with match rule updatePasses: weapon reloads as a system at the start of the tick (Weapon.cpp)
+                 | (o.splashSimd === false ? 0 : 33554432)    // bit 25: splashSimd (on), splash victims found by a SIMD pass over the unit store, in the cell walk's order (PartitionManager.cpp; same game)
+                 | (o.damageTable === true ? 67108864 : 0)  // bit 26: damageTable, per-frame table of weapon bonuses for target evaluation (Weapon.cpp; same game)
+                 | (o.splashIlp === true ? 134217728 : 0)  // bit 27: splashIlp, with splashSimd: the splash pass does 8 slots per step as two independent chains (PartitionManager.cpp; same game)
+                 | (o.iterReuse === true ? 268435456 : 0)  // bit 28: iterReuse, search result lists reuse their entries instead of allocating one per object (SimpleObjectIterator.cpp; same game)
                  | (o.dataBehaviors === false ? 0 : 64)   // bit 6: behaviours as data: lookups made per frame by name done once (Behavior/*.cpp; same game)
                  | (o.kernelSimd === false ? 0 : 512)   // bit 9: the slow-death kernel steps 4 dying units per wasm SIMD instruction (SlowDeathBehavior.cpp; same game)
                  | (o.containKernels === false ? 0 : 256)   // bit 8: containers / rebuild holes step their own countdowns in a kernel ahead of the turns (OpenContain.cpp, RebuildHoleBehavior.cpp; under updatePasses; off = match rule containKernelsOff, the host / replay decide)
                  | (o.kindKernels === false ? 0 : 128)   // bit 7: per-kind kernels under updatePasses; off = match rule kindKernelsOff, the host / replay decide (GameLogic.cpp)
+                 | (o.hotInStore === false ? 0 : 4)   // bit 2: objects' position, status, disabled mask, layer, geometry, angle and transform live in the unit store's columns (GxUnitStore.h, Object.h, Thing.h; same game)
                  | (o.rowKernels === false ? 0 : 4096)   // bit 12: scan countdowns of EnemyNear/AutoFindHealing/PointDefenseLaser run as one kernel per table (GxComponentTable.h; same game)
                  | (o.simdSearch === false ? 0 : 8192)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.fogStamps === false ? 0 : 16384)   // bit 14: sight circles from precomputed stamps, 8 cells at a time with wasm SIMD over dense shroud counters (PartitionManager.cpp; same game)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
@@ -511,6 +517,11 @@ void GLES3_Begin_Scene() {
                  | (o.stateArray === true ? 4194304 : 0)        // bit 22: state machine states by ID in an array (StateMachine.cpp; same game)
                  | (o.disabledPop === true ? 8388608 : 0)       // bit 23: disabled list removal by stored index (GameLogic.cpp; same game)
                  | (o.heap4 === true ? 1048576 : 0)   // value 1048576: heap4, the update queue as a 4-ary heap (match rule; GameLogic.cpp; off until timed)
+                 | (o.commandSetMap === true ? 4096 : 0)   // bit 12 (combat, #58): command sets found by name in a hash map (ControlBar.cpp; same game)
+                 | (o.multiSelectEarlyOut === true ? 8192 : 0)   // bit 13 (combat, #58): multi-select command bar asks units per button until one can (ControlBarMultiSelect.cpp; client only)
+                 | (o.beaconCount === true ? 16384 : 0)   // bit 14 (combat, #57): beacon button reads a kept count, no walk over every unit (Player.cpp, ControlBar.cpp; client only)
+                 | (o.selectTypeOnePass === true ? 32768 : 0)   // bit 15 (combat, #64): select-all-of-type walks the units once for every type (InGameUI.cpp; client only)
+                 | (o.tmplIndex === true ? 16777216 : 0)   // bit 24 (combat, hash-map #1): per-player template counts kept on team join / leave answer countObjectsByThingTemplate (Player.cpp; same game)
                  | (o.scanAlign === true ? 8 : 0);   // value 8: scanAlign, routine mood checks on every 4th frame so batchScan batches more (match rule; AIUpdate.cpp; off until timed)
         });
         g_PageSwitches3 = EM_ASM_INT({

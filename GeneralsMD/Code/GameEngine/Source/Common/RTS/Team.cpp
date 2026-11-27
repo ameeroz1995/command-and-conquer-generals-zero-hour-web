@@ -1400,6 +1400,8 @@ void Team::setControllingPlayer(Player *newController)
 {
 	extern Bool g_gxCellCountsStale;	// PartitionManager.cpp: per-cell player counts no longer trusted
 	g_gxCellCountsStale = true;
+	extern UnsignedInt g_gxTmplCountGen;	// Player.cpp (#1): every player's template counts rebuilt on next use
+	++g_gxTmplCountGen;
 	Player* oldOwner = m_proto->getControllingPlayer();
 	// nullptr is not allowed, but is caught by TeamPrototype::setControllingPlayer()
 	m_proto->setControllingPlayer(newController);

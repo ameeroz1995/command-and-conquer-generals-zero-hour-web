@@ -35,6 +35,13 @@
 #include "GameLogic/Module/FireWeaponUpdate.h"
 #include "GameLogic/WeaponStatus.h"
 #include "GameLogic/GameLogic.h"
+#include <cstdio>
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#else
+static int GLES3_Page_Switches() { return 0; }
+#endif
+
 
 
 
@@ -63,19 +70,25 @@ FireWeaponUpdateModuleData::FireWeaponUpdateModuleData()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-FireWeaponUpdate::FireWeaponUpdate( Thing *thing, const ModuleData* moduleData ) :
-	UpdateModule( thing, moduleData ),
-	m_weapon(nullptr)
+FireWeaponUpdate::FireWeaponUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
+	static Bool gxRegistered = FALSE;
+	if (!gxRegistered)
+	{
+		gxRegistered = TRUE;
+		GameLogic::gxRegisterKindKernel(NAMEKEY("FireWeaponUpdate"), gxKernel, gxApply);
+	}
+	D().m_weapon = nullptr;
+
 	const WeaponTemplate *tmpl = getFireWeaponUpdateModuleData()->m_weaponTemplate;
 	if (tmpl)
 	{
-		m_weapon = TheWeaponStore->allocateNewWeapon(tmpl, PRIMARY_WEAPON);
-		m_weapon->loadAmmoNow( getObject() );
+		D().m_weapon = TheWeaponStore->allocateNewWeapon(tmpl, PRIMARY_WEAPON);
+		D().m_weapon->loadAmmoNow( getObject() );
 	}
 
 
-  m_initialDelayFrame = TheGameLogic->getFrame() + getFireWeaponUpdateModuleData()->m_initialDelayFrames;
+  D().m_initialDelayFrame = TheGameLogic->getFrame() + getFireWeaponUpdateModuleData()->m_initialDelayFrames;
 
 }
 
@@ -83,24 +96,54 @@ FireWeaponUpdate::FireWeaponUpdate( Thing *thing, const ModuleData* moduleData )
 //-------------------------------------------------------------------------------------------------
 FireWeaponUpdate::~FireWeaponUpdate()
 {
-	deleteInstance(m_weapon);
+	deleteInstance(D().m_weapon);
 }
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 UpdateSleepTime FireWeaponUpdate::update()
 {
-
-  if ( TheGameLogic->getFrame() < m_initialDelayFrame )
-    return UPDATE_SLEEP_NONE;
-
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if (D().gxKernelFrame == now && now != 0)
+		return UPDATE_SLEEP_NONE;	// this frame's turn was taken by the kind kernel + apply
 
 	// If my weapon is ready, shoot it.
-	if( isOkayToFire() )
+	if( gxDecide(now) )
 	{
-		m_weapon->forceFireWeapon( getObject(), getObject()->getPosition() );
+		D().m_weapon->forceFireWeapon( getObject(), getObject()->getPosition() );
 	}
 	return UPDATE_SLEEP_NONE;
+}
+
+void FireWeaponUpdate::gxKernel( UpdateModulePtr *mods, Int begin, Int end )
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	for (Int k = begin; k < end; ++k)
+	{
+		FireWeaponUpdate *m = static_cast<FireWeaponUpdate *>(mods[k]);
+		m->D().gxFire = m->gxDecide(now);
+		m->D().gxKernelFrame = now;
+	}
+}
+
+void FireWeaponUpdate::gxApply( UpdateModulePtr *mods, Int count )
+{
+	static UnsignedInt checked = 0, mismatches = 0;
+	const Bool gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
+	const UnsignedInt now = TheGameLogic->getFrame();
+	for (Int k = 0; k < count; ++k)
+	{
+		FireWeaponUpdate *m = static_cast<FireWeaponUpdate *>(mods[k]);
+		if (gxVerify)
+		{	// the decision made now, in ID order after earlier units fired, must be the kernel's
+			++checked;
+			if (m->gxDecide(now) != m->D().gxFire) ++mismatches;
+			if (checked % 2000 == 0)
+				printf("GXVERIFY kindKernels fireWeapon: checked %u, mismatches %u\n", checked, mismatches);
+		}
+		if (m->D().gxFire)
+			m->D().m_weapon->forceFireWeapon( m->getObject(), m->getObject()->getPosition() );
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -110,11 +153,11 @@ Bool FireWeaponUpdate::isOkayToFire()
 	const Object *me = getObject();
 	const FireWeaponUpdateModuleData *data = getFireWeaponUpdateModuleData();
 
-	if( m_weapon == nullptr )
+	if( D().m_weapon == nullptr )
 		return FALSE;
 
 	// Weapon is reloading
-	if( m_weapon->getStatus() != READY_TO_FIRE )
+	if( D().m_weapon->getStatus() != READY_TO_FIRE )
 		return FALSE;
 
 	if( me->testStatus(OBJECT_STATUS_UNDER_CONSTRUCTION) )
@@ -154,10 +197,10 @@ void FireWeaponUpdate::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// weapon
-	xfer->xferSnapshot( m_weapon );
+	xfer->xferSnapshot( D().m_weapon );
 
   if ( version >= 2 )
-    xfer->xferUnsignedInt( &m_initialDelayFrame );
+    xfer->xferUnsignedInt( &D().m_initialDelayFrame );
 
 }
 

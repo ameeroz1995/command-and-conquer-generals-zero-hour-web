@@ -56,6 +56,7 @@
 #include "GameLogic/ScriptEngine.h"
 
 
+
 // PUBLIC /////////////////////////////////////////////////////////////////////////////////////////
 
 static const ModelConditionFlagType theOpeningFlags[DOOR_COUNT_MAX] =
@@ -150,16 +151,16 @@ ProductionUpdateModuleData::ProductionUpdateModuleData()
 ProductionEntry::ProductionEntry()
 {
 
-	m_type = PRODUCTION_INVALID;
-	m_objectToProduce = nullptr;
-	m_upgradeToResearch = nullptr;
-	m_productionID = (ProductionID)1;
-	m_percentComplete = 0.0f;
-	m_framesUnderConstruction = 0;
-	m_next = nullptr;
-	m_prev = nullptr;
-	m_productionQuantityProduced = 0;
-	m_productionQuantityTotal = 0;
+	D().m_type = PRODUCTION_INVALID;
+	D().m_objectToProduce = nullptr;
+	D().m_upgradeToResearch = nullptr;
+	D().m_productionID = (ProductionID)1;
+	D().m_percentComplete = 0.0f;
+	D().m_framesUnderConstruction = 0;
+	D().m_next = nullptr;
+	D().m_prev = nullptr;
+	D().m_productionQuantityProduced = 0;
+	D().m_productionQuantityTotal = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -175,26 +176,26 @@ ProductionEntry::~ProductionEntry()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-ProductionUpdate::ProductionUpdate( Thing *thing, const ModuleData* moduleData ) :
-									UpdateModule( thing, moduleData )
+ProductionUpdate::ProductionUpdate( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
 
-	m_productionQueue = nullptr;
-	m_productionQueueTail = nullptr;
-	m_productionCount = 0;
-	m_uniqueID = (ProductionID)1;
+
+	D().m_productionQueue = nullptr;
+	D().m_productionQueueTail = nullptr;
+	D().m_productionCount = 0;
+	D().m_uniqueID = (ProductionID)1;
 	for (Int i = 0; i < DOOR_COUNT_MAX; ++i)
 	{
-		m_doors[i].m_doorOpenedFrame = 0;
-		m_doors[i].m_doorWaitOpenFrame = 0;
-		m_doors[i].m_doorClosedFrame = 0;
-		m_doors[i].m_holdOpen = false;
+		D().m_doors[i].m_doorOpenedFrame = 0;
+		D().m_doors[i].m_doorWaitOpenFrame = 0;
+		D().m_doors[i].m_doorClosedFrame = 0;
+		D().m_doors[i].m_holdOpen = false;
 	}
-	m_constructionCompleteFrame = 0;
-	m_clearFlags.clear();
-	m_setFlags.clear();
-	m_flagsDirty = FALSE;
-	m_specialPowerConstructionCommandButton = nullptr;
+	D().m_constructionCompleteFrame = 0;
+	D().m_clearFlags.clear();
+	D().m_setFlags.clear();
+	D().m_flagsDirty = FALSE;
+	D().m_specialPowerConstructionCommandButton = nullptr;
 
 }
 
@@ -205,10 +206,10 @@ ProductionUpdate::~ProductionUpdate()
 
 	// destroy any queued productions
 	ProductionEntry *production;
-	while( m_productionQueue )
+	while( D().m_productionQueue )
 	{
 
-		production = m_productionQueue;
+		production = D().m_productionQueue;
 		removeFromProductionQueue( production );
 		// TheSuperHackers @fix Mauller 13/04/2025 Delete instance of production item
 		deleteInstance(production);
@@ -221,7 +222,7 @@ ProductionUpdate::~ProductionUpdate()
 //-------------------------------------------------------------------------------------------------
 CanMakeType ProductionUpdate::canQueueUpgrade( const UpgradeTemplate *upgrade ) const
 {
-	if (m_productionCount >= getProductionUpdateModuleData()->m_maxQueueEntries)
+	if (D().m_productionCount >= getProductionUpdateModuleData()->m_maxQueueEntries)
 		return CANMAKE_QUEUE_FULL;
 
 	return CANMAKE_OK;
@@ -244,7 +245,7 @@ CanMakeType ProductionUpdate::canQueueCreateUnit( const ThingTemplate *unitType 
 		}
 	}
 
-	if (m_productionCount >= getProductionUpdateModuleData()->m_maxQueueEntries)
+	if (D().m_productionCount >= getProductionUpdateModuleData()->m_maxQueueEntries)
 		return CANMAKE_QUEUE_FULL;
 
 	return CANMAKE_OK;
@@ -289,7 +290,7 @@ Bool ProductionUpdate::queueUpgrade( const UpgradeTemplate *upgrade )
       (player->hasUpgradeComplete( upgrade ) || player->hasUpgradeInProduction( upgrade )) )
 		return FALSE;
 
-	if (m_productionCount >= getProductionUpdateModuleData()->m_maxQueueEntries)
+	if (D().m_productionCount >= getProductionUpdateModuleData()->m_maxQueueEntries)
 	{
 		DEBUG_CRASH(("Production Queue is full... how did we get here?"));
 		return FALSE;
@@ -303,9 +304,9 @@ Bool ProductionUpdate::queueUpgrade( const UpgradeTemplate *upgrade )
 	ProductionEntry *production = newInstance(ProductionEntry);
 
 	// assign production entry data
-	production->m_type = PRODUCTION_UPGRADE;
-	production->m_upgradeToResearch = upgrade;
-	production->m_productionID = PRODUCTIONID_INVALID;  // not needed for upgrades, you can only have one of
+	production->D().m_type = PRODUCTION_UPGRADE;
+	production->D().m_upgradeToResearch = upgrade;
+	production->D().m_productionID = PRODUCTIONID_INVALID;  // not needed for upgrades, you can only have one of
 																	 // this type in the queue
 
 	// tie to the end of the production queue
@@ -342,11 +343,11 @@ void ProductionUpdate::cancelUpgrade( const UpgradeTemplate *upgrade )
 	// of this type in the queue
 	//
 	ProductionEntry *production;
-	for( production = m_productionQueue; production; production = production->m_next )
+	for( production = D().m_productionQueue; production; production = production->D().m_next )
 	{
 
-		if( production->m_type == PRODUCTION_UPGRADE &&
-				production->m_upgradeToResearch == upgrade )
+		if( production->D().m_type == PRODUCTION_UPGRADE &&
+				production->D().m_upgradeToResearch == upgrade )
 			break;
 
 	}
@@ -357,7 +358,7 @@ void ProductionUpdate::cancelUpgrade( const UpgradeTemplate *upgrade )
 
 	// refund money back to the player
 	Money *money = player->getMoney();
-	money->deposit( production->m_upgradeToResearch->calcCostToBuild( player ), TRUE, FALSE );
+	money->deposit( production->D().m_upgradeToResearch->calcCostToBuild( player ), TRUE, FALSE );
 
 	// remove this production from the queue
 	removeFromProductionQueue( production );
@@ -412,7 +413,7 @@ Bool ProductionUpdate::queueCreateUnit( const ThingTemplate *unitType, Productio
 		}
 	}
 
-	if (m_productionCount >= getProductionUpdateModuleData()->m_maxQueueEntries)
+	if (D().m_productionCount >= getProductionUpdateModuleData()->m_maxQueueEntries)
 	{
 		DEBUG_CRASH(("Production Queue is full... how did we get here?"));
 		return FALSE;
@@ -430,23 +431,23 @@ Bool ProductionUpdate::queueCreateUnit( const ThingTemplate *unitType, Productio
 	// and it has a modifier, we build that number of objects instead of just one. A good example is the Chinese
 	// barracks building redguards -- they are built 4 at a time, but the user or script only pays for one and
 	// builds four for that price!
-	production->m_productionQuantityTotal = 1;
-	production->m_productionQuantityProduced = 0;
+	production->D().m_productionQuantityTotal = 1;
+	production->D().m_productionQuantityProduced = 0;
 	for( std::vector<QuantityModifier>::const_iterator it = data->m_quantityModifiers.begin(); it != data->m_quantityModifiers.end(); ++it )
   {
 		const ThingTemplate* productionTemplate = TheThingFactory->findTemplate( it->m_templateName );
 		if( productionTemplate && productionTemplate->isEquivalentTo( unitType ) )
 		{
-			production->m_productionQuantityTotal = it->m_quantity;
+			production->D().m_productionQuantityTotal = it->m_quantity;
 			break;
 		}
 	}
 
 	// assign production entry data
-	production->m_type = PRODUCTION_UNIT;
-	production->m_objectToProduce = unitType;
-	production->m_productionID = productionID;
-	production->m_exitDoor = exitDoor;
+	production->D().m_type = PRODUCTION_UNIT;
+	production->D().m_objectToProduce = unitType;
+	production->D().m_productionID = productionID;
+	production->D().m_exitDoor = exitDoor;
 
 	// tie to the end of the production queue
 	addToProductionQueue( production );
@@ -463,17 +464,17 @@ void ProductionUpdate::cancelUnitCreate( ProductionID productionID )
 
 	// search for the production entry in our queue
 	ProductionEntry *production;
-	for( production = m_productionQueue; production; production = production->m_next )
+	for( production = D().m_productionQueue; production; production = production->D().m_next )
 	{
 
 		// are we at the one we want get rid of it
-		if( production->m_productionID == productionID )
+		if( production->D().m_productionID == productionID )
 		{
 
 			// give the player the cost of the object back
 			Player *player = getObject()->getControllingPlayer();
 			Money *money = player->getMoney();
-			money->deposit( production->m_objectToProduce->calcCostToBuild( player ), TRUE, FALSE );
+			money->deposit( production->D().m_objectToProduce->calcCostToBuild( player ), TRUE, FALSE );
 
 			// remove from queue list
 			removeFromProductionQueue( production );
@@ -497,14 +498,14 @@ void ProductionUpdate::cancelAllUnitsOfType( const ThingTemplate *unitType)
 
 	// search for the production entry in our queue
 	ProductionEntry *production;
-	for( production = m_productionQueue; production; )
+	for( production = D().m_productionQueue; production; )
 	{
 
 		// are we at the one we want get rid of it
 		if( production->getProductionType() == PRODUCTION_UNIT &&
 		    production->getProductionObject() == unitType )
 		{
-			ProductionEntry *temp = production->m_next;
+			ProductionEntry *temp = production->D().m_next;
 
 			// cancel the production
 			cancelUnitCreate( production->getProductionID() );
@@ -517,7 +518,7 @@ void ProductionUpdate::cancelAllUnitsOfType( const ThingTemplate *unitType)
 		{
 
 			// advance
-			production = production->m_next;
+			production = production->D().m_next;
 
 		}
 
@@ -540,59 +541,59 @@ void ProductionUpdate::updateDoors()
 		// if we were closing a door we will clear the closing condition after an amount of time
 		// has passed
 		//
-		if( m_doors[i].m_doorOpenedFrame )
+		if( D().m_doors[i].m_doorOpenedFrame )
 		{
 
-			if( now - m_doors[i].m_doorOpenedFrame > d->m_doorOpeningTime )
+			if( now - D().m_doors[i].m_doorOpenedFrame > d->m_doorOpeningTime )
 			{
 
 				// set our frame markers for door states
-				m_doors[i].m_doorOpenedFrame = 0;
-				m_doors[i].m_doorWaitOpenFrame = now;
+				D().m_doors[i].m_doorOpenedFrame = 0;
+				D().m_doors[i].m_doorWaitOpenFrame = now;
 
 				// set the flags that will show the difference in the model
-				m_clearFlags.set( theOpeningFlags[i], true );
-				m_setFlags.set( theOpeningFlags[i], false );
+				D().m_clearFlags.set( theOpeningFlags[i], true );
+				D().m_setFlags.set( theOpeningFlags[i], false );
 
-				m_setFlags.set( theWaitingOpenFlags[i] );
-				m_flagsDirty = TRUE;
+				D().m_setFlags.set( theWaitingOpenFlags[i] );
+				D().m_flagsDirty = TRUE;
 
 			}
 
 		}
-		else if( m_doors[i].m_doorWaitOpenFrame )
+		else if( D().m_doors[i].m_doorWaitOpenFrame )
 		{
 
-			if( now - m_doors[i].m_doorWaitOpenFrame > d->m_doorWaitOpenTime && !m_doors[i].m_holdOpen )
+			if( now - D().m_doors[i].m_doorWaitOpenFrame > d->m_doorWaitOpenTime && !D().m_doors[i].m_holdOpen )
 			{
 
 				// set our frame marker for closing
-				m_doors[i].m_doorWaitOpenFrame = 0;
-				m_doors[i].m_doorClosedFrame = now;
+				D().m_doors[i].m_doorWaitOpenFrame = 0;
+				D().m_doors[i].m_doorClosedFrame = now;
 
 				// set the flags that show the difference in the art
-				m_clearFlags.set( theWaitingOpenFlags[i], true );
-				m_setFlags.set( theWaitingOpenFlags[i], false );
+				D().m_clearFlags.set( theWaitingOpenFlags[i], true );
+				D().m_setFlags.set( theWaitingOpenFlags[i], false );
 
-				m_setFlags.set( theClosingFlags[i] );
-				m_flagsDirty = TRUE;
+				D().m_setFlags.set( theClosingFlags[i] );
+				D().m_flagsDirty = TRUE;
 
 			}
 
 		}
-		else if( m_doors[i].m_doorClosedFrame && !m_doors[i].m_holdOpen )
+		else if( D().m_doors[i].m_doorClosedFrame && !D().m_doors[i].m_holdOpen )
 		{
 
-			if( now - m_doors[i].m_doorClosedFrame > d->m_doorClosingTime )
+			if( now - D().m_doors[i].m_doorClosedFrame > d->m_doorClosingTime )
 			{
 
 				// set our frame marker for the closed door frame
-				m_doors[i].m_doorClosedFrame = 0;
+				D().m_doors[i].m_doorClosedFrame = 0;
 
 				// set the flags that will show the difference in the model
-				m_clearFlags.set( theClosingFlags[i], true );
-				m_setFlags.set( theClosingFlags[i], false );
-				m_flagsDirty = TRUE;
+				D().m_clearFlags.set( theClosingFlags[i], true );
+				D().m_setFlags.set( theClosingFlags[i], false );
+				D().m_flagsDirty = TRUE;
 
 			}
 
@@ -605,7 +606,7 @@ void ProductionUpdate::updateDoors()
 UpdateSleepTime ProductionUpdate::update()
 {
 /// @todo srj use SLEEPY_UPDATE here
-	ProductionEntry *production = m_productionQueue;
+	ProductionEntry *production = D().m_productionQueue;
 	const ProductionUpdateModuleData *d = getProductionUpdateModuleData();
 	UnsignedInt now = TheGameLogic->getFrame();
 	Object *us = getObject();
@@ -618,36 +619,36 @@ UpdateSleepTime ProductionUpdate::update()
 	// if we're in the construction complete state ... we need to check frame
 	// we're in it and get out of it when the time is up
 	//
-	if( m_constructionCompleteFrame )
+	if( D().m_constructionCompleteFrame )
 	{
 
-		if( now - m_constructionCompleteFrame > d->m_constructionCompleteDuration )
+		if( now - D().m_constructionCompleteFrame > d->m_constructionCompleteDuration )
 		{
 
 			// set our frame marker to be out of construction complete state
-			m_constructionCompleteFrame = 0;
+			D().m_constructionCompleteFrame = 0;
 
 			// set the flags that show the difference in the model
-			m_clearFlags.set( MODELCONDITION_CONSTRUCTION_COMPLETE, true );
-			m_setFlags.set( MODELCONDITION_CONSTRUCTION_COMPLETE, false );
-			m_flagsDirty = TRUE;
+			D().m_clearFlags.set( MODELCONDITION_CONSTRUCTION_COMPLETE, true );
+			D().m_setFlags.set( MODELCONDITION_CONSTRUCTION_COMPLETE, false );
+			D().m_flagsDirty = TRUE;
 
 		}
 
 	}
 
 	// if we have dirty bits that need to be set and cleared, do it here all at once
-	if( m_flagsDirty == TRUE )
+	if( D().m_flagsDirty == TRUE )
 	{
 		Drawable *draw = us->getDrawable();
 
 		if( draw )
-			draw->clearAndSetModelConditionFlags( m_clearFlags, m_setFlags );
+			draw->clearAndSetModelConditionFlags( D().m_clearFlags, D().m_setFlags );
 
 		// clear the things we just set and turn off our dirty flag
-		m_clearFlags.clear();
-		m_setFlags.clear();
-		m_flagsDirty = FALSE;
+		D().m_clearFlags.clear();
+		D().m_setFlags.clear();
+		D().m_flagsDirty = FALSE;
 
 	}
 
@@ -702,26 +703,26 @@ UpdateSleepTime ProductionUpdate::update()
 	}
 
 	// increase the frames we've been under production for
-	production->m_framesUnderConstruction++;
+	production->D().m_framesUnderConstruction++;
 
 	// how many total logic frames does it take to produce this unit
 	Int totalProductionFrames;
-	if( production->m_type == PRODUCTION_UNIT )
-		totalProductionFrames = production->m_objectToProduce->calcTimeToBuild( player );
+	if( production->D().m_type == PRODUCTION_UNIT )
+		totalProductionFrames = production->D().m_objectToProduce->calcTimeToBuild( player );
 	else
-		totalProductionFrames = production->m_upgradeToResearch->calcTimeToBuild( player );
+		totalProductionFrames = production->D().m_upgradeToResearch->calcTimeToBuild( player );
 
 	// figure out our percent complete
-	production->m_percentComplete = INT_TO_REAL( production->m_framesUnderConstruction ) /
+	production->D().m_percentComplete = INT_TO_REAL( production->D().m_framesUnderConstruction ) /
 																	INT_TO_REAL( totalProductionFrames ) *
 																	100.0f;
 
 	// if we've reached 100% or more we're done, tada!
-	if( production->m_percentComplete >= 100.0f )
+	if( production->D().m_percentComplete >= 100.0f )
 	{
 
 		// handle unit production items
-		if( production->m_type == PRODUCTION_UNIT )
+		if( production->D().m_type == PRODUCTION_UNIT )
 		{
 			Object *creationBuilding = us;
 
@@ -743,14 +744,14 @@ UpdateSleepTime ProductionUpdate::update()
 					ExitDoorType exitDoor = production->getExitDoor();
 					if (exitDoor == DOOR_NONE_AVAILABLE)
 					{
-						exitDoor = exitInterface->reserveDoorForExit(production->m_objectToProduce, nullptr);
+						exitDoor = exitInterface->reserveDoorForExit(production->D().m_objectToProduce, nullptr);
 						production->setExitDoor(exitDoor);
 					}
 
 					if (exitDoor != DOOR_NONE_AVAILABLE)
 					{
 						// note, could be DOOR_NONE_NEEDED! so door could be null. (srj)
-						DoorInfo* door = (exitDoor >= 0 && exitDoor < DOOR_COUNT_MAX) ? &m_doors[exitDoor] : nullptr;
+						DoorInfo* door = (exitDoor >= 0 && exitDoor < DOOR_COUNT_MAX) ? &D().m_doors[exitDoor] : nullptr;
 
 						//
 						// if the producing structure has a door opening animation we will set the condition
@@ -766,8 +767,8 @@ UpdateSleepTime ProductionUpdate::update()
 							{
 
 								door->m_doorOpenedFrame = now;
-								m_setFlags.set( theOpeningFlags[exitDoor] );
-								m_flagsDirty = TRUE;
+								D().m_setFlags.set( theOpeningFlags[exitDoor] );
+								D().m_flagsDirty = TRUE;
 
 							}
 							// if the door is waiting-open, keep it there
@@ -783,25 +784,25 @@ UpdateSleepTime ProductionUpdate::update()
 
 								door->m_doorWaitOpenFrame = now;
 
-								m_clearFlags.set( theOpeningFlags[exitDoor], true );
-								m_clearFlags.set( theClosingFlags[exitDoor], true );
-								m_setFlags.set( theOpeningFlags[exitDoor], false );
-								m_setFlags.set( theClosingFlags[exitDoor], false );
+								D().m_clearFlags.set( theOpeningFlags[exitDoor], true );
+								D().m_clearFlags.set( theClosingFlags[exitDoor], true );
+								D().m_setFlags.set( theOpeningFlags[exitDoor], false );
+								D().m_setFlags.set( theClosingFlags[exitDoor], false );
 
-								m_setFlags.set( theWaitingOpenFlags[exitDoor] );
-								m_flagsDirty = TRUE;
+								D().m_setFlags.set( theWaitingOpenFlags[exitDoor] );
+								D().m_flagsDirty = TRUE;
 
 							}
 
 						}
 
 						// we now go into the construction complete condition for a while
-						if( m_constructionCompleteFrame == 0 )
+						if( D().m_constructionCompleteFrame == 0 )
 						{
 
-							m_constructionCompleteFrame = now;
-							m_setFlags.set( MODELCONDITION_CONSTRUCTION_COMPLETE );
-							m_flagsDirty = TRUE;
+							D().m_constructionCompleteFrame = now;
+							D().m_setFlags.set( MODELCONDITION_CONSTRUCTION_COMPLETE );
+							D().m_flagsDirty = TRUE;
 
 						}
 
@@ -812,7 +813,7 @@ UpdateSleepTime ProductionUpdate::update()
 						//
 						if( d->m_numDoorAnimations == 0 || door == nullptr || door->m_doorWaitOpenFrame != 0 )
 						{
-							Object *newObj = TheThingFactory->newObject( production->m_objectToProduce,
+							Object *newObj = TheThingFactory->newObject( production->D().m_objectToProduce,
 																	creationBuilding->getControllingPlayer()->getDefaultTeam() );
 
 							newObj->setProducer(creationBuilding);
@@ -877,7 +878,7 @@ UpdateSleepTime ProductionUpdate::update()
 
 				// there is no exit interface, this is an error
 				DEBUG_CRASH( ("Cannot create '%s', there is no ExitUpdate interface defined for producer object '%s'",
-															production->m_objectToProduce->getName().str(),
+															production->D().m_objectToProduce->getName().str(),
 															creationBuilding->getTemplate()->getName().str()) );
 
 				// remove this item from the production queue
@@ -889,9 +890,9 @@ UpdateSleepTime ProductionUpdate::update()
 			}
 
 		}
-		else if( production->m_type == PRODUCTION_UPGRADE )
+		else if( production->D().m_type == PRODUCTION_UPGRADE )
 		{
-			const UpgradeTemplate *upgrade = production->m_upgradeToResearch;
+			const UpgradeTemplate *upgrade = production->D().m_upgradeToResearch;
 
 			// we finished an upgrade, lets add that money spent on it to the scorekeeper
 			player->getScoreKeeper()->addMoneySpent(upgrade->calcCostToBuild(player));
@@ -987,23 +988,23 @@ void ProductionUpdate::addToProductionQueue( ProductionEntry *production )
 {
 
 	// check for empty list
-	if( m_productionQueue == nullptr )
-		m_productionQueue = production;
+	if( D().m_productionQueue == nullptr )
+		D().m_productionQueue = production;
 
 	// make any existing tail pointer now point to us, and we point back to them
-	if( m_productionQueueTail )
+	if( D().m_productionQueueTail )
 	{
 
-		m_productionQueueTail->m_next = production;
-		production->m_prev = m_productionQueueTail;
+		D().m_productionQueueTail->D().m_next = production;
+		production->D().m_prev = D().m_productionQueueTail;
 
 	}
 
 	// this production entry is now the new tail at the end of the list
-	m_productionQueueTail = production;
+	D().m_productionQueueTail = production;
 
 	// we now have one more production item
-	++m_productionCount;
+	++D().m_productionCount;
 
 	// when something is in the queue ... we are in the actively constructing state
 	Drawable *draw = getObject()->getDrawable();
@@ -1014,8 +1015,8 @@ void ProductionUpdate::addToProductionQueue( ProductionEntry *production )
 		if( condition.test( MODELCONDITION_ACTIVELY_CONSTRUCTING ) == FALSE )
 		{
 
-			m_setFlags.set( MODELCONDITION_ACTIVELY_CONSTRUCTING );
-			m_flagsDirty = TRUE;
+			D().m_setFlags.set( MODELCONDITION_ACTIVELY_CONSTRUCTING );
+			D().m_flagsDirty = TRUE;
 
 		}
 
@@ -1028,30 +1029,30 @@ void ProductionUpdate::addToProductionQueue( ProductionEntry *production )
 //-------------------------------------------------------------------------------------------------
 void ProductionUpdate::removeFromProductionQueue( ProductionEntry *production )
 {
-	if (production->m_type == PRODUCTION_UNIT &&
-			production->m_exitDoor != DOOR_NONE_AVAILABLE)
+	if (production->D().m_type == PRODUCTION_UNIT &&
+			production->D().m_exitDoor != DOOR_NONE_AVAILABLE)
 	{
 		ExitInterface* exitInterface = getObject()->getObjectExitInterface();
 		if (exitInterface)
 		{
-			exitInterface->unreserveDoorForExit(production->m_exitDoor);
+			exitInterface->unreserveDoorForExit(production->D().m_exitDoor);
 		}
 	}
 
 	// detach prev pointer, keep head pointer to the whole queue in tact
-	if( production->m_prev )
-		production->m_prev->m_next = production->m_next;
+	if( production->D().m_prev )
+		production->D().m_prev->D().m_next = production->D().m_next;
 	else
-		m_productionQueue = production->m_next;
+		D().m_productionQueue = production->D().m_next;
 
 	// detach next pointer, keep tail pointer to the whole queue in tact
-	if( production->m_next )
-		production->m_next->m_prev = production->m_prev;
+	if( production->D().m_next )
+		production->D().m_next->D().m_prev = production->D().m_prev;
 	else
-		m_productionQueueTail = production->m_prev;
+		D().m_productionQueueTail = production->D().m_prev;
 
 	// we now have one less production item
-	--m_productionCount;
+	--D().m_productionCount;
 
 	// when we go back to zero things in our queue, we clear the constructing state
 	Drawable *draw = getObject()->getDrawable();
@@ -1059,12 +1060,12 @@ void ProductionUpdate::removeFromProductionQueue( ProductionEntry *production )
 	{
 		ModelConditionFlags condition = draw->getModelConditionFlags();
 
-		if( m_productionCount == 0 && condition.test( MODELCONDITION_ACTIVELY_CONSTRUCTING ) == TRUE )
+		if( D().m_productionCount == 0 && condition.test( MODELCONDITION_ACTIVELY_CONSTRUCTING ) == TRUE )
 		{
 
-			m_clearFlags.set( MODELCONDITION_ACTIVELY_CONSTRUCTING, true );
-			m_setFlags.set( MODELCONDITION_ACTIVELY_CONSTRUCTING, false );
-			m_flagsDirty = TRUE;
+			D().m_clearFlags.set( MODELCONDITION_ACTIVELY_CONSTRUCTING, true );
+			D().m_setFlags.set( MODELCONDITION_ACTIVELY_CONSTRUCTING, false );
+			D().m_flagsDirty = TRUE;
 
 		}
 
@@ -1142,16 +1143,16 @@ void ProductionUpdate::cancelAndRefundAllProduction()
 	for (i=0; i<productionLimit; i++)
 	{
 		// iterate through our production queue
-		if( m_productionQueue )
+		if( D().m_productionQueue )
 		{
-			if( m_productionQueue->getProductionType() == PRODUCTION_UNIT )
-				cancelUnitCreate( m_productionQueue->getProductionID() );
-			else if( m_productionQueue->getProductionType() == PRODUCTION_UPGRADE )
-				cancelUpgrade( m_productionQueue->getProductionUpgrade() );
+			if( D().m_productionQueue->getProductionType() == PRODUCTION_UNIT )
+				cancelUnitCreate( D().m_productionQueue->getProductionID() );
+			else if( D().m_productionQueue->getProductionType() == PRODUCTION_UPGRADE )
+				cancelUpgrade( D().m_productionQueue->getProductionUpgrade() );
 			else
 			{
 				// unknown production type
-				DEBUG_CRASH(( "ProductionUpdate::cancelAndRefundAllProduction - Unknown production type '%d'", m_productionQueue->getProductionType() ));
+				DEBUG_CRASH(( "ProductionUpdate::cancelAndRefundAllProduction - Unknown production type '%d'", D().m_productionQueue->getProductionType() ));
 				return;
 			}
 		}
@@ -1164,13 +1165,13 @@ void ProductionUpdate::setHoldDoorOpen(ExitDoorType exitDoor, Bool holdIt)
 {
 	if (exitDoor >= DOOR_1 && exitDoor < DOOR_COUNT_MAX)
 	{
-		DoorInfo& door = m_doors[exitDoor];
+		DoorInfo& door = D().m_doors[exitDoor];
 		door.m_holdOpen = holdIt;
 		if (holdIt && door.m_doorOpenedFrame == 0 && door.m_doorWaitOpenFrame == 0 && door.m_doorClosedFrame == 0)
 		{
 			door.m_doorOpenedFrame = TheGameLogic->getFrame();
-			m_setFlags.set( theOpeningFlags[exitDoor] );
-			m_flagsDirty = TRUE;
+			D().m_setFlags.set( theOpeningFlags[exitDoor] );
+			D().m_flagsDirty = TRUE;
 		}
 	}
 }
@@ -1232,7 +1233,7 @@ void ProductionUpdate::xfer( Xfer *xfer )
 	// production queue count
 	ProductionEntry *production;
 	UnsignedShort productionCount = 0;
-	for( production = m_productionQueue; production; production = production->m_next )
+	for( production = D().m_productionQueue; production; production = production->D().m_next )
 		productionCount++;
 	xfer->xferUnsignedShort( &productionCount );
 
@@ -1242,36 +1243,36 @@ void ProductionUpdate::xfer( Xfer *xfer )
 		AsciiString name;
 
 		// write all queue data
-		for( production = m_productionQueue; production; production = production->m_next )
+		for( production = D().m_productionQueue; production; production = production->D().m_next )
 		{
 
 			// type
-			xfer->xferUser( &production->m_type, sizeof( ProductionType ) );
+			xfer->xferUser( &production->D().m_type, sizeof( ProductionType ) );
 
 			// thing/upgrade template name
-			if( production->m_type == PRODUCTION_UNIT )
-				name = production->m_objectToProduce->getName();
+			if( production->D().m_type == PRODUCTION_UNIT )
+				name = production->D().m_objectToProduce->getName();
 			else
-				name = production->m_upgradeToResearch->getUpgradeName();
+				name = production->D().m_upgradeToResearch->getUpgradeName();
 			xfer->xferAsciiString( &name );
 
 			// production ID
-			xfer->xferUser( &production->m_productionID, sizeof( ProductionID ) );
+			xfer->xferUser( &production->D().m_productionID, sizeof( ProductionID ) );
 
 			// percent complete
-			xfer->xferReal( &production->m_percentComplete );
+			xfer->xferReal( &production->D().m_percentComplete );
 
 			// frames under construction
-			xfer->xferInt( &production->m_framesUnderConstruction );
+			xfer->xferInt( &production->D().m_framesUnderConstruction );
 
 			// production quantity
-			xfer->xferInt( &production->m_productionQuantityTotal );
+			xfer->xferInt( &production->D().m_productionQuantityTotal );
 
 			// production quantity in progress
-			xfer->xferInt( &production->m_productionQuantityProduced );
+			xfer->xferInt( &production->D().m_productionQuantityProduced );
 
 			// exit door
-			xfer->xferInt( (Int*)&production->m_exitDoor );
+			xfer->xferInt( (Int*)&production->D().m_exitDoor );
 
 		}
 
@@ -1281,10 +1282,10 @@ void ProductionUpdate::xfer( Xfer *xfer )
 		AsciiString name;
 
 		// the queue should be empty now
-		if( m_productionQueue != nullptr )
+		if( D().m_productionQueue != nullptr )
 		{
 
-			DEBUG_CRASH(( "ProductionUpdate::xfer - m_productionQueue is not empty, but should be" ));
+			DEBUG_CRASH(( "ProductionUpdate::xfer - D().m_productionQueue is not empty, but should be" ));
 			throw SC_INVALID_DATA;
 
 		}
@@ -1297,31 +1298,31 @@ void ProductionUpdate::xfer( Xfer *xfer )
 			production = newInstance(ProductionEntry);
 
 			// tie to list at end
-			if( m_productionQueue == nullptr )
-				m_productionQueue = production;
+			if( D().m_productionQueue == nullptr )
+				D().m_productionQueue = production;
 
 			// make any existing tail pointer now point to us, and we point back to them
-			if( m_productionQueueTail )
+			if( D().m_productionQueueTail )
 			{
 
-				m_productionQueueTail->m_next = production;
-				production->m_prev = m_productionQueueTail;
+				D().m_productionQueueTail->D().m_next = production;
+				production->D().m_prev = D().m_productionQueueTail;
 
 			}
 
 			// this production entry is now the new tail at the end of the list
-			m_productionQueueTail = production;
+			D().m_productionQueueTail = production;
 
 			// type
-			xfer->xferUser( &production->m_type, sizeof( ProductionType ) );
+			xfer->xferUser( &production->D().m_type, sizeof( ProductionType ) );
 
 			// thing/upgrade template name
 			xfer->xferAsciiString( &name );
-			if( production->m_type == PRODUCTION_UNIT )
+			if( production->D().m_type == PRODUCTION_UNIT )
 			{
 
-				production->m_objectToProduce = TheThingFactory->findTemplate( name );
-				if( production->m_objectToProduce == nullptr )
+				production->D().m_objectToProduce = TheThingFactory->findTemplate( name );
+				if( production->D().m_objectToProduce == nullptr )
 				{
 
 					DEBUG_CRASH(( "ProductionUpdate::xfer - Cannot find template '%s'", name.str() ));
@@ -1333,8 +1334,8 @@ void ProductionUpdate::xfer( Xfer *xfer )
 			else
 			{
 
-				production->m_upgradeToResearch = TheUpgradeCenter->findUpgrade( name );
-				if( production->m_upgradeToResearch == nullptr )
+				production->D().m_upgradeToResearch = TheUpgradeCenter->findUpgrade( name );
+				if( production->D().m_upgradeToResearch == nullptr )
 				{
 
 					DEBUG_CRASH(( "ProductionUpdate::xfer - Cannot find upgrade '%s'", name.str() ));
@@ -1345,47 +1346,47 @@ void ProductionUpdate::xfer( Xfer *xfer )
 			}
 
 			// production ID
-			xfer->xferUser( &production->m_productionID, sizeof( ProductionID ) );
+			xfer->xferUser( &production->D().m_productionID, sizeof( ProductionID ) );
 
 			// percent complete
-			xfer->xferReal( &production->m_percentComplete );
+			xfer->xferReal( &production->D().m_percentComplete );
 
 			// frames under construction
-			xfer->xferInt( &production->m_framesUnderConstruction );
+			xfer->xferInt( &production->D().m_framesUnderConstruction );
 
 			// production quantity
-			xfer->xferInt( &production->m_productionQuantityTotal );
+			xfer->xferInt( &production->D().m_productionQuantityTotal );
 
 			// production quantity in progress
-			xfer->xferInt( &production->m_productionQuantityProduced );
+			xfer->xferInt( &production->D().m_productionQuantityProduced );
 
 			// exit door
-			xfer->xferInt( (Int*)&production->m_exitDoor );
+			xfer->xferInt( (Int*)&production->D().m_exitDoor );
 
 		}
 
 	}
 
 	// unique id
-	xfer->xferUser( &m_uniqueID, sizeof( ProductionID ) );
+	xfer->xferUser( &D().m_uniqueID, sizeof( ProductionID ) );
 
 	// production count
-	xfer->xferUnsignedInt( &m_productionCount );
+	xfer->xferUnsignedInt( &D().m_productionCount );
 
 	// construction complete frame
-	xfer->xferUnsignedInt( &m_constructionCompleteFrame );
+	xfer->xferUnsignedInt( &D().m_constructionCompleteFrame );
 
 	// door info
-	xfer->xferUser( &m_doors, sizeof( DoorInfo ) * DOOR_COUNT_MAX );
+	xfer->xferUser( &D().m_doors, sizeof( DoorInfo ) * DOOR_COUNT_MAX );
 
 	// clear flags
-	m_clearFlags.xfer( xfer );
+	D().m_clearFlags.xfer( xfer );
 
 	// set flags
-	m_setFlags.xfer( xfer );
+	D().m_setFlags.xfer( xfer );
 
 	// flags dirty
-	xfer->xferBool( &m_flagsDirty );
+	xfer->xferBool( &D().m_flagsDirty );
 
 }
 

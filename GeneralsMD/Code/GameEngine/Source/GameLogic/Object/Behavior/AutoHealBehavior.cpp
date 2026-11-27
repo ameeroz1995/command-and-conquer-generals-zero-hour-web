@@ -30,6 +30,8 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxUnitStore.h"
+#include <cstdio>
 #include "Common/Thing.h"
 #include "Common/ThingTemplate.h"
 #include "Common/INI.h"
@@ -49,6 +51,31 @@
 #define GXROW_AUTOHEALBEHAVIOR (const_cast<GxAutoHealBehaviorRow &>(*m_gxAutoHealBehaviorRow))
 
 
+
+
+// combat (health column): "below max health" from the unit store's health columns; verify mode
+// (page switch bit 21) also asks the body and counts differences
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#else
+static int GLES3_Page_Switches() { return 0; }
+#endif
+static Bool gxBelowMaxHealth(const Object *o)
+{
+	const BodyModuleInterface *body = o->getBodyModule();
+	const int s = TheGxUnitStore.slotOf(o);
+	if (s < 0)
+		return body->getHealth() < body->getMaxHealth();
+	const Bool r = TheGxUnitStore.health[s] < TheGxUnitStore.maxHealth[s];
+	if (GLES3_Page_Switches() & 2097152)
+	{
+		static unsigned checked = 0, mismatches = 0;
+		++checked;
+		if (r != (body->getHealth() < body->getMaxHealth())) ++mismatches;
+		if (checked % 5000 == 0) printf("GXVERIFY health column: checked %u, mismatches %u\n", checked, mismatches);
+	}
+	return r;
+}
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -84,7 +111,7 @@ static void checkForAutoHeal( Object *testObj, void *userData )
 	if( testObj->isAnyKindOf( helper->m_forbiddenKindOf ) )
 		return;
 
-	if( testObj->getBodyModule()->getHealth() >= testObj->getBodyModule()->getMaxHealth() )
+	if( !gxBelowMaxHealth(testObj) )
 		return;
 
 	listToAddTo->push_back(testObj);
@@ -232,8 +259,7 @@ UpdateSleepTime AutoHealBehavior::update()
 		//ORIGINAL SYSTEM -- JUST HEAL SELF!
 
 		// do not heal if we are at max health already
-		BodyModuleInterface *body = obj->getBodyModule();
-		if( body->getHealth() < body->getMaxHealth() )
+		if( gxBelowMaxHealth(obj) )
 		{
   		pulseHealObject( obj );
 			return UPDATE_SLEEP(d->m_healingDelay);
@@ -259,8 +285,7 @@ UpdateSleepTime AutoHealBehavior::update()
 		for( obj = iter->first(); obj; obj = iter->next() )
 		{
 			// do not heal if we are at max health already
-			BodyModuleInterface *body = obj->getBodyModule();
-			if( body->getHealth() < body->getMaxHealth() )
+			if( gxBelowMaxHealth(obj) )
 			{
 				if( obj->isAnyKindOf( d->m_kindOf ) && !obj->isAnyKindOf( d->m_forbiddenKindOf ) )
 				{

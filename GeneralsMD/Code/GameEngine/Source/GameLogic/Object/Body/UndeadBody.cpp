@@ -61,7 +61,6 @@ UndeadBodyModuleData::UndeadBodyModuleData()
 UndeadBody::UndeadBody( Thing *thing, const ModuleData* moduleData )
 						 : ActiveBody( thing, moduleData )
 {
-	m_isSecondLife = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -80,7 +79,7 @@ void UndeadBody::attemptDamage( DamageInfo *damageInfo )
 	Bool shouldStartSecondLife = FALSE;
 
 	if( damageInfo->in.m_damageType != DAMAGE_UNRESISTABLE
-			&& !m_isSecondLife
+			&& !m_gxUndeadBody->m_isSecondLife
 #if RETAIL_COMPATIBLE_CRC || PRESERVE_RETAIL_BEHAVIOR
 			&& damageInfo->in.m_amount >= getHealth()
 #else
@@ -108,7 +107,7 @@ void UndeadBody::startSecondLife(DamageInfo *damageInfo)
 	const UndeadBodyModuleData *data = getUndeadBodyModuleData();
 
 	// Flag module as no longer intercepting damage
-	m_isSecondLife = TRUE;
+	m_gxUndeadBody->m_isSecondLife = TRUE;
 
 	// Modify ActiveBody's max health and initial health
 	setMaxHealth(data->m_secondLifeMaxHealth, FULLY_HEAL);
@@ -177,7 +176,7 @@ void UndeadBody::xfer( Xfer *xfer )
 	// extend base class
 	ActiveBody::xfer( xfer );
 
-	xfer->xferBool(&m_isSecondLife);
+	xfer->xferBool(&m_gxUndeadBody->m_isSecondLife);
 
 }
 
