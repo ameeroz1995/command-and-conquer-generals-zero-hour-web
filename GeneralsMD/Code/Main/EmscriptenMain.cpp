@@ -745,6 +745,31 @@ int main(int argc, char *argv[]) {
                         "Mapping virtual filesystem");
       BigVFS::Mount_To_Emscripten_FS();
 
+      // Loose game files that are not in any .big: the skirmish and multiplayer AI scripts
+      // (the install's Data/Scripts/*.scb). Without SkirmishScripts.scb the AI players of a
+      // skirmish get no scripts and never build (SidesList::prepareForMP_or_Skirmish). Read
+      // from assets/Data/Scripts/ into MEMFS at the path LocalFile opens (lower case,
+      // forward slashes, relative to /). A missing file is only logged, as before.
+      EM_ASM({
+        (function (base) {
+          ["SkirmishScripts.scb", "MultiplayerScripts.scb"].forEach(function (f) {
+            try {
+              var x = new XMLHttpRequest();
+              x.open("GET", base + "Data/Scripts/" + f, false);
+              x.overrideMimeType("text/plain; charset=x-user-defined");
+              x.send(null);
+              if (x.status !== 200) { console.warn("[GeneralsX] loose file Data/Scripts/" + f + ": HTTP " + x.status); return; }
+              var t = x.responseText || "", u8 = new Uint8Array(t.length);
+              for (var i = 0; i < t.length; ++i) u8[i] = t.charCodeAt(i) & 0xff;
+              try { FS.mkdir("/data"); } catch (e) {}
+              try { FS.mkdir("/data/scripts"); } catch (e) {}
+              FS.writeFile("/data/scripts/" + f.toLowerCase(), u8);
+              console.log("[GeneralsX] loose file Data/Scripts/" + f + ": " + u8.length + " bytes");
+            } catch (e) { console.warn("[GeneralsX] loose file Data/Scripts/" + f + ": " + e); }
+          });
+        })(UTF8ToString($0));
+      }, asset_base_url);
+
       // Diagnostic: probe the BigVFS lookup with the exact path the engine
       // uses for a menu .wnd file. If this prints `size=0` or "not found",
       // the engine's later fopen on the empty MEMFS placeholder will give
