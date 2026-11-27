@@ -25,7 +25,7 @@ static inline int GLES3_Page_Switches4() { return 0; }
 static inline double emscripten_get_now() { return 0.0; }
 #endif
 
-enum GxTimeId { GXT_LOGIC, GXT_FRAME, GXT_SEARCH, GXT_FOG_REVEAL, GXT_MOVE, GXT_MOVE_KERNEL, GXT_AI_LOOP, GXT_AI_KERNELS, GXT_PATHFIND, GXT_LOCO, GXT_SNAP, GXT_PATCH, GXT_PART_UPDATE, GXT_CELLS, GXT_PAIRS, GXT_TIME_COUNT };
+enum GxTimeId { GXT_LOGIC, GXT_FRAME, GXT_SEARCH, GXT_FOG_REVEAL, GXT_MOVE, GXT_MOVE_KERNEL, GXT_AI_LOOP, GXT_AI_KERNELS, GXT_PATHFIND, GXT_LOCO, GXT_SNAP, GXT_PATCH, GXT_PART_UPDATE, GXT_CELLS, GXT_PAIRS, GXT_BATCH_CULL, GXT_TIME_COUNT };
 enum GxCountId
 {
 	GXC_SEARCHES, GXC_SEARCH_CELLS, GXC_SEARCH_ENTRIES, GXC_SEARCH_UNITS, GXC_SIMD_CULLED,
@@ -34,7 +34,7 @@ enum GxCountId
 	GXC_AI_MODULE_CALLS, GXC_AI_KERNEL_SLOTS,
 	GXC_PATH_FINDS, GXC_PATH_CELLS, GXC_LOCO_CALLS, GXC_CPOP_CALLS, GXC_CPOP_SIMD_SEGS,
 	GXC_MOOD_SCANS, GXC_BATCH_SCANNED, GXC_BATCH_USED, GXC_BATCH_CALLS, GXC_ALLOCS, GXC_AI_ALLOCS, GXC_HEAP_PUSHES, GXC_HEAP_STEPS,
-	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES,
+	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES, GXC_BATCH_SEEKERS,
 	GXC_COUNT
 };
 
@@ -91,14 +91,14 @@ inline void gxTimeTickEnd()
 	GxTimeState &s = gxTime();
 	if (++s.ticks % 300) return;
 	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "move", "moveKernel", "aiLoop", "aiKernels", "pathfind", "loco",
-		"snapBuild", "snapPatch", "partUpdate", "cellsTouched", "pairOffers" };
+		"snapBuild", "snapPatch", "partUpdate", "cellsTouched", "pairOffers", "bsCull" };
 	static const char *cn[GXC_COUNT] = { "searches", "searchCells", "searchEntries", "searchUnits", "simdCulled",
 		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept",
 		"moveUnits", "moveKernelPoints", "moveKernelTaken", "moveApplyPoints", "hordeSearches",
 		"aiModuleCalls", "aiKernelSlots",
 		"pathFinds", "pathCells", "locoCalls", "cpopCalls", "cpopSimdSegs",
 		"moodScans", "batchScanned", "batchUsed", "batches", "allocs", "aiAllocs", "heapOps", "heapSteps",
-		"pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates" };
+		"pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates", "bsSeekers" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())
