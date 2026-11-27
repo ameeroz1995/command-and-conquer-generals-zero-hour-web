@@ -411,21 +411,28 @@ static void Apply_Render_State(RenderStateStruct& render_state)
 // textures, view, lights) is the same become one draw. Same triangles, same order.
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
+extern int GLES3_Page_Switches3();
 #endif
 
+unsigned gx_sort_why[6] = {}; // GXSORT log: run breaks by the first differing state: shader, material, texture, view, lights; merges
 static bool Same_Sorting_State(const RenderStateStruct& a, const RenderStateStruct& b)
 {
-	if (a.shader.Get_Bits() != b.shader.Get_Bits() || a.material != b.material) return false;
+	if (a.shader.Get_Bits() != b.shader.Get_Bits()) { gx_sort_why[0]++; return false; }
+	// Settings switch sortMaterials: separate material objects with the same contents (their CRC,
+	// which covers the colours, flags, sources and the mapper object) also merge.
+	if (a.material != b.material && !((GLES3_Page_Switches3() & 67108864) && a.material && b.material &&
+	    a.material->Get_CRC() == b.material->Get_CRC())) { gx_sort_why[1]++; return false; }
 	for (int i=0;i<DX8Wrapper::Get_Current_Caps()->Get_Max_Textures_Per_Pass();++i)
-		if (a.Textures[i] != b.Textures[i]) return false;
-	if (memcmp(&a.view, &b.view, sizeof(a.view))) return false;
+		if (a.Textures[i] != b.Textures[i]) { gx_sort_why[2]++; return false; }
+	if (memcmp(&a.view, &b.view, sizeof(a.view))) { gx_sort_why[3]++; return false; }
 	if (a.material && a.material->Get_Lighting()) {
 		for (int i=0;i<4;++i) {
-			if (a.LightEnable[i] != b.LightEnable[i]) return false;
+			if (a.LightEnable[i] != b.LightEnable[i]) { gx_sort_why[4]++; return false; }
 			if (!a.LightEnable[i]) break;	// Apply_Render_State stops at the first light that is off
-			if (memcmp(&a.Lights[i], &b.Lights[i], sizeof(a.Lights[i]))) return false;
+			if (memcmp(&a.Lights[i], &b.Lights[i], sizeof(a.Lights[i]))) { gx_sort_why[4]++; return false; }
 		}
 	}
+	gx_sort_why[5]++;
 	return true;
 }
 
@@ -668,6 +675,9 @@ void SortingRendererClass::Flush_Sorting_Pool()
 
 void SortingRendererClass::Flush()
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(6); // draw counts by kind (benchmark)
+#endif
 	WWPROFILE("SortingRenderer::Flush");
 	Matrix4x4 old_view;
 	Matrix4x4 old_world;

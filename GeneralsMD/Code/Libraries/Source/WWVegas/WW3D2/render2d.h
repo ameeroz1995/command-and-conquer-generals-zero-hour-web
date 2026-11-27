@@ -100,7 +100,12 @@ public:
 
 	virtual	void	Reset();
 	void	Render();
-	static void (*PreRenderHook)( Render2DClass *about );	// web port: called before any Render (W3DDisplay draws its collected status bars first)
+	static void (*PreRenderHook)( Render2DClass *about );
+	// Web port (Settings switch uiMerge): inside the interface pass (W3DDisplay's GX_RectBatch_Begin/End)
+	// consecutive renders with the same texture and shader are collected and drawn as one;
+	// Flush_Merged draws what is collected (W3DDisplay calls it wherever something else draws).
+	static bool MergeEnabled;
+	static void Flush_Merged();	// web port: called before any Render (W3DDisplay draws its collected status bars first)
 
 	void	Set_Coordinate_Range( const RectClass & range );
 

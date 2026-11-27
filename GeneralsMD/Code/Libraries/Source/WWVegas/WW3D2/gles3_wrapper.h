@@ -244,6 +244,7 @@ struct GLES3_PipelineState {
   unsigned int render_states[GLES3_RS_MAX];
   bool vertex_has_color; // current FVF carries D3DFVF_DIFFUSE
   bool pretransformed;   // current FVF is D3DFVF_XYZRHW (screen-space positions)
+  unsigned char multi_draw; // GLES3_Draw_Triangles_Multi in progress: 1 world matrix per draw (gl_DrawID), 2 also its lights
   unsigned int pixel_shader;   // GLES3_Create_Pixel_Shader handle, 0 = fixed function
   float ps_const[8][4];        // pixel shader constants c0-c7
   GLuint shroud_tex;           // GLES3_Set_Shroud_Fold: 0 = off
@@ -316,6 +317,7 @@ struct GLES3_FFKey {
   // 0 off, 1 point, 2 spot, 3 directional); D3DRS_COLORVERTEX material sources (3 bits).
   unsigned char vtex[4];
   unsigned char lights, cvert;
+  unsigned char mdraw; // multi-part draw: world matrix and uv offset per gl_DrawID (GLES3_Draw_Triangles_Multi)
 };
 std::string GLES3_FF_Generate_GLSL(const GLES3_FFKey &key);
 std::string GLES3_VS_Generate_GLSL(const GLES3_FFKey &key);
@@ -551,6 +553,16 @@ void GLES3_Draw_Triangles_Instanced(unsigned int prim_type,
                                     unsigned int num_vertices,
                                     const float* world_matrices,
                                     unsigned int instance_count);
+// Many index ranges of the bound buffers in one call (WEBGL_multi_draw). Per draw: a world matrix
+// (16 floats, D3D layout) and an optional stage 0 uv offset. False: not available, nothing drawn.
+bool GLES3_Multi_Draw_Available();
+// light_rows (optional, multiLights): per draw GLES3_MULTI_LIGHT_FLOATS floats: the global ambient, then
+// 4 lights of 5 vec4 each (diffuse, ambient, position + range, direction, attenuation 0-2 + type).
+enum { GLES3_MULTI_LIGHT_FLOATS = 84 };
+bool GLES3_Draw_Triangles_Multi(const int* index_counts, const int* byte_offsets, unsigned int count,
+                                const float* world_matrices, const float* uv_offsets, const float* light_rows = nullptr);
+extern const int* gx_multi_counts; extern const int* gx_multi_offsets; extern unsigned int gx_multi_count;
+extern const float* gx_multi_matrices; extern const float* gx_multi_uv; extern const float* gx_multi_lights;
 void GLES3_Draw_Arrays(unsigned int prim_type,
                         unsigned int start_vertex,
                         unsigned int prim_count);

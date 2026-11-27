@@ -2496,6 +2496,21 @@ void DX8Wrapper::Draw_Triangles_Skinned(unsigned short start_index, unsigned sho
 #endif
 }
 
+
+void DX8Wrapper::Draw_Triangles_Multi(const int* index_counts, const int* byte_offsets, unsigned int count,
+                                      const float* world_matrices, const float* uv_offsets, const float* light_rows) {
+  DX8_THREAD_ASSERT();
+  Apply_Render_State_Changes();
+#ifdef __EMSCRIPTEN__
+  gx_multi_counts = index_counts; gx_multi_offsets = byte_offsets; gx_multi_count = count;
+  gx_multi_matrices = world_matrices; gx_multi_uv = uv_offsets; gx_multi_lights = light_rows;
+  D3DDevice->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 65535, 0, 1);
+  gx_multi_count = 0;
+  gx_multi_uv = nullptr;
+  gx_multi_lights = nullptr;
+#endif
+}
+
 void DX8Wrapper::Draw_Triangles_Instanced(unsigned short start_index,
                                           unsigned short polygon_count,
                                           unsigned short min_vertex_index,

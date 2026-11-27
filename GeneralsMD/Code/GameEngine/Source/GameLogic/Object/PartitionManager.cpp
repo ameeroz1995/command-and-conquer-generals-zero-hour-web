@@ -60,6 +60,7 @@
 #include "Common/ActionManager.h"
 #include "Common/DiscreteCircle.h"
 #include "Common/GxTime.h"	// also declares GLES3_Page_Switches4
+#include <optional>
 #ifdef __wasm_simd128__
 #include <wasm_simd128.h>
 #endif

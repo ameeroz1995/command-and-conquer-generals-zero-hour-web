@@ -723,7 +723,7 @@ void GameClient::update()
 		}
 	}
 
-#if defined(RTS_DEBUG)
+#if defined(RTS_DEBUG) || defined(__EMSCRIPTEN__)	// web port: bench no-drawing mode (GX_Bench_NoDraw)
 	// need to draw the first frame, then don't draw again until TheGlobalData->m_noDraw
 	if (TheGlobalData->m_noDraw > TheGameLogic->getFrame() && TheGameLogic->getFrame() > 0)
 	{

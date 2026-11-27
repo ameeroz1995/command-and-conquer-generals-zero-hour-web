@@ -599,13 +599,101 @@ void	Render2DClass::Add_Outline( const RectClass & rect, float width, const Rect
 }
 
 void (*Render2DClass::PreRenderHook)( Render2DClass *about ) = nullptr;
+bool Render2DClass::MergeEnabled = false;
+#ifdef __EMSCRIPTEN__
+#include <vector>
+static struct {
+	bool on = false; TextureClass * tex = nullptr; ShaderClass shader;
+	std::vector<Vector3> pos; std::vector<Vector2> uv; std::vector<unsigned> col; std::vector<unsigned short> idx;
+} gx_ui;
+#endif
+void Render2DClass::Flush_Merged()
+{
+#ifdef __EMSCRIPTEN__
+	if (!gx_ui.on) return;
+	gx_ui.on = false;
+	// As Render() below draws one Render2DClass (its non-grey path), for the collected ones.
+	Matrix4x4 view,proj;
+	Matrix4x4 identity(true);
+	DX8Wrapper::Get_Transform(D3DTS_VIEW,view);
+	DX8Wrapper::Get_Transform(D3DTS_PROJECTION,proj);
+	int width, height, bits;
+	bool windowed;
+	WW3D::Get_Device_Resolution( width, height, bits, windowed );
+	D3DVIEWPORT8 vp = { 0 };
+	vp.Width = width; vp.Height = height; vp.MinZ = 0; vp.MaxZ = 1;
+	DX8Wrapper::Set_Viewport(&vp);
+	DX8Wrapper::Set_Texture(0,gx_ui.tex);
+	VertexMaterialClass *vm=VertexMaterialClass::Get_Preset(VertexMaterialClass::PRELIT_DIFFUSE);
+	DX8Wrapper::Set_Material(vm);
+	REF_PTR_RELEASE(vm);
+	DX8Wrapper::Set_World_Identity();
+	DX8Wrapper::Set_View_Identity();
+	DX8Wrapper::Set_Transform(D3DTS_PROJECTION,identity);
+	const int nv = (int)gx_ui.pos.size(), ni = (int)gx_ui.idx.size();
+	DynamicVBAccessClass vb(BUFFER_TYPE_DYNAMIC_DX8,dynamic_fvf_type,nv);
+	{
+		DynamicVBAccessClass::WriteLockClass Lock(&vb);
+		const FVFInfoClass &fi=vb.FVF_Info();
+		unsigned char *va=(unsigned char*)Lock.Get_Formatted_Vertex_Array();
+		for (int i=0; i<nv; i++) {
+			*(Vector3*)(va+fi.Get_Location_Offset())=gx_ui.pos[i];
+			*(unsigned int*)(va+fi.Get_Diffuse_Offset())=gx_ui.col[i];
+			*(Vector2*)(va+fi.Get_Tex_Offset(0))=gx_ui.uv[i];
+			va+=fi.Get_FVF_Size();
+		}
+	}
+	DynamicIBAccessClass ib(BUFFER_TYPE_DYNAMIC_DX8,ni);
+	{
+		DynamicIBAccessClass::WriteLockClass Lock(&ib);
+		unsigned short *mem=Lock.Get_Index_Array();
+		for (int i=0; i<ni; i++) mem[i]=gx_ui.idx[i];
+	}
+	DX8Wrapper::Set_Vertex_Buffer(vb);
+	DX8Wrapper::Set_Index_Buffer(ib,0);
+	DX8Wrapper::Set_Shader(gx_ui.shader);
+	DX8Wrapper::Draw_Triangles(0,ni/3,0,nv);
+	DX8Wrapper::Set_Transform(D3DTS_VIEW,view);
+	DX8Wrapper::Set_Transform(D3DTS_PROJECTION,proj);
+	REF_PTR_RELEASE(gx_ui.tex);
+	gx_ui.pos.clear(); gx_ui.uv.clear(); gx_ui.col.clear(); gx_ui.idx.clear();
+#endif
+}
 
 void Render2DClass::Render()
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(7); // draw counts by kind (benchmark)
+#endif
 	if ( !Indices.Count() || IsHidden) {
 		return;
 	}
 	if ( PreRenderHook ) PreRenderHook( this );
+#ifdef __EMSCRIPTEN__
+	{	// GXUI log: interface draws that directly follow one with the same texture, blending and grey mode
+		extern unsigned gx_draw_cat_count[16]; extern unsigned gx_ui_why[2];
+		static unsigned last_total = ~0u; static const void* last_tex = nullptr; static unsigned last_bits = 0; static bool last_grey = false;
+		unsigned total = 0; for (int c = 0; c < 16; c++) total += gx_draw_cat_count[c];
+		const bool same = total == last_total && last_tex == (const void*)Texture && last_bits == Shader.Get_Bits() && last_grey == IsGrayScale;
+		gx_ui_why[same ? 0 : 1]++;
+		last_tex = Texture; last_bits = Shader.Get_Bits(); last_grey = IsGrayScale;
+		last_total = total + 1;	// this call's own draw
+	}
+	if (MergeEnabled && !IsGrayScale) {	// collect; drawn by Flush_Merged
+		if (gx_ui.on && (gx_ui.tex != Texture || gx_ui.shader.Get_Bits() != Shader.Get_Bits() || gx_ui.pos.size() + Vertices.Count() > 65535))
+			Flush_Merged();
+		if (!gx_ui.on) { gx_ui.on = true; REF_PTR_SET(gx_ui.tex, Texture); gx_ui.shader = Shader; }
+		const unsigned short base = (unsigned short)gx_ui.pos.size();
+		for (int i = 0; i < Vertices.Count(); i++) {
+			gx_ui.pos.push_back(Vector3(Vertices[i].X, Vertices[i].Y, ZValue));
+			gx_ui.uv.push_back(UVCoordinates[i]);
+			gx_ui.col.push_back((unsigned)Colors[i]);
+		}
+		for (int i = 0; i < Indices.Count(); i++) gx_ui.idx.push_back((unsigned short)(Indices[i] + base));
+		return;
+	}
+	Flush_Merged();	// anything collected goes first
+#endif
 
 	// save the view and projection matrices since we're nuking them
 	Matrix4x4 view,proj;

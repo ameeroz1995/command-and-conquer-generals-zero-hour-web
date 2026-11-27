@@ -1362,6 +1362,11 @@
             { key: 'scanManager', def: true, label: 'SEARCH MANAGER (MATCH RULE)', note: 'Nearby searches use lists of who is in each map square made once per game tick, idle units\' enemy scans run together at the start of the tick, and repeated searches in a tick reuse the answer. Slower in our tests; answers can be a tick old. The host decides for network games.' },
             { key: 'warmBattleFiles', def: true, label: 'READ BATTLE FILES AHEAD', note: 'When a match starts, the unit models, textures and sounds a battle usually needs (about 60 MB) are read in the background, so the first explosion or new unit doesn\'t freeze the game while they load. Off on devices with 2 GB or less.' },
             { key: 'panCache', def: true, label: 'SLIDE THE GROUND WHILE THE CAMERA MOVES (EXPERIMENT)', note: 'While you scroll, the ground is drawn every third frame and its picture is slid in between. Slopes can shimmer and the screen edge can show gaps. Needs the ground reuse switch and antialiasing off.' },
+            { key: 'multiDraw', def: false, label: 'DRAW DIFFERENT UNIT PARTS TOGETHER (EXPERIMENT)', note: 'All the unit and building parts that share a texture and stand in the same light go to the graphics chip in one call, even when they are different models (one-of-a-kind buildings, mixed armies). Needs the WebGL multi-draw extension; without it nothing changes.' },
+            { key: 'multiLights', def: false, label: 'DRAW PARTS IN DIFFERENT LIGHT TOGETHER (EXPERIMENT)', note: 'With the switch above: parts lit differently (an explosion nearby, a building light) still go in the same call, each carrying its own lights.' },
+            { key: 'uiMerge', def: true, label: 'DRAW INTERFACE PICTURES TOGETHER (EXPERIMENT)', note: 'Interface pictures and text that follow each other with the same texture go to the graphics chip in one call.' },
+            { key: 'sortMaterials', def: true, label: 'MERGE SEE-THROUGH EFFECTS WITH EQUAL MATERIALS (EXPERIMENT)', note: 'Smoke, fire and glass drawn back to front also merge when their materials are separate copies with the same settings.' },
+            { key: 'webgpu', def: true, reload: true, label: 'DRAW WITH WEBGPU', note: 'The game draws through WebGPU instead of WebGL: less work per draw call for the browser. Needs a browser with WebGPU and a real graphics chip; otherwise the game uses WebGL as before. Not on WebGPU yet: fog of war drawn with the ground, ground reuse, render scale, different unit parts in one call.' },
             { key: 'asyncSounds', def: true, label: 'LOAD SOUNDS IN THE BACKGROUND', note: 'A sound that is not loaded yet is skipped once instead of freezing the game while it loads.' }
           ];
         })();
@@ -1531,7 +1536,8 @@
           // (Module.gxScaled3D); otherwise the canvas itself is smaller and CSS-upscaled.
           const rs = window.GeneralsX && window.GeneralsX.settings && window.GeneralsX.settings.renderScale;
           M.gxRenderScale = rs === 'auto' ? (window.gxAutoScale || 1) : (+rs || 1);
-          const s = M.gxScaled3D ? 1 : M.gxRenderScale;
+          // WebGPU has no offscreen 3D view yet: a smaller canvas would blur the interface too.
+          const s = (M.gxScaled3D || M.gxWebGPU) ? 1 : M.gxRenderScale;
           const w = Math.max(1, Math.round((M.gxCanvasW || GX_FIXED_W) * s));
           const h = Math.max(1, Math.round((M.gxCanvasH || GX_FIXED_H) * s));
           try { // throws once the canvas belongs to the game thread (worker build)
@@ -1943,7 +1949,25 @@
           canvas: document.getElementById('canvas'),
           print: printToOutput,
           printErr: printErrToOutput,
-          preRun: [idbfsPreRun],
+          preRun: [idbfsPreRun, function () {
+            // Settings switch webgpu: the device is made before main() (no async in the engine).
+            var o = window.GeneralsX && window.GeneralsX.opt;
+            if ((o && o.webgpu === false) || !navigator.gpu || /[?&]webgpu=0/.test(location.search)) return;
+            window['Module']['addRunDependency']('gxgpu');
+            navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).then(function (ad) {
+              if (!ad) throw new Error('no adapter');
+              // Software WebGPU (SwiftShader) is far slower than WebGL there: keep WebGL.
+              var inf = ad.info || {};
+              if (ad.isFallbackAdapter || inf.isFallbackAdapter || /swiftshader/i.test((inf.architecture || '') + ' ' + (inf.description || '') + ' ' + (inf.device || '')))
+                throw new Error('software adapter');
+              var bc = ad.features.has('texture-compression-bc');
+              return ad.requestDevice({ requiredFeatures: bc ? ['texture-compression-bc'] : [] }).then(function (dev) {
+                window.Module.gxGPU = { device: dev, bc: bc, adapter: (ad.info && (ad.info.vendor + ' ' + ad.info.architecture + ' ' + ad.info.description)) || '' };
+                console.log('[GeneralsX] WebGPU device ready (' + window.Module.gxGPU.adapter + (bc ? ', BC textures' : '') + ')');
+              });
+            }).catch(function (e) { console.warn('[GeneralsX] WebGPU unavailable, using WebGL: ' + e.message); })
+              .then(function () { window['Module']['removeRunDependency']('gxgpu'); });
+          }],
           onRuntimeInitialized: function () {
             window.Module.gxNetReady = true;
             if (virtualNetEnabled) {
@@ -2095,7 +2119,7 @@
               { name: 'MULTI-THREADING', note: 'Work moved to a second processor core. Multi-threaded build only.',
                 keys: ['boneWorker', 'boneAhead', 'particleWorker'] },
               { name: 'DRAWING', note: 'Fewer and cheaper draw calls, and work skipped that the screen would not show.',
-                keys: ['groundCache', 'panCache', 'shroudFold', 'terrainCull', 'unitBatching', 'gpuSkinning', 'uiBatching', 'sortBatching', 'multiDraw', 'reuseLayouts', 'fastShaders', 'skipCompare', 'skipSameUploads', 'freeTextureCopies', 'boneCache', 'lightCache', 'clipSkip', 'animStagger', 'particleStagger', 'bilinear', 'mediump', 'desync'] },
+                keys: ['webgpu', 'multiDraw', 'multiLights', 'uiMerge', 'sortMaterials', 'groundCache', 'panCache', 'shroudFold', 'terrainCull', 'unitBatching', 'gpuSkinning', 'uiBatching', 'sortBatching', 'reuseLayouts', 'fastShaders', 'skipCompare', 'skipSameUploads', 'freeTextureCopies', 'boneCache', 'lightCache', 'clipSkip', 'animStagger', 'particleStagger', 'bilinear', 'mediump', 'desync'] },
               { name: 'LOADING, SOUND AND MEMORY', note: 'Files, shaders and sounds prepared ahead or in the background.',
                 keys: ['precompile', 'asyncShaders', 'bigFileCache', 'warmBattleFiles', 'asyncSounds', 'soundStagger'] }
             ];

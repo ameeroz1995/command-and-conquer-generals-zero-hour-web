@@ -2440,6 +2440,9 @@ void BaseHeightMapRenderObjClass::updateCenter(CameraClass *camera , RefRenderOb
 
 void BaseHeightMapRenderObjClass::Render(RenderInfoClass & rinfo)
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(1); // draw counts by kind (benchmark)
+#endif
 
 }
 

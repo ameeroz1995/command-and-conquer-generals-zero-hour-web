@@ -816,6 +816,9 @@ int ParticleBufferClass::Get_Particle_Count() const
 
 void ParticleBufferClass::Render(RenderInfoClass & rinfo)
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(5); // draw counts by kind (benchmark)
+#endif
 	WWPROFILE("ParticleBuffer::Render");
 
 	unsigned int sort_level = SORT_LEVEL_NONE;

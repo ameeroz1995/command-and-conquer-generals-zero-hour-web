@@ -789,6 +789,9 @@ void TerrainTracksRenderObjClassSystem::update()
 //=============================================================================
 void TerrainTracksRenderObjClassSystem::flush()
 {
+#ifdef __EMSCRIPTEN__
+	extern int gx_draw_cat; struct GXCatScope { int p; GXCatScope(int c) : p(gx_draw_cat) { gx_draw_cat = c; } ~GXCatScope() { gx_draw_cat = p; } } gx_cat_scope(9); // draw counts by kind (benchmark)
+#endif
 /** @todo: Optimize system by drawing tracks as triangle strips and use dynamic vertex buffer access.
 May also try rendering all tracks with one call to W3D/D3D by grouping them by texture.
 Try improving the fit to vertical surfaces like cliffs.
