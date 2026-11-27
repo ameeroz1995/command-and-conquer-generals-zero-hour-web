@@ -63,7 +63,9 @@ int GLES3_Page_Switches3() { return g_PageSwitches3; }
 static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 512 | 4096 | 8192 | 16384 | 32768 | 262144;	// default-on bits of every lane (collideSimd, dataBehaviors, kindKernels, containKernels, kernelSimd, rowKernels, simdSearch, fogStamps, fogKeep, cpopSimd)
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static int g_PageSwitches5 = 0;	// fifth word, default-on bits of every lane (none yet)
-int GLES3_Page_Switches5() { return g_PageSwitches5; }	// non-web builds: callers use a local stub returning 0
+int GLES3_Page_Switches5() { return g_PageSwitches5; }
+static int g_PageSwitches7 = 0 | 1;	// seventh word, default-on bits (aiScripts); bit 0 collide (aiScripts), 1-31 spare
+int GLES3_Page_Switches7() { return g_PageSwitches7; }	// non-web builds: callers use a local stub returning 0
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static GLuint g_BoundVAO = 0; // shadow of glBindVertexArray (see GLES3_Bind_Layout)
@@ -497,6 +499,12 @@ void GLES3_Begin_Scene() {
                  | (o.simdPairs === false ? 0 : 131072)    // bit 17: with pairOffer, the clearly-apart neighbour test 4 at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.simdBody === false ? 0 : 1073741824)  // bit 30 (query): with simdSearch, the search body's enemy test and 2D distance 8 at a time with wasm SIMD (same game)
                  | (o.snapPatch === false ? 0 : -2147483648); // bit 31 (query): scanManager's per-cell lists patched where units crossed a cell edge, not rebuilt, later in a tick (same game)
+        });
+        g_PageSwitches7 = EM_ASM_INT({
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            return 0   // seventh word: bit 0 collide, 1-31 spare
+                 | (o.aiScripts === false ? 0 : 1)   // bit 0 (collide): the skirmish / multiplayer AI scripts (Data/Scripts/*.scb, loose files) are loaded at boot (EmscriptenMain.cpp, which reads the same setting at boot; changes the game: off for recordings made before 2c7e213)
+                 | (o.splashFlat === true ? 256 : 0);   // bit 8 (combat, straight-line kernels): splash near-slot pass over restrict column pointers with branchless compaction into a sized buffer (PartitionManager.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

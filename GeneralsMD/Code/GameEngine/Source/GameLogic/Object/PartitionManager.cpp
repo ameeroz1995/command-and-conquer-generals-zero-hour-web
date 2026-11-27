@@ -114,6 +114,7 @@ extern int GLES3_Page_Switches();
 extern int GLES3_Page_Switches2();
 extern int gx_verify_mismatch, gx_verify_checked;	// GameLogic.cpp
 extern int GLES3_Page_Switches4();
+extern int GLES3_Page_Switches7();
 #ifdef __wasm_simd128__
 #include <wasm_simd128.h>
 #endif
@@ -121,6 +122,7 @@ extern int GLES3_Page_Switches4();
 static int GLES3_Page_Switches() { return 0; }
 static int GLES3_Page_Switches2() { return 0; }
 static int GLES3_Page_Switches4() { return 0; }
+static int GLES3_Page_Switches7() { return 0; }
 static int gx_verify_mismatch, gx_verify_checked;
 #endif
 static Bool g_gxPairOff = false;	// timing mode (gxPairTiming): this frame runs without pairPlace / pairOffer
@@ -5924,6 +5926,39 @@ SimpleObjectIterator *PartitionManager::iterateObjectsInRange(
 }
 
 //-----------------------------------------------------------------------------
+// splashFlat (seventh word bit 8): the splash near-slot pass with column pointers that cannot alias
+// the output, no vector growth inside the loop (out has n + 8 room) and branchless compaction: every
+// slot is written and the count moves by its test bit, so the same slots come out in the same order.
+// noinline so the wasm shows it as one function with no calls.
+__attribute__((noinline)) static Int gxSplashNearFlat(const float *__restrict X, const float *__restrict Y,
+	const float *__restrict R, const Int n, const float px, const float py, const float reach, Int *__restrict out)
+{
+	Int c = 0, s = 0;
+#ifdef __wasm_simd128__
+	const v128_t vpx = wasm_f32x4_splat(px), vpy = wasm_f32x4_splat(py), vreach = wasm_f32x4_splat(reach);
+	for (; s + 4 <= n; s += 4)
+	{
+		const v128_t dx = wasm_f32x4_sub(wasm_v128_load(X + s), vpx);
+		const v128_t dy = wasm_f32x4_sub(wasm_v128_load(Y + s), vpy);
+		const v128_t lim = wasm_f32x4_add(vreach, wasm_v128_load(R + s));
+		const v128_t in = wasm_f32x4_le(wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)), wasm_f32x4_mul(lim, lim));
+		const Int m = wasm_i32x4_bitmask(in);
+		out[c] = s; c += m & 1;
+		out[c] = s + 1; c += (m >> 1) & 1;
+		out[c] = s + 2; c += (m >> 2) & 1;
+		out[c] = s + 3; c += (m >> 3) & 1;
+	}
+#endif
+	for (; s < n; ++s)
+	{
+		const float dx = X[s] - px, dy = Y[s] - py, lim = reach + R[s];
+		out[c] = s;
+		c += (dx * dx + dy * dy <= lim * lim) ? 1 : 0;
+	}
+	return c;
+}
+
+//-----------------------------------------------------------------------------
 // combat, round 5 (fourth word bit 25, splashSimd; same game). A splash (WeaponTemplate::
 // dealDamageInternal) asks for every unit within its radius, no filters. The plain cell walk visits
 // the cells around the blast ring by ring (m_radiusVec) and each cell's COI list (high to low
@@ -5974,7 +6009,15 @@ SimpleObjectIterator *PartitionManager::gxSplashSearch(const Coord3D *pos, Real 
 	near.clear();
 	const float px = pos->x, py = pos->y, reach = maxDist + 2.0f;
 	Int s = 0;
+	if (GLES3_Page_Switches7() & 256)
+	{	// splashFlat (seventh word bit 8): the same tests as below, as one straight-line function
+		near.resize(n + 8);
+		const Int c = gxSplashNearFlat(S.x.data(), S.y.data(), S.sphere.data(), n, px, py, reach, near.data());
+		near.resize(c);
+		s = n;
+	}
 #ifdef __wasm_simd128__
+	if (s < n)
 	{
 		const v128_t vpx = wasm_f32x4_splat(px), vpy = wasm_f32x4_splat(py), vreach = wasm_f32x4_splat(reach);
 		// ILP (fourth word bit 27, splashIlp): 8 slots per step as two independent chains; each lane's
