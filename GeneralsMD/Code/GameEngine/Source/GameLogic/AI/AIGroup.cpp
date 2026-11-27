@@ -26,6 +26,7 @@
 // Encapsulation of a simple group of AI agents
 // Author: Michael S. Booth, January 2002
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxSweep.h"
 
 
 #include "Common/ActionManager.h"
@@ -198,7 +199,10 @@ void AIGroup::add( Object *obj )
 	++m_memberListSize;
 //	DEBUG_LOG(("***AIGROUP %x has size %u now.", this, m_memberListSize));
 
+	std::list<Object *>::iterator gxNode = --m_memberList.end();
 	obj->enterGroup( this );
+	obj->m_gxGroupOf = this;	// fastRemove: remember the node (after enterGroup, which may remove an older one)
+	obj->m_gxGroupIt = gxNode;
 
 	// list has changed, properties need recomputation
 	m_dirty = true;
@@ -215,7 +219,13 @@ Bool AIGroup::remove( Object *obj )
 #endif
 
 //	DEBUG_LOG(("***AIGROUP %x is removing Object %x (%s).", this, obj, obj->getTemplate()->getName().str()));
-	std::list<Object *>::iterator i = std::find( m_memberList.begin(), m_memberList.end(), obj );
+	std::list<Object *>::iterator i;
+	if (gxSweepOn(GXSW_FAST_REMOVE) && obj->m_gxGroupOf == this)
+		i = obj->m_gxGroupIt;	// fastRemove: the node add() stored (the first occurrence: an object is in a list once)
+	else
+		i = std::find( m_memberList.begin(), m_memberList.end(), obj );
+	if (obj->m_gxGroupOf == this)
+		obj->m_gxGroupOf = nullptr;
 
 	// make sure object is actually in the group
 	if (i == m_memberList.end())
@@ -256,6 +266,8 @@ void AIGroup::removeAll()
 	std::list<Object *> memberList;
 	memberList.swap(m_memberList);
 	m_memberListSize = 0;
+	for (std::list<Object *>::iterator g = memberList.begin(); g != memberList.end(); ++g)
+		if (*g && (*g)->m_gxGroupOf == this) (*g)->m_gxGroupOf = nullptr;	// fastRemove: their nodes left this list
 
 	std::list<Object *>::iterator i;
 	for ( i = memberList.begin(); i != memberList.end(); ++i )

@@ -19,6 +19,9 @@ enum GxSweepSwitch
 	GXSW_DISABLED_POP = 0x100 | 23,	///< #13 disabledPop (fifth word bit 23): disabled list removal by stored index (GameLogic.cpp)
 	GXSW_PASS_POS     = 0x200 | 0,	///< #14 passPos (sixth word bit 0): update pass removal by stored position (GameLogic.cpp)
 	GXSW_PASS_KEY     = 0x200 | 1,	///< #15 passKeyArray (sixth word bit 1): pass sort keys and kinds by NameKey in arrays (GameLogic.cpp)
+	GXSW_FAST_REMOVE  = 0x200 | 3,	///< #55 fastRemove (sixth word bit 3): unit group and radar removal in O(1) (AIGroup.cpp, Radar.cpp)
+	GXSW_TEAM_ONE_WALK = 0x200 | 20,	///< #3 teamOneWalk (sixth word bit 20): one factory walk per unit type (AIPlayer.cpp)
+	GXSW_SUPPLY_ONCE  = 0x200 | 2,	///< #54 supplyOnce (sixth word bit 2): AI supply search collects warehouses once (AIPlayer.cpp)
 };
 inline bool gxSweepOn(int sw)
 {

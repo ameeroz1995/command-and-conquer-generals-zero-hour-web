@@ -29,6 +29,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxSweep.h"
 
 #include "Common/GameAudio.h"
 #include "Common/GameState.h"
@@ -437,7 +438,10 @@ Bool Radar::deleteFromList( Object *obj, RadarObject **list )
 
 			// unlink the object from list
 			if( prevObject == nullptr )
+			{
 				*list = radarObject->friend_getNext();  // removing head of list
+				if (*list) (*list)->m_gxPrev = nullptr;
+			}
 			else
 				prevObject->friend_setNext( radarObject->friend_getNext() );
 
@@ -471,6 +475,32 @@ Bool Radar::removeObject( Object *obj )
 	// sanity
 	if( obj->friend_getRadarData() == nullptr )
 		return FALSE;
+
+	// fastRemove (sixth word bit 3, exact): unlink the object's own radar entry by its back link
+	// instead of searching both lists (mass deaths made this quadratic)
+	if (gxSweepOn(GXSW_FAST_REMOVE))
+	{
+		RadarObject *rd = obj->friend_getRadarData();
+		RadarObject **list = nullptr;
+		if (rd->friend_getObject() == obj)
+		{
+			if (m_localObjectList == rd) list = &m_localObjectList;
+			else if (m_objectList == rd) list = &m_objectList;
+		}
+		if (list || (rd->friend_getObject() == obj && rd->m_gxPrev && rd->m_gxPrev->friend_getNext() == rd))
+		{
+			if (list)
+			{
+				*list = rd->friend_getNext();
+				if (*list) (*list)->m_gxPrev = nullptr;
+			}
+			else
+				rd->m_gxPrev->friend_setNext(rd->friend_getNext());
+			obj->friend_setRadarData( nullptr );
+			deleteInstance(rd);
+			return TRUE;
+		}
+	}
 
 	if( deleteFromList( obj, &m_localObjectList ) == TRUE )
 		return TRUE;

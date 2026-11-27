@@ -496,9 +496,12 @@ void GLES3_Begin_Scene() {
         });
         g_PageSwitches6 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
-            return 0   // sixth word: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19, 20-31 spare
+            return 0   // sixth word: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19, ai 20-23, 24-31 spare
                  | (o.passPos === true ? 1 : 0)           // bit 0 (ai): update pass removal by stored position (GameLogic.cpp; same game)
-                 | (o.passKeyArray === true ? 2 : 0);     // bit 1 (ai): pass sort keys and kinds by NameKey in arrays (GameLogic.cpp; same game)
+                 | (o.passKeyArray === true ? 2 : 0)      // bit 1 (ai): pass sort keys and kinds by NameKey in arrays (GameLogic.cpp; same game)
+                 | (o.supplyOnce === true ? 4 : 0)        // bit 2 (ai): AI supply search collects the warehouses once (AIPlayer.cpp; same game)
+                 | (o.teamOneWalk === true ? 1048576 : 0) // bit 20 (ai, second range 20-23): AI team build checks factories in one walk (AIPlayer.cpp; same game)
+                 | (o.fastRemove === true ? 8 : 0);       // bit 3 (ai): unit group and radar removal by stored node / back link (AIGroup.cpp, Radar.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

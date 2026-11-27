@@ -600,7 +600,9 @@ public:
 	// (higher = nearer the head) and whether the object is in GameLogic's list of disabled objects.
 	UnsignedInt m_gxListSeq = 0;
 	Bool m_gxDisabledListed = false;
-	Int m_gxDisabledIdx = -1;	///< web port (switch disabledPop): position in GameLogic's disabled list (kept on push, compaction, removal)
+	Int m_gxDisabledIdx = -1;
+	AIGroup *m_gxGroupOf = nullptr;	///< web port (switch fastRemove): the group whose member list holds m_gxGroupIt
+	std::list<Object *>::iterator m_gxGroupIt;	///< web port (switch fastRemove): this object's node in that list	///< web port (switch disabledPop): position in GameLogic's disabled list (kept on push, compaction, removal)
 	Bool clearDisabled( DisabledType type );
 
 	void setDisabled( DisabledType type );
