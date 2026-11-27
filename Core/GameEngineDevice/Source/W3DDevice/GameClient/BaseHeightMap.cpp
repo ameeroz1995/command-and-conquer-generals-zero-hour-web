@@ -90,6 +90,7 @@
 
 #include "Common/UnitTimings.h" //Contains the DO_UNIT_TIMINGS define jba.
 #include "W3DDevice/GameClient/BaseHeightMap.h"
+#include "Common/GxSweep.h"
 
 #include "W3DDevice/GameClient/HeightMap.h"
 #include "W3DDevice/GameClient/FlatHeightMap.h"
@@ -2127,7 +2128,11 @@ Int BaseHeightMapRenderObjClass::getStaticDiffuse(Int x, Int y)
 	vertex.v2=1;
 
 	RTS3DScene *pMyScene = (RTS3DScene *)Scene;
-	if (pMyScene) {
+	if (pMyScene && gxSweepOn(GXSW_LIGHT_ITER)) {
+		// web port: an iterator on the stack instead of one allocated per vertex (same lights, same order)
+		RefRenderObjListIterator it(pMyScene->gxLightList());
+		doTheLight(&vertex, lightRay, &normalAtTexel, &it, 1.0f);
+	} else if (pMyScene) {
 		RefRenderObjListIterator *it = pMyScene->createLightsIterator();
 		doTheLight(&vertex, lightRay, &normalAtTexel, it, 1.0f);
 		if (it) {

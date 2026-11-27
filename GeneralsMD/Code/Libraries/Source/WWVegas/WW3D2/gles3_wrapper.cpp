@@ -507,6 +507,7 @@ void GLES3_Begin_Scene() {
                  | (o.passKeyArray === true ? 2 : 0)      // bit 1 (ai): pass sort keys and kinds by NameKey in arrays (GameLogic.cpp; same game)
                  | (o.supplyOnce === true ? 4 : 0)        // bit 2 (ai): AI supply search collects the warehouses once (AIPlayer.cpp; same game)
                  | (o.teamOneWalk === true ? 1048576 : 0) // bit 20 (ai, second range 20-23): AI team build checks factories in one walk (AIPlayer.cpp; same game)
+                 | (o.lightIter === true ? 2097152 : 0) // bit 21 (ai, second range): terrain vertex lighting keeps its lights iterator on the stack (BaseHeightMap.cpp; same picture)
                  | (o.fastRemove === true ? 8 : 0);       // bit 3 (ai): unit group and radar removal by stored node / back link (AIGroup.cpp, Radar.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({

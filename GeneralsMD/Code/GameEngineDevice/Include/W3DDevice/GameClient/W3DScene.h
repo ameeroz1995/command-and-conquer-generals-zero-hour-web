@@ -86,6 +86,7 @@ public:
 	void addDynamicLight(W3DDynamicLight * obj);
 	void removeDynamicLight(W3DDynamicLight * obj);
 	RefRenderObjListIterator *createLightsIterator();
+	RefRenderObjListClass *gxLightList() { return &LightList; }	///< web port: for an iterator on the stack (sixth word bit 21)
 	void destroyLightsIterator(RefRenderObjListIterator * it);
 	RefRenderObjListClass *getDynamicLights() {return &m_dynamicLightList;};
 	W3DDynamicLight *getADynamicLight();
