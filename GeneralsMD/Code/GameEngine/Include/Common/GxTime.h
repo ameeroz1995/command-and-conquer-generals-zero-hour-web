@@ -30,9 +30,11 @@ enum GxCountId
 {
 	GXC_SEARCHES, GXC_SEARCH_CELLS, GXC_SEARCH_ENTRIES, GXC_SEARCH_UNITS, GXC_SIMD_CULLED,
 	GXC_FOG_CIRCLES, GXC_FOG_CELLS, GXC_FOG_STATUS_CALLS, GXC_FOG_RECOMPUTES, GXC_FOG_KEPT,
-	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES, GXC_BATCH_SEEKERS,
+	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES, GXC_BATCH_SEEKERS, GXC_ALLOCS,
 	GXC_COUNT
 };
+
+extern unsigned long long g_gxAllocs;	///< game memory blocks handed out (GameMemory.cpp)
 
 struct GxTimeState
 {
@@ -42,6 +44,7 @@ struct GxTimeState
 	std::vector<float> frames;	///< frame intervals (ms)
 	double lastFrame = 0.0;
 	int depth[GXT_TIME_COUNT] = {};	///< nesting guard: only the outermost scope of an id is timed
+	unsigned long long allocs[GXT_TIME_COUNT] = {};	///< game memory blocks allocated inside each timer's outermost scope
 };
 
 inline GxTimeState &gxTime() { static GxTimeState s; return s; }
@@ -50,13 +53,13 @@ inline void gxCount(GxCountId id, unsigned long long k = 1) { if (gxTimingOn()) 
 
 struct GxTimeScope
 {
-	GxTimeId id; double t0; bool on;
-	explicit GxTimeScope(GxTimeId i) : id(i), t0(0.0), on(gxTimingOn() && gxTime().depth[i]++ == 0) { if (on) t0 = emscripten_get_now(); }
+	GxTimeId id; double t0; bool on; unsigned long long a0;
+	explicit GxTimeScope(GxTimeId i) : id(i), t0(0.0), on(gxTimingOn() && gxTime().depth[i]++ == 0), a0(g_gxAllocs) { if (on) t0 = emscripten_get_now(); }
 	~GxTimeScope()
 	{
 		if (!gxTimingOn()) return;
 		GxTimeState &s = gxTime();
-		if (on) s.ms[id] += emscripten_get_now() - t0;
+		if (on) { s.ms[id] += emscripten_get_now() - t0; s.allocs[id] += g_gxAllocs - a0; }
 		if (s.depth[id] > 0) --s.depth[id];
 	}
 };
@@ -79,7 +82,7 @@ inline void gxTimeTickEnd()
 	if (++s.ticks % 300) return;
 	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "snapBuild", "snapPatch", "partUpdate", "cellsTouched", "pairOffers", "bsCull" };
 	static const char *cn[GXC_COUNT] = { "searches", "searchCells", "searchEntries", "searchUnits", "simdCulled",
-		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept", "pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates", "bsSeekers" };
+		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept", "pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates", "bsSeekers", "allocs" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())
@@ -88,9 +91,11 @@ inline void gxTimeTickEnd()
 		p99 = f[(size_t)(0.99 * (f.size() - 1))];
 		for (size_t i = 0; i < f.size(); ++i) if (f[i] > 100.0f) ++over100;
 	}
-	char buf[1024]; int k = snprintf(buf, sizeof(buf), "GXTIME ticks %llu:", s.ticks);
+	char buf[2048]; int k = snprintf(buf, sizeof(buf), "GXTIME ticks %llu:", s.ticks);
 	for (int i = 0; i < GXT_TIME_COUNT; ++i) k += snprintf(buf + k, sizeof(buf) - k, " %s %.3f ms/tick;", tn[i], s.ms[i] / s.ticks);
 	for (int i = 0; i < GXC_COUNT; ++i) k += snprintf(buf + k, sizeof(buf) - k, " %s %.1f/tick;", cn[i], (double)s.n[i] / s.ticks);
+	k += snprintf(buf + k, sizeof(buf) - k, " allocs in");
+	for (int i = 0; i < GXT_TIME_COUNT; ++i) if (i != GXT_LOGIC && i != GXT_FRAME) k += snprintf(buf + k, sizeof(buf) - k, " %s %.1f/tick;", tn[i], (double)s.allocs[i] / s.ticks);
 	snprintf(buf + k, sizeof(buf) - k, " frames %d, p99 %.1f ms, over 100 ms %d", (int)f.size(), p99, over100);
 	printf("%s\n", buf);
 }

@@ -1260,6 +1260,20 @@ UnsignedInt *g_gxCellMasks = nullptr;
 Short *g_gxShroudCur = nullptr, *g_gxShroudAct = nullptr;
 Int g_gxShroudN = 0;
 Int g_gxCellMaskW = 0;
+UnsignedInt *g_gxBlockMasks = nullptr;
+Int g_gxBlockMaskW = 0;
+static Int g_gxCellMaskH = 0;
+
+void gxRefreshBlockMask(Int cellX, Int cellY)
+{
+	const Int x0 = (cellX >> GX_BLOCK_SHIFT) << GX_BLOCK_SHIFT, y0 = (cellY >> GX_BLOCK_SHIFT) << GX_BLOCK_SHIFT;
+	const Int x1 = min(x0 + (1 << GX_BLOCK_SHIFT), g_gxCellMaskW), y1 = min(y0 + (1 << GX_BLOCK_SHIFT), g_gxCellMaskH);
+	UnsignedInt m = 0;
+	for (Int y = y0; y < y1; ++y)
+		for (Int x = x0; x < x1; ++x)
+			m |= g_gxCellMasks[y * g_gxCellMaskW + x];
+	g_gxBlockMasks[(cellY >> GX_BLOCK_SHIFT) * g_gxBlockMaskW + (cellX >> GX_BLOCK_SHIFT)] = m;
+}
 
 void CellAndObjectIntersection::gxSetPlayerSlot(Int slot)
 {
@@ -3420,6 +3434,14 @@ void PartitionManager::init()
 		g_gxCellMasks = MSGNEW("PartitionManager_CellMasks") UnsignedInt[m_totalCellCount];
 		memset(g_gxCellMasks, 0, m_totalCellCount * sizeof(UnsignedInt));
 		g_gxCellMaskW = m_cellCountX;
+		g_gxCellMaskH = m_cellCountY;
+		g_gxBlockMaskW = (m_cellCountX + (1 << GX_BLOCK_SHIFT) - 1) >> GX_BLOCK_SHIFT;
+		{
+			const Int blocks = g_gxBlockMaskW * ((m_cellCountY + (1 << GX_BLOCK_SHIFT) - 1) >> GX_BLOCK_SHIFT);
+			delete [] g_gxBlockMasks;
+			g_gxBlockMasks = MSGNEW("PartitionManager_BlockMasks") UnsignedInt[blocks];
+			memset(g_gxBlockMasks, 0, blocks * sizeof(UnsignedInt));
+		}
 		delete [] g_gxShroudCur;
 		delete [] g_gxShroudAct;
 		g_gxShroudN = m_totalCellCount;
@@ -3525,6 +3547,10 @@ void PartitionManager::shutdown()
 	delete [] g_gxCellMasks;
 	g_gxCellMasks = nullptr;
 	g_gxCellMaskW = 0;
+	delete [] g_gxBlockMasks;
+	g_gxBlockMasks = nullptr;
+	g_gxBlockMaskW = 0;
+	g_gxCellMaskH = 0;
 	delete [] g_gxShroudCur;
 	delete [] g_gxShroudAct;
 	g_gxShroudCur = g_gxShroudAct = nullptr;
@@ -4599,6 +4625,7 @@ enum
 	GX_GCO_ENTRIES = 2,		// entries of players not in the mask (switch searchSlotSkip)
 	GX_GCO_DENSE = 4,		// read cell masks from the dense array (switch denseCellMask)
 	GX_GCO_CACHE = 8,		// entries farther than the range by their cached place (switch searchCache)
+	GX_GCO_BLOCKS = 16,		// read the 8x8 block's mask first (switch blockMask)
 	GX_GCO_SNAP = 32		// read this tick's per-cell lists of store slots (match rule scanManager)
 };
 
@@ -4658,6 +4685,8 @@ Object *PartitionManager::getClosestObjects(
 			flags |= GX_GCO_ENTRIES;
 		if (sw & 262144)
 			flags |= GX_GCO_DENSE;
+		if (sw & 16777216)
+			flags |= GX_GCO_BLOCKS;
 	}
 	{
 		extern bool gxMatchRule(unsigned int rule);
@@ -4956,6 +4985,17 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 			const Int gxX = cellCenterX + it->x, gxY = cellCenterY + it->y;
 			if (gxX < 0 || gxY < 0 || gxX >= m_cellCountX || gxY >= m_cellCountY)
 				continue;
+			// switch blockMask: a block holding none of the players in the mask holds no such cell;
+			// cells are still visited (or skipped) one by one in ring order
+			if ((gxFlags & GX_GCO_BLOCKS) && !(g_gxBlockMasks[(gxY >> GX_BLOCK_SHIFT) * g_gxBlockMaskW + (gxX >> GX_BLOCK_SHIFT)] & gxEnemyMask))
+			{
+				if (trace && (g_gxCellMasks[gxY * m_cellCountX + gxX] & gxEnemyMask))
+				{
+					++gx_verify_mismatch;	// verify mode: the block said empty, the cell disagrees
+					printf("GXVERIFY block mask mismatch at %d,%d\n", gxX, gxY);
+				}
+				continue;
+			}
 			if ((gxFlags & GX_GCO_DENSE) && !(g_gxCellMasks[gxY * m_cellCountX + gxX] & gxEnemyMask))
 				continue;
 			PartitionCell* thisCell = &m_cells[gxY * m_cellCountX + gxX];
@@ -5649,6 +5689,7 @@ SimpleObjectIterator *PartitionManager::iterateObjectsInRange(
 	IterOrderType order
 )
 {
+	GxTimeScope gxT(GXT_SEARCH);	// tickTiming: the iterator and its entries count as search allocations
 	MemoryPoolObjectHolder iterHolder;
 	SimpleObjectIterator *iter = newInstance(SimpleObjectIterator);
 	iterHolder.hold(iter);
@@ -5669,6 +5710,7 @@ SimpleObjectIterator *PartitionManager::iterateObjectsInRange(
 	IterOrderType order
 )
 {
+	GxTimeScope gxT(GXT_SEARCH);	// tickTiming: the iterator and its entries count as search allocations
 	MemoryPoolObjectHolder iterHolder;
 	SimpleObjectIterator *iter = newInstance(SimpleObjectIterator);
 	iterHolder.hold(iter);
@@ -5691,6 +5733,7 @@ SimpleObjectIterator* PartitionManager::iteratePotentialCollisions(
 	Real maxDist = geom.getBoundingSphereRadius();
 	maxDist *= 1.1f;	// just a little slop
 
+	GxTimeScope gxT(GXT_SEARCH);	// tickTiming: the iterator and its entries count as search allocations
 	MemoryPoolObjectHolder iterHolder;
 	SimpleObjectIterator *iter = newInstance(SimpleObjectIterator);
 	iterHolder.hold(iter);
@@ -5730,6 +5773,7 @@ Bool PartitionManager::isColliding( const Object *a, const Object *b ) const
 //-----------------------------------------------------------------------------
 SimpleObjectIterator *PartitionManager::iterateAllObjects(PartitionFilter **filters)
 {
+	GxTimeScope gxT(GXT_SEARCH);	// tickTiming: the iterator and its entries count as search allocations
 	MemoryPoolObjectHolder iterHolder;
 	SimpleObjectIterator *iter = newInstance(SimpleObjectIterator);
 	iterHolder.hold(iter);

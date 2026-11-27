@@ -316,6 +316,12 @@ struct ShroudStatusStoreRestore
 // PartitionManager::m_cells), so searches can skip cells without reading the cell itself.
 extern UnsignedInt *g_gxCellMasks;
 extern Int g_gxCellMaskW;
+// Web port (switch blockMask): per 8x8 block of cells, the OR of their masks; recomputed from
+// g_gxCellMasks whenever one of its cells' masks changes.
+enum { GX_BLOCK_SHIFT = 3 };
+extern UnsignedInt *g_gxBlockMasks;
+extern Int g_gxBlockMaskW;
+void gxRefreshBlockMask(Int cellX, Int cellY);
 // Web port (fogStamps, 2026-11-25): the shroud counters of every cell, one dense Short array per player
 // (index player * g_gxShroudN + cell). The truth for PartitionCell's current / active shroud levels;
 // the cell's m_shroudLevel struct is filled from it for CRC and save and refilled after a load.
@@ -351,8 +357,11 @@ public:
 	void gxCount(Int slot, Int delta)
 	{
 		m_gxCount[slot] += delta;
+		const UnsignedInt old = m_gxMask;
 		if (m_gxCount[slot]) m_gxMask |= 1u << slot; else m_gxMask &= ~(1u << slot);
 		g_gxCellMasks[m_cellY * g_gxCellMaskW + m_cellX] = m_gxMask;	// the dense copy (switch denseCellMask)
+		if (m_gxMask != old)
+			gxRefreshBlockMask(m_cellX, m_cellY);
 	}
 
 	// Note, we allocate these in arrays, thus we must have a default ctor (and NOT descend from MPO)
