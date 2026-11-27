@@ -3936,7 +3936,7 @@ ai's per-kind hook lands, the range kernel is a loop of these calls over the kin
   out of the module objects; the modules stay as facades for INI, engine calls, xfer and CRC):
   PhysicsBehavior (20 fields; acceleration in the store columns), BodyModule, ActiveBody (20),
   InactiveBody, StructureBody, TransitionDamageFX, FireWeaponCollide, SpecialPowerCompletionDie.
-  The other files of the families (Collide/ 19 incl. crates, Body/ Highlander, Immortal,
+  The other files of the families (Collide/ 19 incl. crates, Body/ Highlander, Immortal, Undead,
   HiveStructure, Damage/ BoneFXDamage, DamageModule, Destroy/, Die/ 11) hold no per-unit state: they
   are already facades over INI data, nothing to move. No family file has a per-frame update besides
   physics; the rest are event handlers (onCollide / onDie / onDamage) over their rows.
@@ -4241,40 +4241,6 @@ data lives; dataBehaviors only gates the minefield's cached lookup).
   checks, 0 mismatches each); r5i plays the round-5 kernel recording (paths-r5c.rep) to a match; a
   recording made on r5j with updatePasses + moveAfterTick on (GX=FEE6E7, paths-r5j.rep) plays back to
   a match with both off.
-### Round 5 (lane 4, collide): units are pure data — store SoA, component rows, SIMD
-
-- Merged origin/perf/low-end f8473f1 (fourth switch word).
-- **Store SoA layout** (9e1aa3d, pushed first): GxUnitStore keeps float columns x/y/z, vx/vy/vz,
-  ax/ay/az (acceleration) and radius. pos[]/vel[] are gone: posOf(s), velOf(s), velRef(s)/accelRef(s)
-  (GxVec3Ref, a Coord3D-shaped view of three columns). Thing::getPosition() reads through the columns
-  with positionInStore (copies them into the Thing's cached Coord3D); PhysicsBehavior::getVelocity()
-  copies vx/vy/vz out. Replay: matches with positionInStore off and on (verify 0 mismatches).
-- **Component rows** (Common/GxComponentPool.h): GxComponentPool<Row> (deque rows, never move, free
-  list) and GxRow<Row> (the module's only state member, allocates/frees its row). Rows are per module,
-  not per store slot (an object can have several modules of one kind). Converted (all per-unit state
-  out of the module objects; the modules stay as facades for INI, engine calls, xfer and CRC):
-  PhysicsBehavior (20 fields; acceleration in the store columns), BodyModule, ActiveBody (20),
-  InactiveBody, StructureBody, TransitionDamageFX, FireWeaponCollide, SpecialPowerCompletionDie.
-  The other files of the families (Collide/ 19 incl. crates, Body/ Highlander, Immortal, Undead,
-  HiveStructure, Damage/ BoneFXDamage, DamageModule, Destroy/, Die/ 11) hold no per-unit state: they
-  are already facades over INI data, nothing to move. No family file has a per-frame update besides
-  physics; the rest are event handlers (onCollide / onDie / onDamage) over their rows.
-- **SIMD physics integration** (switch physSimd, fourth word bit 0, off; rides on match rule physBulk):
-  the physics pass does every due unit's forces, then velocity += acceleration, the tiny-velocity clamp
-  and the acceleration reset for all of them in one wasm simd128 pass over the store columns
-  (gxIntegrateColumns, 4 rows per instruction, same float ops), then each unit's remaining step.
-- **SIMD collision broad phase** (switch collideSimd, fourth word bit 1, on; works under storePairs):
-  the store grid is laid out as one block per cell (units in the same order the linked lists visit
-  them) with x, y, radius copied in, so the distance cut tests 4 units per instruction. Same pairs as
-  storePairs without it.
-- **Kernel + apply split** (round 5 addendum, for the round-6 job system; both on the main thread
-  now): physics integration is the kernel gxIntegrateColumns(due, begin, end) (reads due[], v, a;
-  writes v, a of its rows only); the forces before it and each unit's remaining step after it are the
-  main-thread parts. The broad phase is prepare (main: grid blocks, each seeker's slot and cell
-  rectangle) -> gxPairKernel(in, begin, end, out, cap) (reads the blocks and store columns, writes
-  only (seeker, slot) pairs to its own out; returns -1 when out is full, the main thread grows it and
-  reruns) -> apply (main, seekers in object-ID order: collideStagger, addToContactList).
-
 ## 2026-11-26 — ai: pool migration, kernel hooks, shared timing (logic-ai)
 
 Merged paths 79c4008, query (GxTime), collide de3d971 (in-place pool rows, cached row pointer).
@@ -4337,6 +4303,14 @@ kernel can later run over workers / SIMD).
   every-frame module whether it fires (its own weapon status, object status and last shot frame; writes
   only its row), apply fires in object-ID order, update() then skips that frame. Verify mode re-decides
   in apply and counts differences ("GXVERIFY kindKernels fireWeapon").
+- HeightDieUpdate on the same hook: the kernel does each module's quiet frame (not due, contained, or
+  above its death height; writes only its row: earliest death frame, last position) and leaves dying,
+  particle clean-up and structure-height units to apply, which runs the full update in object-ID
+  order. A quiet unit whose position or container changed before its turn (an earlier death) gets its
+  last position back and the full update ("heightDieRedone" counter), so the result is the plain loop's.
+  Checks (combat-r5k): referee (verify 90584, 0), ai-up5 (verify 27162, 0) and mt replays match;
+  battle: heightDieRedone 0 per tick, kind kernels 0.44 ms/tick in all. FireWeapon's kernel in the
+  battle with verify (r5j): 168000 decisions checked, 0 mismatches.
 - GxTime ids: splash, estimate, reload (ms/tick); splashes, splashVictims, splashScanned, splashNear,
   estimates, table/bonus hits and misses, reloadRows/reloadChanged.
 - Checks (combat-r5j, all four switches on): referee replay matches (verify 90584 checks, 0
@@ -4533,8 +4507,11 @@ Level within noise. batchScan on is timed once query's pass lands.
   walk's answer rebuilt from the survivors: the passing objects in the lowest ring any is in (COI cells, or with
   scanManager the tick lists' boxes and the walk's cell-mask skips), the nearest; ties to the earlier visit
   (same cell: slot order with the tick lists; COI lists: falls back to the walk).
-- Batches of 16+ scans (a driver call, or scanManager's prefetch pass under GXRULE_BATCH_SCAN) cull from
-  per-batch, per-enemy-mask lists sorted by place x (binary-searched window); smaller ones read the store directly.
+- One direct cull a seeker at any batch size (bsCull timer, bsSeekers counter). Per-batch x-sorted lists were
+  tried and removed: build ~190 us a batch vs ~4.6 us a seeker for the direct cull (list window ~6.6 us), so
+  they never pay off (break-even ~40+ a batch; batches run 12-17 a tick). Re-entrant searches (a filter that
+  searches moves the walk's stamps) are detected by g_gxWalks and answered by the old walk.
+  Query-56 verify (scanManager on): 74,000 checked, 0 mismatches, 6 nested fallbacks.
 - Verify (bit 21, every answer vs the old walk at the same moment; local test routing getNextMoodTarget's scan
   and the prefetch through it): scanManager on 84,000-88,000 checked, 0 mismatches; off 46,000, 0 (53 tie
   fallbacks). Replays referee, query-mgr5, query-mgr6 match.

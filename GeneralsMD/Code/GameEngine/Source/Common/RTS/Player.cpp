@@ -3980,6 +3980,10 @@ void Player::processAddTeamGameMessage(Int hotkeyNum, GameMessage *msg) {
 //-------------------------------------------------------------------------------------------------
 /** Select a hotkey team based on this GameMessage */
 //-------------------------------------------------------------------------------------------------
+Bool Player::gxSelectionHolds(const Object *obj) const {
+	return m_currentSelection != nullptr && m_currentSelection->isOnSquad(obj);
+}
+
 void Player::getCurrentSelectionAsAIGroup(AIGroup *group) {
 	if (m_currentSelection != nullptr) {
 		m_currentSelection->aiGroupFromSquad(group);

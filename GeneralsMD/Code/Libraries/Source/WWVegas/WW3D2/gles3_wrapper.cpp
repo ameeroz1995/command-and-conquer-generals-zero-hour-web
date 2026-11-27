@@ -62,12 +62,14 @@ static int g_PageSwitches3 = 0 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 13421
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // Fourth switch word (round 5: units as pure data). Bits by owner: collide 0-5, ai 6-11, query 12-17,
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
-static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 512 | 4096 | 8192 | 16384 | 32768 | 131072 | 33554432 | 1073741824 | (int)0x80000000;	// default-on bits of every lane (collideSimd, dataBehaviors, kindKernels, containKernels, kernelSimd, rowKernels, simdSearch, fogStamps, fogKeep, simdPairs, splashSimd, simdBody, snapPatch)
+static int g_PageSwitches7 = 0 | 1;	// seventh word, default-on bits (aiScripts); bit 0 collide (aiScripts), 1-31 spare
+int GLES3_Page_Switches7() { return g_PageSwitches7; }	// non-web builds: callers use a local stub returning 0
+static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 512 | 4096 | 8192 | 16384 | 4 | 32768 | 131072 | 262144 | 33554432 | 1073741824 | (int)0x80000000;	// default-on bits of every lane (collideSimd, dataBehaviors, kindKernels, containKernels, kernelSimd, rowKernels, simdSearch, fogStamps, fogKeep, simdPairs, splashSimd, simdBody, snapPatch)
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static int g_PageSwitches5 = 0;	// fifth word, default-on bits of every lane (none yet)
 int GLES3_Page_Switches5() { return g_PageSwitches5; }
-static int g_PageSwitches7 = 0 | 1;	// seventh word, default-on bits (aiScripts); bit 0 collide (aiScripts), 1-31 spare
-int GLES3_Page_Switches7() { return g_PageSwitches7; }	// non-web builds: callers use a local stub returning 0
+static int g_PageSwitches6 = 0;	// sixth word, default-on bits of every lane (none yet); ranges: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19
+int GLES3_Page_Switches6() { return g_PageSwitches6; }	// non-web builds: callers use a local stub returning 0
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
 static bool g_MultiDraw = false; // WEBGL_multi_draw (GLES3_Draw_Triangles_Multi)
@@ -518,11 +520,30 @@ void GLES3_Begin_Scene() {
             return 0   // seventh word: bit 0 collide, 1-31 spare
                  | (o.aiScripts === false ? 0 : 1)   // bit 0 (collide): the skirmish / multiplayer AI scripts (Data/Scripts/*.scb, loose files) are loaded at boot (EmscriptenMain.cpp, which reads the same setting at boot; changes the game: off for recordings made before 2c7e213)
                  | (o.splashFlat === true ? 256 : 0);   // bit 8 (combat, straight-line kernels): splash near-slot pass over restrict column pointers with branchless compaction into a sized buffer (PartitionManager.cpp; same game)
+        g_PageSwitches6 = EM_ASM_INT({
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            return 0   // sixth word: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19, ai 20-23, collide 24-27, ai 28-31
+                 | (o.passPos === true ? 1 : 0)           // bit 0 (ai): update pass removal by stored position (GameLogic.cpp; same game)
+                 | (o.passKeyArray === true ? 2 : 0)      // bit 1 (ai): pass sort keys and kinds by NameKey in arrays (GameLogic.cpp; same game)
+                 | (o.supplyOnce === true ? 4 : 0)        // bit 2 (ai): AI supply search collects the warehouses once (AIPlayer.cpp; same game)
+                 | (o.teamOneWalk === true ? 1048576 : 0) // bit 20 (ai, second range 20-23): AI team build checks factories in one walk (AIPlayer.cpp; same game)
+                 | (o.lightIter === true ? 2097152 : 0) // bit 21 (ai, second range): terrain vertex lighting keeps its lights iterator on the stack (BaseHeightMap.cpp; same picture)
+                 | (o.audioNames === true ? 4194304 : 0) // bit 22 (ai): sound file names built once per event and sound (AudioEventRTS.cpp; same game)
+                 | (o.attackReuse === true ? 8388608 : 0) // bit 23 (ai): an attack's state machine recycled for the next attack (AIStates.cpp; same game)
+                 | (o.deathDeselect === true ? 268435456 : 0) // bit 28 (ai, range 28-31): match rule bit 31, a dying unit leaves only selections that hold it (GameLogic.cpp)
+                 | (o.scanLean === true ? 536870912 : 0) // bit 29 (ai): batchScan collects only modules due this tick, mood frame tested first (GameLogic.cpp, AIUpdate.cpp; same game)
+                 | (o.stateNoMap === true ? 1073741824 : 0) // bit 30 (ai): states with an array slot are not also in the state map (StateMachine.cpp; same game)
+                 | (o.mergeBuf === true ? (1 << 31) : 0) // bit 31 (ai): gxPassMerge sorts and merges through a kept buffer (GameLogic.cpp; same game)
+                 | (o.fastRemove === true ? 8 : 0);       // bit 3 (ai): unit group and radar removal by stored node / back link (AIGroup.cpp, Radar.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // add lines like: | (o.someSwitch === false ? 0 : 1)   // bit 0: ... (File.cpp)
                  | (o.batchScan === true ? 1 : 0)   // bit 0 (value 1): batchScan, due mood scans of AI units collected per phase and searched in one pass over the unit store (AIUpdate.cpp, PartitionManager.cpp; off until timed)
+                 | (o.attackPrioArray === true ? 2097152 : 0)   // bit 21: attack priority by template ID in an array (ScriptEngine.cpp; same game)
+                 | (o.stateArray === true ? 4194304 : 0)        // bit 22: state machine states by ID in an array (StateMachine.cpp; same game)
+                 | (o.disabledPop === true ? 8388608 : 0)       // bit 23: disabled list removal by stored index (GameLogic.cpp; same game)
+                 | (o.heap4 === true ? 1048576 : 0)   // value 1048576: heap4, the update queue as a 4-ary heap (match rule; GameLogic.cpp; off until timed)
                  | (o.commandSetMap === true ? 4096 : 0)   // bit 12 (combat, #58): command sets found by name in a hash map (ControlBar.cpp; same game)
                  | (o.multiSelectEarlyOut === true ? 8192 : 0)   // bit 13 (combat, #58): multi-select command bar asks units per button until one can (ControlBarMultiSelect.cpp; client only)
                  | (o.beaconCount === true ? 16384 : 0)   // bit 14 (combat, #57): beacon button reads a kept count, no walk over every unit (Player.cpp, ControlBar.cpp; client only)

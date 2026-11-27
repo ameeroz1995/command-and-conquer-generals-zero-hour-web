@@ -27,6 +27,11 @@
 // Author: John Ahlquist, Nov. 2001
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxSweep.h"
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#endif
+#include <climits>
 
 #include "Common/DataChunk.h"
 #include "Common/file.h"
@@ -170,6 +175,24 @@ void AttackPriorityInfo::setPriority(const ThingTemplate *tThing, Int priority)
 	tThing = (const ThingTemplate *)tThing->getFinalOverride();
 	Int &thePriority = (*m_priorityMap)[tThing];
 	thePriority = priority;
+	m_gxByTemplateDirty = TRUE;
+}
+
+void AttackPriorityInfo::gxRebuildByTemplate() const
+{
+	m_gxByTemplate.clear();
+	m_gxByTemplateDirty = FALSE;
+	if (!m_priorityMap)
+		return;
+	for (AttackPriorityMap::const_iterator it = m_priorityMap->begin(); it != m_priorityMap->end(); ++it)
+	{
+		const ThingTemplate *t = it->first;
+		if (!t || (const ThingTemplate *)t->getFinalOverride() != t)
+			continue;	// only a key a lookup can still reach (lookups go through the final override)
+		const size_t id = t->getTemplateID();
+		if (m_gxByTemplate.size() <= id) m_gxByTemplate.resize(id + 1, INT_MIN);
+		m_gxByTemplate[id] = it->second;
+	}
 }
 
 /** set a priority for a thing template. */
@@ -179,6 +202,26 @@ Int AttackPriorityInfo::getPriority(const ThingTemplate *tThing) const
 	Int priority = m_defaultPriority;
 	if (tThing==nullptr) return priority;
 	tThing = (const ThingTemplate *)tThing->getFinalOverride();
+	if (gxSweepOn(GXSW_PRIO_ARRAY))
+	{
+		// attackPrioArray: the map's answer from an array by template ID
+		if (m_gxByTemplateDirty)
+			gxRebuildByTemplate();
+		const size_t id = tThing->getTemplateID();
+		if (id < m_gxByTemplate.size() && m_gxByTemplate[id] != INT_MIN)
+			priority = m_gxByTemplate[id];
+#ifdef __EMSCRIPTEN__
+		if (GLES3_Page_Switches() & 2097152)	// verify mode: against the map
+		{
+			Int old = m_defaultPriority;
+			if (m_priorityMap) { AttackPriorityMap::const_iterator it = m_priorityMap->find(tThing); if (it != m_priorityMap->end()) old = it->second; }
+			static int checked = 0, bad = 0;
+			++checked; if (old != priority) ++bad;
+			if (old != priority || checked % 20000 == 0) printf("GXVERIFY attackPrioArray checked %d, mismatches %d\n", checked, bad);
+		}
+#endif
+		return priority;
+	}
 	if (m_priorityMap && !m_priorityMap->empty()) {
 		AttackPriorityMap::const_iterator it = m_priorityMap->find(tThing);
 		if (it != m_priorityMap->end())
@@ -221,6 +264,7 @@ void AttackPriorityInfo::reset()
 
 	delete m_priorityMap;
 	m_priorityMap = nullptr;
+	m_gxByTemplateDirty = TRUE;
 
 }
 

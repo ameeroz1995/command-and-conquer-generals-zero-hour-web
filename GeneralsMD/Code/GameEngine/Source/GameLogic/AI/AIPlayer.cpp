@@ -29,6 +29,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "Common/GxSweep.h"
 #include "Common/GameMemory.h"
 #include "Common/GameState.h"
 #include "Common/GlobalData.h"
@@ -1470,6 +1471,19 @@ Bool AIPlayer::isPossibleToBuildTeam( TeamPrototype *proto, Bool requireIdleFact
 		const ThingTemplate *thing = TheThingFactory->findTemplate( unitInfo[i].unitThingName );
 		if (thing) {
 			Int thingCost = thing->calcCostToBuild(m_player);
+			if (gxSweepOn(GXSW_TEAM_ONE_WALK)) {
+				// teamOneWalk: one build-list walk answers both questions; findFactory(thing, true) stops
+				// at the first idle factory, as findFactory(thing, false) does, so the walks (and their
+				// setObjectID side effects) are the same
+				Object *f = findFactory(thing, true);
+				if (nullptr == f) {
+					return false;
+				}
+				ProductionUpdateInterface *pu = f->getProductionUpdateInterface();
+				if (pu && pu->getProductionCount() <= 0) {
+					anyIdle = true;
+				}
+			} else {
 			if (nullptr == findFactory(thing, true)) {
 				// Couldn't find a factory.
 				return false;
@@ -1477,6 +1491,7 @@ Bool AIPlayer::isPossibleToBuildTeam( TeamPrototype *proto, Bool requireIdleFact
 			if (nullptr != findFactory(thing, false)) {
 				// Found an idle factory.
 				anyIdle = true;
+			}
 			}
 			cost += thingCost * ((unitInfo[i].maxUnits+unitInfo[i].minUnits)/2.0f);
 		}
@@ -2208,13 +2223,38 @@ Object *AIPlayer::findSupplyCenter(Int minimumCash)
 		enemyCenter.set( (bounds.lo.x+bounds.hi.x)*0.5f, (bounds.lo.y+bounds.hi.y)*0.5f, 0);
 	}
 
-	do {
+	// supplyOnce (sixth word bit 2, exact): the warehouses are collected once, in object-list order,
+	// instead of walking every object again at each halving of minimumCash (nothing changes in between)
+	static std::vector<std::pair<Object *, SupplyWarehouseDockUpdate *>> gxWarehouses;
+	const Bool gxOnce = gxSweepOn(GXSW_SUPPLY_ONCE);
+	if (gxOnce)
+	{
+		gxWarehouses.clear();
+		static const NameKeyType key_warehouseUpdate = NAMEKEY("SupplyWarehouseDockUpdate");
 		for( obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 		{
 			if (!obj->isKindOf(KINDOF_STRUCTURE)) continue;
 			if (!obj->isKindOf(KINDOF_SUPPLY_SOURCE)) continue;
+			SupplyWarehouseDockUpdate *w = (SupplyWarehouseDockUpdate*)obj->findUpdateModule( key_warehouseUpdate );
+			if (w) gxWarehouses.push_back(std::make_pair(obj, w));
+		}
+	}
+
+	do {
+		size_t gxK = 0;
+		for( obj = gxOnce ? (gxWarehouses.empty() ? nullptr : gxWarehouses[0].first) : TheGameLogic->getFirstObject(); obj;
+				obj = gxOnce ? (++gxK < gxWarehouses.size() ? gxWarehouses[gxK].first : nullptr) : obj->getNextObject() )
+		{
+			SupplyWarehouseDockUpdate *warehouseModule = nullptr;
+			if (gxOnce)
+				warehouseModule = gxWarehouses[gxK].second;
+			else
+			{
+			if (!obj->isKindOf(KINDOF_STRUCTURE)) continue;
+			if (!obj->isKindOf(KINDOF_SUPPLY_SOURCE)) continue;
 			static const NameKeyType key_warehouseUpdate = NAMEKEY("SupplyWarehouseDockUpdate");
-			SupplyWarehouseDockUpdate *warehouseModule = (SupplyWarehouseDockUpdate*)obj->findUpdateModule( key_warehouseUpdate );
+			warehouseModule = (SupplyWarehouseDockUpdate*)obj->findUpdateModule( key_warehouseUpdate );
+			}
 			if( warehouseModule )	{
 				Int availableCash = warehouseModule->getBoxesStored()*TheGlobalData->m_baseValuePerSupplyBox;
 				if (availableCash<minimumCash) continue;

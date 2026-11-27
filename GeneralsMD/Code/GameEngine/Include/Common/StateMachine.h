@@ -154,6 +154,7 @@ public:
 	virtual Bool isGuardIdle() const { return FALSE; }
 	//Definition of busy -- when explicitly in the busy state. Moving or attacking is not considered busy!
 	virtual Bool isBusy() const { return false; }
+	virtual void gxReinit() { }	///< web port (attackReuse): back to the values the constructor left (rows value-initialized, then the constructor's sets)
 	virtual Bool gxInnerIdle() const { return TRUE; }	///< web port (batchScan): an inner machine (attack move / follow) is idle, so update() makes the routine mood scan
 
 	StateMachine* getMachine();		///< return the machine this state is part of
@@ -275,6 +276,7 @@ public:
 	// virtual destructor defined by MemoryPool
 
 	virtual StateReturnType updateStateMachine();				///< run one step of the machine
+	void gxRecycle();	///< web port (attackReuse): what deleting the machine would do to its states (current state's onExit(EXIT_RESET)), then the constructor's values; states stay defined
 
 	virtual void clear();																///< clear the machine's internals to a known, initialized state
 
@@ -405,6 +407,7 @@ protected:
 struct GxStateMachineRow
 {
 	std::map<StateID, State *> stateMap;
+	std::vector<State *> stateById;	///< web port (switch stateArray): the same states by ID (null where none), for O(1) lookup
 	Object* owner;
 	UnsignedInt sleepTill;
 	StateID defaultStateID;
@@ -419,6 +422,8 @@ struct GxStateMachineRow
 	const char* lockedby;
 	StateID gxCurID = INVALID_STATE_ID;	///< cached currentState->getID() (switch dataBehaviors)
 	Bool gxCurIdle = true;	///< cached currentState->isIdle() (a state's isIdle() is fixed per state class)
+	Bool gxNoMap = false;	///< stateNoMap: states with an ID < 1024 are only in stateById (set at the first defineState)
+	Bool gxDefined = false;
 };
 
 

@@ -68,6 +68,7 @@
 #include "GameLogic/Module/JetAIUpdate.h"
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Module/StealthUpdate.h"
+#include "Common/GxSweep.h"
 
 // Web port (round 5, units are pure data): AIStateMachine's per-unit state is a row of TheGxAIStateMachines;
 // GXROW_AISTATEMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
@@ -5575,6 +5576,11 @@ AIAttackState::~AIAttackState()
 		GXROW_AIATTACKSTATE.attackMachine->halt();
 		deleteInstance(GXROW_AIATTACKSTATE.attackMachine);
 	}
+	if (GXROW_AIATTACKSTATE.gxKept)
+	{
+		GXROW_AIATTACKSTATE.gxKept->halt();
+		deleteInstance(GXROW_AIATTACKSTATE.gxKept);
+	}
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -5708,7 +5714,28 @@ StateReturnType AIAttackState::onEnter()
 
 	// create new state machine for attack behavior
 	//CRCDEBUG_LOG(("AIAttackState::onEnter() - constructing state machine for object %d", getMachineOwner()->getID()));
-	GXROW_AIATTACKSTATE.attackMachine = newInstance(AttackStateMachine)(source, this, "AIAttackMachine", GXROW_AIATTACKSTATE.follow, GXROW_AIATTACKSTATE.isAttackingObject, GXROW_AIATTACKSTATE.isForceAttacking  );
+	{
+		// web port attackReuse (sixth word bit 23): the machine the last attack left, recycled, when it
+		// was built from the same inputs; else a new one as before
+		const Int gxKey = (GXROW_AIATTACKSTATE.follow ? 1 : 0) | (GXROW_AIATTACKSTATE.isAttackingObject ? 2 : 0) | (GXROW_AIATTACKSTATE.isForceAttacking ? 4 : 0)
+			| (source->isKindOf(KINDOF_IMMOBILE) ? 8 : 0) | (source->isKindOf(KINDOF_PORTABLE_STRUCTURE) && source->isKindOf(KINDOF_CAN_ATTACK) ? 16 : 0);
+		if (GXROW_AIATTACKSTATE.gxKept && GXROW_AIATTACKSTATE.gxKeptKey == gxKey && gxSweepOn(GXSW_ATTACK_REUSE))
+		{
+			GXROW_AIATTACKSTATE.attackMachine = GXROW_AIATTACKSTATE.gxKept;
+			GXROW_AIATTACKSTATE.gxKept = nullptr;
+		}
+		else
+		{
+			if (GXROW_AIATTACKSTATE.gxKept)
+			{
+				GXROW_AIATTACKSTATE.gxKept->halt();
+				deleteInstance(GXROW_AIATTACKSTATE.gxKept);
+				GXROW_AIATTACKSTATE.gxKept = nullptr;
+			}
+			GXROW_AIATTACKSTATE.attackMachine = newInstance(AttackStateMachine)(source, this, "AIAttackMachine", GXROW_AIATTACKSTATE.follow, GXROW_AIATTACKSTATE.isAttackingObject, GXROW_AIATTACKSTATE.isForceAttacking  );
+			GXROW_AIATTACKSTATE.gxKeptKey = gxKey;
+		}
+	}
 
 #ifdef STATE_MACHINE_DEBUG
 	GXROW_AIATTACKSTATE.attackMachine->setDebugOutput(getMachine()->getWantsDebugOutput());
@@ -5885,8 +5912,15 @@ void AIAttackState::onExit( StateExitType status )
 	// turn it off when we do setCurrentVictim(nullptr).
 	//addSelfAsTargeter(false);
 
-	// destroy the attack machine
-	deleteInstance(GXROW_AIATTACKSTATE.attackMachine);
+	// destroy the attack machine (attackReuse: recycle it for the next attack instead; the same
+	// exits run now, and it comes back as a new one would be)
+	if (GXROW_AIATTACKSTATE.attackMachine && gxSweepOn(GXSW_ATTACK_REUSE) && !GXROW_AIATTACKSTATE.gxKept)
+	{
+		GXROW_AIATTACKSTATE.attackMachine->gxRecycle();
+		GXROW_AIATTACKSTATE.gxKept = GXROW_AIATTACKSTATE.attackMachine;
+	}
+	else
+		deleteInstance(GXROW_AIATTACKSTATE.attackMachine);
 	GXROW_AIATTACKSTATE.attackMachine = nullptr;
 
 	Object *obj = getMachineOwner();
@@ -7766,6 +7800,27 @@ AIAttackAimAtTargetState::~AIAttackAimAtTargetState()
 {
 }
 
+void AIAttackAimAtTargetState::gxReinit()
+{
+	const Bool obj = GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject, force = GXROW_AIATTACKAIMATTARGETSTATE.isForceAttacking;
+	GXROW_AIATTACKAIMATTARGETSTATE = GxAIAttackAimAtTargetStateRow();
+	GXROW_AIATTACKAIMATTARGETSTATE.isAttackingObject = obj;
+	GXROW_AIATTACKAIMATTARGETSTATE.canTurnInPlace = false;
+	GXROW_AIATTACKAIMATTARGETSTATE.isForceAttacking = force;
+	GXROW_AIATTACKAIMATTARGETSTATE.setLocomotor = false;
+}
+
+void AIInternalMoveToState::gxReinitMove()
+{
+	gxRow() = GxAIInternalMoveToStateRow();
+	gxRow().goalPosition.zero();
+	gxRow().pathGoalPosition.zero();
+	gxRow().pathTimestamp = 0;
+	gxRow().blockedRepathTimestamp = 0;
+	gxRow().adjustDestinations = true;
+	gxRow().goalLayer = LAYER_INVALID;
+}
+
 AIAttackApproachTargetState::AIAttackApproachTargetState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking ) : AIInternalMoveToState( machine, "AIAttackApproachTargetState" )
 {
 	GXROW_AIATTACKAPPROACHTARGETSTATE.follow = follow;
@@ -7779,6 +7834,17 @@ AIAttackApproachTargetState::AIAttackApproachTargetState( StateMachine *machine,
 
 AIAttackApproachTargetState::~AIAttackApproachTargetState()
 {
+}
+
+void AIAttackApproachTargetState::gxReinit()
+{
+	gxReinitMove();
+	const Bool follow = GXROW_AIATTACKAPPROACHTARGETSTATE.follow, obj = GXROW_AIATTACKAPPROACHTARGETSTATE.isAttackingObject, force = GXROW_AIATTACKAPPROACHTARGETSTATE.isForceAttacking;
+	GXROW_AIATTACKAPPROACHTARGETSTATE = GxAIAttackApproachTargetStateRow();
+	GXROW_AIATTACKAPPROACHTARGETSTATE.follow = follow;
+	GXROW_AIATTACKAPPROACHTARGETSTATE.isAttackingObject = obj;
+	GXROW_AIATTACKAPPROACHTARGETSTATE.isInitialApproach = true;
+	GXROW_AIATTACKAPPROACHTARGETSTATE.isForceAttacking = force;
 }
 
 AIAttackAreaState::AIAttackAreaState( StateMachine *machine ) : State( machine, "AIAttackAreaState" )
@@ -7802,6 +7868,19 @@ AIAttackPursueTargetState::AIAttackPursueTargetState( StateMachine *machine, Boo
 
 AIAttackPursueTargetState::~AIAttackPursueTargetState()
 {
+}
+
+void AIAttackPursueTargetState::gxReinit()
+{
+	gxReinitMove();
+	const Bool follow = GXROW_AIATTACKPURSUETARGETSTATE.follow, obj = GXROW_AIATTACKPURSUETARGETSTATE.isAttackingObject, force = GXROW_AIATTACKPURSUETARGETSTATE.isForceAttacking;
+	GXROW_AIATTACKPURSUETARGETSTATE = GxAIAttackPursueTargetStateRow();
+	GXROW_AIATTACKPURSUETARGETSTATE.follow = follow;
+	GXROW_AIATTACKPURSUETARGETSTATE.isAttackingObject = obj;
+	GXROW_AIATTACKPURSUETARGETSTATE.isInitialApproach = true;
+	GXROW_AIATTACKPURSUETARGETSTATE.isForceAttacking = force;
+	GXROW_AIATTACKPURSUETARGETSTATE.approachTimestamp = 0;
+	GXROW_AIATTACKPURSUETARGETSTATE.stopIfInRange = false;
 }
 
 AIAttackSquadState::AIAttackSquadState( StateMachine *machine, AttackExitConditionsInterface *attackParameters) : State( machine , "AIAttackSquadState")

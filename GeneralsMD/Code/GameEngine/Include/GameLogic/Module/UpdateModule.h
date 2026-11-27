@@ -140,6 +140,7 @@ private:
 	// actually, it's not a real frame at all, it has phase info in the lower bits...
 	UnsignedInt m_nextCallFrameAndPhase;
 	Int m_indexInLogic;
+	Int m_gxPassPos = -1;	///< web port (switch passPos): position in its update pass list or the join list (checked before use)
 
 protected:
 
@@ -213,6 +214,8 @@ public:
 		return m_indexInLogic;
 	}
 
+	UPDATEMODULE_FRIEND_DECLARATOR Int friend_getPassPos() const { return m_gxPassPos; }
+	UPDATEMODULE_FRIEND_DECLARATOR void friend_setPassPos(Int i) { m_gxPassPos = i; }
 	UPDATEMODULE_FRIEND_DECLARATOR void friend_setIndexInLogic(Int i)
 	{
 		m_indexInLogic = i;

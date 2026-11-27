@@ -101,7 +101,8 @@ public:
 	Object *friend_getObject() { return m_object; }
 	const Object *friend_getObject() const { return m_object; }
 
-	void friend_setNext( RadarObject *next ) { m_next = next; }
+	void friend_setNext( RadarObject *next ) { m_next = next; if (next) next->m_gxPrev = this; }	// web port: keeps the back link (switch fastRemove)
+	RadarObject *m_gxPrev = nullptr;	///< web port (switch fastRemove): previous object in its list (null at a head)
 	RadarObject *friend_getNext() { return m_next; }
 	const RadarObject *friend_getNext() const { return m_next; }
 

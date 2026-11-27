@@ -4441,7 +4441,6 @@ static std::vector<float> s_gxIdSphere;
 // batchScan (gxBatchClosest, below): the seeker being answered and the walk's order table
 static const Object *s_gxBatchMe = nullptr;
 static Real s_gxBatchRange = 0.0f;
-static UnsignedInt s_gxBatchSession = 1, s_gxBatchSessionN = 0;	// a batch (one driver call or one scan pass): the cull lists stay valid within it
 static std::vector<Int> s_gxRingWalk;	// per cell offset (dx + M, dy + M): its position in the walk, -1 never walked
 static std::vector<Int> s_gxRingOfWalk;	// per walk position: its ring
 static Int s_gxRingM = -1;
@@ -4935,8 +4934,6 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 		const std::vector<int> scanners = TheGxUnitStore.pass(GXB_SCAN);	// a copy: the pass may add to the store
 		extern bool gxMatchRule(unsigned int rule);
 		const Bool gxBatchPass = gxMatchRule(67108864 /* GXRULE_BATCH_SCAN */);
-		++s_gxBatchSession;
-		s_gxBatchSessionN = (UnsignedInt)scanners.size();
 		for (size_t i = 0; i < scanners.size(); ++i)
 		{
 			Object *o = TheGxUnitStore.obj[scanners[i]];
@@ -5444,8 +5441,6 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 //   between two objects first seen in the same cell runs the old walk instead.
 // With scanManager on the old path is the manager's (tick lists, cache): batchScan stays out of it.
 static std::vector<Int> s_gxBatchSurv;
-struct GxBatchList { UnsignedInt session, mask; Real maxR; std::vector<float> x, y, r; std::vector<Int> slot; };
-static std::vector<GxBatchList> s_gxBatchLists;	// per batch and enemy mask: the enemies by place x
 static unsigned s_gxBatchChecked, s_gxBatchBad, s_gxBatchFallbacks, s_gxBatchNested;
 
 Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, PartitionFilter **filters, UnsignedInt gxFlags, UnsignedInt gxMask,
@@ -5471,16 +5466,15 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 	const Real myR = max(obj->getBoundingCircleRadius(), obj->getGeometryInfo().getBoundingSphereRadius());
 	const Real lim0 = sqrtf(maxDist * maxDist) + myR + 1.0f;	// the walk's first gxLimit: 2D centre distance minus both radii, a unit of slack
 
-	// the cull. Once per batch (nothing moves within one) and enemy mask: the store's enemies
-	// (player bit in the mask; none = bit MAX_PLAYER_COUNT) with a place (placeR < 1e5), by place x.
-	// Each seeker then reads only the x window lim0 + the largest radius around it, keeping the
-	// slots whose centre is within lim0 + their radius (f32x4, two chains, 8 a step).
+	// the cull: every store slot, f32x4, two chains, 8 a step: enemy slots (player bit in the mask; none =
+	// bit MAX_PLAYER_COUNT) with a place (placeR < 1e5) whose centre is within lim0 + their radius.
+	// ponytail: one pass per scan (battle: ~5 us a scan, 0.08 ms/tick). A per-batch x-sorted list cost
+	// ~190 us to build and its window cull was no cheaper, so it never paid off; revisit past ~50 scans a batch.
+	const UnsignedInt none = 1u << MAX_PLAYER_COUNT;
 	s_gxBatchSurv.clear();
-	if (s_gxBatchSessionN < 16)
 	{
-		// a small batch: the lists would cost more than they save; every store slot instead
+		GxTimeScope gxT(GXT_BATCH_CULL);
 		const Int n = S.size();
-		const UnsignedInt none = 1u << MAX_PLAYER_COUNT;
 		Int s = 0;
 #ifdef __wasm_simd128__
 		const v128_t sx = wasm_f32x4_splat(px), sy = wasm_f32x4_splat(py), sl = wasm_f32x4_splat(lim0), big = wasm_f32x4_splat(100000.0f);
@@ -5504,75 +5498,7 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 				s_gxBatchSurv.push_back(s);
 		}
 	}
-	else
-	{
-	GxBatchList *bl = nullptr;
-	for (size_t i = 0; i < s_gxBatchLists.size() && !bl; ++i)
-		if (s_gxBatchLists[i].session == s_gxBatchSession && s_gxBatchLists[i].mask == gxMask)
-			bl = &s_gxBatchLists[i];
-	if (!bl)
-	{
-		size_t k = 0;
-		while (k < s_gxBatchLists.size() && s_gxBatchLists[k].session == s_gxBatchSession)
-			++k;	// a list of this batch for another mask stays
-		if (k == s_gxBatchLists.size())
-			s_gxBatchLists.resize(k + 1);
-		bl = &s_gxBatchLists[k];
-		bl->session = s_gxBatchSession;
-		bl->mask = gxMask;
-		static std::vector<std::pair<float, Int> > order;
-		order.clear();
-		const Int n = S.size();
-		const UnsignedInt none = 1u << MAX_PLAYER_COUNT;
-		for (Int s = 0; s < n; ++s)
-		{
-			const UnsignedInt pb = S.playerBit[s];
-			if (((pb ? pb : none) & gxMask) && S.placeR[s] < 100000.0f)
-				order.push_back(std::make_pair(S.placeX[s], s));
-		}
-		std::sort(order.begin(), order.end());	// by x, then slot: same order every time
-		const size_t c = order.size();
-		bl->x.resize(c + 8); bl->y.resize(c + 8); bl->r.resize(c + 8); bl->slot.resize(c);
-		bl->maxR = 0.0f;
-		for (size_t i = 0; i < c; ++i)
-		{
-			const Int s = order[i].second;
-			bl->x[i] = S.placeX[s]; bl->y[i] = S.placeY[s]; bl->r[i] = S.placeR[s]; bl->slot[i] = s;
-			bl->maxR = max(bl->maxR, S.placeR[s]);
-		}
-		for (size_t i = c; i < c + 8; ++i)
-			bl->x[i] = bl->y[i] = 1e30f, bl->r[i] = 0.0f;	// padding: never kept
-	}
-	const Int cnt = (Int)bl->slot.size();
-	const Real win = lim0 + bl->maxR;
-	Int k = (Int)(std::lower_bound(bl->x.begin(), bl->x.begin() + cnt, px - win) - bl->x.begin());
-	const Int kEnd = (Int)(std::upper_bound(bl->x.begin(), bl->x.begin() + cnt, px + win) - bl->x.begin());
-#ifdef __wasm_simd128__
-	{
-		const v128_t sx = wasm_f32x4_splat(px), sy = wasm_f32x4_splat(py), sl = wasm_f32x4_splat(lim0);
-		#define GX_CULL4(b) ([&]() -> UnsignedInt { \
-			const v128_t dx = wasm_f32x4_sub(wasm_v128_load(&bl->x[k + b]), sx), dy = wasm_f32x4_sub(wasm_v128_load(&bl->y[k + b]), sy); \
-			const v128_t lim = wasm_f32x4_add(sl, wasm_v128_load(&bl->r[k + b])); \
-			const v128_t d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)); \
-			return (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim)))); }())
-		for (; k < kEnd; k += 8)	// the padding covers a block past kEnd
-		{
-			UnsignedInt m = GX_CULL4(0) | (GX_CULL4(4) << 4);
-			if (kEnd - k < 8)
-				m &= (1u << (kEnd - k)) - 1;
-			for (; m; m &= m - 1)
-				s_gxBatchSurv.push_back(bl->slot[k + __builtin_ctz(m)]);
-		}
-		#undef GX_CULL4
-	}
-#endif
-	for (; k < kEnd; ++k)
-	{
-		const Real dx = bl->x[k] - px, dy = bl->y[k] - py, lim = lim0 + bl->r[k];
-		if (!(dx * dx + dy * dy > lim * lim))
-			s_gxBatchSurv.push_back(bl->slot[k]);
-	}
-	}
+	gxCount(GXC_BATCH_SEEKERS);
 
 	// the walk's answer from the survivors
 	DistCalcProc distProc = theDistCalcProcs[FROM_BOUNDINGSPHERE_2D];
@@ -5728,8 +5654,6 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 void gxBatchFindClosestEnemy(Int n, Object *const *me, const Real *range, const UnsignedInt *qualifiers,
 	const AttackPriorityInfo *const *info, Object **out)
 {
-	++s_gxBatchSession;	// nothing moves until the call returns: one set of lists for its scans
-	s_gxBatchSessionN = n;
 	for (Int i = 0; i < n; ++i)
 	{
 		s_gxBatchMe = me[i];

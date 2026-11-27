@@ -33,7 +33,9 @@ enum GxMatchRule
 	// "off" rules (an old recording without them plays as before, kernels on):
 	GXRULE_KIND_KERNELS_OFF    = 16777216,	///< kindKernels off: no per-kind kernels under updatePasses (GameLogic.cpp)
 	GXRULE_CONTAIN_KERNELS_OFF = 33554432,
+	GXRULE_HEAP4               = 1073741824,	///< heap4 (fifth word value 1048576): the update queue as a 4-ary heap; same-frame ties come off in another order (GameLogic.cpp)
 	GXRULE_SCAN_ALIGN          = 268435456,	///< scanAlign (fifth word value 8): routine mood checks land on every 4th frame so batchScan searches more units at once (AIUpdate.cpp)
+	GXRULE_DEATH_DESELECT      = 0x80000000u,	///< deathDeselect (sixth word bit 28, value 268435456): a dying unit is taken out of a player's selection only when that selection holds it, without a temporary group (fewer group IDs used) (GameLogic.cpp)
 	GXRULE_BATCH_SCAN          = 67108864,	///< batchScan (fifth word bit 1): due mood scans searched in one batch per AI kind before the turns (AIUpdate.cpp, PartitionManager.cpp)	///< containKernels off: containers / rebuild holes count down in their own turns (OpenContain.cpp, RebuildHoleBehavior.cpp)	///< damageQueue: weapon damage queued during the tick and applied in one pass in victim-ID order (Weapon.cpp)
 };
 

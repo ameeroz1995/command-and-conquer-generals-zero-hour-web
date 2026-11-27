@@ -25,11 +25,12 @@ static inline int GLES3_Page_Switches4() { return 0; }
 static inline double emscripten_get_now() { return 0.0; }
 #endif
 
-enum GxTimeId { GXT_LOGIC, GXT_FRAME, GXT_SEARCH, GXT_FOG_REVEAL, GXT_MOVE, GXT_MOVE_KERNEL, GXT_AI_LOOP, GXT_AI_KERNELS, 
+enum GxTimeId { GXT_LOGIC, GXT_FRAME, GXT_SEARCH, GXT_FOG_REVEAL, GXT_MOVE, GXT_MOVE_KERNEL, GXT_AI_LOOP, GXT_AI_KERNELS,
 	GXT_SPLASH, GXT_ESTIMATE, GXT_RELOAD,	// combat
 	GXT_PHYSICS, GXT_COLLIDE_BUILD, GXT_COLLIDE_PROCESS,	// collide
 	GXT_CLIENT, GXT_CONTROLBAR,	// combat: GameClient::update, ControlBar::update (selection UI)
 	GXT_PATHFIND, GXT_LOCO, GXT_SNAP, GXT_PATCH, GXT_PART_UPDATE, GXT_CELLS, GXT_PAIRS,	// paths / ai / query
+	GXT_BATCH_CULL,	// query: batchScan's store cull
 	GXT_TIME_COUNT };
 enum GxCountId
 {
@@ -47,8 +48,8 @@ enum GxCountId
 	// dealing (splash lists included), damage estimates for target choice, projectile updates
 	GXC_ALLOC_FIRE, GXC_ALLOC_DAMAGE, GXC_ALLOC_ESTIMATE, GXC_ALLOC_PROJECTILE, GXC_ALLOC_FX, GXC_ALLOC_SPAWN, GXC_EVENT_WALK, GXC_ASSIST_ASKS, GXC_BUILD_MORE,
 	GXC_PATH_FINDS, GXC_PATH_CELLS, GXC_LOCO_CALLS, GXC_CPOP_CALLS, GXC_CPOP_SIMD_SEGS,
-	GXC_MOOD_SCANS, GXC_BATCH_SCANNED, GXC_BATCH_USED, GXC_BATCH_CALLS,
-	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES,
+	GXC_MOOD_SCANS, GXC_BATCH_SCANNED, GXC_BATCH_USED, GXC_BATCH_CALLS, GXC_AI_ALLOCS, GXC_HEAP_PUSHES, GXC_HEAP_STEPS,
+	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES, GXC_BATCH_SEEKERS,
 	GXC_COUNT
 };
 
@@ -120,7 +121,7 @@ inline void gxTimePrint(const char *tag)
 {
 	GxTimeState &s = gxTime();
 	if (!s.ticks) return;
-	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "move", "moveKernel", "aiLoop", "aiKernels", "splash", "estimate", "reload", "physics", "collideBuild", "collideProcess", "client", "controlBar", "pathfind", "loco", "snapBuild", "snapPatch", "partUpdate", "cellsTouched", "pairOffers" };
+	static const char *tn[GXT_TIME_COUNT] = { "logic", "frame", "search", "fogReveal", "move", "moveKernel", "aiLoop", "aiKernels", "splash", "estimate", "reload", "physics", "collideBuild", "collideProcess", "client", "controlBar", "pathfind", "loco", "snapBuild", "snapPatch", "partUpdate", "cellsTouched", "pairOffers", "bsCull" };
 	static const char *cn[GXC_COUNT] = { "searches", "searchCells", "searchEntries", "searchUnits", "simdCulled",
 		"fogCircles", "fogCells", "fogStatusCalls", "fogRecomputes", "fogKept",
 		"moveUnits", "moveKernelPoints", "moveKernelTaken", "moveApplyPoints", "hordeSearches",
@@ -130,8 +131,8 @@ inline void gxTimePrint(const char *tag)
 		"physUnits", "collideSeekers", "pairCells", "pairTests", "pairs", "allocs",
 		"allocFire", "allocDamage", "allocEstimate", "allocProjectile", "allocFx", "allocSpawn", "eventWalkObjects", "assistAsks", "buildMoreChecks",
 		"pathFinds", "pathCells", "locoCalls", "cpopCalls", "cpopSimdSegs",
-		"moodScans", "batchScanned", "batchUsed", "batches",
-		"pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates" };
+		"moodScans", "batchScanned", "batchUsed", "batches", "aiAllocs", "heapOps", "heapSteps",
+		"pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates", "bsSeekers" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())
