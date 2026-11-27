@@ -2840,6 +2840,28 @@ void GameLogic::gxPassMergeJoin()
 	{
 		std::vector<GxPassEntry> &list = m_gxPass[ph];
 		if (list.size() == old[ph]) continue;
+		if (gxSweepOn(GXSW_MERGE_BUF))
+		{
+			// mergeBuf: the same stable sort and merge (std::merge takes the first range on ties, as both
+			// std calls do) through a buffer kept across ticks, so no temporary buffer is allocated
+			std::vector<GxPassEntry> &buf = m_gxMergeBuf;
+			const size_t n = list.size() - old[ph];
+			if (buf.size() < list.size()) buf.resize(list.size());
+			GxPassEntry *src = list.data() + old[ph], *dst = buf.data();
+			for (size_t w = 1; w < n; w *= 2)	// bottom-up merge sort of the joins
+			{
+				for (size_t lo = 0; lo < n; lo += 2 * w)
+				{
+					const size_t mid = lo + w < n ? lo + w : n, hi = lo + 2 * w < n ? lo + 2 * w : n;
+					std::merge(src + lo, src + mid, src + mid, src + hi, dst + lo, byKey);
+				}
+				GxPassEntry *t = src; src = dst; dst = t;
+			}
+			if (src != list.data() + old[ph]) std::copy(src, src + n, list.data() + old[ph]);
+			std::merge(list.begin(), list.begin() + old[ph], list.begin() + old[ph], list.end(), buf.begin(), byKey);
+			std::copy(buf.begin(), buf.begin() + list.size(), list.begin());
+			continue;
+		}
 		std::stable_sort(list.begin() + old[ph], list.end(), byKey);
 		std::inplace_merge(list.begin(), list.begin() + old[ph], list.end(), byKey);
 	}

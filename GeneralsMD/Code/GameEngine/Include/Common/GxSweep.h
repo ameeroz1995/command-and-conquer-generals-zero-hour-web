@@ -25,6 +25,8 @@ enum GxSweepSwitch
 	GXSW_SCAN_LEAN    = 0x200 | 29,	///< scanLean (sixth word bit 29): batchScan collects only modules due this tick and tests the mood frame first (GameLogic.cpp, AIUpdate.cpp)
 	GXSW_AUDIO_NAMES  = 0x200 | 22,	///< audioNames (sixth word bit 22): sound file names built once per event and sound (AudioEventRTS.cpp)
 	GXSW_ATTACK_REUSE = 0x200 | 23,	///< attackReuse (sixth word bit 23): AIAttackState keeps its attack state machine between attacks (AIStates.cpp)
+	GXSW_STATE_NOMAP  = 0x200 | 30,	///< stateNoMap (sixth word bit 30): states with an array slot are not also put in the state map (StateMachine.cpp)
+	GXSW_MERGE_BUF    = 0x200 | 31,	///< mergeBuf (sixth word bit 31): gxPassMerge sorts joins and merges through a kept buffer (GameLogic.cpp)
 	GXSW_SUPPLY_ONCE  = 0x200 | 2,	///< #54 supplyOnce (sixth word bit 2): AI supply search collects warehouses once (AIPlayer.cpp)
 };
 inline bool gxSweepOn(int sw)

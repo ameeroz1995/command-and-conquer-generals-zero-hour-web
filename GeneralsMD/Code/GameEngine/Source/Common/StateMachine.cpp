@@ -289,6 +289,18 @@ StateMachine::StateMachine( Object *owner, AsciiString name )
 	internalClear();
 }
 
+
+// web port (stateNoMap): every state this machine owns, in ascending ID order (the order the map alone gave):
+// the array's states first when they are not also in the map (IDs < 1024), then the map's.
+template <class F> static inline void gxForEachState(GxStateMachineRow &r, F f)
+{
+	if (r.gxNoMap)
+		for (size_t k = 0; k < r.stateById.size(); ++k)
+			if (r.stateById[k]) f(r.stateById[k]);
+	for (std::map<StateID, State *>::iterator i = r.stateMap.begin(); i != r.stateMap.end(); ++i)
+		f(i->second);
+}
+
 //-----------------------------------------------------------------------------
 /**
  * Destructor.  Destroy any states attached to this machine.
@@ -300,13 +312,8 @@ StateMachine::~StateMachine()
 	if (GXROW_STATEMACHINE.currentState)
 		GXROW_STATEMACHINE.currentState->onExit( EXIT_RESET );
 
-	std::map<StateID, State *>::iterator i;
-
-	// delete all states in the mapping
-	for( i = GXROW_STATEMACHINE.stateMap.begin(); i != GXROW_STATEMACHINE.stateMap.end(); ++i )
-	{
-		deleteInstance((*i).second);
-	}
+	// delete all states in the mapping (stateNoMap: and the array's own)
+	gxForEachState(GXROW_STATEMACHINE, [](State *st) { deleteInstance(st); });
 }
 
 //-----------------------------------------------------------------------------
@@ -367,8 +374,7 @@ void StateMachine::gxRecycle()
 	GXROW_STATEMACHINE.lockedby = nullptr;
 #endif
 	internalClear();
-	for (std::map<StateID, State *>::iterator i = GXROW_STATEMACHINE.stateMap.begin(); i != GXROW_STATEMACHINE.stateMap.end(); ++i)
-		i->second->gxReinit();
+	gxForEachState(GXROW_STATEMACHINE, [](State *st) { st->gxReinit(); });
 }
 
 //-----------------------------------------------------------------------------
@@ -520,8 +526,15 @@ void StateMachine::defineState( StateID id, State *state, StateID successID, Sta
 	DEBUG_ASSERTCRASH(GXROW_STATEMACHINE.stateMap.find( id ) == GXROW_STATEMACHINE.stateMap.end(), ("duplicate state ID in statemachine %s",GXROW_STATEMACHINE.name.str()));
 #endif
 
-	// map the ID to the state
-	GXROW_STATEMACHINE.stateMap.insert( std::map<StateID, State *>::value_type( id, state ) );
+	if (!GXROW_STATEMACHINE.gxDefined)
+	{
+		GXROW_STATEMACHINE.gxDefined = true;
+		GXROW_STATEMACHINE.gxNoMap = gxSweepOn(GXSW_STATE_NOMAP);
+		if (GXROW_STATEMACHINE.gxNoMap) GXROW_STATEMACHINE.stateById.reserve(64);
+	}
+	// map the ID to the state (stateNoMap: only an ID without an array slot)
+	if (!GXROW_STATEMACHINE.gxNoMap || (UnsignedInt)id >= 1024)
+		GXROW_STATEMACHINE.stateMap.insert( std::map<StateID, State *>::value_type( id, state ) );
 	if ((UnsignedInt)id < 1024)	// stateArray: IDs are small enums; a larger one is only in the map
 	{
 		std::vector<State *> &v = GXROW_STATEMACHINE.stateById;
@@ -551,7 +564,7 @@ void StateMachine::defineState( StateID id, State *state, StateID successID, Sta
  */
 State *StateMachine::internalGetState( StateID id )
 {
-	if (gxSweepOn(GXSW_STATE_ARRAY))
+	if (GXROW_STATEMACHINE.gxNoMap || gxSweepOn(GXSW_STATE_ARRAY))
 	{
 		// stateArray: the state by ID from the array (same state as the map's); anything else as before
 		const std::vector<State *> &v = GXROW_STATEMACHINE.stateById;
@@ -567,6 +580,8 @@ State *StateMachine::internalGetState( StateID id )
 		DEBUG_CRASH( ("StateMachine::internalGetState(): Invalid state for object %s using state %d", GXROW_STATEMACHINE.owner->getTemplate()->getName().str(), id) );
 		DEBUG_LOG(("Transitioning to state %d", (Int)id));
 		DEBUG_LOG(("Attempting to recover - locating default state..."));
+		if (GXROW_STATEMACHINE.gxNoMap && GXROW_STATEMACHINE.defaultStateID < GXROW_STATEMACHINE.stateById.size() && GXROW_STATEMACHINE.stateById[GXROW_STATEMACHINE.defaultStateID])
+			return GXROW_STATEMACHINE.stateById[GXROW_STATEMACHINE.defaultStateID];
 		i = GXROW_STATEMACHINE.stateMap.find(GXROW_STATEMACHINE.defaultStateID);
 		if (i == GXROW_STATEMACHINE.stateMap.end()) {
 			DEBUG_LOG(("Failed to located default state.  Aborting..."));
@@ -889,39 +904,24 @@ void StateMachine::xfer( Xfer *xfer )
 #endif
 	xfer->xferBool(&snapshotAllStates);
 	if (snapshotAllStates) {
-		std::map<StateID, State *>::iterator i;
-		// count all states in the mapping
+		// count all states in the mapping (stateNoMap: with the array's own, same ascending ID order)
 		Int count = 0;
-		for( i = GXROW_STATEMACHINE.stateMap.begin(); i != GXROW_STATEMACHINE.stateMap.end(); ++i )
-			count++;
+		gxForEachState(GXROW_STATEMACHINE, [&](State *) { count++; });
 		Int saveCount = count;
 		xfer->xferInt(&saveCount);
 		if (saveCount!=count) {
 			DEBUG_CRASH(("State count mismatch - %d expected, %d read", count, saveCount));
 			throw SC_INVALID_DATA;
 		}
-		for( i = GXROW_STATEMACHINE.stateMap.begin(); i != GXROW_STATEMACHINE.stateMap.end(); ++i ) {
-			State *state = (*i).second;
-			if( state != nullptr )
-			{
-				StateID id = state->getID();
-				xfer->xferUnsignedInt(&id);
-				if (id!=state->getID()) {
-					DEBUG_CRASH(("State ID mismatch - %d expected, %d read", state->getID(), id));
-					throw SC_INVALID_DATA;
-				}
+		gxForEachState(GXROW_STATEMACHINE, [&](State *state) {
+			StateID id = state->getID();
+			xfer->xferUnsignedInt(&id);
+			if (id!=state->getID()) {
+				DEBUG_CRASH(("State ID mismatch - %d expected, %d read", state->getID(), id));
+				throw SC_INVALID_DATA;
 			}
-			else
-			{
-				DEBUG_CRASH(("state was null on xfer, trying to heal..."));
-				// Hmm... too late to find out why we are getting nullptr in our state, but if we let it go, we will Throw in xferSnapshot.
-				state = internalGetState(GXROW_STATEMACHINE.defaultStateID);
-				StateID id = state->getID();
-				xfer->xferUnsignedInt(&id);
-			}
-
 			xfer->xferSnapshot(state);
-		}
+		});
 
 	}	else {
 		if( GXROW_STATEMACHINE.currentState == nullptr )

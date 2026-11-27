@@ -422,6 +422,8 @@ struct GxStateMachineRow
 	const char* lockedby;
 	StateID gxCurID = INVALID_STATE_ID;	///< cached currentState->getID() (switch dataBehaviors)
 	Bool gxCurIdle = true;	///< cached currentState->isIdle() (a state's isIdle() is fixed per state class)
+	Bool gxNoMap = false;	///< stateNoMap: states with an ID < 1024 are only in stateById (set at the first defineState)
+	Bool gxDefined = false;
 };
 
 

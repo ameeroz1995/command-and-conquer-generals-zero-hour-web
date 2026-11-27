@@ -374,6 +374,7 @@ private:
 	struct GxPassEntry { unsigned long long key; UpdateModulePtr u; };
 	std::vector<GxPassEntry> m_gxPass[4];
 	std::vector<GxPassEntry> m_gxPassJoin;
+	std::vector<GxPassEntry> m_gxMergeBuf;	///< mergeBuf: gxPassMergeJoin's sort and merge buffer, kept across ticks
 	void gxPassRemove(UpdateModulePtr u);
 	void gxPassFlushToHeap();
 	void gxPassMerge();

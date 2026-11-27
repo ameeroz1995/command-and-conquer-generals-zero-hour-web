@@ -525,6 +525,8 @@ void GLES3_Begin_Scene() {
                  | (o.attackReuse === true ? 8388608 : 0) // bit 23 (ai): an attack's state machine recycled for the next attack (AIStates.cpp; same game)
                  | (o.deathDeselect === true ? 268435456 : 0) // bit 28 (ai, range 28-31): match rule bit 31, a dying unit leaves only selections that hold it (GameLogic.cpp)
                  | (o.scanLean === true ? 536870912 : 0) // bit 29 (ai): batchScan collects only modules due this tick, mood frame tested first (GameLogic.cpp, AIUpdate.cpp; same game)
+                 | (o.stateNoMap === true ? 1073741824 : 0) // bit 30 (ai): states with an array slot are not also in the state map (StateMachine.cpp; same game)
+                 | (o.mergeBuf === true ? (1 << 31) : 0) // bit 31 (ai): gxPassMerge sorts and merges through a kept buffer (GameLogic.cpp; same game)
                  | (o.fastRemove === true ? 8 : 0);       // bit 3 (ai): unit group and radar removal by stored node / back link (AIGroup.cpp, Radar.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({
