@@ -4364,7 +4364,8 @@ void GameLogic::update()
 				const size_t i = st.back(); st.pop_back();
 				if (i >= m_sleepyUpdates.size() || m_gxSleepyKey[i] > lim) continue;
 				if ((!gxLean || m_sleepyUpdates[i]->friend_getNextCallFrame() == now) && m_sleepyUpdates[i]->getAIUpdateInterface()) km.push_back(m_sleepyUpdates[i]);
-				st.push_back(2 * i + 2); st.push_back(2 * i + 1);
+				if (m_gxHeap4) { st.push_back(4 * i + 4); st.push_back(4 * i + 3); st.push_back(4 * i + 2); st.push_back(4 * i + 1); }	// heap4: a 4-ary heap's children
+				else { st.push_back(2 * i + 2); st.push_back(2 * i + 1); }
 			}
 			std::sort(km.begin(), km.end(), [](UpdateModulePtr a, UpdateModulePtr b) { return a->friend_getObject()->getID() < b->friend_getObject()->getID(); });
 			if (!km.empty())
