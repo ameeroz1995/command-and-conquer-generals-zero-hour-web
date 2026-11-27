@@ -4032,6 +4032,18 @@ Stays default off.
     every other system was ~19% slower in the same runs (search 4.1 vs 5.0, collideBuild 1.84 vs
     2.30); physics share of logic 11.6% in both. No gain measurable. Both kernels stay as committed
     (call-free, exact); both run only on switches that are off by default.
+- AI games were idle because the web build never loaded the loose AI scripts: Data/Scripts/
+  SkirmishScripts.scb and MultiplayerScripts.scb are install files in no .big, so skirmish AI players
+  got no scripts (SidesList::prepareForMP_or_Skirmish) and stayed at command center + dozer. Fix
+  2c7e213 (EmscriptenMain.cpp): read them from assets/Data/Scripts/ into MEMFS at boot (missing file
+  only logged). Landed on perf/low-end as a650518; the shared assets dir has Data/Scripts links.
+  Checked: collide-fix.rep frame 5300 shows the China AI with a full base and tanks; replay matches.
+- ai-long.rep (~/generals-bench, soa-22, 36000 frames, hash switches off when recorded): AIs build and
+  fight, but the load is light: logic averages 0.54 ms/tick, ~0.64 ms/tick over the last 9000 ticks,
+  physUnits ~24 on average (battle bench: ~33 ms/tick, 1205 physUnits). Replays match, 0 mismatches.
+- Hash switches (recruitIndex, aiWorldIndex, playerKindCounts) on ai-long.rep, bench_replay timing,
+  GXTIMEEND logic ms/tick: off 0.536 / 0.788, on 0.591 / 0.557 (aiLoop 0.331 / 0.480 vs 0.366 / 0.344).
+  Within noise at this load; no gain or loss measurable. Defaults stay on.
 
 ## 2026-11-25 — Round 5 (units are pure data), paths families: state in component rows; movement kernel
 - Per-unit state moved out of the module objects into rows of collide's GxComponentPool (one pool per
