@@ -32,6 +32,17 @@
 #include "Common/ThingTemplate.h"
 #include "GameLogic/Object.h"
 
+// web port (switch iterPool, fifth word bit 29): an emptied iterator puts its clumps on a per-thread
+// free list and inserts take from it before the pool, so a warm game allocates no clump per object found.
+// ponytail: the list keeps its high-water count of clumps for the whole session.
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches5();
+static inline bool gxIterPool() { return (GLES3_Page_Switches5() & 536870912) != 0; }
+#else
+static inline bool gxIterPool() { return false; }
+#endif
+static thread_local void *s_gxFreeClumps = nullptr;
+
 
 /// @todo Doxygenize this file
 
@@ -73,7 +84,6 @@ SimpleObjectIterator::~SimpleObjectIterator()
 // web port (heap churn): emptied iterators keep their clumps in a per-thread free list (linked through
 // m_nextClump) instead of giving them back to the pool, so a search allocates only past the high-water
 // mark. Nothing resets the pools mid-run (MemoryPoolFactory::reset has no caller).
-static thread_local void *s_gxFreeClumps = nullptr;	// Clump* (the type is private to the iterator)
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches4();
 #else
@@ -85,9 +95,12 @@ void SimpleObjectIterator::insert(Object *obj, Real numeric)
 {
 	DEBUG_ASSERTCRASH(obj, ("sorry, no nulls allowed here"));
 
-	Clump *clump = gxIterReuse() ? static_cast<Clump *>(s_gxFreeClumps) : nullptr;
-	if (clump)
+	Clump *clump;
+	if (s_gxFreeClumps && (gxIterPool() || gxIterReuse()))	// iterPool (query) and iterReuse (combat) share one free list
+	{
+		clump = (Clump *)s_gxFreeClumps;
 		s_gxFreeClumps = clump->m_nextClump;
+	}
 	else
 		clump = newInstance(Clump)();
 
@@ -127,6 +140,16 @@ void SimpleObjectIterator::reset()
 //=============================================================================
 void SimpleObjectIterator::makeEmpty()
 {
+	if (m_firstClump && gxIterPool())
+	{
+		Clump *tail = m_firstClump;
+		while (tail->m_nextClump)
+			tail = tail->m_nextClump;
+		tail->m_nextClump = (Clump *)s_gxFreeClumps;
+		s_gxFreeClumps = m_firstClump;
+		m_firstClump = nullptr;
+		m_clumpCount = 0;
+	}
 	while (m_firstClump)
 	{
 		Clump *next = m_firstClump->m_nextClump;

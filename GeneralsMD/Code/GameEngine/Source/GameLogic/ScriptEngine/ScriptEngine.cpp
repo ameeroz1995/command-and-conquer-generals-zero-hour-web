@@ -61,6 +61,10 @@ extern int GLES3_Page_Switches();
 #include "GameLogic/ScriptConditions.h"
 #include "GameLogic/ScriptEngine.h"
 #include "GameLogic/SidesList.h"
+#include "Common/GxNameMap.h"
+
+// web port (switch scriptLookups): bumped at every write of m_namedObjects / m_allObjectTypeLists
+static UnsignedInt s_gxNamedEpoch = 1, s_gxTypesEpoch = 1;
 
 
 // These are for debugger window
@@ -5427,7 +5431,7 @@ void ScriptEngine::reset()
 		if (*it) {
 			removeObjectTypes(*it);
 		} else {
-			m_allObjectTypeLists.erase(it);
+			++s_gxTypesEpoch; m_allObjectTypeLists.erase(it);
 		}
 	}
 	DEBUG_ASSERTCRASH( m_allObjectTypeLists.empty() == TRUE, ("ScriptEngine::reset - m_allObjectTypeLists should be empty but is not!") );
@@ -5436,7 +5440,7 @@ void ScriptEngine::reset()
 	m_namedReveals.clear();
 
 	// Clear the named objects list.
- 	m_namedObjects.clear();
+ 	++s_gxNamedEpoch; m_namedObjects.clear();
 
 	m_completedVideo.clear();
 	m_testingSpeech.clear();
@@ -5895,8 +5899,33 @@ Player *ScriptEngine::getPlayerFromAsciiString(const AsciiString& playerString)
 //-------------------------------------------------------------------------------------------------
 /** getObjectTypeList */
 //-------------------------------------------------------------------------------------------------
+// web port (switch scriptLookups, fifth word bit 9): name -> object type list / named-object entry maps,
+// first match in vector order, rebuilt when their vector changed (epochs bumped at every write)
+static GxNameMap<ObjectTypes> s_gxTypes;
+static GxNameMap<NamedRequest> s_gxNamed;	// points into m_namedObjects (no push_back since the build)
+
 ObjectTypes *ScriptEngine::getObjectTypes(const AsciiString& objectTypeList)
 {
+	if (gxNameMapOn(512))
+	{
+		if (s_gxTypes.epoch != s_gxTypesEpoch)
+		{
+			s_gxTypes.clear();
+			for (AllObjectTypesIt it = m_allObjectTypeLists.begin(); it != m_allObjectTypeLists.end(); ++it)
+				if (*it)
+					s_gxTypes.addFirst((*it)->getListName().str(), *it);
+			s_gxTypes.epoch = s_gxTypesEpoch;
+		}
+		ObjectTypes *p = s_gxTypes.find(objectTypeList.str());
+		if (!gxNameMapVerify())
+			return p;
+		ObjectTypes *ref = nullptr;
+		for (AllObjectTypesIt it = m_allObjectTypeLists.begin(); it != m_allObjectTypeLists.end() && !ref; ++it)
+			if (*it && (*it)->getListName() == objectTypeList)
+				ref = *it;
+		gxNameCheck("objectTypes", objectTypeList.str(), p == ref);
+		return p;
+	}
 	AllObjectTypesIt it;
 
 	for (it = m_allObjectTypeLists.begin(); it != m_allObjectTypeLists.end(); ++it) {
@@ -5924,7 +5953,7 @@ void ScriptEngine::doObjectTypeListMaintenance(const AsciiString& objectTypeList
 
 	if (!currentObjectTypeVec) {
 		ObjectTypes *newVec = newInstance(ObjectTypes)(objectTypeList);
-		m_allObjectTypeLists.push_back(newVec);
+		++s_gxTypesEpoch; m_allObjectTypeLists.push_back(newVec);
 		currentObjectTypeVec = newVec;
 	}
 
@@ -6034,6 +6063,28 @@ Team * ScriptEngine::getTeamNamed(const AsciiString& teamName)
 //-------------------------------------------------------------------------------------------------
 /** getUnitNamed */
 //-------------------------------------------------------------------------------------------------
+/// web port (scriptLookups): the first m_namedObjects entry with this name (verify: against the walk)
+const NamedRequest *ScriptEngine::gxNamedFind(const AsciiString& unitName)
+{
+	if (s_gxNamed.epoch != s_gxNamedEpoch)
+	{
+		s_gxNamed.clear();
+		for (VecNamedRequestsIt it = m_namedObjects.begin(); it != m_namedObjects.end(); ++it)
+			s_gxNamed.addFirst(it->first.str(), &*it);
+		s_gxNamed.epoch = s_gxNamedEpoch;
+	}
+	const NamedRequest *p = s_gxNamed.find(unitName.str());
+	if (gxNameMapVerify())
+	{
+		const NamedRequest *ref = nullptr;
+		for (VecNamedRequestsIt it = m_namedObjects.begin(); it != m_namedObjects.end() && !ref; ++it)
+			if (unitName == it->first)
+				ref = &*it;
+		gxNameCheck("namedObjects", unitName.str(), p == ref);
+	}
+	return p;
+}
+
 Object * ScriptEngine::getUnitNamed(const AsciiString& unitName)
 {
 	if (unitName == THIS_OBJECT) {
@@ -6043,6 +6094,11 @@ Object * ScriptEngine::getUnitNamed(const AsciiString& unitName)
 		return m_conditionObject;
 	}
 
+	if (gxNameMapOn(512))
+	{
+		const NamedRequest *r = gxNamedFind(unitName);
+		return r ? r->second : nullptr;
+	}
 	for (VecNamedRequestsIt it = m_namedObjects.begin(); it != m_namedObjects.end(); ++it) {
 		if (unitName == (it->first)) {
 			return it->second;
@@ -6056,6 +6112,11 @@ Object * ScriptEngine::getUnitNamed(const AsciiString& unitName)
 //-------------------------------------------------------------------------------------------------
 Bool ScriptEngine::didUnitExist(const AsciiString& unitName)
 {
+	if (gxNameMapOn(512))
+	{
+		const NamedRequest *r = gxNamedFind(unitName);
+		return r ? (r->second == nullptr) : false;
+	}
 	for (VecNamedRequestsIt it = m_namedObjects.begin(); it != m_namedObjects.end(); ++it) {
 		if (unitName == (it->first)) {
 			return (it->second == nullptr);
@@ -6325,10 +6386,38 @@ Int ScriptEngine::allocateFlag( const AsciiString& name)
 	return 0; // Shouldn't ever happen.
 }
 
-//-------------------------------------------------------------------------------------------------
-/** Locates a group by name. */
-//-------------------------------------------------------------------------------------------------
-ScriptGroup  *ScriptEngine::findGroup(const AsciiString& name)
+// web port (switch scriptNames, fifth word bit 8): name -> group / script maps built in the walks' own
+// order (sides in order; per side the top-level scripts, then each group's scripts), first match kept;
+// rebuilt when g_gxScriptEpoch moved (any script list link, name or side script list changed).
+static GxNameMap<ScriptGroup> s_gxGroups;
+static GxNameMap<Script> s_gxScripts;
+static Int s_gxScriptSides = -1;
+
+static void gxBuildScriptMaps()
+{
+	s_gxGroups.clear(); s_gxScripts.clear();
+	for (Int i = 0; i < TheSidesList->getNumSides(); i++) {
+		ScriptList *pSL = TheSidesList->getSideInfo(i)->getScriptList();
+		if (pSL == nullptr) continue;
+		for (Script *pScr = pSL->getScript(); pScr; pScr = pScr->getNext())
+			s_gxScripts.addFirst(pScr->getName().str(), pScr);
+		for (ScriptGroup *pGroup = pSL->getScriptGroup(); pGroup; pGroup = pGroup->getNext()) {
+			s_gxGroups.addFirst(pGroup->getName().str(), pGroup);
+			for (Script *pScr = pGroup->getScript(); pScr; pScr = pScr->getNext())
+				s_gxScripts.addFirst(pScr->getName().str(), pScr);
+		}
+	}
+	s_gxGroups.epoch = s_gxScripts.epoch = g_gxScriptEpoch;
+	s_gxScriptSides = TheSidesList->getNumSides();
+}
+
+static inline void gxScriptMapsFresh()
+{
+	if (s_gxGroups.epoch != g_gxScriptEpoch || s_gxScriptSides != TheSidesList->getNumSides())
+		gxBuildScriptMaps();
+}
+
+static ScriptGroup *gxWalkGroup(const AsciiString& name)
 {
 	Int i;
 	for (i=0; i<TheSidesList->getNumSides(); i++) {
@@ -6347,7 +6436,7 @@ ScriptGroup  *ScriptEngine::findGroup(const AsciiString& name)
 //-------------------------------------------------------------------------------------------------
 /** Locates a script by name. */
 //-------------------------------------------------------------------------------------------------
-Script  *ScriptEngine::findScript(const AsciiString& name)
+static Script *gxWalkScript(const AsciiString& name)
 {
 	Int i;
 	for (i=0; i<TheSidesList->getNumSides(); i++) {
@@ -6369,6 +6458,34 @@ Script  *ScriptEngine::findScript(const AsciiString& name)
 		}
 	}
 	return nullptr; // Shouldn't ever happen.
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Locates a group by name. */
+//-------------------------------------------------------------------------------------------------
+ScriptGroup  *ScriptEngine::findGroup(const AsciiString& name)
+{
+	if (!gxNameMapOn(256))
+		return gxWalkGroup(name);
+	gxScriptMapsFresh();
+	ScriptGroup *p = s_gxGroups.find(name.str());
+	if (gxNameMapVerify())
+		gxNameCheck("scriptNames group", name.str(), p == gxWalkGroup(name));
+	return p;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Locates a script by name. */
+//-------------------------------------------------------------------------------------------------
+Script  *ScriptEngine::findScript(const AsciiString& name)
+{
+	if (!gxNameMapOn(256))
+		return gxWalkScript(name);
+	gxScriptMapsFresh();
+	Script *p = s_gxScripts.find(name.str());
+	if (gxNameMapVerify())
+		gxNameCheck("scriptNames script", name.str(), p == gxWalkScript(name));
+	return p;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -6747,7 +6864,7 @@ void ScriptEngine::removeObjectTypes(ObjectTypes *typesToRemove)
 	deleteInstance(typesToRemove);
 
 	// remove it from the main array of stuff
-	m_allObjectTypeLists.erase(it);
+	++s_gxTypesEpoch; m_allObjectTypeLists.erase(it);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -7158,7 +7275,7 @@ void ScriptEngine::addObjectToCache(Object* pNewObject)
 		}
 
 		if (pNewObject == (it->second)) {
-			it->first = objName;
+			++s_gxNamedEpoch; it->first = objName;
 			return;
 		}
 	}
@@ -7167,7 +7284,7 @@ void ScriptEngine::addObjectToCache(Object* pNewObject)
 	req.first = objName;
 	req.second = pNewObject;
 
-	m_namedObjects.push_back(req);
+	++s_gxNamedEpoch; m_namedObjects.push_back(req);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -7754,7 +7871,7 @@ const ConditionTemplate * ScriptEngine::getConditionTemplate( Int ndx )
 //-------------------------------------------------------------------------------------------------
 void ScriptEngine::createNamedCache()
 {
-	m_namedObjects.clear();
+	++s_gxNamedEpoch; m_namedObjects.clear();
 
 	if( !TheGameLogic )
 	{
@@ -7767,7 +7884,7 @@ void ScriptEngine::createNamedCache()
 			NamedRequest req;
 			req.first = pObj->getName();
 			req.second = pObj;
-			m_namedObjects.push_back(req);
+			++s_gxNamedEpoch; m_namedObjects.push_back(req);
 		}
 		pObj = pObj->getNextObject();
 	}
@@ -9052,7 +9169,7 @@ void ScriptEngine::xfer( Xfer *xfer )
 		// list should be empty, it is legal for it to not be empty at this point
 		// according to John M., so we're clearing it now
 		//
-		m_namedObjects.clear();
+		++s_gxNamedEpoch; m_namedObjects.clear();
 
 		// read each element
 		for( UnsignedShort i = 0; i < namedObjectsCount; ++i )
@@ -9075,7 +9192,7 @@ void ScriptEngine::xfer( Xfer *xfer )
 			// assign
 			req.first = namedObjectName;
 			req.second = obj;
-			m_namedObjects.push_back( req );
+			++s_gxNamedEpoch; m_namedObjects.push_back( req );
 
 		}
 
@@ -9319,7 +9436,7 @@ void ScriptEngine::xfer( Xfer *xfer )
 				xfer->xferSnapshot( objectTypes );
 
 				// put on list
-				m_allObjectTypeLists.push_back( objectTypes );
+				++s_gxTypesEpoch; m_allObjectTypeLists.push_back( objectTypes );
 
 			}
 

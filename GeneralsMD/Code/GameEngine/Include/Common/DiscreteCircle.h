@@ -67,6 +67,7 @@ class DiscreteCircle
 		// fresh DiscreteCircle(x, y, r); keepBuffer keeps the old capacity (no allocation once warm),
 		// otherwise the buffer is dropped first, as a fresh object would start.
 		void reset(Int xCenter, Int yCenter, Int radius, Bool keepBuffer);
+		~DiscreteCircle();	///< web port (switch iterPool): hands m_edges' buffer back to a per-thread pool
 		__inline const VecHorzLine &getEdges() const { return m_edges; }
 		__inline Int getEdgeCount() const { return m_edges.size(); }
 		void drawCircle(ScanlineDrawFunc functionToDrawWith, void *parmToPass);

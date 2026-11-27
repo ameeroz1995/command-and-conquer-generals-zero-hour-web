@@ -36,6 +36,8 @@
 #include "Common/GameMemory.h"
 #include "Common/STLTypedefs.h"
 
+extern UnsignedInt g_gxScriptEpoch;	// web port (switch scriptNames, Scripts.h)
+
 class DataChunkInput;
 struct DataChunkInfo;
 class DataChunkOutput;
@@ -70,7 +72,7 @@ public:
 	BuildListInfo* getBuildList() {return m_pBuildList;} ///< Gets the build list.
 	void releaseBuildList()  {m_pBuildList=nullptr;} ///< Used when the build list is passed to class Player.
 	ScriptList *getScriptList() {return(m_scripts);};
-	void setScriptList(ScriptList *pScriptList) {m_scripts = pScriptList;};
+	void setScriptList(ScriptList *pScriptList) {++g_gxScriptEpoch; m_scripts = pScriptList;};
 
 	// ug, I hate having to overload stuff, but this makes it a lot easier to make copies safely
 	SidesInfo& operator=(const SidesInfo& that);

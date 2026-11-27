@@ -54,7 +54,7 @@ double gx_work_ms_1s = 0;           // game CPU work per frame, last second (gle
 static int g_PageSwitches = 7 | 16 | 32 | 64 | 4096 | 8192 | 16384 | 32768 | 65536 | 262144 | 524288 | 1048576 | 4194304 | 16777216 | 33554432;      // bit 0: shroud fold, bit 1: terrain tile culling (Module.gxShroudFold / gxTerrainCull = 0 turns one off), bit 2: 30 fps pacing (setting Steady 30 fps, ?pace=0), bit 3: ground cache (Module.gxGroundCache = 0 turns it off), bit 4: specialised shaders, bit 5: skip unchanged texture re-uploads, bit 6: sounds load in the background (the page's performance switches)
 int GLES3_Page_Switches() { return g_PageSwitches; }
 // Second switch word (the first is full): bit 0 contactTable, bit 1 sleepyKeys, bit 2 openHeap, bit 3 contactArray (game logic, same game).
-static int g_PageSwitches2 = 15 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 512 | 65536 | 131072 | 262144 | 524288 | 128 | 67108864 | 268435456 | 33554432 | 1073741824;
+static int g_PageSwitches2 = 15 | 16777216 | 32 | 64 | 1048576 | 2097152 | 4194304 | 256 | 512 | 65536 | 131072 | 262144 | 524288 | 128 | 67108864 | 268435456 | 33554432 | 1073741824;
 int GLES3_Page_Switches2() { return g_PageSwitches2; }
 // Third switch word (round 3 of the logic agents). Bits by owner: paths 0-3, collide 4-7, ai 8-11,
 // query 12-15, combat 16-19; 20-30 free. Default: the bits whose switches default on.
@@ -487,6 +487,7 @@ void GLES3_Begin_Scene() {
                  | (o.laserFilters === false ? 0 : 131072)   // bit 17: point-defense lasers filter inside the range search (PointDefenseLaserUpdate.cpp; same game)
                  | (o.denseCellMask === false ? 0 : 262144)  // bit 18: range searches read each cell's player mask from one dense array (PartitionManager.cpp; same game)
                  | (o.searchCache === false ? 0 : 524288)    // bit 19: range searches turn far entries away by a cached position (PartitionManager.cpp; same game)
+                 | (o.blockMask === false ? 0 : 16777216)   // bit 24: range searches skip 8x8 blocks of map squares with no wanted player (PartitionManager.cpp; same game)
                  | (o.pairPlace === false ? 0 : 268435456)   // bit 28: touching pairs clearly apart by their kept places are done without reading the units (PartitionManager.cpp; same game)
                  | (o.pairOffer === true ? 536870912 : 0);   // bit 29: match rule spatialPairs: clearly-apart neighbours are not offered as pairs (PartitionManager.cpp; changes the game)
         });
@@ -504,7 +505,7 @@ void GLES3_Begin_Scene() {
                  | (o.kindKernels === false ? 0 : 128)   // bit 7: per-kind kernels under updatePasses; off = match rule kindKernelsOff, the host / replay decide (GameLogic.cpp)
                  | (o.hotInStore === false ? 0 : 4)   // bit 2: objects' position, status, disabled mask, layer, geometry, angle and transform live in the unit store's columns (GxUnitStore.h, Object.h, Thing.h; same game)
                  | (o.rowKernels === false ? 0 : 4096)   // bit 12: scan countdowns of EnemyNear/AutoFindHealing/PointDefenseLaser run as one kernel per table (GxComponentTable.h; same game)
-                 | (o.simdSearch === false ? 0 : 8192)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
+                 | (o.simdSearch === true ? 8192 : 0)    // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game; off: 0.2 ms/tick slower on pinned no-draw)
                  | (o.fogStamps === false ? 0 : 16384)   // bit 14: sight circles from precomputed stamps, 8 cells at a time with wasm SIMD over dense shroud counters (PartitionManager.cpp; same game)   // bit 13: store-list range searches cull 4 units at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.fogKeep === false ? 0 : 32768)   // bit 15: a unit that moves within the same cells keeps fog statuses decided by the cells alone (PartitionManager.cpp; same game)
                  | (o.cpopSimd === false ? 0 : 262144) // bit 18: with cpopSegments, the closest route segment found 8 segments per loop with wasm SIMD (AIPathfind.cpp; same game)
@@ -539,7 +540,8 @@ void GLES3_Begin_Scene() {
                  | (o.stateNoMap === true ? 1073741824 : 0) // bit 30 (ai): states with an array slot are not also in the state map (StateMachine.cpp; same game)
                  | (o.mergeBuf === true ? (1 << 31) : 0) // bit 31 (ai): gxPassMerge sorts and merges through a kept buffer (GameLogic.cpp; same game)
                  | (o.fastRemove === true ? 8 : 0)       // bit 3 (ai): unit group and radar removal by stored node / back link (AIGroup.cpp, Radar.cpp; same game)
-                 | (o.circleReuse === false ? 0 : 16777216);   // bit 24 (collide): shroud-cover / threat / value affects regenerate one scratch DiscreteCircle per call site instead of a new edge vector per call (PartitionManager.cpp, DiscreteCircle.cpp; same game)
+                 | (o.circleReuse === false ? 0 : 16777216)   // bit 24 (collide): shroud-cover / threat / value affects regenerate one scratch DiscreteCircle per call site instead of a new edge vector per call (PartitionManager.cpp, DiscreteCircle.cpp; same game)
+                 | (o.searchTable === false ? 0 : 256);   // bit 8 (query): the scan manager's per-tick answers in a flat table with reused entries, not a map rebuilt each tick (PartitionManager.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
@@ -566,7 +568,13 @@ void GLES3_Begin_Scene() {
                  | (o.nodePool === false ? 0 : 262144)   // bit 18: freed route points and routes reused from a stack before the pool's blobs (GameMemory.cpp; same game)
                  | (o.pathTail === false ? 0 : 131072)   // bit 17: a route point is linked after the kept tail instead of walking the route to its end (AIPathfind.cpp; same game)
                  | (o.orderQueue === false ? 0 : 65536)   // bit 16: match rule orderQueue, a group order does no route search on its tick; the kinds' routes are searched in the route queue (AIGroup.cpp)
-                 | (o.locoSimd === false ? 0 : 2);   // bit 1 (value 2): match rule locoSimd, locomotor headings by a fixed polynomial atan2, 4 movers per wasm SIMD op (Locomotor.cpp, GxLocoAngle.h)
+                 | (o.locoSimd === false ? 0 : 2)   // bit 1 (value 2): match rule locoSimd, locomotor headings by a fixed polynomial atan2, 4 movers per wasm SIMD op (Locomotor.cpp, GxLocoAngle.h)
+                 | (o.scriptNames === false ? 0 : 256)   // bit 8 (query): scripts and script groups found by name through a map, first match kept (ScriptEngine.cpp; same game)
+                 | (o.scriptLookups === false ? 0 : 512)   // bit 9 (query): named units, object type lists, trigger areas and waypoints found by name through maps (ScriptEngine.cpp, TerrainLogic.cpp; same game)
+                 | (o.upgradeKeys === false ? 0 : 1024)   // bit 10 (query): upgrades found by name key through a map, veterancy upgrades cached (Upgrade.cpp; same game)
+                 | (o.powerKeys === false ? 0 : 2048)   // bit 11 (query): special powers found by name or ID through maps (SpecialPower.cpp; same game)
+                 | (o.iterPool === false ? 0 : 536870912)   // bit 29 (query): search result lists reuse their entries instead of allocating one per unit found (SimpleObjectIterator.cpp; same game)
+                 | (o.scienceKeys === false ? 0 : 268435456);   // bit 28 (query): sciences found through a map (Science.cpp; same game)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

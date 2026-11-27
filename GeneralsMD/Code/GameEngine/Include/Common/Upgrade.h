@@ -36,6 +36,8 @@
 #include "Common/BitFlags.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
+extern UnsignedInt g_gxUpgradeEpoch;	// web port (switch upgradeKeys): bumped when the upgrade list links or a template's name key change
+
 class Player;
 class UpgradeTemplate;
 enum NameKeyType CPP_11(: Int);
@@ -172,7 +174,7 @@ public:
 	// field access
 	void setUpgradeName( const AsciiString& name ) { m_name = name; }
 	const AsciiString& getUpgradeName() const { return m_name; }
-	void setUpgradeNameKey( NameKeyType key ) { m_nameKey = key; }
+	void setUpgradeNameKey( NameKeyType key ) { ++g_gxUpgradeEpoch; m_nameKey = key; }
 	NameKeyType getUpgradeNameKey() const { return m_nameKey; }
 	const AsciiString& getDisplayNameLabel() const { return m_displayNameLabel; }
 	const UpgradeMaskType& getUpgradeMask() const { return m_upgradeMask; }
@@ -189,8 +191,8 @@ public:
 	const FieldParse *getFieldParse() const { return m_upgradeFieldParseTable; }
 
 	// friend access methods for the UpgradeCenter ONLY
-	void friend_setNext( UpgradeTemplate *next ) { m_next = next; }
-	void friend_setPrev( UpgradeTemplate *prev ) { m_prev = prev; }
+	void friend_setNext( UpgradeTemplate *next ) { ++g_gxUpgradeEpoch; m_next = next; }
+	void friend_setPrev( UpgradeTemplate *prev ) { ++g_gxUpgradeEpoch; m_prev = prev; }
 	UpgradeTemplate *friend_getNext() { return m_next; }
 	UpgradeTemplate *friend_getPrev() { return m_prev; }
 	const UpgradeTemplate *friend_getNext() const { return m_next; }

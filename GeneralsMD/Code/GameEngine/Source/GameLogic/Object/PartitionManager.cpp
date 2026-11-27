@@ -1271,6 +1271,20 @@ UnsignedInt *g_gxCellMasks = nullptr;
 Short *g_gxShroudCur = nullptr, *g_gxShroudAct = nullptr;
 Int g_gxShroudN = 0;
 Int g_gxCellMaskW = 0;
+UnsignedInt *g_gxBlockMasks = nullptr;
+Int g_gxBlockMaskW = 0;
+static Int g_gxCellMaskH = 0;
+
+void gxRefreshBlockMask(Int cellX, Int cellY)
+{
+	const Int x0 = (cellX >> GX_BLOCK_SHIFT) << GX_BLOCK_SHIFT, y0 = (cellY >> GX_BLOCK_SHIFT) << GX_BLOCK_SHIFT;
+	const Int x1 = min(x0 + (1 << GX_BLOCK_SHIFT), g_gxCellMaskW), y1 = min(y0 + (1 << GX_BLOCK_SHIFT), g_gxCellMaskH);
+	UnsignedInt m = 0;
+	for (Int y = y0; y < y1; ++y)
+		for (Int x = x0; x < x1; ++x)
+			m |= g_gxCellMasks[y * g_gxCellMaskW + x];
+	g_gxBlockMasks[(cellY >> GX_BLOCK_SHIFT) * g_gxBlockMaskW + (cellX >> GX_BLOCK_SHIFT)] = m;
+}
 
 void CellAndObjectIntersection::gxSetPlayerSlot(Int slot)
 {
@@ -3470,6 +3484,14 @@ void PartitionManager::init()
 		g_gxCellMasks = MSGNEW("PartitionManager_CellMasks") UnsignedInt[m_totalCellCount];
 		memset(g_gxCellMasks, 0, m_totalCellCount * sizeof(UnsignedInt));
 		g_gxCellMaskW = m_cellCountX;
+		g_gxCellMaskH = m_cellCountY;
+		g_gxBlockMaskW = (m_cellCountX + (1 << GX_BLOCK_SHIFT) - 1) >> GX_BLOCK_SHIFT;
+		{
+			const Int blocks = g_gxBlockMaskW * ((m_cellCountY + (1 << GX_BLOCK_SHIFT) - 1) >> GX_BLOCK_SHIFT);
+			delete [] g_gxBlockMasks;
+			g_gxBlockMasks = MSGNEW("PartitionManager_BlockMasks") UnsignedInt[blocks];
+			memset(g_gxBlockMasks, 0, blocks * sizeof(UnsignedInt));
+		}
 		delete [] g_gxShroudCur;
 		delete [] g_gxShroudAct;
 		g_gxShroudN = m_totalCellCount;
@@ -3575,6 +3597,10 @@ void PartitionManager::shutdown()
 	delete [] g_gxCellMasks;
 	g_gxCellMasks = nullptr;
 	g_gxCellMaskW = 0;
+	delete [] g_gxBlockMasks;
+	g_gxBlockMasks = nullptr;
+	g_gxBlockMaskW = 0;
+	g_gxCellMaskH = 0;
 	delete [] g_gxShroudCur;
 	delete [] g_gxShroudAct;
 	g_gxShroudCur = g_gxShroudAct = nullptr;
@@ -4474,7 +4500,63 @@ static UnsignedInt s_gxSnapSearch = 0, s_gxSnapFrame = ~0u, s_gxSnapEpoch = 0;
 struct GxScanRequest { UnsignedInt frame; Real range; UnsignedInt qualifiers; };
 static std::unordered_map<Int, GxScanRequest> s_gxScanRequests;	// by object ID: the last plain enemy scan asked for
 struct GxCachedSearch { ObjectID closest; Real dist; Coord3D vec; std::vector<std::pair<ObjectID, Real> > list; };
-static std::unordered_map<unsigned long long, GxCachedSearch> s_gxSearchCache;
+// The tick's answers: open addressing over keys, entries reused across ticks (their lists keep their
+// capacity), so a warm game allocates nothing per cached search. A stamp per bucket clears it in O(1).
+struct GxSearchTable
+{
+	std::vector<unsigned long long> key;
+	std::vector<UnsignedInt> stamp;
+	std::vector<Int> at;
+	std::vector<GxCachedSearch> ent;
+	Int used = 0;
+	UnsignedInt now = 1;
+
+	static size_t hashOf(unsigned long long k) { k ^= k >> 33; k *= 0xff51afd7ed558ccdull; k ^= k >> 33; return (size_t)k; }
+	void clear() { used = 0; if (++now == 0) { std::fill(stamp.begin(), stamp.end(), 0u); now = 1; } }
+	GxCachedSearch *find(unsigned long long k)
+	{
+		if (key.empty()) return nullptr;
+		const size_t m = key.size() - 1;
+		for (size_t i = hashOf(k) & m; stamp[i] == now; i = (i + 1) & m)
+			if (key[i] == k) return &ent[at[i]];
+		return nullptr;
+	}
+	GxCachedSearch &get(unsigned long long k)	///< the entry for k, a fresh one if absent
+	{
+		if (GxCachedSearch *e = find(k)) return *e;
+		if ((size_t)(used + 1) * 2 > key.size()) grow();
+		const size_t m = key.size() - 1;
+		size_t i = hashOf(k) & m;
+		while (stamp[i] == now) i = (i + 1) & m;
+		key[i] = k; stamp[i] = now; at[i] = used;
+		if ((size_t)used == ent.size()) ent.emplace_back();
+		return ent[used++];
+	}
+	void grow()
+	{
+		const size_t n = key.empty() ? 256 : key.size() * 2;
+		std::vector<unsigned long long> k2(n); std::vector<UnsignedInt> s2(n, 0u); std::vector<Int> a2(n);
+		for (size_t i = 0; i < key.size(); ++i)
+			if (stamp[i] == now)
+			{
+				size_t j = hashOf(key[i]) & (n - 1);
+				while (s2[j] == now) j = (j + 1) & (n - 1);
+				k2[j] = key[i]; s2[j] = now; a2[j] = at[i];
+			}
+		key.swap(k2); stamp.swap(s2); at.swap(a2);
+	}
+};
+static GxSearchTable s_gxSearchCache;
+static std::unordered_map<unsigned long long, GxCachedSearch> s_gxSearchMap;	// switch searchTable off: the map as before
+static inline bool gxSearchTableOn()	// switch searchTable (sixth word bit 8, on)
+{
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches6();
+	return (GLES3_Page_Switches6() & 256) != 0;
+#else
+	return false;
+#endif
+}
 static UnsignedInt s_gxManagerFrame = ~0u;
 static Bool s_gxScanPassDone = false;
 static Bool s_gxInScanPass = false;	// the pass's own scans are not requests (else every unit rescans forever)
@@ -4540,7 +4622,7 @@ void gxSnapTouch(const Object *o)
 
 /// one slot's cell box and snapshot radius, as the full build has always computed them
 /// (cached: read the partition data and sphere through the per-ID cache)
-static inline void gxSnapBox(const GxUnitStore &S, Int s, Int cellCountX, Int cellCountY, Int *box, Bool cached = FALSE)
+static inline __attribute__((always_inline)) void gxSnapBox(const GxUnitStore &S, Int s, Int cellCountX, Int cellCountY, Int *box, Bool cached = FALSE)	// straight-line: inlined into the build/patch loops
 {
 	Object *o = S.obj[s];
 	box[0] = -1;
@@ -4596,10 +4678,11 @@ static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
 	std::vector<Int> &box = s_gxBaseBox;	// per slot: x0, y0, x1, y1 (x0 = -1: not in the partition)
 	box.resize(4 * n);
 	s_gxBaseId.resize(n);
+	const Bool cachedR = (GLES3_Page_Switches4() & 0x80000000u) != 0;	// loop-invariant switch read hoisted
 	for (Int s = 0; s < n; ++s)
 	{
 		s_gxBaseId[s] = S.id[s];
-		gxSnapBox(S, s, cellCountX, cellCountY, &box[4 * s], (GLES3_Page_Switches4() & 0x80000000u) != 0);
+		gxSnapBox(S, s, cellCountX, cellCountY, &box[4 * s], cachedR);
 		if (box[4 * s] < 0)
 			continue;
 		for (Int y = box[4 * s + 1]; y <= box[4 * s + 3]; ++y)
@@ -4837,6 +4920,7 @@ enum
 	GX_GCO_ENTRIES = 2,		// entries of players not in the mask (switch searchSlotSkip)
 	GX_GCO_DENSE = 4,		// read cell masks from the dense array (switch denseCellMask)
 	GX_GCO_CACHE = 8,		// entries farther than the range by their cached place (switch searchCache)
+	GX_GCO_BLOCKS = 16,		// read the 8x8 block's mask first (switch blockMask)
 	GX_GCO_SNAP = 32		// read this tick's per-cell lists of store slots (match rule scanManager)
 };
 
@@ -4896,6 +4980,8 @@ Object *PartitionManager::getClosestObjects(
 			flags |= GX_GCO_ENTRIES;
 		if (sw & 262144)
 			flags |= GX_GCO_DENSE;
+		if (sw & 16777216)
+			flags |= GX_GCO_BLOCKS;
 	}
 	{
 		extern bool gxMatchRule(unsigned int rule);
@@ -4984,6 +5070,7 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 	{
 		s_gxManagerFrame = frame;
 		s_gxSearchCache.clear();
+		s_gxSearchMap.clear();
 		s_gxScanPassDone = false;
 	}
 	// this tick's per-cell lists (again if the store moved slots, e.g. a unit was removed)
@@ -5030,11 +5117,20 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 	// a search from a point names no searcher, and its filters' state (whose enemies, which laser) is
 	// not in the key: never cached. A unit's search is keyed by the unit, which its filters are built from.
 	const Bool gxCacheable = obj != nullptr;
-	std::unordered_map<unsigned long long, GxCachedSearch>::iterator c = gxCacheable ? s_gxSearchCache.find(key) : s_gxSearchCache.end();
-	Bool hit = false;
-	if (c != s_gxSearchCache.end())
+	const Bool gxTable = gxSearchTableOn();
+	const GxCachedSearch *c = nullptr;
+	if (gxCacheable && gxTable)
+		c = s_gxSearchCache.find(key);
+	else if (gxCacheable)
 	{
-		const GxCachedSearch &cs = c->second;
+		std::unordered_map<unsigned long long, GxCachedSearch>::iterator m = s_gxSearchMap.find(key);
+		if (m != s_gxSearchMap.end())
+			c = &m->second;
+	}
+	Bool hit = false;
+	if (c)
+	{
+		const GxCachedSearch &cs = *c;
 		if (iterArg)
 		{
 			// the list as the search left it (iterator order); inserting in reverse rebuilds that order
@@ -5069,7 +5165,7 @@ Object *PartitionManager::gxManagedSearch(const Object *obj, const Coord3D *pos,
 	}
 	if (!hit && gxCacheable)
 	{
-		GxCachedSearch &cs = s_gxSearchCache[key];
+		GxCachedSearch &cs = gxTable ? s_gxSearchCache.get(key) : s_gxSearchMap[key];
 		cs.closest = result ? result->getID() : INVALID_ID;
 		cs.dist = dist;
 		cs.vec = vec;
@@ -5194,6 +5290,17 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 			const Int gxX = cellCenterX + it->x, gxY = cellCenterY + it->y;
 			if (gxX < 0 || gxY < 0 || gxX >= m_cellCountX || gxY >= m_cellCountY)
 				continue;
+			// switch blockMask: a block holding none of the players in the mask holds no such cell;
+			// cells are still visited (or skipped) one by one in ring order
+			if ((gxFlags & GX_GCO_BLOCKS) && !(g_gxBlockMasks[(gxY >> GX_BLOCK_SHIFT) * g_gxBlockMaskW + (gxX >> GX_BLOCK_SHIFT)] & gxEnemyMask))
+			{
+				if (trace && (g_gxCellMasks[gxY * m_cellCountX + gxX] & gxEnemyMask))
+				{
+					++gx_verify_mismatch;	// verify mode: the block said empty, the cell disagrees
+					printf("GXVERIFY block mask mismatch at %d,%d\n", gxX, gxY);
+				}
+				continue;
+			}
 			if ((gxFlags & GX_GCO_DENSE) && !(g_gxCellMasks[gxY * m_cellCountX + gxX] & gxEnemyMask))
 				continue;
 			PartitionCell* thisCell = &m_cells[gxY * m_cellCountX + gxX];
@@ -5539,10 +5646,14 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 	// ponytail: one pass per scan (battle: ~5 us a scan, 0.08 ms/tick). A per-batch x-sorted list cost
 	// ~190 us to build and its window cull was no cheaper, so it never paid off; revisit past ~50 scans a batch.
 	const UnsignedInt none = 1u << MAX_PLAYER_COUNT;
-	s_gxBatchSurv.clear();
+	Int nSurv = 0;	// straight-line: survivors written straight into a buffer sized up front (no push_back call).
+	// ponytail: an all-lanes branchless write measured slower (survivors are rare: 0.067 vs 0.059 ms/tick)
 	{
 		GxTimeScope gxT(GXT_BATCH_CULL);
 		const Int n = S.size();
+		if ((Int)s_gxBatchSurv.size() < n + 8)
+			s_gxBatchSurv.resize(n + 8);
+		Int *__restrict surv = s_gxBatchSurv.data();
 		Int s = 0;
 #ifdef __wasm_simd128__
 		const v128_t sx = wasm_f32x4_splat(px), sy = wasm_f32x4_splat(py), sl = wasm_f32x4_splat(lim0), big = wasm_f32x4_splat(100000.0f);
@@ -5554,16 +5665,18 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 			const v128_t lim = wasm_f32x4_add(sl, vr), d2 = wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)); \
 			return (UnsignedInt)wasm_i32x4_bitmask(wasm_v128_and(wasm_v128_and(en, wasm_f32x4_lt(vr, big)), wasm_v128_not(wasm_f32x4_gt(d2, wasm_f32x4_mul(lim, lim))))); }())
 		for (; s + 8 <= n; s += 8)
+		{
 			for (UnsignedInt m = GX_CULL4(0) | (GX_CULL4(4) << 4); m; m &= m - 1)
-				s_gxBatchSurv.push_back(s + __builtin_ctz(m));
+				surv[nSurv++] = s + __builtin_ctz(m);
+		}
 		#undef GX_CULL4
 #endif
 		for (; s < n; ++s)
 		{
 			const UnsignedInt pb = S.playerBit[s];
 			const Real dx = S.placeX[s] - px, dy = S.placeY[s] - py, lim = lim0 + S.placeR[s];
-			if (((pb ? pb : none) & gxMask) && S.placeR[s] < 100000.0f && !(dx * dx + dy * dy > lim * lim))
-				s_gxBatchSurv.push_back(s);
+			surv[nSurv] = s;
+			nSurv += (((pb ? pb : none) & gxMask) != 0) & (S.placeR[s] < 100000.0f) & !(dx * dx + dy * dy > lim * lim);
 		}
 	}
 	gxCount(GXC_BATCH_SEEKERS);
@@ -5581,7 +5694,7 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 	const UnsignedInt walksAtStart = g_gxWalks;
 	Coord3D bestVec;
 	bestVec.x = bestVec.y = bestVec.z = maxDist;	// as the walk's unset vector
-	for (size_t i = 0; i < s_gxBatchSurv.size(); ++i)
+	for (Int i = 0; i < nSurv; ++i)
 	{
 		const Int sl0 = s_gxBatchSurv[i];
 		Object *t = S.obj[sl0];
@@ -5684,7 +5797,7 @@ Object *PartitionManager::gxBatchClosest(const Object *obj, Real maxDist, Partit
 		{
 			++s_gxBatchBad;
 			printf("GXVERIFY batchScan mismatch: seeker %u got %u, old search %u (survivors %d, lists %d)\n", obj->getID(),
-				best ? best->getID() : 0, ref ? ref->getID() : 0, (Int)s_gxBatchSurv.size(), (Int)snap);
+				best ? best->getID() : 0, ref ? ref->getID() : 0, nSurv, (Int)snap);
 			const Int bs = best ? best->gxStoreSlot() : -1;
 			if (bs >= 0)
 				printf("GXVERIFY batchScan mismatch detail: d2 %.9g max %.9g ring %d w %d; store %.9g,%.9g place %.9g,%.9g pos %.9g,%.9g; snapR %.9g placeR %.9g circle %.9g; box %d,%d,%d,%d\n",
@@ -5887,6 +6000,7 @@ SimpleObjectIterator *PartitionManager::iterateObjectsInRange(
 	IterOrderType order
 )
 {
+	GxTimeScope gxT(GXT_SEARCH);	// tickTiming: the iterator and its entries count as search allocations
 	MemoryPoolObjectHolder iterHolder;
 	SimpleObjectIterator *iter = newInstance(SimpleObjectIterator);
 	iterHolder.hold(iter);
@@ -5907,6 +6021,7 @@ SimpleObjectIterator *PartitionManager::iterateObjectsInRange(
 	IterOrderType order
 )
 {
+	GxTimeScope gxT(GXT_SEARCH);	// tickTiming: the iterator and its entries count as search allocations
 	MemoryPoolObjectHolder iterHolder;
 	SimpleObjectIterator *iter = newInstance(SimpleObjectIterator);
 	iterHolder.hold(iter);
@@ -6113,6 +6228,7 @@ SimpleObjectIterator* PartitionManager::iteratePotentialCollisions(
 	Real maxDist = geom.getBoundingSphereRadius();
 	maxDist *= 1.1f;	// just a little slop
 
+	GxTimeScope gxT(GXT_SEARCH);	// tickTiming: the iterator and its entries count as search allocations
 	MemoryPoolObjectHolder iterHolder;
 	SimpleObjectIterator *iter = newInstance(SimpleObjectIterator);
 	iterHolder.hold(iter);
@@ -6152,6 +6268,7 @@ Bool PartitionManager::isColliding( const Object *a, const Object *b ) const
 //-----------------------------------------------------------------------------
 SimpleObjectIterator *PartitionManager::iterateAllObjects(PartitionFilter **filters)
 {
+	GxTimeScope gxT(GXT_SEARCH);	// tickTiming: the iterator and its entries count as search allocations
 	MemoryPoolObjectHolder iterHolder;
 	SimpleObjectIterator *iter = newInstance(SimpleObjectIterator);
 	iterHolder.hold(iter);
@@ -6526,12 +6643,22 @@ static void gxSpanLook(Int x1, Int x2, Int y, Int p, Bool add)
 				printf("GXVERIFY fog stamps: cells checked %llu, mismatches %llu\n", g_gxFogVerifyChecked, g_gxFogVerifyBad);
 		}
 	}
-#endif
+	// straight-line tail: addLooker / removeLooker's arithmetic inline; a call only on a status edge
+	for (; x <= x2; ++x)
+	{
+		const Int o = cur[x];
+		const Int n = add ? min(o - 1, -1) : (o == -1 ? min((Int)act[x], 1) : o + 1);
+		cur[x] = (Short)n;
+		if (gxShroudOf(o) != gxShroudOf(n))
+			pm->getCellAt(x, y)->gxShroudEdge(p, gxShroudOf(n));
+	}
+#else
 	for (; x <= x2; ++x)
 	{
 		PartitionCell *cell = pm->getCellAt(x, y);
 		if (add) cell->addLooker(p); else cell->removeLooker(p);
 	}
+#endif
 }
 
 static void gxStampLook(Int cx, Int cy, Int r, PlayerMaskType playerMask, Bool add)
@@ -6585,6 +6712,19 @@ void PartitionManager::doShroudReveal(Real centerX, Real centerY, Real radius, P
 }
 
 //-----------------------------------------------------------------------------
+// web port (switch iterPool, fifth word bit 29): undone sightings go to a free list and the next queued
+// unlook reuses one (reset() gives it the constructor's state), so a moving unit allocates none.
+static std::vector<SightingInfo *> s_gxFreeSightings;
+static inline bool gxReuseSightings()
+{
+#ifdef __EMSCRIPTEN__
+	extern int GLES3_Page_Switches5();
+	return (GLES3_Page_Switches5() & 536870912) != 0;
+#else
+	return false;
+#endif
+}
+
 void PartitionManager::processPendingUndoShroudRevealQueue( Bool considerTimestamp )
 {
 	//Keep going until the front one is in the future.  UndoShroudReveal on each one you process.
@@ -6601,7 +6741,10 @@ void PartitionManager::processPendingUndoShroudRevealQueue( Bool considerTimesta
 
 		undoShroudReveal( thisInfo->m_where.x, thisInfo->m_where.y, thisInfo->m_howFar, thisInfo->m_forWhom );
 
-		deleteInstance(thisInfo);
+		if (gxReuseSightings())
+			s_gxFreeSightings.push_back(thisInfo);
+		else
+			deleteInstance(thisInfo);
 		m_pendingUndoShroudReveals.pop();
 	}
 }
@@ -6661,7 +6804,15 @@ void PartitionManager::undoShroudReveal(Real centerX, Real centerY, Real radius,
 void PartitionManager::queueUndoShroudReveal(Real centerX, Real centerY, Real radius, PlayerMaskType playerMask)
 {
 	UnsignedInt now = TheGameLogic->getFrame();
-	SightingInfo *newInfo = newInstance(SightingInfo);
+	SightingInfo *newInfo;
+	if (!s_gxFreeSightings.empty() && gxReuseSightings())
+	{
+		newInfo = s_gxFreeSightings.back();
+		s_gxFreeSightings.pop_back();
+		newInfo->reset();
+	}
+	else
+		newInfo = newInstance(SightingInfo);
 
 	newInfo->m_where.x = centerX;
 	newInfo->m_where.y = centerY;

@@ -51,8 +51,11 @@ enum GxCountId
 	GXC_MOOD_SCANS, GXC_BATCH_SCANNED, GXC_BATCH_USED, GXC_BATCH_CALLS, GXC_AI_ALLOCS, GXC_HEAP_PUSHES, GXC_HEAP_STEPS,
 	GXC_PAIRS_TESTED, GXC_PAIRS_SIMD_CULLED, GXC_SNAP_BUILDS, GXC_SNAP_PATCHES, GXC_CELL_UPDATES, GXC_BATCH_SEEKERS,
 	GXC_LOCO_SIMD_ANGLES, GXC_LOCO_ANGLE_HITS, GXC_LOCO_ANGLES, GXC_SHARE_NOTED, GXC_SHARE_SEARCHES, GXC_SHARE_TAKEN, GXC_GROUP_SPOTS, GXC_PATH_ALLOCS, GXC_PATH_BIG_ALLOCS, GXC_FAIL_CACHED, GXC_LINE_STEPS, GXC_NBR_TRIED, GXC_NBR_MOVECHECK, GXC_OPEN_INSERTS, GXC_CPOP_REBUILDS, GXC_CPOP_REBUILD_SEGS, GXC_PASS_CALLS, GXC_PASS_STEPS,	// paths
+	GXC_NAME_LOOKUPS,	// query
 	GXC_COUNT
 };
+
+extern unsigned long long g_gxAllocs;	///< game memory blocks handed out (GameMemory.cpp)
 
 struct GxTimeState
 {
@@ -63,6 +66,7 @@ struct GxTimeState
 	std::vector<float> frames;	///< frame intervals (ms)
 	double lastFrame = 0.0;
 	int depth[GXT_TIME_COUNT] = {};	///< nesting guard: only the outermost scope of an id is timed
+	unsigned long long allocs[GXT_TIME_COUNT] = {};	///< game memory blocks allocated inside each timer's outermost scope
 };
 
 extern unsigned long long g_gxAllocs;	// GameMemory.cpp: every pool block and large block handed out
@@ -112,6 +116,8 @@ inline void gxTimeFrameStart()
 
 inline void gxTimePrint(const char *tag);
 
+inline void gxTimePrint(const char *tag);
+
 /// after each logic tick
 inline void gxTimeTickEnd()
 {
@@ -136,7 +142,8 @@ inline void gxTimePrint(const char *tag)
 		"cpopSimdSegs", "moodScans", "batchScanned", "batchUsed", "batches", "aiAllocs", "heapOps", "heapSteps",
 		"pairsTested", "pairsSimdCulled", "snapBuilds", "snapPatches", "cellUpdates", "bsSeekers", "locoSimdAngles", "locoAngleHits",
 		"locoAngles", "shareNoted", "shareSearches", "shareTaken", "groupSpots", "pathAllocs", "pathBigAllocs", "failCached",
-		"lineSteps", "nbrTried", "nbrMoveChecks", "openInserts", "cpopRebuilds", "cpopRebuildSegs", "passCalls", "passSteps" };
+		"lineSteps", "nbrTried", "nbrMoveChecks", "openInserts", "cpopRebuilds", "cpopRebuildSegs", "passCalls", "passSteps",
+		"nameLookups" };
 	std::vector<float> f = s.frames;
 	float p99 = 0.0f; int over100 = 0;
 	if (!f.empty())

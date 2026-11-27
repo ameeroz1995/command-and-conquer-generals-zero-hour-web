@@ -37,6 +37,8 @@
 #include "Common/Snapshot.h"
 #include "Common/STLTypedefs.h"
 
+extern UnsignedInt g_gxTriggerEpoch;	// web port (switch scriptLookups): bumped when the trigger list or a trigger name changes
+
 class DataChunkInput;
 class DataChunkOutput;
 struct DataChunkInfo;
@@ -112,12 +114,12 @@ public:
 public:
 	static void addPolygonTrigger(PolygonTrigger *pTrigger);
 	static void removePolygonTrigger(PolygonTrigger *pTrigger);
-	void setNextPoly(PolygonTrigger *nextPoly) {m_nextPolygonTrigger = nextPoly;} ///< Link the next map object.
+	void setNextPoly(PolygonTrigger *nextPoly) {++g_gxTriggerEpoch; m_nextPolygonTrigger = nextPoly;} ///< Link the next map object.
 	void addPoint(const ICoord3D &point);
 	void setPoint(const ICoord3D &point, Int ndx);
 	void insertPoint(const ICoord3D &point, Int ndx);
 	void deletePoint(Int ndx);
-	void setTriggerName(AsciiString name) {m_triggerName = name;};
+	void setTriggerName(AsciiString name) {++g_gxTriggerEpoch; m_triggerName = name;};
 
 	void setLayerName(AsciiString name) {m_layerName = name;};
 	AsciiString getLayerName()  const {return m_layerName;}

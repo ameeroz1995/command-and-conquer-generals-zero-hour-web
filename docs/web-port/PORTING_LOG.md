@@ -4938,3 +4938,65 @@ Level within noise. batchScan on is timed once query's pass lands.
   loop left; the cost is spread over each unit's virtual calls and branches (state checks, physics,
   the locomotor's per-type steering). Straight-lining them means rewriting the locomotor per type as
   data, which is a round of its own; in the AI game they are ~0.6 of ~8.5 ms/tick, in the battle ~4.4 of 31.
+## 2026-11-27 (query): re-measures, hash-map sweep, heap churn, straight-line kernels
+
+- Re-measured on the store: denseCellMask (on) and the per-tick search snapshot (scanManager + snapPatch, on)
+  were already rebuilt on the store. blockMask (8x8 block player masks, second word bit 24, on) rebuilt:
+  verify 0 block mismatches (scanManager on and off); battle pairs on query-58 at load 2-5: search 1.547 ->
+  1.530 and 1.512 -> 1.561 ms/tick (noise either way).
+- Hash-map sweep (fifth word: 8 scriptNames, 9 scriptLookups, 10 upgradeKeys, 11 powerKeys, 28 scienceKeys;
+  all on): scripts/groups, named units, object type lists, trigger areas, waypoints, upgrades (plus cached
+  veterancy upgrades), special powers by name and ID, sciences. Maps are built in the old walk's order (first
+  match kept) and rebuilt when the list's change counter moved (bumped at every link, name or vector write).
+  Verify checks every answer against the walk: 6144 checked, 0 mismatches; replays referee, query-mgr5,
+  query-mgr6 match. Lookups: 2.3-2.7 a tick in the battle, ~0 in the referee skirmish replay, so no
+  measurable time either way (battle pairs within noise; replay logic 0.46-0.50 ms/tick both ways).
+  Not built: Player::hasScience bitsets (vectors of a few dozen ints; a find is cheaper than the index lookup).
+- Heap churn (tickTiming counts game-memory blocks per tick and inside each timer, g_gxAllocs):
+  - iterPool (fifth word bit 29, on): emptied search iterators keep their clumps on a per-thread free list;
+    DiscreteCircle edge buffers come from a per-thread pool; undone sightings are reused.
+  - The scan manager's per-tick result cache is an open-addressing table with reused entries (was an
+    unordered_map cleared every tick: a node and a list per cached search).
+  - Battle, my scopes (query-57 -> query-62): search 582 -> 70 allocations a tick (the rest: one pooled
+    iterator object per iterate call), cell changes (look/unlook, value/threat circles) 52 -> 3, partUpdate
+    142 -> 94 (the rest is collision reactions in other lanes' modules). Whole tick, iterPool off/on on
+    query-62: 3264 -> 2646 and 2956 -> 2401. Logic 16.74 -> 17.44 and 14.69 -> 14.45 ms/tick (noise).
+  - snapBuild's ~13 a tick are GxUnitStore::compact (fixed on perf/logic-collide, 1f734bb).
+- Straight-line kernels (same results, no switch):
+  - fog stamps: the scalar tail of each span does addLooker/removeLooker's arithmetic inline (a call only on
+    a status edge), like the SIMD body: fogReveal 0.064-0.077 -> 0.026-0.031 ms/tick.
+  - snapshot build: gxSnapBox always_inline, the cached-radius switch read hoisted out of the slot loop:
+    snapBuild 0.365-0.392 -> 0.298-0.356 ms/tick.
+  - batchScan cull: survivors written into a buffer sized up front (no push_back call). A fully
+    branchless all-lanes write measured slower (0.059 -> 0.067 ms/tick; survivors are rare), not kept.
+  - wasm (wasm-dis, name section): gxSnapBox has no function of its own (inlined); the cull's vector loops
+    and gxSnapBox are call-free; what is left in loops is the filters' and distance procs' indirect calls
+    per candidate (the walk's semantics) and the verify prints.
+- Pinned no-draw battle (same game every run, 1800 ticks; query-65a = the kernels before, query-65b = after,
+  both with the batch pass forced on; query-65 iterPool off/on), two pairs each:
+  - fogReveal 0.117 / 0.112 -> 0.051 / 0.050 ms/tick; snapBuild 0.614 / 0.610 -> 0.578 / 0.597;
+    bsCull 0.101 / 0.106 -> 0.078 / 0.082 (24.9 seekers a tick); logic 28.86 -> 28.88, 28.11 -> 29.27 (noise).
+  - iterPool off -> on: allocations 4835 -> 3871 a tick; logic 28.85 -> 28.29, 28.34 -> 27.95 ms/tick;
+    p99 79.2 -> 77.7, 78.3 -> 75.5 ms; frames > 100 ms 14 -> 10, 10 -> 11.
+  - Replays referee, query-mgr5, query-mgr6 match on query-65 (no drawing).
+- Visual check (bench_visual query-65a vs query-65b, referee replay, frames 600/1800/3600/5400): both replays
+  match; the same two small patches at the top of the screen (y 25-39) differ by a few levels in every frame,
+  identical at 600 and 5400 (a UI element, not the fog, which changes with the game).
+- searchTable (sixth word bit 8, on; the sixth word as ai's c97828e): the flat per-tick result table has its own
+  switch, the unordered_map kept behind it. Pinned no-draw battle on query-66, off -> on: allocations in search
+  193.6 -> 117.8 a tick (whole tick 3946 -> 3871), logic 30.85 -> 31.01 ms/tick (noise), search 3.30 -> 3.26.
+  Replays referee, query-mgr5, query-mgr6 match.
+- Phase 5 re-measures, pinned no-draw battle on query-66 (pairOffer on, one switch off vs all defaults). Load drifted
+  (logic 27-41 ms/tick over the run), so scope timers count more than whole-tick logic; the two doubtful items were
+  re-run with the order alternated (3 pairs):
+  - snapPatch: kept on. snapBuild 2.33 / 1.72 off -> 0.70 + 0.28 patch on (about 1 ms/tick less).
+  - blockMask: kept on. logic 35.76 -> 32.58, 32.14 -> 30.81; search 3.74 -> 3.47, 3.41 -> 3.26.
+  - simdBody: kept on. logic 37.36 -> 33.24, 34.90 -> 34.81.
+  - denseCellMask: kept on. cells checked 15647 -> 4897 a tick, time even (logic 30.27 -> 30.06, 28.92 -> 29.74).
+  - scanManager: kept on. Alternated pairs, logic off 31.13 / 30.73 / 26.30 vs on 28.55 / 28.21 / 29.35 (means
+    29.39 vs 28.70). The search scope grows (2.0 -> 3.1 ms/tick plus 0.85 snapshot) because it now holds the work
+    the per-module scans did outside it.
+  - simdSearch: now OFF by default (which also leaves simdBody inert, as it needs simdSearch). Search scope slower in
+    all 5 pairs: 3.35 -> 4.06, 3.36 -> 3.82, then alternated 2.88 -> 3.11, 2.86 -> 3.12, 2.86 -> 3.01 (logic means
+    28.47 off vs 28.88 on). With the scalar cull already branchless and call-free, the SIMD block setup costs more
+    than it saves at this density.

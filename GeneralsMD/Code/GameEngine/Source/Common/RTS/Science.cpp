@@ -32,6 +32,15 @@
 #include "Common/INI.h"
 #include "Common/Player.h"
 #include "Common/Science.h"
+#include "Common/GxNameMap.h"
+#include <unordered_map>
+
+// web port (switch scienceKeys, fifth word bit 28): science -> its store entry,
+// first match in vector order by the final override's m_science (as the walk); rebuilt when
+// s_gxScienceEpoch moved (every write of the vector or of an entry's m_science)
+enum { GX_SW5_SCIENCE_KEYS = 268435456 };
+static UnsignedInt s_gxScienceEpoch = 1, s_gxScienceAt = 0;
+static std::unordered_map<Int, const ScienceInfo *> s_gxSciences;	// key: ScienceType; value: the base entry
 
 ScienceStore* TheScienceStore = nullptr;
 
@@ -40,12 +49,14 @@ ScienceStore* TheScienceStore = nullptr;
 void ScienceStore::init()
 {
 	DEBUG_ASSERTCRASH(m_sciences.empty(), ("Hmm"));
+	++s_gxScienceEpoch;
 	m_sciences.clear();
 }
 
 //-----------------------------------------------------------------------------
 ScienceStore::~ScienceStore()
 {
+	++s_gxScienceEpoch;	// web port (scienceKeys)
 	// nope.
 	//m_sciences.clear();
 
@@ -71,7 +82,7 @@ void ScienceStore::reset()
 		Overridable* temp = si->deleteOverrides();
 		if (!temp)
 		{
-			it = m_sciences.erase(it);
+			++s_gxScienceEpoch; it = m_sciences.erase(it);
 		}
 		else
 		{
@@ -140,6 +151,33 @@ void ScienceInfo::addRootSciences(ScienceVec& v) const
 //-------------------------------------------------------------------------------------------------
 const ScienceInfo* ScienceStore::findScienceInfo(ScienceType st) const
 {
+	if (gxNameMapOn(GX_SW5_SCIENCE_KEYS))
+	{
+		auto gxWalkScience = [](const ScienceInfoVec &v, ScienceType key) -> const ScienceInfo *
+		{
+			for (ScienceInfoVec::const_iterator it = v.begin(); it != v.end(); ++it)
+			{
+				const ScienceInfo* si = (const ScienceInfo*)(*it)->getFinalOverride();
+				if (si->m_science == key)
+					return si;
+			}
+			return nullptr;
+		};
+		if (s_gxScienceAt != s_gxScienceEpoch)
+		{
+			s_gxSciences.clear();
+			for (ScienceInfoVec::const_iterator it = m_sciences.begin(); it != m_sciences.end(); ++it)
+				s_gxSciences.try_emplace((Int)((const ScienceInfo*)(*it)->getFinalOverride())->m_science, *it);
+			s_gxScienceAt = s_gxScienceEpoch;
+		}
+		auto f = s_gxSciences.find((Int)st);
+		const ScienceInfo *p = f == s_gxSciences.end() ? nullptr : (const ScienceInfo*)f->second->getFinalOverride();
+		if (p && p->m_science != st)
+			p = gxWalkScience(m_sciences, st);	// an override changed the key since the build: the walk decides
+		if (gxNameMapVerify())
+			gxNameCheck("scienceKeys", "(science)", p == gxWalkScience(m_sciences, st));
+		return p;
+	}
 	for (ScienceInfoVec::const_iterator it = m_sciences.begin(); it != m_sciences.end(); ++it)
 	{
 		const ScienceInfo* si = (const ScienceInfo*)(*it)->getFinalOverride();
@@ -193,7 +231,7 @@ const ScienceInfo* ScienceStore::findScienceInfo(ScienceType st) const
 				// only add if it's not overriding an existing one.
 				info = newInfo;
 				info->markAsOverride();	// yep, so we will get cleared on reset()
-				TheScienceStore->m_sciences.push_back(info);
+				++s_gxScienceEpoch; TheScienceStore->m_sciences.push_back(info);
 			}
 			else
 			{
@@ -217,10 +255,11 @@ const ScienceInfo* ScienceStore::findScienceInfo(ScienceType st) const
 				throw INI_INVALID_DATA;
 			}
 			info = newInstance(ScienceInfo);
-			TheScienceStore->m_sciences.push_back(info);
+			++s_gxScienceEpoch; TheScienceStore->m_sciences.push_back(info);
 		}
 
 		ini->initFromINI(info, myFieldParse);
+		++s_gxScienceEpoch;	// web port (scienceKeys)
 		info->m_science = st;
 		info->addRootSciences(info->m_rootSciences);
 	}
