@@ -35,6 +35,11 @@
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/SupplyTruckAIUpdate.h"
 #include "GameLogic/Module/UpdateModule.h"
+#ifdef __EMSCRIPTEN__
+extern int GLES3_Page_Switches();
+#else
+static int GLES3_Page_Switches() { return 0; }
+#endif
 
 // Web port (round 5, units are pure data): AIDockWaitForClearanceState's per-unit state is a row of TheGxAIDockWaitForClearanceStates;
 // GXROW_AIDOCKWAITFORCLEARANCESTATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
@@ -696,7 +701,17 @@ Object* AIDockProcessDockState::findMyDrone()
 	//Iterate the objects in search for a drone with a producer ID of me.
 	if( player )
 	{
-		player->iterateObjects( findDrone, &dInfo );
+		// web port (hash-map sweep #18, playerKindCounts): no drone at all -> no walk (same answer)
+		const Bool gxSkip = (GLES3_Page_Switches5() & 128) && TheGxUnitStore.kindCount(player->getPlayerIndex(), GxUnitStore::GXK_DRONE) == 0;
+		if (!gxSkip || (GLES3_Page_Switches() & 2097152))
+			player->iterateObjects( findDrone, &dInfo );
+		if (gxSkip && (GLES3_Page_Switches() & 2097152))
+		{
+			static Int checked = 0, bad = 0;
+			++checked;
+			if (dInfo.drone) { ++bad; dInfo.drone = nullptr; }
+			if (bad || checked % 100 == 0) printf("GXVERIFY playerKindCounts drone checked %d, mismatches %d\n", checked, bad);
+		}
 	}
 
 	//If we found a drone, store it's ID as cached.

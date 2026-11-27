@@ -30,6 +30,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #include "Common/GxTime.h"
+#include <unordered_map>
 #include "Common/GameState.h"
 #include "Common/ThingFactory.h"
 #include "Common/ThingTemplate.h"
@@ -153,6 +154,21 @@ void RebuildHoleBehavior::newWorkerRespawnProcess( Object *existingWorker )
 }
 
 // ------------------------------------------------------------------------------------------------
+// web port (hash-map sweep #10, aiWorldIndex): spawner ID -> IDs of holes it spawned. Entries are never
+// removed (a lookup re-checks each one, so dead or reused IDs are skipped); one per hole ever started.
+static std::unordered_map<ObjectID, std::vector<ObjectID> > s_gxHolesBySpawner;
+void gxNoteHoleSpawner(ObjectID spawner, ObjectID hole)
+{
+	if (spawner != INVALID_ID)
+		s_gxHolesBySpawner[spawner].push_back(hole);
+}
+const std::vector<ObjectID> *gxHolesOfSpawner(ObjectID spawner)
+{
+	std::unordered_map<ObjectID, std::vector<ObjectID> >::const_iterator it = s_gxHolesBySpawner.find(spawner);
+	return it == s_gxHolesBySpawner.end() ? nullptr : &it->second;
+}
+
+// ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 void RebuildHoleBehavior::startRebuildProcess( const ThingTemplate *rebuild, ObjectID spawnerID )
 {
@@ -162,6 +178,7 @@ void RebuildHoleBehavior::startRebuildProcess( const ThingTemplate *rebuild, Obj
 
 	// store the object that spawned this hole (even though it's likely being destroyed)
 	GXROW_REBUILDHOLEBEHAVIOR.spawnerObjectID = spawnerID;
+	gxNoteHoleSpawner(spawnerID, getObject()->getID());	// web port: spawner -> hole index (aiWorldIndex)
 
 	// start the spawning process for a worker
 	Object *worker = TheGameLogic->findObjectByID(GXROW_REBUILDHOLEBEHAVIOR.workerID);
@@ -477,6 +494,8 @@ void RebuildHoleBehavior::xfer( Xfer *xfer )
 	// spawner ID
 	if( version >= 2 )
 		xfer->xferObjectID( &GXROW_REBUILDHOLEBEHAVIOR.spawnerObjectID );
+		if (xfer->getXferMode() == XFER_LOAD)
+			gxNoteHoleSpawner(GXROW_REBUILDHOLEBEHAVIOR.spawnerObjectID, getObject()->getID());
 
 	// worker wait counter
 	xfer->xferUnsignedInt( &GXROW_REBUILDHOLEBEHAVIOR.workerWaitCounter );

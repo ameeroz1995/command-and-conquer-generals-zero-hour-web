@@ -2043,6 +2043,8 @@ void PartitionData::removeAllTouchedCells()
 		}
 	}
 	DEBUG_ASSERTCRASH(m_coiInUseCount == 0, ("hmm, coi count mismatch"));
+	if (getObject())
+		TheGxUnitStore.setInCells(getObject(), false);	// web port: the store's inCells column
 }
 
 // -----------------------------------------------------------------------------
@@ -2407,6 +2409,23 @@ Bool PartitionData::collidesWith(const PartitionData *that, CollideLocAndNormal 
 	if( thisObj->isKindOf( KINDOF_NO_COLLIDE )  ||  thatObj->isKindOf( KINDOF_NO_COLLIDE ) )
 		return FALSE; // A collision extent of zero size is still a point and can collide, but we don't always want to.
 
+	// web port (geomColumns): the z test and the shape pick from the store's plain columns, so a pair
+	// apart in height never builds its CollideInfos (same test, same floats)
+	if (thisObj->gxHotInStore() && thatObj->gxHotInStore() && gxGeomColumnsOn())
+	{
+		const GxUnitStore &st = TheGxUnitStore;
+		const int a = thisObj->gxStoreSlot(), b = thatObj->gxStoreSlot();
+		const Bool sa = st.gType[a] == GEOMETRY_SPHERE, sb = st.gType[b] == GEOMETRY_SPHERE;
+		const Real aTop = st.z[a] + (sa ? st.gMajor[a] : st.gHeight[a]), aBot = st.z[a] - (sa ? st.gMajor[a] : 0.0f);
+		const Real bTop = st.z[b] + (sb ? st.gMajor[b] : st.gHeight[b]), bBot = st.z[b] - (sb ? st.gMajor[b] : 0.0f);
+		if (!(aTop >= bBot && aBot <= bTop))
+			return false;
+		CollideInfo thisInfo(thisObj->getPosition(), thisObj->getGeometryInfo(), thisObj->getOrientation());
+		CollideInfo thatInfo(thatObj->getPosition(), thatObj->getGeometryInfo(), thatObj->getOrientation());
+		CollideTestProc collideProc = theCollideTestProcs[ (st.gType[a] - GEOMETRY_FIRST) * GEOMETRY_NUM_TYPES + (st.gType[b] - GEOMETRY_FIRST) ];
+		return (*collideProc)(&thisInfo, &thatInfo, cinfo);
+	}
+
 	CollideInfo thisInfo(thisObj->getPosition(), thisObj->getGeometryInfo(), thisObj->getOrientation());
 	CollideInfo thatInfo(thatObj->getPosition(), thatObj->getGeometryInfo(), thatObj->getOrientation());
 
@@ -2480,7 +2499,19 @@ void PartitionData::updateCellsTouched()
 
 	Object *obj = getObject();
 
-	if (obj)
+	if (obj && obj->gxHotInStore() && gxGeomColumnsOn())
+	{
+		// web port (geomColumns): the same values from the store's plain columns
+		const GxUnitStore &st = TheGxUnitStore;
+		const int gs = obj->gxStoreSlot();
+		geom = (GeometryType)st.gType[gs];
+		isSmall = st.gSmall[gs] != 0;
+		pos.x = st.x[gs]; pos.y = st.y[gs]; pos.z = st.z[gs];
+		angle = st.angle[gs];
+		majorRadius = st.gMajor[gs];
+		minorRadius = st.gMinor[gs];
+	}
+	else if (obj)
 	{
 		//we have no object using this PartitionData but we still have a GhostObject so copy its data.
 		geom = obj->getGeometryInfo().getGeomType();
@@ -2614,6 +2645,8 @@ void PartitionData::updateCellsTouched()
 	}
 	key[0] = m_coiInUseCount;
 	memcpy(m_gxFillKey, key, sizeof(key));
+	if (obj)
+		TheGxUnitStore.setInCells(obj, m_coiInUseCount > 0);	// web port: the store's inCells column
 
 	Int currentCellIndexX, currentCellIndexY;
 	ThePartitionManager->worldToCell( pos.x, pos.y, &currentCellIndexX, &currentCellIndexY );
@@ -2802,6 +2835,8 @@ void PartitionData::freeCoiArray()
 	m_coiArray = nullptr;
 	m_coiArrayCount = 0;
 	m_coiInUseCount = 0;
+	if (getObject())
+		TheGxUnitStore.setInCells(getObject(), false);	// web port: the store's inCells column
 	makeDirty(true);
 }
 
@@ -3572,47 +3607,71 @@ static GxPairKernelIn s_gxPairIn;
 // Reads: in (slot, rect, start, cslot, cx, cy, cr, x, y, radius). Writes: out[0 .. return) only.
 // No allocation, events, RNG or globals: safe on a worker thread for disjoint ranges with their own
 // out. Returns the number of ints written, or -1 if cap was too small (nothing else changed).
-static Int gxPairKernel(const GxPairKernelIn &in, Int begin, Int end, Int *out, Int cap)
+__attribute__((noinline)) static Int gxPairKernel(const GxPairKernelIn &in, Int begin, Int end, Int *__restrict out, Int cap)
 {
+	// straight-line kernel: inputs in __restrict locals, constants and the seeker's values hoisted out of
+	// the cell loops, two blocks of 4 units per step (independent compares), same tests and output order
+	const int *__restrict slot = in.slot.data();
+	const Int *__restrict rect = in.rect.data();
+	const int *__restrict start = in.start, *__restrict cslot = in.cslot;
+	const float *__restrict bx = in.cx, *__restrict by = in.cy, *__restrict br = in.cr;
+	const float *__restrict X = in.x, *__restrict Y = in.y, *__restrict R = in.radius;
+	const Int nx = in.nx;
 	Int w = 0;
+#ifdef __wasm_simd128__
+	const v128_t c14 = wasm_f32x4_splat(1.4143f), one = wasm_f32x4_splat(1.0f);
+#endif
 	for (Int i = begin; i < end; ++i)
 	{
-		const int s = in.slot[i];
-		const float px0 = in.x[s], py0 = in.y[s], r = in.radius[s];
-		const Int *q = &in.rect[i * 4];
+		const int s = slot[i];
+		const float px0 = X[s], py0 = Y[s], r = R[s];
+		const Int *q = &rect[i * 4];
+#ifdef __wasm_simd128__
+		const v128_t px = wasm_f32x4_splat(px0), py = wasm_f32x4_splat(py0), pr = wasm_f32x4_splat(r);
+#define GX_HIT4(K) \
+		wasm_i32x4_bitmask(wasm_f32x4_le( \
+			wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_sub(wasm_v128_load(bx + (K)), px), wasm_f32x4_sub(wasm_v128_load(bx + (K)), px)), \
+			               wasm_f32x4_mul(wasm_f32x4_sub(wasm_v128_load(by + (K)), py), wasm_f32x4_sub(wasm_v128_load(by + (K)), py))), \
+			wasm_f32x4_mul(wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_add(wasm_v128_load(br + (K)), pr), c14), one), \
+			               wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_add(wasm_v128_load(br + (K)), pr), c14), one))))
+#endif
 		for (Int cy = q[1]; cy <= q[3]; ++cy)
 			for (Int cx = q[0]; cx <= q[2]; ++cx)
 			{
-				const int b = in.start[cy * in.nx + cx], en = in.start[cy * in.nx + cx + 1];
+				const int b = start[cy * nx + cx], en = start[cy * nx + cx + 1];
 				if (w + 2 * (en - b) > cap)
 					return -1;
 				int k = b;
 #ifdef __wasm_simd128__
-				const v128_t px = wasm_f32x4_splat(px0), py = wasm_f32x4_splat(py0), pr = wasm_f32x4_splat(r);
-				const v128_t c14 = wasm_f32x4_splat(1.4143f), one = wasm_f32x4_splat(1.0f);
+				for (; k + 8 <= en; k += 8)
+				{
+					const int bits = GX_HIT4(k) | (GX_HIT4(k + 4) << 4);
+					for (int j = 0; j < 8; ++j)
+						if ((bits >> j & 1) && cslot[k + j] != s)
+							{ out[w++] = i; out[w++] = cslot[k + j]; }
+				}
 				for (; k + 4 <= en; k += 4)
 				{
-					const v128_t dx = wasm_f32x4_sub(wasm_v128_load(in.cx + k), px);
-					const v128_t dy = wasm_f32x4_sub(wasm_v128_load(in.cy + k), py);
-					const v128_t lim = wasm_f32x4_add(wasm_f32x4_mul(wasm_f32x4_add(wasm_v128_load(in.cr + k), pr), c14), one);
-					const v128_t hit = wasm_f32x4_le(wasm_f32x4_add(wasm_f32x4_mul(dx, dx), wasm_f32x4_mul(dy, dy)), wasm_f32x4_mul(lim, lim));
-					const int bits = wasm_i32x4_bitmask(hit);
+					const int bits = GX_HIT4(k);
 					for (int j = 0; j < 4; ++j)
-						if ((bits >> j & 1) && in.cslot[k + j] != s)
-							{ out[w++] = i; out[w++] = in.cslot[k + j]; }
+						if ((bits >> j & 1) && cslot[k + j] != s)
+							{ out[w++] = i; out[w++] = cslot[k + j]; }
 				}
 #endif
 				for (; k < en; ++k)
 				{
-					const int t = in.cslot[k];
+					const int t = cslot[k];
 					if (t == s)
 						continue;
-					const float dx = in.cx[k] - px0, dy = in.cy[k] - py0, lim = (in.cr[k] + r) * 1.4143f + 1.0f;
+					const float dx = bx[k] - px0, dy = by[k] - py0, lim = (br[k] + r) * 1.4143f + 1.0f;
 					if (dx * dx + dy * dy > lim * lim)
 						continue;
 					out[w++] = i; out[w++] = t;
 				}
 			}
+#ifdef __wasm_simd128__
+#undef GX_HIT4
+#endif
 	}
 	return w;
 }
@@ -3634,72 +3693,81 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 	PartitionManager *pm = ThePartitionManager;
 	const Int nx = pm->getCellCountX(), ny = pm->getCellCountY();
 	const Real bigR = pm->getCellSize() * 0.5f;
-	static std::vector<int> head, next, item;
-	head.assign((size_t)nx * ny, -1);
-	next.clear(); item.clear();
+	// web port (round 5, re-measure on the data layout): bucket from the store columns only (inCells,
+	// radius, cell, x, y; no Object or PartitionData read per unit), as one block per cell by a counting
+	// sort. Within a cell the units come in descending slot order, the order the old per-cell linked
+	// lists (head insertion in slot order) visited them, so the pairs and their order are unchanged.
+	const int nc = nx * ny, ns = st.size();
+	static std::vector<int> start, cslot, urect;
+	static std::vector<float> cx_, cy_, cr_;
+	start.assign((size_t)nc + 1, 0);
+	urect.resize((size_t)ns * 4);
 	Real smallMax = 0.0f;
-	for (int s = 0; s < st.size(); ++s)
+	const Bool gxVerify = (GLES3_Page_Switches() & 2097152) != 0;
+	static Int s_gxInChecked = 0, s_gxInBad = 0;
+	for (int s = 0; s < ns; ++s)
 	{
-		Object *o = st.obj[s];
-		PartitionData *pd = o ? o->friend_getPartitionData() : nullptr;
-		if (!pd || pd->friend_getCoiInUseCount() == 0)
-			continue;	// not in the partition's cells (e.g. inside a transport)
+		Int *q = &urect[(size_t)s * 4];
+		if (gxVerify)
+		{
+			Object *o = st.obj[s];
+			PartitionData *pd = o ? o->friend_getPartitionData() : nullptr;
+			const Bool in = pd && pd->friend_getCoiInUseCount() > 0;
+			++s_gxInChecked;
+			if (in != (o && st.inCells[s] != 0)) ++s_gxInBad;
+		}
+		if (!st.obj[s] || !st.inCells[s])
+		{
+			q[0] = q[1] = 1; q[2] = q[3] = 0;	// empty: not in the partition's cells (e.g. inside a transport)
+			continue;
+		}
 		const Real r = st.radius[s];
-		const Coord3D p = st.posOf(s);
 		Int x0, y0, x1, y1;
 		if (r <= bigR)
 		{
 			if (r > smallMax) smallMax = r;
 			const int c = st.cell[s];	// the store's cell index (written by the partition)
 			if (c >= 0) { x0 = c % nx; y0 = c / nx; }
-			else pm->worldToCell(p.x, p.y, &x0, &y0);
+			else pm->worldToCell(st.x[s], st.y[s], &x0, &y0);
 			x1 = x0; y1 = y0;
 		}
 		else
 		{
 			const Real e = r * 1.4143f + 1.0f;
-			pm->worldToCell(p.x - e, p.y - e, &x0, &y0);
-			pm->worldToCell(p.x + e, p.y + e, &x1, &y1);
+			pm->worldToCell(st.x[s] - e, st.y[s] - e, &x0, &y0);
+			pm->worldToCell(st.x[s] + e, st.y[s] + e, &x1, &y1);
 		}
-		x0 = max(x0, 0); y0 = max(y0, 0); x1 = min(x1, nx - 1); y1 = min(y1, ny - 1);
-		for (Int cy = y0; cy <= y1; ++cy)
-			for (Int cx = x0; cx <= x1; ++cx)
-			{
-				const int c = cy * nx + cx;
-				item.push_back(s); next.push_back(head[c]); head[c] = (int)item.size() - 1;
-			}
+		q[0] = max(x0, 0); q[1] = max(y0, 0); q[2] = min(x1, nx - 1); q[3] = min(y1, ny - 1);
+		for (Int cy = q[1]; cy <= q[3]; ++cy)
+			for (Int cx = q[0]; cx <= q[2]; ++cx)
+				++start[cy * nx + cx + 1];
+	}
+	if (gxVerify && (TheGameLogic->getFrame() % 300) == 0)
+		printf("GXVERIFY storePairs inCells column checked %d, mismatches %d\n", s_gxInChecked, s_gxInBad);
+	for (int c = 0; c < nc; ++c)
+		start[c + 1] += start[c];
+	const size_t tot = (size_t)start[nc];
+	cslot.resize(tot + 3); cx_.resize(tot + 3); cy_.resize(tot + 3); cr_.resize(tot + 3);
+	{
+		static std::vector<int> fill;
+		fill.assign(start.begin(), start.end() - 1);
+		for (int s = ns - 1; s >= 0; --s)
+		{
+			const Int *q = &urect[(size_t)s * 4];
+			for (Int cy = q[1]; cy <= q[3]; ++cy)
+				for (Int cx = q[0]; cx <= q[2]; ++cx)
+				{
+					const int w = fill[cy * nx + cx]++;
+					cslot[w] = s; cx_[w] = st.x[s]; cy_[w] = st.y[s]; cr_[w] = st.radius[s];
+				}
+		}
 	}
 
 	std::sort(seekers.begin(), seekers.end(), [](const PartitionData *a, const PartitionData *b) { return gxBefore(a, b); });
 
-	// web port (round 5, switch collideSimd, fourth word bit 1; same pairs as above): the grid as one
-	// block per cell (cell start/end, units in the same order the linked lists visit them) with the
-	// units' x, y, radius copied in, so the distance cut tests 4 units per instruction.
+	// web port (round 5, switch collideSimd, fourth word bit 1; same pairs as above): the distance cut
+	// tests 4 units per instruction over the per-cell blocks
 	const Bool simd = (GLES3_Page_Switches4() & 2) != 0;
-	static std::vector<int> start, cslot;
-	static std::vector<float> cx_, cy_, cr_;
-	if (simd)
-	{
-		const int nc = nx * ny;
-		start.assign((size_t)nc + 1, 0);
-		for (int c = 0; c < nc; ++c)
-		{
-			int n = 0;
-			for (int k = head[c]; k >= 0; k = next[k]) ++n;
-			start[c + 1] = start[c] + n;
-		}
-		const size_t tot = (size_t)start[nc];
-		cslot.resize(tot + 3); cx_.resize(tot + 3); cy_.resize(tot + 3); cr_.resize(tot + 3);
-		for (int c = 0; c < nc; ++c)
-		{
-			int w = start[c];
-			for (int k = head[c]; k >= 0; k = next[k], ++w)
-			{
-				const int t = item[k];
-				cslot[w] = t; cx_[w] = st.x[t]; cy_[w] = st.y[t]; cr_[w] = st.radius[t];
-			}
-		}
-	}
 
 	if (simd)
 	{
@@ -3769,9 +3837,9 @@ static void gxStoreBroadPhase(std::vector<PartitionData*> &seekers, PartitionCon
 			for (Int cx = x0; cx <= x1; ++cx)
 			{
 				gxCount(GXC_PAIR_CELLS);	// tickTiming
-				for (int k = head[cy * nx + cx]; k >= 0; k = next[k])
+				for (int k = start[cy * nx + cx], ke = start[cy * nx + cx + 1]; k < ke; ++k)
 				{
-					const int t = item[k];
+					const int t = cslot[k];
 					gxCount(GXC_PAIR_TESTS);
 					if (t == s)
 						continue;
@@ -6361,6 +6429,16 @@ Bool PartitionManager::findPositionAround( const Coord3D *center,
 
 }
 
+// Web port (switch circleReuse, sixth word bit 24): the shroud-cover / threat / value affects ran
+// once per unit cell change and each built a DiscreteCircle (a new edge vector). One scratch circle
+// per call site is regenerated in place instead; same edges, so the same cells in the same order.
+static inline Bool gxCircleReuseOn() { return (GLES3_Page_Switches6() & 16777216) != 0; }
+static inline DiscreteCircle &gxCircle(DiscreteCircle &scratch, Int x, Int y, Int r)
+{
+	scratch.reset(x, y, r, gxCircleReuseOn());
+	return scratch;
+}
+
 //-----------------------------------------------------------------------------
 // Web port (switch fogStamps, fourth word bit 14; same game): sight circles from precomputed stamps.
 // A stamp is DiscreteCircle's span list for one cell radius, recorded once at centre (0, 0) in
@@ -6604,7 +6682,8 @@ void PartitionManager::doShroudCover(Real centerX, Real centerY, Real radius, Pl
 	if (cellRadius < 1)
 		cellRadius = 1;
 
-	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
+	static DiscreteCircle s_circle(0, 0, 0);
+	DiscreteCircle &circle = gxCircle(s_circle, cellCenterX, cellCenterY, cellRadius);	// switch circleReuse
 
 	for( Int currentIndex = ThePlayerList->getPlayerCount() - 1; currentIndex >=0; currentIndex-- )
 	{
@@ -6628,7 +6707,8 @@ void PartitionManager::undoShroudCover(Real centerX, Real centerY, Real radius, 
 	if (cellRadius < 1)
 		cellRadius = 1;
 
-	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
+	static DiscreteCircle s_circle(0, 0, 0);
+	DiscreteCircle &circle = gxCircle(s_circle, cellCenterX, cellCenterY, cellRadius);	// switch circleReuse
 
 	for( Int currentIndex = ThePlayerList->getPlayerCount() - 1; currentIndex >=0; currentIndex-- )
 	{
@@ -6654,7 +6734,8 @@ void PartitionManager::doThreatAffect( Real centerX, Real centerY, Real radius, 
 
 	Real fCellRadius = INT_TO_REAL(cellRadius + 1);
 
-	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
+	static DiscreteCircle s_circle(0, 0, 0);
+	DiscreteCircle &circle = gxCircle(s_circle, cellCenterX, cellCenterY, cellRadius);	// switch circleReuse
 
 	ThreatValueParms parms;
 	parms.radius = fCellRadius;
@@ -6687,7 +6768,8 @@ void PartitionManager::undoThreatAffect( Real centerX, Real centerY, Real radius
 
 	Real fCellRadius = INT_TO_REAL(cellRadius + 1);
 
-	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
+	static DiscreteCircle s_circle(0, 0, 0);
+	DiscreteCircle &circle = gxCircle(s_circle, cellCenterX, cellCenterY, cellRadius);	// switch circleReuse
 
 	ThreatValueParms parms;
 	parms.radius = fCellRadius;
@@ -6720,7 +6802,8 @@ void PartitionManager::doValueAffect( Real centerX, Real centerY, Real radius, U
 
 	Real fCellRadius = INT_TO_REAL(cellRadius + 1);
 
-	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
+	static DiscreteCircle s_circle(0, 0, 0);
+	DiscreteCircle &circle = gxCircle(s_circle, cellCenterX, cellCenterY, cellRadius);	// switch circleReuse
 
 	ThreatValueParms parms;
 	parms.radius = fCellRadius;
@@ -6753,7 +6836,8 @@ void PartitionManager::undoValueAffect( Real centerX, Real centerY, Real radius,
 
 	Real fCellRadius = INT_TO_REAL(cellRadius + 1);
 
-	DiscreteCircle circle(cellCenterX, cellCenterY, cellRadius);
+	static DiscreteCircle s_circle(0, 0, 0);
+	DiscreteCircle &circle = gxCircle(s_circle, cellCenterX, cellCenterY, cellRadius);	// switch circleReuse
 
 	ThreatValueParms parms;
 	parms.radius = fCellRadius;

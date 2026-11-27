@@ -129,7 +129,14 @@ void Thing::getUnitDirectionVector2D(Coord3D& dir) const
 //=============================================================================
 void Thing::getUnitDirectionVector3D(Coord3D& dir) const
 {
-	Vector3 vdir = gxXf().Get_X_Vector();
+	Vector3 vdir;
+	if (m_gxHotInStore && gxGeomColumnsOn())	// web port (geomColumns): the x axis from the plain columns
+	{
+		const GxUnitStore &st = TheGxUnitStore;
+		vdir.Set(st.xfm[0][m_gxSlot], st.xfm[4][m_gxSlot], st.xfm[8][m_gxSlot]);
+	}
+	else
+		vdir = gxXf().Get_X_Vector();
 	vdir.Normalize();
 	dir.x = vdir.X;
 	dir.y = vdir.Y;
@@ -424,6 +431,7 @@ void Thing::gxSetThingHotInStore(Bool on)
 	if (on)
 	{
 		TheGxUnitStore.xf[m_gxSlot] = row.m_transform;
+		TheGxUnitStore.gxXfSync(m_gxSlot);	// geomColumns
 		TheGxUnitStore.angle[m_gxSlot] = row.m_cachedAngle;
 		row.m_transform = Matrix3D(true);
 		row.m_transform[0][3] = -12345.0f;

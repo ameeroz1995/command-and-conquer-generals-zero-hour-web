@@ -57,6 +57,21 @@ DiscreteCircle::DiscreteCircle(Int xCenter, Int yCenter, Int radius)
 }
 
 //-------------------------------------------------------------------------------------------------
+void DiscreteCircle::reset(Int xCenter, Int yCenter, Int radius, Bool keepBuffer)
+{
+	if (keepBuffer)
+		m_edges.clear();
+	else
+		VecHorzLine().swap(m_edges);
+	m_yPos = yCenter;
+	m_yPosDoubled = (yCenter << 1);
+	m_edges.reserve(radius << 1);	// largest that it should ever be.
+
+	generateEdgePairs(xCenter, yCenter, radius);
+	removeDuplicates();
+}
+
+//-------------------------------------------------------------------------------------------------
 void DiscreteCircle::drawCircle(ScanlineDrawFunc functionToDrawWith, void *parmToPass)
 {
 	for (VecHorzLine::const_iterator it = m_edges.begin(); it != m_edges.end(); ++it) {

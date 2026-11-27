@@ -520,6 +520,7 @@ void GLES3_Begin_Scene() {
             return 0   // seventh word: bit 0 collide, 1-31 spare
                  | (o.aiScripts === false ? 0 : 1)   // bit 0 (collide): the skirmish / multiplayer AI scripts (Data/Scripts/*.scb, loose files) are loaded at boot (EmscriptenMain.cpp, which reads the same setting at boot; changes the game: off for recordings made before 2c7e213)
                  | (o.splashFlat === true ? 256 : 0);   // bit 8 (combat, straight-line kernels): splash near-slot pass over restrict column pointers with branchless compaction into a sized buffer (PartitionManager.cpp; same game)
+        });
         g_PageSwitches6 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // sixth word: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19, ai 20-23, collide 24-27, ai 28-31
@@ -534,7 +535,8 @@ void GLES3_Begin_Scene() {
                  | (o.scanLean === true ? 536870912 : 0) // bit 29 (ai): batchScan collects only modules due this tick, mood frame tested first (GameLogic.cpp, AIUpdate.cpp; same game)
                  | (o.stateNoMap === true ? 1073741824 : 0) // bit 30 (ai): states with an array slot are not also in the state map (StateMachine.cpp; same game)
                  | (o.mergeBuf === true ? (1 << 31) : 0) // bit 31 (ai): gxPassMerge sorts and merges through a kept buffer (GameLogic.cpp; same game)
-                 | (o.fastRemove === true ? 8 : 0);       // bit 3 (ai): unit group and radar removal by stored node / back link (AIGroup.cpp, Radar.cpp; same game)
+                 | (o.fastRemove === true ? 8 : 0)       // bit 3 (ai): unit group and radar removal by stored node / back link (AIGroup.cpp, Radar.cpp; same game)
+                 | (o.circleReuse === false ? 0 : 16777216);   // bit 24 (collide): shroud-cover / threat / value affects regenerate one scratch DiscreteCircle per call site instead of a new edge vector per call (PartitionManager.cpp, DiscreteCircle.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
@@ -552,7 +554,11 @@ void GLES3_Begin_Scene() {
                  | (o.assistList === true ? 33554432 : 0)   // bit 25 (combat, hash-map #8): per-player list of assist-capable units in walk order answers weapon assist requests (Weapon.cpp; same game)
                  | (o.buildMoreIndex === true ? 67108864 : 0)   // bit 26 (combat, hash-map #2): per-player objects by template answer canBuildMoreOfType (Player.cpp; same game)
                  | (o.eventIndex === true ? 134217728 : 0)   // bit 27 (combat, hash-map #11): mines and AI objects listed in object-list order answer building sale / capture / rebuild-hole events (GxEventIndex.h; same game)
-                 | (o.scanAlign === true ? 8 : 0);   // value 8: scanAlign, routine mood checks on every 4th frame so batchScan batches more (match rule; AIUpdate.cpp; off until timed)
+                 | (o.scanAlign === true ? 8 : 0)   // value 8: scanAlign, routine mood checks on every 4th frame so batchScan batches more (match rule; AIUpdate.cpp; off until timed)
+                 | (o.recruitIndex === false ? 0 : 32)   // bit 5 (value 32): team recruiting looks at the player's objects from the unit store, in object-list order, not the whole world (Team.cpp; same game)
+                 | (o.aiWorldIndex === false ? 0 : 64)   // bit 6 (value 64): AI dozer search over the player's objects from the unit store, rebuild holes by spawner index (AIPlayer.cpp, RebuildHoleBehavior.cpp; same game)
+                 | (o.playerKindCounts === false ? 0 : 128)   // bit 7 (value 128): per-player black-market / drone counts skip the player walks when there are none (GxUnitStore, StealthUpdate.cpp, AIDock.cpp; same game)
+                 | (o.geomColumns === false ? 0 : 16);   // bit 4 (value 16): with hotInStore, geometry and transform also as plain store columns read by the partition fill, collision z test and direction (GxUnitStore.h; same game)
         });
         g_PageSwitches3 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

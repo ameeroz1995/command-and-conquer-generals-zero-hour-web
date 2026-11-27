@@ -785,6 +785,7 @@ Int Object::gxPlayerIndex() const
 void Object::setGeometryInfo(const GeometryInfo& geom)
 {
 	gxGeom() = geom;
+	if (m_gxHotInStore) TheGxUnitStore.gxGeomSync(gxStoreSlot());	// web port: geomColumns
 	TheGxUnitStore.setRadius(this, geom.getBoundingCircleRadius());	// web port (round 4)
 	TheGxUnitStore.setSphere(this, geom.getBoundingSphereRadius());	// combat, splashSimd
 	if( m_gxObj->m_partitionData )
@@ -806,6 +807,7 @@ void Object::setGeometryInfoZ( Real newZ )
 {
 	// A Z change only does not need to un/register with the PartitionManager
 	gxGeom().setMaxHeightAbovePosition( newZ );
+	if (m_gxHotInStore) TheGxUnitStore.gxGeomSync(gxStoreSlot());	// web port: geomColumns
 	if (m_gxObj->m_partitionData)
 		m_gxObj->m_partitionData->gxRefreshPlace();	// web port: the bounding sphere may have grown
 	extern void gxSnapTouch(const Object *o);
@@ -1858,6 +1860,8 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
 
 	if (!gxPosInStore())
 		TheGxUnitStore.setPos(this, *gxPosNow);	// web port (round 4): write-through without positionInStore
+	else if (m_gxHotInStore)
+		TheGxUnitStore.gxXfSync(gxStoreSlot());	// web port: geomColumns, every transform change ends here
 
 	// web port (switch searchCache): range searches keep a copy of where we are
 	if (m_gxObj->m_partitionData)
@@ -4281,6 +4285,7 @@ void Object::xfer( Xfer *xfer )
 
 	// geometry info
 	xfer->xferSnapshot( &gxGeom() );
+	if (m_gxHotInStore) TheGxUnitStore.gxGeomSync(gxStoreSlot());	// web port: geomColumns
 
 	// sighting info, last look - must be saved cause we save PartitionCell::m_shroudLevel
 	xfer->xferSnapshot( m_gxObj->m_partitionLastLook );
@@ -6707,6 +6712,7 @@ void Object::gxSetHotInStore(Bool on)
 		row.m_disabledMask = DisabledMaskType(DisabledMaskType::kInitSetAll);
 		row.m_layer = LAYER_INVALID;
 		row.m_geometryInfo.setMajorRadius(-12345.0f);
+		st.gxGeomSync(s);	// geomColumns
 	}
 	else
 	{

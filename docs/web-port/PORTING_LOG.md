@@ -4034,6 +4034,120 @@ ai's per-kind hook lands, the range kernel is a loop of these calls over the kin
   soa-14 (default on) referee replay matches, store checks 2,591,712, 0 mismatches.
 - Timing: SIMD pairs (collideSimd, physSimd) wait until the data work is timed.
 
+## Round 5 (collide, 2026-11-27): heap churn, store layout, hash-map sweep, straight-line kernels
+- Allocation counters: GxTimeScope also counts game memory blocks handed out inside each system's
+  outermost scope; GXTIME prints `<system>Allocs` per tick. Before (soa-15, battle, 2700 ticks): physics
+  215.5, collideBuild 56.2, collideProcess 106.2 per tick (logic total 3337).
+- Store (1f734bb): columns are `GxCol<T>` (64-byte aligned allocator, whole 64-byte lines; round 6
+  false-sharing rule). compact() moves rows down in place (the slot order is ascending) instead of
+  copying all 26 columns every frame a unit dies; re-sorting after a load still copies.
+- storePairs buckets from the store only: new column inCells (1 while the partition holds the unit in
+  its cells; written in updateCellsTouched, removeAllTouchedCells, freeCoiArray, add), then a counting
+  sort into per-cell blocks. Same pairs in the same order (descending slot per cell, as the old
+  linked lists): collide-sp.rep and collide-hot.rep replay to a match; battle verify inCells 4.68M
+  checks, 0 mismatches.
+- Far-apart pre-check: already in (pairPlace, second word bit 28, on, exact); with storePairs the
+  kernel does the same cut from the store columns. No new switch; re-timed below.
+- geomColumns (fifth word bit 4, value 16, off; 27bb272): geometry as gType / gSmall / gMajor / gMinor /
+  gHeight and the transform as xfm[12] store columns, written at their writers (setGeometryInfo,
+  setGeometryInfoZ, xfer, move-in; every transform change via reactToTransformChange). Readers moved:
+  partition fill, the collision z test and shape pick (no CollideInfo built for pairs apart in height),
+  getUnitDirectionVector3D. The structs stay as the general API view. Verify: plain columns = structs,
+  16.6M checks in the battle, 0 mismatches; referee matches.
+- Hash-map sweep (27bb272, all exact, verify compares with the old walk; referee replay with all on
+  matches): #9 recruitIndex (bit 5): Team::tryToRecruit over the player's objects from the store's
+  player column, sorted by object-list sequence (ties as before). #10 aiWorldIndex (bit 6):
+  AIPlayer::findDozer the same way; the rebuild-hole scan by a spawner -> hole index (last match in
+  list order = lowest sequence). #18 playerKindCounts (bit 7): per-player counts of black markets and
+  drones kept by the store (add / remove / setPlayer, which also covers whole-team owner changes);
+  the stealth black-market check and the dock drone search skip their player walk when the count is 0.
+  Not done: SpawnBehavior orphans and whole-player AutoHeal visit objects in team order and act on
+  them, so a count can't skip them exactly; findTemplate(string) per build-list entry. The battle
+  benchmark has no AI players: none of these run there (timed only as "not slower").
+- Straight-line kernels (1c8f345): physics integration (__restrict columns, no branch, 8 rows per
+  step) and the pair kernel (__restrict, hoisted splats, 8 units per step); both noinline so each is
+  one function: wasm disassembly shows 0 calls in either. No fast-math, same float ops.
+- Timings queued (battle, timing.lock, load < 8, alternating): geomColumns, hash switches, storePairs,
+  pairPlace, collideList, physBulk, heap (soa-15 / soa-16), kernels.
+
+### collide: defaults, circleReuse, pinned no-draw timing (2026-11-27)
+- Defaults now on: geomColumns (fifth word 16), recruitIndex (32), aiWorldIndex (64), playerKindCounts
+  (128), circleReuse (sixth word bit 24, 16777216). Off and kept off: storePairs (collideBuild 1.90 vs
+  1.00 ms/tick unpinned), pairPlace (flat), collideList (collideProcess 1.52 vs 1.30). physBulk: too noisy
+  to call, default unchanged.
+- Allocation sampler (GXDIAG, 1 in 97 allocations inside physics / collideBuild / collideProcess, patch
+  not committed): collideBuild was ~80% DiscreteCircle edge vectors (shroud cover, threat and value
+  affects in cell maintenance), ~17% queueUndoShroudReveal (pool SightingInfo). collideProcess and
+  physics allocations are event work (move-away paths, particle systems, audio file names, object
+  creation from deaths), not per-tick containers.
+- circleReuse: DiscreteCircle::reset regenerates one scratch circle per call site; the same edges, so
+  the same cells in the same order. Checks: referee replay (with circleReuse, and defaults), collide-hot
+  replay with verify: all match; screenshots at frames 600/1800/3600/5400 off vs on: 2 pixels of 1.77M
+  differ, the same 2 at every frame.
+- Pinned no-draw battle (soa-20, 1800 ticks, slot runs back to back off/on; counters identical):
+
+  | run | logic ms | collideBuild ms | collideBuild allocs/tick | allocs/tick | p99 ms | >100 ms |
+  |---|---:|---:|---:|---:|---:|---:|
+  | circleReuse off | 55.95 / 34.87 | 3.311 / 2.140 | 86.1 | 4677 | 175.9 / 80.1 | 130 / 10 |
+  | circleReuse on  | 52.62 / 35.74 | 3.408 / 2.176 | 18.8 | 4606 | 196.5 / 85.6 | 212 / 10 |
+  | geomColumns off | 33.31 / 37.60 | 1.988 / 2.418 | 86.1 | 4677 | 77.6 / 88.6 | 10 / 12 |
+  | geomColumns on  | 43.19 / 36.74 | 2.739 / 2.239 | 86.1 | 4677 | 95.6 / 85.8 | 18 / 12 |
+
+  Pinned ms spread run to run was 33-56 ms logic on this lane (not the ~1.5% expected), so ms is within
+  noise for both; the allocation drop (-78% collideBuild, -71/tick total) is exact. circleReuse on by
+  main's rule (on once replays match).
+- Re-timed after the slot pinning fix (bench process and docker off the slot cores), soa-20, pinned
+  no-draw battle, 1800 ticks, counters identical run to run:
+  - circleReuse off/on: logic 33.74 / 32.98 vs 33.29 / 32.68 ms/tick (-1.1%, -0.9%), collideBuild
+    2.009 / 2.010 vs 2.033 / 1.983 (flat). Spread of the 4 runs 3%. Stays on.
+  - Hash switches (recruitIndex, aiWorldIndex, playerKindCounts) on the referee replay with timing
+    (AI players, 8997 ticks; all 4 match): logic 0.054 / 0.053 off vs 0.046 / 0.053 on: the whole replay
+    is too light to time them; on as not slower.
+  - pairPlace off/on, 4 pairs: collideBuild 1.969 / 1.902 / 1.839 / 1.958 vs 1.917 / 1.612 / 1.942 /
+    1.965, logic 32.6 / 31.9 / 30.7 / 32.2 vs 32.2 / 27.1 / 32.2 / 33.2: no consistent gain, stays off.
+  - Pair kernel (storePairs on; soa-21k0 = HEAD with 1c8f345 reverted and the physics kernel of
+    27bb272 reverted): collideBuild 2.949 / 3.118 before vs 3.155 / 3.067 after: no gain.
+  - Physics kernel (physBulk + physSimd): physics 3.629 / 3.690 before vs 4.338 / 4.160 after, but
+    every other system was ~19% slower in the same runs (search 4.1 vs 5.0, collideBuild 1.84 vs
+    2.30); physics share of logic 11.6% in both. No gain measurable. Both kernels stay as committed
+    (call-free, exact); both run only on switches that are off by default.
+- AI games were idle because the web build never loaded the loose AI scripts: Data/Scripts/
+  SkirmishScripts.scb and MultiplayerScripts.scb are install files in no .big, so skirmish AI players
+  got no scripts (SidesList::prepareForMP_or_Skirmish) and stayed at command center + dozer. Fix
+  2c7e213 (EmscriptenMain.cpp): read them from assets/Data/Scripts/ into MEMFS at boot (missing file
+  only logged). Landed on perf/low-end as a650518; the shared assets dir has Data/Scripts links.
+  Checked: collide-fix.rep frame 5300 shows the China AI with a full base and tanks; replay matches.
+- ai-long.rep (~/generals-bench, soa-22, 36000 frames, hash switches off when recorded): AIs build and
+  fight, but the load is light: logic averages 0.54 ms/tick, ~0.64 ms/tick over the last 9000 ticks,
+  physUnits ~24 on average (battle bench: ~33 ms/tick, 1205 physUnits). Replays match, 0 mismatches.
+- Hash switches (recruitIndex, aiWorldIndex, playerKindCounts) on ai-long.rep, bench_replay timing,
+  GXTIMEEND logic ms/tick: off 0.536 / 0.788, on 0.591 / 0.557 (aiLoop 0.331 / 0.480 vs 0.366 / 0.344).
+  Within noise at this load; no gain or loss measurable. Defaults stay on.
+- aiScripts switch (2f2a009): seventh switch word GLES3_Page_Switches7, bit 0, on (1-31 spare). Off =
+  the boot loader skips the loose scripts, as before 2c7e213 (they enter the exe CRC and the AI, so
+  every older replay mismatched at frame 0). The bench replay driver (server.py AI_SCRIPT_REPLAYS)
+  plays recordings made before the fix with it off. soa-24: referee, collide-sp, collide-hot match
+  with it off; collide-fix and ai-long match with it on; 0 mismatches each.
+- Heavier AI recording (aec0d5f, WebBenchmark.cpp): bench_record settings recordMap / recordAIs (up to
+  numPlayers-1 brutal AIs, factions in turn, two teams alternating; default unchanged). ai-long.rep
+  re-recorded: Twilight Flame, 7 brutal AIs, 36000 frames, hash switches off. Logic averages ~24
+  ms/tick (pathfind 15-18, aiLoop ~5, search ~2.3), 151 physUnits on average, over 50 ms/tick in the
+  last minutes. Hash switches off 22.35 / 25.52, on 25.50 / 23.45 (aiLoop off 4.65 / 5.32, on 5.28 /
+  4.99): no measurable effect at this load either; they stay on.
+- Allocation sample (soa-23d, GXDIAG stacks every 97th allocation inside physics / collide scopes,
+  battle, no draw): allocs per tick physics 326, collideBuild 18.7, collideProcess 144 (aiLoop 3203,
+  search 958, pathfind 672). Collide's own are small and cheap: collideBuild 84% queueUndoShroudReveal
+  (a pool block per unlook, O(1)); collideProcess 48% pathfinding called from collisions (paths),
+  10% Object::onCollide's collide-module list, built once per unit. Physics scope: 58% the death
+  deselect group (ai's deathDeselect), 14% audio file names (ai's audioNames). No new collide switch.
+- Pinned no-draw re-measure (soa-24, battle, GXTIMEEND, two pairs back to back):
+  - geomColumns off 33.47 / 31.03 vs on 33.64 / 32.66 logic (collideBuild 2.07 / 1.91 vs 2.12 / 2.01):
+    no gain now (the earlier 20.1 vs 21.5 was the old timing). Flagged to main.
+  - storePairs on 43.53 / 42.51 vs off 36.47 / 35.50 (collideBuild 4.08 / 3.99 vs 2.29 / 2.21): slower,
+    stays off.
+  - collideList off 34.84 / 42.18 vs on 38.56 / 36.21 logic (noisy); collideProcess off 3.02 / 3.59 vs
+    on 2.71 / 2.59: stays on.
+  - physBulk on 36.04 / 42.21 vs off 34.90 / 39.20 (physics 4.02 / 4.66 vs 3.99 / 4.46): stays off.
 
 ## 2026-11-25 — Round 5 (units are pure data), paths families: state in component rows; movement kernel
 - Per-unit state moved out of the module objects into rows of collide's GxComponentPool (one pool per
