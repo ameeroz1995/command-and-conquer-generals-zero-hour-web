@@ -3955,6 +3955,42 @@ Stays default off.
   soa-14 (default on) referee replay matches, store checks 2,591,712, 0 mismatches.
 - Timing: SIMD pairs (collideSimd, physSimd) wait until the data work is timed.
 
+## Round 5 (collide, 2026-11-27): heap churn, store layout, hash-map sweep, straight-line kernels
+- Allocation counters: GxTimeScope also counts game memory blocks handed out inside each system's
+  outermost scope; GXTIME prints `<system>Allocs` per tick. Before (soa-15, battle, 2700 ticks): physics
+  215.5, collideBuild 56.2, collideProcess 106.2 per tick (logic total 3337).
+- Store (1f734bb): columns are `GxCol<T>` (64-byte aligned allocator, whole 64-byte lines; round 6
+  false-sharing rule). compact() moves rows down in place (the slot order is ascending) instead of
+  copying all 26 columns every frame a unit dies; re-sorting after a load still copies.
+- storePairs buckets from the store only: new column inCells (1 while the partition holds the unit in
+  its cells; written in updateCellsTouched, removeAllTouchedCells, freeCoiArray, add), then a counting
+  sort into per-cell blocks. Same pairs in the same order (descending slot per cell, as the old
+  linked lists): collide-sp.rep and collide-hot.rep replay to a match; battle verify inCells 4.68M
+  checks, 0 mismatches.
+- Far-apart pre-check: already in (pairPlace, second word bit 28, on, exact); with storePairs the
+  kernel does the same cut from the store columns. No new switch; re-timed below.
+- geomColumns (fifth word bit 4, value 16, off; 27bb272): geometry as gType / gSmall / gMajor / gMinor /
+  gHeight and the transform as xfm[12] store columns, written at their writers (setGeometryInfo,
+  setGeometryInfoZ, xfer, move-in; every transform change via reactToTransformChange). Readers moved:
+  partition fill, the collision z test and shape pick (no CollideInfo built for pairs apart in height),
+  getUnitDirectionVector3D. The structs stay as the general API view. Verify: plain columns = structs,
+  16.6M checks in the battle, 0 mismatches; referee matches.
+- Hash-map sweep (27bb272, all exact, verify compares with the old walk; referee replay with all on
+  matches): #9 recruitIndex (bit 5): Team::tryToRecruit over the player's objects from the store's
+  player column, sorted by object-list sequence (ties as before). #10 aiWorldIndex (bit 6):
+  AIPlayer::findDozer the same way; the rebuild-hole scan by a spawner -> hole index (last match in
+  list order = lowest sequence). #18 playerKindCounts (bit 7): per-player counts of black markets and
+  drones kept by the store (add / remove / setPlayer, which also covers whole-team owner changes);
+  the stealth black-market check and the dock drone search skip their player walk when the count is 0.
+  Not done: SpawnBehavior orphans and whole-player AutoHeal visit objects in team order and act on
+  them, so a count can't skip them exactly; findTemplate(string) per build-list entry. The battle
+  benchmark has no AI players: none of these run there (timed only as "not slower").
+- Straight-line kernels (1c8f345): physics integration (__restrict columns, no branch, 8 rows per
+  step) and the pair kernel (__restrict, hoisted splats, 8 units per step); both noinline so each is
+  one function: wasm disassembly shows 0 calls in either. No fast-math, same float ops.
+- Timings queued (battle, timing.lock, load < 8, alternating): geomColumns, hash switches, storePairs,
+  pairPlace, collideList, physBulk, heap (soa-15 / soa-16), kernels.
+
 ## 2026-11-25 — Round 5 (units are pure data), paths families: state in component rows; movement kernel
 - Per-unit state moved out of the module objects into rows of collide's GxComponentPool (one pool per
   module type, deque rows that never move, freed rows reused). Each module keeps only its row index
