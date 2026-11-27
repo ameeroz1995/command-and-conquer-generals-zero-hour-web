@@ -4017,6 +4017,21 @@ Stays default off.
   Pinned ms spread run to run was 33-56 ms logic on this lane (not the ~1.5% expected), so ms is within
   noise for both; the allocation drop (-78% collideBuild, -71/tick total) is exact. circleReuse on by
   main's rule (on once replays match).
+- Re-timed after the slot pinning fix (bench process and docker off the slot cores), soa-20, pinned
+  no-draw battle, 1800 ticks, counters identical run to run:
+  - circleReuse off/on: logic 33.74 / 32.98 vs 33.29 / 32.68 ms/tick (-1.1%, -0.9%), collideBuild
+    2.009 / 2.010 vs 2.033 / 1.983 (flat). Spread of the 4 runs 3%. Stays on.
+  - Hash switches (recruitIndex, aiWorldIndex, playerKindCounts) on the referee replay with timing
+    (AI players, 8997 ticks; all 4 match): logic 0.054 / 0.053 off vs 0.046 / 0.053 on: the whole replay
+    is too light to time them; on as not slower.
+  - pairPlace off/on, 4 pairs: collideBuild 1.969 / 1.902 / 1.839 / 1.958 vs 1.917 / 1.612 / 1.942 /
+    1.965, logic 32.6 / 31.9 / 30.7 / 32.2 vs 32.2 / 27.1 / 32.2 / 33.2: no consistent gain, stays off.
+  - Pair kernel (storePairs on; soa-21k0 = HEAD with 1c8f345 reverted and the physics kernel of
+    27bb272 reverted): collideBuild 2.949 / 3.118 before vs 3.155 / 3.067 after: no gain.
+  - Physics kernel (physBulk + physSimd): physics 3.629 / 3.690 before vs 4.338 / 4.160 after, but
+    every other system was ~19% slower in the same runs (search 4.1 vs 5.0, collideBuild 1.84 vs
+    2.30); physics share of logic 11.6% in both. No gain measurable. Both kernels stay as committed
+    (call-free, exact); both run only on switches that are off by default.
 
 ## 2026-11-25 — Round 5 (units are pure data), paths families: state in component rows; movement kernel
 - Per-unit state moved out of the module objects into rows of collide's GxComponentPool (one pool per
