@@ -62,13 +62,13 @@ static int g_PageSwitches3 = 0 | 1 | 16 | 32 | 256 | 16777216 | 128 | 524288 | 1
 int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // Fourth switch word (round 5: units as pure data). Bits by owner: collide 0-5, ai 6-11, query 12-17,
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
-static int g_PageSwitches7 = 0 | 1;	// seventh word, default-on bits (aiScripts); bit 0 collide (aiScripts), 1-31 spare
+static int g_PageSwitches7 = (int)0x00000031u;	// merge8: default-on bits of every lane, computed from the Settings defaults
 int GLES3_Page_Switches7() { return g_PageSwitches7; }	// non-web builds: callers use a local stub returning 0
-static int g_PageSwitches4 = 0 | 2 | 64 | 128 | 256 | 512 | 4096 | 8192 | 16384 | 4 | 32768 | 131072 | 262144 | 33554432 | 1073741824 | (int)0x80000000;	// default-on bits of every lane (collideSimd, dataBehaviors, kindKernels, containKernels, kernelSimd, rowKernels, simdSearch, fogStamps, fogKeep, simdPairs, splashSimd, simdBody, snapPatch)
+static int g_PageSwitches4 = (int)0xC206D3C6u;	// merge8: default-on bits of every lane, computed from the Settings defaults
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
-static int g_PageSwitches5 = 0;	// fifth word, default-on bits of every lane (none yet)
+static int g_PageSwitches5 = (int)0x30FFFFF3u;	// merge8: default-on bits of every lane, computed from the Settings defaults
 int GLES3_Page_Switches5() { return g_PageSwitches5; }
-static int g_PageSwitches6 = 0;	// sixth word, default-on bits of every lane (none yet); ranges: ai 0-3, collide 4-7, query 8-11, combat 12-15, paths 16-19
+static int g_PageSwitches6 = (int)0x71F0010Fu;	// merge8: default-on bits of every lane, computed from the Settings defaults
 int GLES3_Page_Switches6() { return g_PageSwitches6; }	// non-web builds: callers use a local stub returning 0
 static bool g_Scaled3D = false;     // context without MSAA: the offscreen 3D pass is used
 static bool g_In3DPass = false;     // the offscreen framebuffer is bound
