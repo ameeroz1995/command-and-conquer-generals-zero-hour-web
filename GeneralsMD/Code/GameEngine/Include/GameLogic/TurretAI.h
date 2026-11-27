@@ -29,6 +29,7 @@
 #pragma once
 
 #include "Common/StateMachine.h"
+#include "Common/GxComponentPool.h"	// web port (round 5)
 #include "Common/GameMemory.h"
 
 const Real DEFAULT_TURN_RATE = 0.01f;
@@ -60,6 +61,7 @@ class TurretAI;
  * The AI state machine.  This is used by AIUpdate to implement all of the
  * commands in the AICommandInterface.
  */
+struct GxTurretStateMachineRow;
 class TurretStateMachine : public StateMachine
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( TurretStateMachine, "TurretStateMachine" );
@@ -71,14 +73,16 @@ public:
 	 */
 	TurretStateMachine( TurretAI* tai, Object* owner, AsciiString name );
 
-	TurretAI* getTurretAI() const { return m_turretAI; }
+	TurretAI* getTurretAI() const;
 
 	virtual void clear();
 	virtual StateReturnType resetToDefaultState();
 	virtual StateReturnType setState( StateID newStateID );
 
 private:
-	TurretAI* m_turretAI;
+	GxRow<struct GxTurretStateMachineRow> m_gxTurretStateMachineRow;	///< web port (round 5): this unit's row in TheGxTurretStateMachines
+	friend struct GxTurretStateMachineRow;
+	inline struct GxTurretStateMachineRow &gxRow() const;
 
 protected:
 	// snapshot interface
@@ -86,6 +90,19 @@ protected:
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 };
+
+// Web port (round 5, units are pure data): TurretStateMachine's per-unit state, one row per unit in TheGxTurretStateMachines;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxTurretStateMachineRow
+{
+	TurretAI* turretAI;
+};
+
+
+inline GxTurretStateMachineRow &TurretStateMachine::gxRow() const { return const_cast<GxTurretStateMachineRow &>(*m_gxTurretStateMachineRow); }
+inline TurretAI* TurretStateMachine::getTurretAI() const
+{ return gxRow().turretAI; }
+
 
 //-----------------------------------------------------------------------------------------------------------
 class TurretState : public State
@@ -98,11 +115,13 @@ protected:
 EMPTY_DTOR(TurretState)
 
 //-----------------------------------------------------------------------------------------------------------
+struct GxTurretAIIdleStateRow;
 class TurretAIIdleState : public TurretState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(TurretAIIdleState, "TurretAIIdleState")
 public:
-	TurretAIIdleState( TurretStateMachine* machine ) : TurretState( machine, "TurretAIIdleState"), m_nextIdleScan(0) { }
+	TurretAIIdleState( TurretStateMachine* machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 
@@ -113,16 +132,29 @@ protected:
 	virtual void loadPostProcess();
 private:
 	void resetIdleScan();
-	UnsignedInt m_nextIdleScan;
+	GxRow<struct GxTurretAIIdleStateRow> m_gxTurretAIIdleStateRow;	///< web port (round 5): this unit's row in TheGxTurretAIIdleStates
+	friend struct GxTurretAIIdleStateRow;
+	inline struct GxTurretAIIdleStateRow &gxRow() const;
 };
-EMPTY_DTOR(TurretAIIdleState)
+
+// Web port (round 5, units are pure data): TurretAIIdleState's per-unit state, one row per unit in TheGxTurretAIIdleStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxTurretAIIdleStateRow
+{
+	UnsignedInt nextIdleScan;
+};
+
+
+inline GxTurretAIIdleStateRow &TurretAIIdleState::gxRow() const { return const_cast<GxTurretAIIdleStateRow &>(*m_gxTurretAIIdleStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
+struct GxTurretAIIdleScanStateRow;
 class TurretAIIdleScanState : public TurretState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(TurretAIIdleScanState, "TurretAIIdleScanState")
 public:
-	TurretAIIdleScanState( TurretStateMachine* machine ) : TurretState( machine, "TurretAIIdleScanState"), m_desiredAngle(0) { }
+	TurretAIIdleScanState( TurretStateMachine* machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -133,9 +165,20 @@ protected:
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 private:
-	Real m_desiredAngle;
+	GxRow<struct GxTurretAIIdleScanStateRow> m_gxTurretAIIdleScanStateRow;	///< web port (round 5): this unit's row in TheGxTurretAIIdleScanStates
+	friend struct GxTurretAIIdleScanStateRow;
+	inline struct GxTurretAIIdleScanStateRow &gxRow() const;
 };
-EMPTY_DTOR(TurretAIIdleScanState)
+
+// Web port (round 5, units are pure data): TurretAIIdleScanState's per-unit state, one row per unit in TheGxTurretAIIdleScanStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxTurretAIIdleScanStateRow
+{
+	Real desiredAngle;
+};
+
+
+inline GxTurretAIIdleScanStateRow &TurretAIIdleScanState::gxRow() const { return const_cast<GxTurretAIIdleScanStateRow &>(*m_gxTurretAIIdleScanStateRow); }
 
 //-----------------------------------------------------------------------------------------------------------
 /**
@@ -188,16 +231,17 @@ EMPTY_DTOR(TurretAIRecenterTurretState)
 /**
  * Hold turret position for a bit before recenter
  */
+struct GxTurretAIHoldTurretStateRow;
 class TurretAIHoldTurretState : public TurretState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(TurretAIHoldTurretState, "TurretAIHoldTurretState")
 private:
-	UnsignedInt m_timestamp;										///< frame this state was last entered
+	GxRow<struct GxTurretAIHoldTurretStateRow> m_gxTurretAIHoldTurretStateRow;	///< web port (round 5): this unit's row in TheGxTurretAIHoldTurretStates
+	friend struct GxTurretAIHoldTurretStateRow;
+	inline struct GxTurretAIHoldTurretStateRow &gxRow() const;
 public:
-	TurretAIHoldTurretState( TurretStateMachine* machine ) : TurretState( machine , "AIHoldTurretState")
-	{
-		m_timestamp = 0;
-	}
+	TurretAIHoldTurretState( TurretStateMachine* machine );	///< web port (round 5): defined in the .cpp
+
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -207,7 +251,16 @@ protected:
 	virtual void xfer( Xfer *xfer );
 	virtual void loadPostProcess();
 };
-EMPTY_DTOR(TurretAIHoldTurretState)
+
+// Web port (round 5, units are pure data): TurretAIHoldTurretState's per-unit state, one row per unit in TheGxTurretAIHoldTurretStates;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxTurretAIHoldTurretStateRow
+{
+	UnsignedInt timestamp;
+};
+
+
+inline GxTurretAIHoldTurretStateRow &TurretAIHoldTurretState::gxRow() const { return const_cast<GxTurretAIHoldTurretStateRow &>(*m_gxTurretAIHoldTurretStateRow); }
 
 //-------------------------------------------------------------------------------------------------
 class TurretAIData : public MemoryPoolObject
@@ -256,6 +309,7 @@ enum TurretTargetType CPP_11(: Int)
 /**
  * Turret behavior implementation.
  */
+struct GxTurretAIRow;
 class TurretAI : public MemoryPoolObject, public Snapshot, public NotifyWeaponFiredInterface
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE( TurretAI, "TurretAI" )
@@ -264,30 +318,30 @@ public:
 	TurretAI(Object* owner, const TurretAIData* data, WhichTurretType tur);
 	// virtual destructor prototype provided by memory pool declaration
 
-	Real getTurretAngle() const { return m_angle; }
-	Real getTurretPitch() const { return m_pitch; }
-	Real getMinPitch() const { return m_data->m_minPitch; }
-	Bool isAllowsPitch() const { return m_data->m_isAllowsPitch; }
-	Real getTurnRate() const { return m_data->m_turnRate; }
-	Real getNaturalTurretAngle() const { return m_data->m_naturalTurretAngle; }
-	Real getPitchRate() const { return m_data->m_pitchRate; }
-	Real getFirePitch() const { return m_data->m_firePitch; }
-	Real getGroundUnitPitch() const { return m_data->m_groundUnitPitch; }
-	Real getNaturalTurretPitch() const { return m_data->m_naturalTurretPitch;	}
+	Real getTurretAngle() const;
+	Real getTurretPitch() const;
+	Real getMinPitch() const;
+	Bool isAllowsPitch() const;
+	Real getTurnRate() const;
+	Real getNaturalTurretAngle() const;
+	Real getPitchRate() const;
+	Real getFirePitch() const;
+	Real getGroundUnitPitch() const;
+	Real getNaturalTurretPitch() const;
 	Real getTurretFireAngleSweepForWeaponSlot( WeaponSlotType slot ) const;
 	Real getTurretSweepSpeedModifierForWeaponSlot( WeaponSlotType slot ) const;
-	Real getMinIdleScanAngle() const { return m_data->m_minIdleScanAngle;	}
-	Real getMaxIdleScanAngle() const { return m_data->m_maxIdleScanAngle;	}
-	UnsignedInt getMinIdleScanInterval() const { return m_data->m_minIdleScanInterval;	}
-	UnsignedInt getMaxIdleScanInterval() const { return m_data->m_maxIdleScanInterval;	}
-	UnsignedInt getRecenterTime() const { return m_data->m_recenterTime;	}
-	Object* getOwner() { return m_owner; }
-	const Object* getOwner() const { return m_owner; }
+	Real getMinIdleScanAngle() const;
+	Real getMaxIdleScanAngle() const;
+	UnsignedInt getMinIdleScanInterval() const;
+	UnsignedInt getMaxIdleScanInterval() const;
+	UnsignedInt getRecenterTime() const;
+	Object* getOwner();
+	const Object* getOwner() const;
 
 	Bool isOwnersCurWeaponOnTurret() const;
 	Bool isWeaponSlotOnTurret(WeaponSlotType wslot) const;
 	Bool isAttackingObject() const { return m_target == TARGET_OBJECT; }
-	Bool isForceAttacking() const { return m_isForceAttacking; }
+	Bool isForceAttacking() const;
 
 	// this will cause the turret to continuously track the given victim.
 	// passing null will allow the turret to revert back to "normal" position.
@@ -297,7 +351,7 @@ public:
 	Bool isTurretInNaturalPosition() const;
 
 	void setTurretEnabled( Bool enabled );
-	Bool isTurretEnabled() const { return m_enabled; }
+	Bool isTurretEnabled() const;
 
 	/**
 		return true iff the turret is trying to aim at the victim, BUT not yet pointing in
@@ -315,17 +369,17 @@ public:
 	// these are only for use by the state machines... don't call them otherwise, please
 	Bool friend_turnTowardsAngle(Real desiredAngle, Real rateModifier, Real relThresh);
 	Bool friend_turnTowardsPitch(Real pitch, Real rateModifier);
-	Bool friend_getPositiveSweep() const { return m_positiveSweep; }
-	void friend_setPositiveSweep(Bool b) { m_positiveSweep = b; }
+	Bool friend_getPositiveSweep() const;
+	void friend_setPositiveSweep(Bool b);
 	Bool friend_isSweepEnabled() const;
-	WhichTurretType friend_getWhichTurret() const { return m_whichTurret; }
+	WhichTurretType friend_getWhichTurret() const;
 #ifdef INTER_TURRET_DELAY
 	UnsignedInt friend_getInterTurretDelay();
 #endif
 	Bool friend_isAnyWeaponInRangeOf(const Object* o) const;
 	TurretTargetType friend_getTurretTarget( Object*& obj, Coord3D& pos, Bool clearDeadTargets = TRUE ) const;
 	Bool friend_getTargetWasSetByIdleMood() const { return m_targetWasSetByIdleMood; }
-	const Team* friend_getVictimInitialTeam() const { return m_victimInitialTeam; }
+	const Team* friend_getVictimInitialTeam() const;
 	void friend_checkForIdleMoodTarget();
 	UnsignedInt friend_getNextIdleMoodTargetFrame() const;
 	void friend_notifyStateMachineChanged();
@@ -347,26 +401,85 @@ private:
 	void getOtherTurretWeaponInfo(Int& numSelf, Int& numSelfReloading, Int& numSelfReady, Int& numOther, Int& numOtherReloading, Int& numOtherReady) const;
 #endif
 
-	const TurretAIData*				m_data;
-	const WhichTurretType			m_whichTurret;
-	Object*										m_owner;
-	TurretStateMachine*				m_turretStateMachine;							///< the state machine
-	Real											m_angle;										///< angle of the turret
-	Real											m_pitch;										///< pitch angle, if this supports it
-	AudioEventRTS							m_turretRotOrPitchSound;		///< Sound of turret rotation
-	UnsignedInt								m_enableSweepUntil;
-	Team*											m_victimInitialTeam; // The team of the victim at the BEGINNING of the attack. If it changes, we may need to stop the attack.
+	GxRow<struct GxTurretAIRow> m_gxTurretAIRow;	///< web port (round 5): this unit's row in TheGxTurretAIs
+	friend struct GxTurretAIRow;
+	inline struct GxTurretAIRow &gxRow() const;
 	mutable TurretTargetType	m_target;
-	UnsignedInt								m_continuousFireExpirationFrame;
-	UnsignedInt								m_sleepUntil;
 
-	Bool										m_playRotSound : 1;
-	Bool										m_playPitchSound : 1;
-	Bool										m_positiveSweep : 1;
-	Bool										m_didFire : 1;
-	Bool										m_enabled : 1;
-	Bool										m_firesWhileTurning : 1;
-	Bool										m_isForceAttacking : 1;
 	mutable Bool						m_targetWasSetByIdleMood : 1;
 
 };
+
+// Web port (round 5, units are pure data): TurretAI's per-unit state, one row per unit in TheGxTurretAIs;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxTurretAIRow
+{
+	const TurretAIData* data;
+	WhichTurretType whichTurret;
+	Object* owner;
+	TurretStateMachine* turretStateMachine;
+	Real angle;
+	Real pitch;
+	AudioEventRTS turretRotOrPitchSound;
+	UnsignedInt enableSweepUntil;
+	Team* victimInitialTeam;
+	UnsignedInt continuousFireExpirationFrame;
+	UnsignedInt sleepUntil;
+	Bool playRotSound;
+	Bool playPitchSound;
+	Bool positiveSweep;
+	Bool didFire;
+	Bool enabled;
+	Bool firesWhileTurning;
+	Bool isForceAttacking;
+};
+
+
+inline GxTurretAIRow &TurretAI::gxRow() const { return const_cast<GxTurretAIRow &>(*m_gxTurretAIRow); }
+inline Real TurretAI::getTurretAngle() const
+{ return gxRow().angle; }
+inline Real TurretAI::getTurretPitch() const
+{ return gxRow().pitch; }
+inline Real TurretAI::getMinPitch() const
+{ return gxRow().data->m_minPitch; }
+inline Bool TurretAI::isAllowsPitch() const
+{ return gxRow().data->m_isAllowsPitch; }
+inline Real TurretAI::getTurnRate() const
+{ return gxRow().data->m_turnRate; }
+inline Real TurretAI::getNaturalTurretAngle() const
+{ return gxRow().data->m_naturalTurretAngle; }
+inline Real TurretAI::getPitchRate() const
+{ return gxRow().data->m_pitchRate; }
+inline Real TurretAI::getFirePitch() const
+{ return gxRow().data->m_firePitch; }
+inline Real TurretAI::getGroundUnitPitch() const
+{ return gxRow().data->m_groundUnitPitch; }
+inline Real TurretAI::getNaturalTurretPitch() const
+{ return gxRow().data->m_naturalTurretPitch;	}
+inline Real TurretAI::getMinIdleScanAngle() const
+{ return gxRow().data->m_minIdleScanAngle;	}
+inline Real TurretAI::getMaxIdleScanAngle() const
+{ return gxRow().data->m_maxIdleScanAngle;	}
+inline UnsignedInt TurretAI::getMinIdleScanInterval() const
+{ return gxRow().data->m_minIdleScanInterval;	}
+inline UnsignedInt TurretAI::getMaxIdleScanInterval() const
+{ return gxRow().data->m_maxIdleScanInterval;	}
+inline UnsignedInt TurretAI::getRecenterTime() const
+{ return gxRow().data->m_recenterTime;	}
+inline Object* TurretAI::getOwner()
+{ return gxRow().owner; }
+inline const Object* TurretAI::getOwner() const
+{ return gxRow().owner; }
+inline Bool TurretAI::isForceAttacking() const
+{ return gxRow().isForceAttacking; }
+inline Bool TurretAI::isTurretEnabled() const
+{ return gxRow().enabled; }
+inline Bool TurretAI::friend_getPositiveSweep() const
+{ return gxRow().positiveSweep; }
+inline void TurretAI::friend_setPositiveSweep(Bool b)
+{ gxRow().positiveSweep = b; }
+inline WhichTurretType TurretAI::friend_getWhichTurret() const
+{ return gxRow().whichTurret; }
+inline const Team* TurretAI::friend_getVictimInitialTeam() const
+{ return gxRow().victimInitialTeam; }
+

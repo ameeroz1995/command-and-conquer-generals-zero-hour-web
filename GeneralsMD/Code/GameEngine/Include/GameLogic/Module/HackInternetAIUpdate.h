@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
 #include "Common/StateMachine.h"
 #include "GameLogic/Module/AIUpdate.h"
 
@@ -46,7 +47,8 @@ class HackInternetState :  public State
 public:
 	HackInternetState( StateMachine *machine ) :State( machine, "HackInternetState" )
 	{
-		m_framesRemaining = 0;
+		m_gxRow = GxComponentPool<GxState>::the().alloc();
+		R().framesRemaining = 0;
 	}
 	virtual StateReturnType update();
 	virtual StateReturnType onEnter();
@@ -59,9 +61,19 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	UnsignedInt m_framesRemaining; //frames till next cash update
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		UnsignedInt framesRemaining; //frames till next cash update
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(HackInternetState)
+inline HackInternetState::GxState &HackInternetState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+inline HackInternetState::~HackInternetState() { GxComponentPool<GxState>::the().release(m_gxRow); }
 
 //-------------------------------------------------------------------------------------------------
 class PackingState :  public State
@@ -70,7 +82,8 @@ class PackingState :  public State
 public:
 	PackingState( StateMachine *machine ) : State( machine, "PackingState" )
 	{
-		m_framesRemaining = 0;
+		m_gxRow = GxComponentPool<GxState>::the().alloc();
+		R().framesRemaining = 0;
 	}
 	virtual StateReturnType update();
 	virtual StateReturnType onEnter();
@@ -82,9 +95,19 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	UnsignedInt m_framesRemaining; //frames till packing animation complete
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		UnsignedInt framesRemaining; //frames till packing animation complete
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(PackingState)
+inline PackingState::GxState &PackingState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+inline PackingState::~PackingState() { GxComponentPool<GxState>::the().release(m_gxRow); }
 
 //-------------------------------------------------------------------------------------------------
 class UnpackingState :  public State
@@ -93,7 +116,8 @@ class UnpackingState :  public State
 public:
 	UnpackingState( StateMachine *machine ) :State( machine, "UnpackingState" )
 	{
-		m_framesRemaining = 0;
+		m_gxRow = GxComponentPool<GxState>::the().alloc();
+		R().framesRemaining = 0;
 	}
 	virtual StateReturnType update();
 	virtual StateReturnType onEnter();
@@ -105,9 +129,19 @@ protected:
 	virtual void loadPostProcess();
 
 private:
-	UnsignedInt m_framesRemaining; //frames till unpacking animation complete
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		UnsignedInt framesRemaining; //frames till unpacking animation complete
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
-EMPTY_DTOR(UnpackingState)
+inline UnpackingState::GxState &UnpackingState::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
+inline UnpackingState::~UnpackingState() { GxComponentPool<GxState>::the().release(m_gxRow); }
 
 
 //-------------------------------------------------------------------------------------------------
@@ -216,6 +250,16 @@ protected:
 
 	virtual AIStateMachine* makeStateMachine();
 
-	AICommandParmsStorage		m_pendingCommand;
-	Bool m_hasPendingCommand;
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		AICommandParmsStorage pendingCommand;
+		Bool hasPendingCommand;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline HackInternetAIUpdate::GxState &HackInternetAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

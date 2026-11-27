@@ -27,6 +27,7 @@
 // Desc:   A standard ai update that also handles units that must deploy to attack and pack before moving.
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include "GameLogic/Module/GxPathsKernels.h"
 
 #include "Common/Player.h"
 #include "Common/ThingFactory.h"
@@ -54,13 +55,15 @@
 //-------------------------------------------------------------------------------------------------
 DeployStyleAIUpdate::DeployStyleAIUpdate( Thing *thing, const ModuleData* moduleData ) : AIUpdateInterface( thing, moduleData )
 {
-	m_state = READY_TO_MOVE;
-	m_frameToWaitForDeploy = 0;
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
+	R().state = READY_TO_MOVE;
+	R().frameToWaitForDeploy = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
 DeployStyleAIUpdate::~DeployStyleAIUpdate()
 {
+	GxComponentPool<GxState>::the().release(m_gxRow);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -92,8 +95,69 @@ void DeployStyleAIUpdate::aiDoCommand( const AICommandParms* parms )
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the deploy kernels. Pure: from the state, the deploy timer and the
+// gathered facts (in range or guarding, trying to move, turrets), the state change to make.
+// reads their arguments only; write nothing.
+struct GxDeployOps { Int n; DeployStateTypes state[1]; Bool reverse[1]; };
+#define GX_DEPLOY_OP(s_, r_) do { ops.state[0] = (s_); ops.reverse[0] = (r_); ops.n = 1; } while (0)
+
+// the deploy timer: a finished deploy / undeploy becomes ready to attack / move
+static GxDeployOps gxDeployTimerKernel(DeployStateTypes st, UnsignedInt frameToWait, UnsignedInt now)
+{
+	GxDeployOps ops; ops.n = 0;
+	if( frameToWait != 0 && now >= frameToWait )
+	{
+		if( st == DEPLOY ) GX_DEPLOY_OP( READY_TO_ATTACK, FALSE );
+		else if( st == UNDEPLOY ) GX_DEPLOY_OP( READY_TO_MOVE, FALSE );
+	}
+	return ops;
+}
+
+// the decision: deploy to attack or guard, pack up to move
+static GxDeployOps gxDeployKernel(DeployStateTypes st, UnsignedInt frameToWait, Bool attackOrGuard,
+	Bool tryingToMove, Bool turretMustCenter, Bool turretCentered)
+{
+	GxDeployOps ops; ops.n = 0;
+	if( attackOrGuard )
+	{
+		switch( st )
+		{
+			case READY_TO_MOVE: GX_DEPLOY_OP( DEPLOY, FALSE ); break;	// deploy before we can attack
+			case UNDEPLOY: if( frameToWait != 0 ) GX_DEPLOY_OP( DEPLOY, TRUE ); break;	// reverse the undeploy
+			case ALIGNING_TURRETS: GX_DEPLOY_OP( READY_TO_ATTACK, FALSE ); break;	// aligning turrets can attack now
+			default: break;
+		}
+	}
+	else if( tryingToMove )
+	{
+		switch( st )
+		{
+			case READY_TO_ATTACK:
+				if( turretMustCenter ) GX_DEPLOY_OP( ALIGNING_TURRETS, FALSE );	// center before we can undeploy
+				else GX_DEPLOY_OP( UNDEPLOY, FALSE );
+				break;
+			case DEPLOY: if( frameToWait != 0 ) GX_DEPLOY_OP( UNDEPLOY, TRUE ); break;	// reverse the deploy
+			case ALIGNING_TURRETS: if( turretCentered ) GX_DEPLOY_OP( UNDEPLOY, FALSE ); break;
+			default: break;
+		}
+	}
+	return ops;
+}
+#undef GX_DEPLOY_OP
+
+// web port (round 5): the range kernel through ai's hook, at the start of this module's phase
+void DeployStyleAIUpdate::gxKernelStep(UnsignedInt now)
+{
+	// reads: its row (state, deploy timer), the frame; writes: its row (op: 0 none, else 1 + new state)
+	GX_PK_WILL_UPDATE
+	const GxDeployOps ops = gxDeployTimerKernel(R().state, R().frameToWaitForDeploy, now);
+	R().gxOp = ops.n ? 1 + (Int)ops.state[0] : 0;
+	R().gxOpFrame = now + 1;
+}
+
 UpdateSleepTime DeployStyleAIUpdate::update()
 {
+	GX_PK_JOIN(DeployStyleAIUpdate)
 	// have to call our parent's isIdle, because we override it to never return true
 	// when we have a pending command...
 	Object *self = getObject();
@@ -130,95 +194,34 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 		}
 	}
 
-	if( m_frameToWaitForDeploy != 0 && now >= m_frameToWaitForDeploy)
+	// web port (round 5 addendum): two kernels, each followed by its apply (setMyState: model
+	// conditions, timers, sounds). First the deploy timer, then the decision, with the turret facts
+	// gathered after the first change as before.
+	GxDeployOps ops;
+	if (GX_PK_HAVE(now))
 	{
-		switch( m_state )
+		ops.n = R().gxOp ? 1 : 0;
+		if (ops.n) { ops.state[0] = (DeployStateTypes)(R().gxOp - 1); ops.reverse[0] = FALSE; }
+	}
+	else
+		ops = gxDeployTimerKernel(R().state, R().frameToWaitForDeploy, now);
+	for( Int k = 0; k < ops.n; ++k )
+		setMyState( ops.state[k], ops.reverse[k] );
+	Bool turretMustCenter = FALSE, turretCentered = FALSE;
+	if( !(isInRange || isInGuardIdleState) && isTryingToMove && (R().state == READY_TO_ATTACK || R().state == ALIGNING_TURRETS) )
+	{
+		WhichTurretType tur = getWhichTurretForCurWeapon();
+		if( tur != TURRET_INVALID )
 		{
-			case DEPLOY:
-				setMyState( READY_TO_ATTACK );
-				break;
-			case UNDEPLOY:
-				setMyState( READY_TO_MOVE );
-				break;
+			turretMustCenter = doTurretsHaveToCenterBeforePacking();
+			turretCentered = R().state == ALIGNING_TURRETS && isTurretInNaturalPosition( tur );
 		}
 	}
+	ops = gxDeployKernel(R().state, R().frameToWaitForDeploy, isInRange || isInGuardIdleState, isTryingToMove, turretMustCenter, turretCentered);
+	for( Int k = 0; k < ops.n; ++k )
+		setMyState( ops.state[k], ops.reverse[k] );
 
-	if( isInRange || isInGuardIdleState )
-	{
-		switch( m_state )
-		{
-			case READY_TO_MOVE:
-				//We're need to deploy before we can attack.
-				setMyState( DEPLOY );
-				break;
-			case READY_TO_ATTACK:
-				//Let the AI handle attacking.
-				break;
-			case DEPLOY:
-				//We can't start attacking until we are fully deployed.
-				break;
-			case UNDEPLOY:
-				if( m_frameToWaitForDeploy != 0 )
-				{
-					//Reverse the undeploy at it's current frame!
-					setMyState( DEPLOY, TRUE );
-				}
-				break;
-			case ALIGNING_TURRETS:
-				//If turrets are aligning, we are able to attack right now.
-				setMyState( READY_TO_ATTACK );
-				break;
-		}
-	}
-	else if( isTryingToMove )
-	{
-		switch( m_state )
-		{
-			case READY_TO_MOVE:
-				//We're ready... ai will handle moving.
-				break;
-			case READY_TO_ATTACK:
-			{
-				WhichTurretType tur = getWhichTurretForCurWeapon();
-				if( tur != TURRET_INVALID )
-				{
-					if( doTurretsHaveToCenterBeforePacking() )
-					{
-						//Turrets need to center before we can undeploy.
-						setMyState( ALIGNING_TURRETS );
-						break;
-					}
-				}
-				//Start undeploying.
-				setMyState( UNDEPLOY );
-				break;
-			}
-			case DEPLOY:
-				if( m_frameToWaitForDeploy != 0 )
-				{
-					//Reverse the deploy at it's current frame!
-					setMyState( UNDEPLOY, TRUE );
-				}
-				break;
-			case UNDEPLOY:
-				break;
-			case ALIGNING_TURRETS:
-			{
-				WhichTurretType tur = getWhichTurretForCurWeapon();
-				if( tur != TURRET_INVALID )
-				{
-					if( isTurretInNaturalPosition( tur ) )
-					{
-						//Turrets are centers, so now we can undeploy.
-						setMyState( UNDEPLOY );
-					}
-				}
-				break;
-			}
-		}
-	}
-
-	switch( m_state )
+	switch( R().state )
 	{
 		case READY_TO_MOVE:
 			if( isTryingToMove )
@@ -234,7 +237,7 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 			if( data->m_manualDeployAnimations )
 			{
 				UnsignedInt totalFrames = getPackTime();
-				UnsignedInt framesLeft = m_frameToWaitForDeploy - now;
+				UnsignedInt framesLeft = R().frameToWaitForDeploy - now;
 				Drawable *draw = self->getDrawable();
 				if( draw )
 				{
@@ -247,7 +250,7 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 		case UNDEPLOY:
 			if( data->m_manualDeployAnimations )
 			{
-				UnsignedInt framesLeft = m_frameToWaitForDeploy - now;
+				UnsignedInt framesLeft = R().frameToWaitForDeploy - now;
 				Drawable *draw = self->getDrawable();
 				if( draw )
 				{
@@ -274,7 +277,7 @@ UpdateSleepTime DeployStyleAIUpdate::update()
 //-------------------------------------------------------------------------------------------------
 void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDeploy )
 {
-	m_state = stateID;
+	R().state = stateID;
 	Object *self = getObject();
 	UnsignedInt now = TheGameLogic->getFrame();
 	const DeployStyleAIUpdateModuleData *data = getDeployStyleAIUpdateModuleData();
@@ -291,8 +294,8 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 			{
 				//This is a zero to max animation.
 				UnsignedInt totalFrames = getUnpackTime();
-				UnsignedInt framesLeft = m_frameToWaitForDeploy - now;
-				m_frameToWaitForDeploy = now + totalFrames - framesLeft;
+				UnsignedInt framesLeft = R().frameToWaitForDeploy - now;
+				R().frameToWaitForDeploy = now + totalFrames - framesLeft;
 				if( data->m_manualDeployAnimations )
 				{
 					Drawable *draw = self->getDrawable();
@@ -304,7 +307,7 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 			}
 			else
 			{
-				m_frameToWaitForDeploy = getUnpackTime() + now;
+				R().frameToWaitForDeploy = getUnpackTime() + now;
 			}
 
 			//Play deploy sound
@@ -334,8 +337,8 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 			{
 				//This is a max to zero animation.
 				UnsignedInt totalFrames = getUnpackTime();
-				UnsignedInt framesLeft = m_frameToWaitForDeploy - now;
-				m_frameToWaitForDeploy = now + totalFrames - framesLeft;
+				UnsignedInt framesLeft = R().frameToWaitForDeploy - now;
+				R().frameToWaitForDeploy = now + totalFrames - framesLeft;
 				if( data->m_manualDeployAnimations )
 				{
 					Drawable *draw = self->getDrawable();
@@ -347,7 +350,7 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 			}
 			else
 			{
-				m_frameToWaitForDeploy = getPackTime() + now;
+				R().frameToWaitForDeploy = getPackTime() + now;
 			}
 
 			if( doTurretsFunctionOnlyWhenDeployed() )
@@ -373,7 +376,7 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 		}
 		case READY_TO_MOVE:
 		{
-			m_frameToWaitForDeploy = 0;
+			R().frameToWaitForDeploy = 0;
 
 			self->clearModelConditionFlags( MAKE_MODELCONDITION_MASK( MODELCONDITION_PACKING ) );
 			break;
@@ -384,7 +387,7 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 			//twitching on deploy.
 			self->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_DEPLOYED ) );
 
-			m_frameToWaitForDeploy = 0;
+			R().frameToWaitForDeploy = 0;
 
 			self->clearAndSetModelConditionFlags( MAKE_MODELCONDITION_MASK( MODELCONDITION_UNPACKING ),
 																						 MAKE_MODELCONDITION_MASK( MODELCONDITION_DEPLOYED) );
@@ -402,7 +405,7 @@ void DeployStyleAIUpdate::setMyState( DeployStateTypes stateID, Bool reverseDepl
 		}
 		case ALIGNING_TURRETS:
 		{
-			m_frameToWaitForDeploy = 0;
+			R().frameToWaitForDeploy = 0;
 			WhichTurretType tur = getWhichTurretForCurWeapon();
 			if( tur != TURRET_INVALID )
 			{
@@ -443,8 +446,8 @@ void DeployStyleAIUpdate::xfer( Xfer *xfer )
 
 	if( version >= 4 )
 	{
-		xfer->xferUser(&m_state, sizeof(m_state));
-		xfer->xferUnsignedInt(&m_frameToWaitForDeploy);
+		xfer->xferUser(&R().state, sizeof(R().state));
+		xfer->xferUnsignedInt(&R().frameToWaitForDeploy);
 	}
 	else if( xfer->getXferMode() == XFER_LOAD )
 	{
@@ -457,7 +460,7 @@ void DeployStyleAIUpdate::xfer( Xfer *xfer )
 
 		xfer->xferBool( &obsoleteBool );
 		xfer->xferUnsignedInt( &obsoleteUnsignedInt );
-		xfer->xferUser(&m_state, sizeof(m_state));
+		xfer->xferUser(&R().state, sizeof(R().state));
 
 		if( version >= 2 )
 		{
@@ -482,7 +485,7 @@ void DeployStyleAIUpdate::xfer( Xfer *xfer )
 		}
 
 		//Initialize unit to able to move.
-		m_state = READY_TO_MOVE;
+		R().state = READY_TO_MOVE;
 	}
 
 }

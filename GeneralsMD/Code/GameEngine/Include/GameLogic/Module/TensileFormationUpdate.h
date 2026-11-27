@@ -30,6 +30,7 @@
 #pragma once
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/UpdateModule.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
@@ -62,7 +63,7 @@ public:
 	TensileFormationUpdate( Thing *thing, const ModuleData* moduleData );
 	// virtual destructor prototype provided by memory pool declaration
 
-	void setEnabled( Bool enabled ) { m_enabled = enabled; }  ///< enable/disable formation
+	void setEnabled( Bool enabled ) { R().enabled = enabled; }  ///< enable/disable formation
 	virtual UpdateSleepTime update();	///< Deciding whether or not to make new guys
 
 protected:
@@ -76,14 +77,24 @@ protected:
 		Coord3D tensor;
 	};
 
-	TensileLink m_links[4];//standard textile algorithm
-	Coord3D m_inertia;
-	Bool m_enabled;			///< enabled
-	Bool m_linksInited;
-	UnsignedInt m_motionlessCounter;
-	UnsignedInt m_life;
-	Real m_lowestSlideElevation;
 
-	AudioEventRTS				m_crackSound;
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		TensileLink links[4]; //standard textile algorithm
+		Coord3D inertia;
+		Bool enabled; ///< enabled
+		Bool linksInited;
+		UnsignedInt motionlessCounter;
+		UnsignedInt life;
+		Real lowestSlideElevation;
+		AudioEventRTS crackSound;
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline TensileFormationUpdate::GxState &TensileFormationUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

@@ -68,18 +68,19 @@ void RailedTransportAIUpdateModuleData::buildFieldParse( MultiIniFieldParse &p )
 RailedTransportAIUpdate::RailedTransportAIUpdate( Thing *thing, const ModuleData *moduleData )
 											 : AIUpdateInterface( thing, moduleData )
 {
+	m_gxRow = GxComponentPool<GxState>::the().alloc();
 
-	m_inTransit = FALSE;
+	R().inTransit = FALSE;
 	for( Int i = 0; i < MAX_WAYPOINT_PATHS; ++i )
 	{
 
-		m_path[ i ].startWaypointID = 0;
-		m_path[ i ].endWaypointID = 0;
+		R().path[ i ].startWaypointID = 0;
+		R().path[ i ].endWaypointID = 0;
 
 	}
-	m_numPaths = 0;
-	m_currentPath = INVALID_PATH;
-	m_waypointDataLoaded = FALSE;
+	R().numPaths = 0;
+	R().currentPath = INVALID_PATH;
+	R().waypointDataLoaded = FALSE;
 
 }
 
@@ -87,6 +88,7 @@ RailedTransportAIUpdate::RailedTransportAIUpdate( Thing *thing, const ModuleData
 //-------------------------------------------------------------------------------------------------
 RailedTransportAIUpdate::~RailedTransportAIUpdate()
 {
+	GxComponentPool<GxState>::the().release(m_gxRow);
 
 }
 
@@ -114,16 +116,16 @@ void RailedTransportAIUpdate::loadWaypointData()
 		if( start && end )
 		{
 
-			m_path[ i ].startWaypointID = start->getID();
-			m_path[ i ].endWaypointID = end->getID();
-			m_numPaths++;
+			R().path[ i ].startWaypointID = start->getID();
+			R().path[ i ].endWaypointID = end->getID();
+			R().numPaths++;
 
 		}
 
 	}
 
 	// waypoint data is loaded
-	m_waypointDataLoaded = TRUE;
+	R().waypointDataLoaded = TRUE;
 
 }
 
@@ -138,11 +140,11 @@ void RailedTransportAIUpdate::pickAndMoveToInitialLocation()
 	Waypoint *waypoint, *closestEndWaypoint = nullptr;
 	Int closestPath = INVALID_PATH;
 	Real closestDist = 99999999.9f;
-	for( Int i = 0; i < m_numPaths; ++i )
+	for( Int i = 0; i < R().numPaths; ++i )
 	{
 
 		// get this waypoint
-		waypoint = TheTerrainLogic->getWaypointByID( m_path[ i ].endWaypointID );
+		waypoint = TheTerrainLogic->getWaypointByID( R().path[ i ].endWaypointID );
 		if( waypoint )
 		{
 			Coord3D v;
@@ -178,7 +180,7 @@ void RailedTransportAIUpdate::pickAndMoveToInitialLocation()
 	aiFollowWaypointPath( closestEndWaypoint, CMD_FROM_AI );
 
 	// this is now our current path
-	m_currentPath = closestPath;
+	R().currentPath = closestPath;
 
 	// we are now "in transit"
 	setInTransit( TRUE );
@@ -187,12 +189,19 @@ void RailedTransportAIUpdate::pickAndMoveToInitialLocation()
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+// web port (round 5 addendum): the arrival kernel. Pure: reads the distance to the target waypoint
+// and whether the AI is idle; writes nothing.
+static Bool gxRailedArrivedKernel(Real dist, Bool idle)
+{
+	return dist <= 5.0f || idle;
+}
+
 UpdateSleepTime RailedTransportAIUpdate::update()
 {
 	Object *us = getObject();
 
 	// load the waypoint data if not loaded
-	if( m_waypointDataLoaded == FALSE )
+	if( R().waypointDataLoaded == FALSE )
 		loadWaypointData();
 
 	// extend base class
@@ -209,22 +218,22 @@ UpdateSleepTime RailedTransportAIUpdate::update()
 	// path.  this will set us up in an initial position at the end of the closest path
 	// so that stuff can be loaded into us
 	//
-	if( m_currentPath == INVALID_PATH && m_numPaths > 0 )
+	if( R().currentPath == INVALID_PATH && R().numPaths > 0 )
 		pickAndMoveToInitialLocation();
 
 	//
 	// if we're in transit, see if we're close enough to the destination waypoint to be
 	// considered as "there" and open up the dock
 	//
-	if( m_inTransit )
+	if( R().inTransit )
 	{
 
 		// sanity
-		DEBUG_ASSERTCRASH( m_currentPath != INVALID_PATH,
-											 ("RailedTransportAIUpdate: Invalid current path '%s'", m_currentPath) );
+		DEBUG_ASSERTCRASH( R().currentPath != INVALID_PATH,
+											 ("RailedTransportAIUpdate: Invalid current path '%s'", R().currentPath) );
 
 		// get our target waypoint
-		Waypoint *waypoint = TheTerrainLogic->getWaypointByID( m_path[ m_currentPath ].endWaypointID );
+		Waypoint *waypoint = TheTerrainLogic->getWaypointByID( R().path[ R().currentPath ].endWaypointID );
 
 		// sanity
 		DEBUG_ASSERTCRASH( waypoint, ("RailedTransportAIUpdate: Invalid target waypoint") );
@@ -238,8 +247,8 @@ UpdateSleepTime RailedTransportAIUpdate::update()
 			v.x = end->x - start->x;
 			v.y = end->y - start->y;
 			v.z = end->z - start->z;
-			Real dist = v.length();
-			if( dist <= 5.0f || isIdle() )
+			// web port (round 5 addendum): kernel = arrived?, apply = setInTransit (opens the dock)
+			if( gxRailedArrivedKernel( v.length(), isIdle() ) )
 			{
 
 				// we are no longer in transit
@@ -294,7 +303,7 @@ void RailedTransportAIUpdate::setInTransit( Bool inTransit )
 		dui->setDockOpen( !inTransit );
 
 	// no longer in transit
-	m_inTransit = inTransit;
+	R().inTransit = inTransit;
 
 }
 
@@ -319,11 +328,11 @@ void RailedTransportAIUpdate::privateExecuteRailedTransport( CommandSourceType c
 		return;
 
 	// pick the next path
-	if( ++m_currentPath >= m_numPaths )
-		m_currentPath = 0;
+	if( ++R().currentPath >= R().numPaths )
+		R().currentPath = 0;
 
 	// find the start waypoint for our current path
-	Waypoint *startWaypoint = TheTerrainLogic->getWaypointByID( m_path[ m_currentPath ].startWaypointID );
+	Waypoint *startWaypoint = TheTerrainLogic->getWaypointByID( R().path[ R().currentPath ].startWaypointID );
 	DEBUG_ASSERTCRASH( startWaypoint, ("RailedTransportAIUpdate: Start waypoint not found") );
 
 	// follow this waypoint path
@@ -355,7 +364,7 @@ void RailedTransportAIUpdate::privateEvacuate( Int exposeStealthUnits, CommandSo
 		return;
 
 	// can't unload when in transit
-	if( m_inTransit == TRUE )
+	if( R().inTransit == TRUE )
 		return;
 
 	// cannot evacuate when we're loading or unloading anything
@@ -390,19 +399,19 @@ void RailedTransportAIUpdate::xfer( Xfer *xfer )
  // extend base class
 	AIUpdateInterface::xfer(xfer);
 
-	xfer->xferBool(&m_inTransit);
-	xfer->xferInt(&m_numPaths);
-	if (m_numPaths > MAX_WAYPOINT_PATHS) {
-		DEBUG_CRASH(("m_numPaths %d exceeds limit %d.", m_numPaths, MAX_WAYPOINT_PATHS));
+	xfer->xferBool(&R().inTransit);
+	xfer->xferInt(&R().numPaths);
+	if (R().numPaths > MAX_WAYPOINT_PATHS) {
+		DEBUG_CRASH(("R().numPaths %d exceeds limit %d.", R().numPaths, MAX_WAYPOINT_PATHS));
 		throw SC_INVALID_DATA;
 	}
 	Int i;
-	for (i=0; i<m_numPaths; i++) {
-		xfer->xferUnsignedInt(&m_path[i].startWaypointID);
-		xfer->xferUnsignedInt(&m_path[i].endWaypointID);
+	for (i=0; i<R().numPaths; i++) {
+		xfer->xferUnsignedInt(&R().path[i].startWaypointID);
+		xfer->xferUnsignedInt(&R().path[i].endWaypointID);
 	}
-	xfer->xferInt(&m_currentPath);
-	xfer->xferBool(&m_waypointDataLoaded);
+	xfer->xferInt(&R().currentPath);
+	xfer->xferBool(&R().waypointDataLoaded);
 
 }
 
@@ -414,3 +423,4 @@ void RailedTransportAIUpdate::loadPostProcess()
  // extend base class
 	AIUpdateInterface::loadPostProcess();
 }
+

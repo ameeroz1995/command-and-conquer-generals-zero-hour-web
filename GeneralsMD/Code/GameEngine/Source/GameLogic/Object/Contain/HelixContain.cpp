@@ -46,6 +46,11 @@
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Weapon.h"
 
+// Web port (round 5, units are pure data): HelixContain's per-unit state is a row of TheGxHelixContains;
+// GXROW_HELIXCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_HELIXCONTAIN (const_cast<GxHelixContainRow &>(*m_gxHelixContainRow))
+
+
 
 
 
@@ -88,12 +93,12 @@ void HelixContainModuleData::buildFieldParse(MultiIniFieldParse& p)
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-HelixContain::HelixContain( Thing *thing, const ModuleData *moduleData ) :
-								 TransportContain( thing, moduleData )
+HelixContain::HelixContain( Thing *thing, const ModuleData *moduleData ) : TransportContain( thing, moduleData )
 {
 
-  m_payloadCreated = FALSE;
-  m_portableStructureID = INVALID_ID;
+
+  TransportContain::gxRow().payloadCreated = FALSE;
+  GXROW_HELIXCONTAIN.portableStructureID = INVALID_ID;
 
 }
 
@@ -134,7 +139,7 @@ void HelixContain::redeployOccupants()
   firePos.z += 8;
 
 
-	for (ContainedItemsList::iterator it = m_containList.begin(); it != m_containList.end(); ++it)
+	for (ContainedItemsList::iterator it = OpenContain::gxRow().containList.begin(); it != OpenContain::gxRow().containList.end(); ++it)
   {
     Object* rider = *it;
     if (rider)
@@ -184,7 +189,7 @@ void HelixContain::createPayload()
 
   }
 
-	m_payloadCreated = TRUE;
+	TransportContain::gxRow().payloadCreated = TRUE;
 
 }
 
@@ -207,7 +212,7 @@ void HelixContain::onBodyDamageStateChange( const DamageInfo* damageInfo,
 //-------------------------------------------------------------------------------------------------
 Object* HelixContain::getPortableStructure()
 {
-  return TheGameLogic->findObjectByID( m_portableStructureID );
+  return TheGameLogic->findObjectByID( GXROW_HELIXCONTAIN.portableStructureID );
 }
 
 
@@ -244,13 +249,13 @@ void HelixContain::onCapture( Player *oldOwner, Player *newOwner )
 //-------------------------------------------------------------------------------------------------
 void HelixContain::addToContainList( Object *obj )
 {
-  if ( obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) && m_portableStructureID == INVALID_ID)
+  if ( obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) && GXROW_HELIXCONTAIN.portableStructureID == INVALID_ID)
   {
     Object *portable = getPortableStructure();
     if ( portable )
       TheGameLogic->destroyObject( portable );
 
-    m_portableStructureID = obj->getID();
+    GXROW_HELIXCONTAIN.portableStructureID = obj->getID();
     obj->friend_setContainedBy( getObject() );//fool portable into thinking my object is his container
 
 
@@ -262,13 +267,13 @@ void HelixContain::addToContainList( Object *obj )
 //-------------------------------------------------------------------------------------------------
 void HelixContain::addToContain( Object *obj )
 {
-  if ( obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) && m_portableStructureID == INVALID_ID)
+  if ( obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) && GXROW_HELIXCONTAIN.portableStructureID == INVALID_ID)
   {
     Object *portable = getPortableStructure();
     if ( portable )
       TheGameLogic->destroyObject( portable );
 
-    m_portableStructureID = obj->getID();
+    GXROW_HELIXCONTAIN.portableStructureID = obj->getID();
     obj->friend_setContainedBy( getObject() );//fool portable into thinking my object is his container
 
 
@@ -280,12 +285,12 @@ void HelixContain::addToContain( Object *obj )
 //-------------------------------------------------------------------------------------------------
 void HelixContain::removeFromContain( Object *obj, Bool exposeStealthUnits )
 {
-  if ( obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) && obj->getID() == m_portableStructureID )
+  if ( obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) && obj->getID() == GXROW_HELIXCONTAIN.portableStructureID )
 	{
     Object *portable = getPortableStructure();
     if ( portable )
 
-      m_portableStructureID = INVALID_ID;
+      GXROW_HELIXCONTAIN.portableStructureID = INVALID_ID;
       //portable->kill();
 
   }
@@ -299,7 +304,7 @@ void HelixContain::removeFromContain( Object *obj, Bool exposeStealthUnits )
 //-------------------------------------------------------------------------------------------------
 Bool HelixContain::isValidContainerFor(const Object* obj, Bool checkCapacity) const
 {
-  if ( obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) && INVALID_ID == m_portableStructureID )
+  if ( obj->isKindOf( KINDOF_PORTABLE_STRUCTURE ) && INVALID_ID == GXROW_HELIXCONTAIN.portableStructureID )
     return TRUE;
 
 	return TransportContain::isValidContainerFor( obj, checkCapacity );
@@ -311,9 +316,9 @@ const Object *HelixContain::friend_getRider() const
 {
 // The draw order dependency bug for riders means that our draw module needs to cheat to get around it.
 
-  if ( m_portableStructureID != INVALID_ID )
+  if ( GXROW_HELIXCONTAIN.portableStructureID != INVALID_ID )
   {
-    const Object *portableAsRider = TheGameLogic->findObjectByID( m_portableStructureID );
+    const Object *portableAsRider = TheGameLogic->findObjectByID( GXROW_HELIXCONTAIN.portableStructureID );
     return portableAsRider;
   }
 
@@ -323,9 +328,9 @@ const Object *HelixContain::friend_getRider() const
 //-------------------------------------------------------------------------------------------------
 Bool HelixContain::isEnclosingContainerFor( const Object *obj ) const
 {
-  if ( m_portableStructureID == obj->getID() )
+  if ( GXROW_HELIXCONTAIN.portableStructureID == obj->getID() )
   {
-    const Object *portableAsRider = TheGameLogic->findObjectByID( m_portableStructureID );
+    const Object *portableAsRider = TheGameLogic->findObjectByID( GXROW_HELIXCONTAIN.portableStructureID );
     if ( portableAsRider == obj )
       return FALSE;
   }
@@ -341,7 +346,7 @@ Bool HelixContain::isEnclosingContainerFor( const Object *obj ) const
 // this gets called from
 void HelixContain::clientVisibleContainedFlashAsSelected()
 {
-  if ( m_portableStructureID != INVALID_ID)
+  if ( GXROW_HELIXCONTAIN.portableStructureID != INVALID_ID)
   {
     Object *portable = getPortableStructure();
     if ( portable && portable->isKindOf(KINDOF_PORTABLE_STRUCTURE) )
@@ -365,7 +370,7 @@ Bool HelixContain::isPassengerAllowedToFire( ObjectID id ) const
   if ( getObject() && getObject()->getContainedBy() ) // nested containment voids firing, always
     return FALSE;
 
-  if ( m_portableStructureID != INVALID_ID && m_portableStructureID == id )
+  if ( GXROW_HELIXCONTAIN.portableStructureID != INVALID_ID && GXROW_HELIXCONTAIN.portableStructureID == id )
     return TRUE;
   else
   {
@@ -456,7 +461,7 @@ void HelixContain::xfer( Xfer *xfer )
 	xfer->xferVersion( &version, currentVersion );
 
   if (version >= 2)
-    xfer->xferObjectID( &m_portableStructureID );
+    xfer->xferObjectID( &GXROW_HELIXCONTAIN.portableStructureID );
 
 	// extend base class
   	TransportContain::xfer( xfer );

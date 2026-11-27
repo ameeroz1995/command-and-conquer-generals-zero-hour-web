@@ -94,6 +94,8 @@ public:
 //-------------------------------------------------------------------------------------------------
 /** A GarrisonContain is used for objects that can be garrisoned, heh, go figure */
 //-------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxGarrisonContainRow;
 class GarrisonContain : public OpenContain
 {
 
@@ -141,7 +143,7 @@ public:
 
   virtual void onDamage( DamageInfo *info );
 
-  virtual void setEvacDisposition( EvacDisposition disp ) { m_evacDisposition = disp; };
+  virtual void setEvacDisposition( EvacDisposition disp );
 
 protected:
 
@@ -225,19 +227,33 @@ private:
 		MAX_GARRISON_POINT_CONDITIONS
 	};
 
-	Team *							m_originalTeam;																///< our original team before we were garrisoned
-	GarrisonPointData		m_garrisonPointData[ MAX_GARRISON_POINTS ];		///< the garrison point placement data
-	Int									m_garrisonPointsInUse;
-	Coord3D							m_garrisonPoint[ MAX_GARRISON_POINT_CONDITIONS ][ MAX_GARRISON_POINTS ];		///< the garrison point positions (in world coords) for pristine, damaged, and really damaged
-	Coord3D							m_exitRallyPoint;												///< Point to rally at when exiting structure (if possible)
+	GxRow<struct GxGarrisonContainRow> m_gxGarrisonContainRow;	///< web port (round 5): this unit's row in TheGxGarrisonContains
+	friend struct GxGarrisonContainRow;
+	inline struct GxGarrisonContainRow &gxRow() const;
 
-  std::vector<StationPointData> m_stationPointList;
 
-	Bool		m_stationGarrisonPointsInitialized;	///< DO NOT XFER THIS!!!   TRUE once we have loaded the pre-assigned garrison point positions from the art
-	Bool		m_garrisonPointsInitialized;							///< TRUE once we have loaded the garrison point positions from the art
-	Bool		m_hideGarrisonedStateFromNonallies;								///< if T, don't appear to be garrisoned (all stealthy)
-	Bool		m_rallyValid;															///< TRUE when m_exitRallyPoint is valid
 
-  EvacDisposition m_evacDisposition;
 
 };
+
+// Web port (round 5, units are pure data): GarrisonContain's per-unit state, one row per unit in TheGxGarrisonContains;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxGarrisonContainRow
+{
+	Team * originalTeam;
+	GarrisonContain::GarrisonPointData garrisonPointData[ GarrisonContain::MAX_GARRISON_POINTS ];
+	Int garrisonPointsInUse;
+	Coord3D garrisonPoint[ GarrisonContain::MAX_GARRISON_POINT_CONDITIONS ][ GarrisonContain::MAX_GARRISON_POINTS ];
+	Coord3D exitRallyPoint;
+	std::vector<GarrisonContain::StationPointData> stationPointList;
+	Bool stationGarrisonPointsInitialized;
+	Bool garrisonPointsInitialized;
+	Bool hideGarrisonedStateFromNonallies;
+	Bool rallyValid;
+	EvacDisposition evacDisposition;
+};
+
+
+inline GxGarrisonContainRow &GarrisonContain::gxRow() const { return const_cast<GxGarrisonContainRow &>(*m_gxGarrisonContainRow); }
+inline void GarrisonContain::setEvacDisposition( EvacDisposition disp ) { gxRow().evacDisposition = disp; }
+

@@ -90,6 +90,8 @@ private:
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxParkingPlaceBehaviorRow;
 class ParkingPlaceBehavior : public UpdateModule,
 														 public DieModuleInterface,
 														 public ParkingPlaceBehaviorInterface,
@@ -140,7 +142,7 @@ public:
 	virtual void releaseRunway(ObjectID id);
 	virtual void calcPPInfo( ObjectID id, PPInfo *info );
 	virtual Int getRunwayIndex(ObjectID id);
-	virtual Int getRunwayCount() const { return m_runways.size(); }
+	virtual Int getRunwayCount() const;
 	virtual ObjectID getRunwayReservation( Int r, RunwayReservationType type );
 	virtual void transferRunwayReservationToNextInLineForTakeoff(ObjectID id);
 	virtual Real getApproachHeight() const { return getParkingPlaceBehaviorModuleData()->m_approachHeight; }
@@ -197,11 +199,9 @@ private:
 		UnsignedInt	m_healStartFrame;
 	};
 
-	std::vector<ParkingPlaceInfo>	m_spaces;
-	std::vector<RunwayInfo>				m_runways;
-	std::list<HealingInfo>				m_healing;	// note, this list can vary in size, and be larger than the parking space count
-	UnsignedInt										m_nextHealFrame;
-	Bool													m_gotInfo;
+	GxRow<struct GxParkingPlaceBehaviorRow> m_gxParkingPlaceBehaviorRow;	///< web port (round 5): this unit's row in TheGxParkingPlaceBehaviors
+	friend struct GxParkingPlaceBehaviorRow;
+	inline struct GxParkingPlaceBehaviorRow &gxRow() const;
 
 	Bool postponeRunwayReservation(UnsignedInt spaceIndex, Bool forLanding);
 	void buildInfo();
@@ -211,6 +211,22 @@ private:
 	ParkingPlaceInfo* findPPI(ObjectID id);
 	ParkingPlaceInfo* findEmptyPPI();
 
-	Coord3D m_heliRallyPoint;
-	Bool m_heliRallyPointExists;				///< Only move to the rally point if this is true
 };
+
+// Web port (round 5, units are pure data): ParkingPlaceBehavior's per-unit state, one row per unit in TheGxParkingPlaceBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxParkingPlaceBehaviorRow
+{
+	std::vector<ParkingPlaceBehavior::ParkingPlaceInfo> spaces;
+	std::vector<ParkingPlaceBehavior::RunwayInfo> runways;
+	std::list<ParkingPlaceBehavior::HealingInfo> healing;
+	UnsignedInt nextHealFrame;
+	Bool gotInfo;
+	Coord3D heliRallyPoint;
+	Bool heliRallyPointExists;
+};
+
+
+inline GxParkingPlaceBehaviorRow &ParkingPlaceBehavior::gxRow() const { return const_cast<GxParkingPlaceBehaviorRow &>(*m_gxParkingPlaceBehaviorRow); }
+inline Int ParkingPlaceBehavior::getRunwayCount() const { return gxRow().runways.size(); }
+

@@ -67,6 +67,8 @@ public:
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+#include "Common/GxComponentPool.h"
+struct GxBunkerBusterBehaviorRow;
 class BunkerBusterBehavior : public UpdateModule,
  														 public DieModuleInterface
 {
@@ -95,7 +97,20 @@ public:
 protected:
   void bustTheBunker();
 
-	const UpgradeTemplate *m_upgradeRequired;			///< Upgrade required to use the upgraded pulse FX
+	GxRow<struct GxBunkerBusterBehaviorRow> m_gxBunkerBusterBehaviorRow;	///< web port (round 5): this unit's row in TheGxBunkerBusterBehaviors
+	friend struct GxBunkerBusterBehaviorRow;
+	inline struct GxBunkerBusterBehaviorRow &gxRow() const;
 
-  ObjectID m_victimID;
 };
+
+// Web port (round 5, units are pure data): BunkerBusterBehavior's per-unit state, one row per unit in TheGxBunkerBusterBehaviors;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxBunkerBusterBehaviorRow
+{
+	const UpgradeTemplate* upgradeRequired;
+	ObjectID victimID;
+};
+
+
+inline GxBunkerBusterBehaviorRow &BunkerBusterBehavior::gxRow() const { return const_cast<GxBunkerBusterBehaviorRow &>(*m_gxBunkerBusterBehaviorRow); }
+

@@ -37,6 +37,11 @@
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
 
+// Web port (round 5, units are pure data): PoisonedBehavior's per-unit state is a row of TheGxPoisonedBehaviors;
+// GXROW_POISONEDBEHAVIOR is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_POISONEDBEHAVIOR (const_cast<GxPoisonedBehaviorRow &>(*m_gxPoisonedBehaviorRow))
+
+
 
 // tinting is all handled in drawable, now, Graham look near the bottom of Drawable::UpdateDrawable()
 //static const RGBColor poisonedTint = {0.0f, 1.0f, 0.0f};
@@ -67,11 +72,12 @@ PoisonedBehaviorModuleData::PoisonedBehaviorModuleData()
 //-------------------------------------------------------------------------------------------------
 PoisonedBehavior::PoisonedBehavior( Thing *thing, const ModuleData* moduleData ) : UpdateModule( thing, moduleData )
 {
-	m_poisonDamageFrame = 0;
-	m_poisonOverallStopFrame = 0;
-	m_poisonDamageAmount = 0.0f;
-	m_poisonSource = INVALID_ID;
-	m_deathType = DEATH_POISONED;
+
+	GXROW_POISONEDBEHAVIOR.poisonDamageFrame = 0;
+	GXROW_POISONEDBEHAVIOR.poisonOverallStopFrame = 0;
+	GXROW_POISONEDBEHAVIOR.poisonDamageAmount = 0.0f;
+	GXROW_POISONEDBEHAVIOR.poisonSource = INVALID_ID;
+	GXROW_POISONEDBEHAVIOR.deathType = DEATH_POISONED;
 	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
 }
 
@@ -106,31 +112,31 @@ UpdateSleepTime PoisonedBehavior::update()
 	const PoisonedBehaviorModuleData* d = getPoisonedBehaviorModuleData();
 	UnsignedInt now = TheGameLogic->getFrame();
 
-	if( m_poisonOverallStopFrame == 0 )
+	if( GXROW_POISONEDBEHAVIOR.poisonOverallStopFrame == 0 )
 	{
 		DEBUG_CRASH(("hmm, this should not happen"));
 		return UPDATE_SLEEP_FOREVER;
 		//we aren't poisoned, so nevermind
 	}
 
-	if (m_poisonDamageFrame != 0 && now >= m_poisonDamageFrame)
+	if (GXROW_POISONEDBEHAVIOR.poisonDamageFrame != 0 && now >= GXROW_POISONEDBEHAVIOR.poisonDamageFrame)
 	{
 		// If it is time to do damage, then do it and reset the damage timer
 		DamageInfo damage;
-		damage.in.m_amount = m_poisonDamageAmount;
-		damage.in.m_sourceID = m_poisonSource;
+		damage.in.m_amount = GXROW_POISONEDBEHAVIOR.poisonDamageAmount;
+		damage.in.m_sourceID = GXROW_POISONEDBEHAVIOR.poisonSource;
 		damage.in.m_damageType = DAMAGE_UNRESISTABLE; // Not poison, as that will infect us again
 		damage.in.m_damageFXOverride = DAMAGE_POISON; // but this will ensure that the right effect is played
-		damage.in.m_deathType = m_deathType;
+		damage.in.m_deathType = GXROW_POISONEDBEHAVIOR.deathType;
 		getObject()->attemptDamage( &damage );
 
-		m_poisonDamageFrame = now + d->m_poisonDamageIntervalData;
+		GXROW_POISONEDBEHAVIOR.poisonDamageFrame = now + d->m_poisonDamageIntervalData;
 	}
 
 	// If we are now at zero we need to turn off our special effects...
 	// unless the poison killed us, then we continue to be a pulsating toxic pus ball
-	if( m_poisonOverallStopFrame != 0 &&
-			now >= m_poisonOverallStopFrame &&
+	if( GXROW_POISONEDBEHAVIOR.poisonOverallStopFrame != 0 &&
+			now >= GXROW_POISONEDBEHAVIOR.poisonOverallStopFrame &&
 			!getObject()->isEffectivelyDead())
 	{
 		stopPoisonedEffects();
@@ -145,9 +151,9 @@ UpdateSleepTime PoisonedBehavior::calcSleepTime()
 {
 	// UPDATE_SLEEP requires a count-of-frames, not an absolute-frame, so subtract 'now'
 	UnsignedInt now = TheGameLogic->getFrame();
-	if (m_poisonOverallStopFrame == 0 || m_poisonOverallStopFrame == now)
+	if (GXROW_POISONEDBEHAVIOR.poisonOverallStopFrame == 0 || GXROW_POISONEDBEHAVIOR.poisonOverallStopFrame == now)
 		return UPDATE_SLEEP_FOREVER;
-	return frameToSleepTime(m_poisonDamageFrame, m_poisonOverallStopFrame);
+	return frameToSleepTime(GXROW_POISONEDBEHAVIOR.poisonDamageFrame, GXROW_POISONEDBEHAVIOR.poisonOverallStopFrame);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -158,21 +164,21 @@ void PoisonedBehavior::startPoisonedEffects( const DamageInfo *damageInfo )
 	UnsignedInt now = TheGameLogic->getFrame();
 
 	// We are going to take the damage dealt by the original poisoner every so often for a while.
-	m_poisonDamageAmount = damageInfo->out.m_actualDamageDealt;
+	GXROW_POISONEDBEHAVIOR.poisonDamageAmount = damageInfo->out.m_actualDamageDealt;
 #if !RETAIL_COMPATIBLE_CRC && !PRESERVE_RETAIL_BEHAVIOR
 	// TheSuperHackers @bugfix Stubbjax 03/09/2025 Allow poison damage to award xp to the poison source.
-	m_poisonSource = damageInfo->in.m_sourceID;
+	GXROW_POISONEDBEHAVIOR.poisonSource = damageInfo->in.m_sourceID;
 #endif
 
-	m_poisonOverallStopFrame = now + d->m_poisonDurationData;
+	GXROW_POISONEDBEHAVIOR.poisonOverallStopFrame = now + d->m_poisonDurationData;
 
 	// If we are getting re-poisoned, don't reset the damage counter if running, but do set it if unset
-	if( m_poisonDamageFrame != 0 )
-		m_poisonDamageFrame = min( m_poisonDamageFrame, now + d->m_poisonDamageIntervalData );
+	if( GXROW_POISONEDBEHAVIOR.poisonDamageFrame != 0 )
+		GXROW_POISONEDBEHAVIOR.poisonDamageFrame = min( GXROW_POISONEDBEHAVIOR.poisonDamageFrame, now + d->m_poisonDamageIntervalData );
 	else
-		m_poisonDamageFrame = now + d->m_poisonDamageIntervalData;
+		GXROW_POISONEDBEHAVIOR.poisonDamageFrame = now + d->m_poisonDamageIntervalData;
 
-	m_deathType = damageInfo->in.m_deathType;
+	GXROW_POISONEDBEHAVIOR.deathType = damageInfo->in.m_deathType;
 
 	Drawable *myDrawable = getObject()->getDrawable();
 	if( myDrawable )
@@ -185,10 +191,10 @@ void PoisonedBehavior::startPoisonedEffects( const DamageInfo *damageInfo )
 // ------------------------------------------------------------------------------------------------
 void PoisonedBehavior::stopPoisonedEffects()
 {
-	m_poisonDamageFrame = 0;
-	m_poisonOverallStopFrame = 0;
-	m_poisonDamageAmount = 0.0f;
-	m_poisonSource = INVALID_ID;
+	GXROW_POISONEDBEHAVIOR.poisonDamageFrame = 0;
+	GXROW_POISONEDBEHAVIOR.poisonOverallStopFrame = 0;
+	GXROW_POISONEDBEHAVIOR.poisonDamageAmount = 0.0f;
+	GXROW_POISONEDBEHAVIOR.poisonSource = INVALID_ID;
 
 	Drawable *myDrawable = getObject()->getDrawable();
 	if( myDrawable )
@@ -230,22 +236,22 @@ void PoisonedBehavior::xfer( Xfer *xfer )
 	UpdateModule::xfer( xfer );
 
 	// poisoned damage frame
-	xfer->xferUnsignedInt( &m_poisonDamageFrame );
+	xfer->xferUnsignedInt( &GXROW_POISONEDBEHAVIOR.poisonDamageFrame );
 
 	// poison overall stop frame
-	xfer->xferUnsignedInt( &m_poisonOverallStopFrame );
+	xfer->xferUnsignedInt( &GXROW_POISONEDBEHAVIOR.poisonOverallStopFrame );
 
 	// poison damage amount
-	xfer->xferReal( &m_poisonDamageAmount );
+	xfer->xferReal( &GXROW_POISONEDBEHAVIOR.poisonDamageAmount );
 
 	if (version >= 2)
 	{
-		xfer->xferUser(&m_deathType, sizeof(m_deathType));
+		xfer->xferUser(&GXROW_POISONEDBEHAVIOR.deathType, sizeof(GXROW_POISONEDBEHAVIOR.deathType));
 	}
 
 	if (version >= 3)
 	{
-		xfer->xferObjectID(&m_poisonSource);
+		xfer->xferObjectID(&GXROW_POISONEDBEHAVIOR.poisonSource);
 	}
 }
 

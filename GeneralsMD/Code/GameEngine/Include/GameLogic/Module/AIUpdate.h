@@ -29,6 +29,7 @@
 #pragma once
 
 #include "GameLogic/Module/UpdateModule.h"
+#include "Common/GxComponentPool.h"	// web port (round 5)
 #include "GameLogic/AI.h"
 #include "GameLogic/AIStateMachine.h"
 #include "GameLogic/GameLogic.h"
@@ -230,6 +231,9 @@ enum AIFreeToExitType CPP_11(: Int) // Note - written out in save/load xfer, don
  * The AIUpdateInterface module contains the interface to the AI system,
  * and performs the actual AI behaviors.
  */
+struct GxCpopRow;
+struct ClosestPointOnPathInfo;
+struct GxAIUpdateInterfaceRow;
 class AIUpdateInterface : public UpdateModule, public AICommandInterface
 {
 
@@ -323,8 +327,8 @@ public:
 
 #ifdef ALLOW_SURRENDER
 	void setSurrendered( const Object *objWeSurrenderedTo, Bool surrendered );
-	inline Bool isSurrendered() const { return m_surrenderedFramesLeft > 0; }
-	inline Int getSurrenderedPlayerIndex() const { return m_surrenderedPlayerIndex; }
+	inline Bool isSurrendered() const { return gxRow().surrenderedFramesLeft > 0; }
+	inline Int getSurrenderedPlayerIndex() const { return gxRow().surrenderedPlayerIndex; }
 #endif
 
 	virtual void joinTeam();			///< This unit just got added to a team & needs to catch up.
@@ -355,12 +359,12 @@ public:
 
 	virtual void aiDoCommand(const AICommandParms* parms);
 
-	virtual const Coord3D *getGuardLocation() const { return &m_locationToGuard;	}
-	virtual ObjectID getGuardObject() const { return m_objectToGuard; }
-	virtual const PolygonTrigger *getAreaToGuard() const { return m_areaToGuard; }
-	virtual GuardTargetType getGuardTargetType() const { return m_guardTargetType[1]; }
-	virtual void clearGuardTargetType() { m_guardTargetType[1] = m_guardTargetType[0]; m_guardTargetType[0] = GUARDTARGET_NONE; }
-	virtual GuardMode getGuardMode() const { return m_guardMode; }
+	virtual const Coord3D * getGuardLocation() const;
+	virtual ObjectID getGuardObject() const;
+	virtual const PolygonTrigger * getAreaToGuard() const;
+	virtual GuardTargetType getGuardTargetType() const;
+	virtual void clearGuardTargetType();
+	virtual GuardMode getGuardMode() const;
 
 	virtual Object* construct( const ThingTemplate *what,
 														 const Coord3D *pos, Real angle,
@@ -373,7 +377,7 @@ public:
 
 	AIStateType getAIStateType() const;							///< What general state is the AIState Machine in?
 
-	AsciiString getCurrentStateName() const { return m_stateMachine->getCurrentStateName(); }
+	AsciiString getCurrentStateName() const;
 
 	virtual Object* getEnterTarget();					///< if we are trying to enter something (see enter() above), what is the thing in question? (or null)
 
@@ -392,8 +396,8 @@ public:
 	virtual Bool isTemporarilyPreventingAimSuccess() const { return false; }
 
 
-	void setPriorWaypointID( UnsignedInt id )   { m_priorWaypointID = id; };
-	void setCurrentWaypointID( UnsignedInt id ) { m_currentWaypointID = id; };
+	void setPriorWaypointID( UnsignedInt id );
+	void setCurrentWaypointID( UnsignedInt id );
 
 	// Group ----------------------------------------------------------------------------------------------
 	// these three methods allow a group leader's path to be communicated to the other group members
@@ -402,14 +406,14 @@ public:
 
 	// it's VERY RARE you want to call this function; you should normally use Object::isEffectivelyDead()
 	// instead. the exception would be for things that need to know whether to call markIsDead or not.
-	Bool isAiInDeadState() const { return m_isAiDead; }				///< return true if we are dead
+	Bool isAiInDeadState() const;				///< return true if we are dead
 	void markAsDead();
 
-	Bool isRecruitable() const {return m_isRecruitable;}
-	void setIsRecruitable(Bool isRecruitable) {m_isRecruitable = isRecruitable;}
+	Bool isRecruitable() const;
+	void setIsRecruitable(Bool isRecruitable);
 
-	Real getDesiredSpeed() const { return m_desiredSpeed; }
-	void setDesiredSpeed( Real speed ) { m_desiredSpeed = speed; }	///< how fast we want to go
+	Real getDesiredSpeed() const;
+	void setDesiredSpeed( Real speed );	///< how fast we want to go
 
 	// these are virtual because subclasses might need to override them. (srj)
 	virtual void setLocomotorGoalPositionOnPath();
@@ -422,9 +426,9 @@ public:
 	Bool isAircraftThatAdjustsDestination() const;  ///< True if is aircraft that doesn't stack destinations (missles for example do stack destinations.)
 	Real getCurLocomotorSpeed() const;
 	Real getLocomotorDistanceToGoal();
-	const Locomotor *getCurLocomotor() const {return m_curLocomotor;}
-	Locomotor *getCurLocomotor() { return m_curLocomotor; }
-	LocomotorSetType getCurLocomotorSetType() const { return m_curLocomotorSet; }
+	const Locomotor * getCurLocomotor() const;
+	Locomotor * getCurLocomotor();
+	LocomotorSetType getCurLocomotorSetType() const;
 	Bool hasLocomotorForSurface(LocomotorSurfaceType surfaceType);
 
 	// turret stuff.
@@ -465,25 +469,27 @@ public:
 	void requestApproachPath( Coord3D *destination );	///< computes path to attack the current target, returns false if no path
 	void requestSafePath( ObjectID repulsor1 );	///< computes path to attack the current target, returns false if no path
 
-	Bool isWaitingForPath() const {return m_waitingForPath;}
+	Bool isWaitingForPath() const;
 	void gxMovementPassStep();
 	void gxSetMoving(Bool on);	///< web port: in / out of the store's MOVE list (state change only)
-	Bool gxWantsClosestSpot() const { return m_isApproachPath; }
-	const Coord3D *gxRequestedDest() const { return &m_requestedDestination; }	///< web port: the destination of the waiting request
-	Bool gxPlainRequest() const { return m_waitingForPath && !m_isApproachPath && !m_isAttackPath && !m_isSafePath; }	///< web port: a plain move request is waiting	///< web port (match rule routeQueue): the queued search is a closest-spot one
-	void gxStartCoarseDeferred() { if (m_waitingForPath) gxStartCoarse(&m_requestedDestination); }	///< web port (match rule routeQueue): coarse start spread over frames
-	void gxSetRouteHint( const std::vector<Coord3D> &pts, UnsignedInt frame ) { m_gxHintPts = pts; m_gxHintFrame = frame; }	///< web port (match rule groupRoute)	///< web port (match rule moveAfterTick): this unit's locomotion, from the movement pass
-	Bool gxOnCoarsePath() const { return m_gxCoarse && m_path != nullptr; }	///< web port (match rule coarseStart): following the zone-level route while the full one is queued
-	Bool isAttackPath() const {return m_isAttackPath;} ///< True if we have a path to an attack location.
+	void gxMoveKernelStep(GxCpopRow &row, UnsignedInt frame);	///< web port: movement kernel, this unit's route point
+	Bool gxTakeKernelPoint(const Coord3D &pos, ClosestPointOnPathInfo &info) const;	///< web port: the kernel point, if still valid
+	Bool gxWantsClosestSpot() const;
+	const Coord3D * gxRequestedDest() const;	///< web port: the destination of the waiting request
+	Bool gxPlainRequest() const;	///< web port: a plain move request is waiting	///< web port (match rule routeQueue): the queued search is a closest-spot one
+	void gxStartCoarseDeferred();	///< web port (match rule routeQueue): coarse start spread over frames
+	void gxSetRouteHint( const std::vector<Coord3D> &pts, UnsignedInt frame );	///< web port (match rule groupRoute)	///< web port (match rule moveAfterTick): this unit's locomotion, from the movement pass
+	Bool gxOnCoarsePath() const;	///< web port (match rule coarseStart): following the zone-level route while the full one is queued
+	Bool isAttackPath() const; ///< True if we have a path to an attack location.
 	void cancelPath(); ///< Called if we no longer need the path.
-	Path* getPath() { return m_path; }				///< return the agent's current path
-	const Path* getPath() const { return m_path; }				///< return the agent's current path
+	Path* getPath();				///< return the agent's current path
+	const Path* getPath() const;				///< return the agent's current path
 	void destroyPath();												///< destroy the current path, setting it to null
-	UnsignedInt getPathAge() const { return TheGameLogic->getFrame() - m_pathTimestamp; }	///< return the "age" of the path
+	UnsignedInt getPathAge() const;	///< return the "age" of the path
 	Bool isPathAvailable( const Coord3D *destination ) const; ///< does a path exist between us and the destination
 	Bool isQuickPathAvailable( const Coord3D *destination ) const;  ///< does a path (using quick pathfind) exist between us and the destination
-	Int getNumFramesBlocked() const {return m_blockedFrames;}
-	Bool isBlockedAndStuck() const {return m_isBlockedAndStuck;}
+	Int getNumFramesBlocked() const;
+	Bool isBlockedAndStuck() const;
 	Bool canComputeQuickPath(); ///< Returns true if we can quickly comput a path.  Usually missiles & the like that just move straight to the destination.
 	Bool computeQuickPath(const Coord3D *destination); ///< Computes a quick path to the destination.
 
@@ -498,7 +504,7 @@ public:
 	void friend_endingMove();
 
 	void friend_setPath(Path *newPath);
-	Path* friend_getPath() { return m_path; }
+	Path* friend_getPath();
 
 	void friend_setGoalObject(Object *obj);
 
@@ -506,31 +512,31 @@ public:
 	ObjectID getIgnoredObstacleID() const;
 
 	// "Waypoint Mode" -----------------------------------------------------------------------------------
-	const Waypoint *getCompletedWaypoint() const {return m_completedWaypoint;}
-	void setCompletedWaypoint(const Waypoint *pWay) {m_completedWaypoint = pWay;}
+	const Waypoint * getCompletedWaypoint() const;
+	void setCompletedWaypoint(const Waypoint *pWay);
 
-	const LocomotorSet& getLocomotorSet() const {return m_locomotorSet;}
-	void setPathExtraDistance(Real dist) {m_pathExtraDistance = dist;}
-	Real getPathExtraDistance() const { return m_pathExtraDistance; }
+	const LocomotorSet& getLocomotorSet() const;
+	void setPathExtraDistance(Real dist);
+	Real getPathExtraDistance() const;
 
 	virtual Bool chooseLocomotorSet(LocomotorSetType wst);
 
 	virtual CommandSourceType getLastCommandSource() const { return m_lastCommandSource; }
 
-	const AttackPriorityInfo *getAttackInfo() {return m_attackInfo;}
-	void setAttackInfo(const AttackPriorityInfo *info) {m_attackInfo = info;}
+	const AttackPriorityInfo * getAttackInfo();
+	void setAttackInfo(const AttackPriorityInfo *info);
 
-	void setCurPathfindCell(const ICoord2D &cell) {m_pathfindCurCell = cell;}
-	void setPathfindGoalCell(const ICoord2D &cell) {m_pathfindGoalCell = cell;}
+	void setCurPathfindCell(const ICoord2D &cell);
+	void setPathfindGoalCell(const ICoord2D &cell);
 
 	void setPathFromWaypoint(const Waypoint *way, const Coord2D *offset);
 
-	const ICoord2D *getCurPathfindCell() const {return &m_pathfindCurCell;}
-	const ICoord2D *getPathfindGoalCell() const {return &m_pathfindGoalCell;}
+	const ICoord2D * getCurPathfindCell() const;
+	const ICoord2D * getPathfindGoalCell() const;
 
 	/// Return true if our path has higher priority.
 	Bool hasHigherPathPriority(AIUpdateInterface *otherAI) const;
-	void setFinalPosition(const Coord3D *pos) { m_finalPosition = *pos; m_doFinalPosition = false;}
+	void setFinalPosition(const Coord3D *pos);
 
 	virtual UpdateSleepTime update();	///< update this object's AI
 
@@ -561,7 +567,7 @@ public:
 	///< States that are doing idle checks should call with calledDuringIdle set true so that they check their
 
 	Object *getNextMoodTarget( Bool calledByAI, Bool calledDuringIdle );
-	UnsignedInt getNextMoodCheckTime() const { return m_nextMoodCheckTime; }
+	UnsignedInt getNextMoodCheckTime() const;
 
 	// This function will return a combination of MoodMatrixParameter flags.
 	UnsignedInt getMoodMatrixValue() const;
@@ -577,19 +583,19 @@ public:
 
 #ifdef ALLOW_DEMORALIZE
 	// demoralization ... what a nifty word to write.
-	Bool isDemoralized() const { return m_demoralizedFramesLeft > 0; }
+	Bool isDemoralized() const;
 	void setDemoralized( UnsignedInt durationInFrames );
 #endif
 
-	Bool canPathThroughUnits() const { return m_canPathThroughUnits; }
-	void setCanPathThroughUnits( Bool canPath ) { m_canPathThroughUnits = canPath; if (canPath) m_isBlockedAndStuck=false;}
+	Bool canPathThroughUnits() const;
+	void setCanPathThroughUnits( Bool canPath );
 
 	// Notify the ai that it has caused a crate to be created (usually by killing something.)
-	void notifyCrate(ObjectID id) { m_crateCreated = id; }
-	ObjectID getCrateID() const { return m_crateCreated; }
+	void notifyCrate(ObjectID id);
+	ObjectID getCrateID() const;
 	Object* checkForCrateToPickup();
 
-	void setIgnoreCollisionTime(Int frames) { m_ignoreCollisionsUntil = TheGameLogic->getFrame() + frames; }
+	void setIgnoreCollisionTime(Int frames);
 
 	void setQueueForPathTime(Int frames);
 
@@ -636,8 +642,8 @@ protected:
 	virtual Bool getTreatAsAircraftForLocoDistToGoal() const;
 
 	// yes, protected, NOT public... try to avoid exposing the state machine directly, please
-	AIStateMachine* getStateMachine() { return m_stateMachine; }
-	const AIStateMachine* getStateMachine() const { return m_stateMachine; }
+	AIStateMachine* getStateMachine();
+	const AIStateMachine* getStateMachine() const;
 
 	void wakeUpNow();
 
@@ -654,34 +660,34 @@ public:
 	Int friend_getWaypointGoalPathSize() const;
 
 	// this is intended for use ONLY by W3dWaypointBuffer.
-	Int friend_getCurrentGoalPathIndex() const { return m_nextGoalPathIndex; }
+	Int friend_getCurrentGoalPathIndex() const;
 
 	// this is intended for use ONLY by AIFollowPathState.
-	void friend_setCurrentGoalPathIndex( Int index ) { m_nextGoalPathIndex = index; }
+	void friend_setCurrentGoalPathIndex( Int index );
 #ifdef DEBUG_LOGGING
-	inline const Coord3D *friend_getRequestedDestination() const { return &m_requestedDestination; }
-	inline const Coord3D *friend_getRequestedDestination2() const { return &m_requestedDestination2; }
+	inline const Coord3D *friend_getRequestedDestination() const { return &gxRow().requestedDestination; }
+	inline const Coord3D *friend_getRequestedDestination2() const { return &gxRow().requestedDestination2; }
 #endif
 
 	Object* getGoalObject() { return getStateMachine()->getGoalObject(); }	///< return the id of the current state of the machine
 	const Coord3D* getGoalPosition() const { return getStateMachine()->getGoalPosition(); }	///< return the id of the current state of the machine
 
-	WhichTurretType friend_getTurretSync() const { return m_turretSyncFlag; }
-	void friend_setTurretSync(WhichTurretType t) { m_turretSyncFlag = t; }
+	WhichTurretType friend_getTurretSync() const;
+	void friend_setTurretSync(WhichTurretType t);
 
-	UnsignedInt getPriorWaypointID () { return m_priorWaypointID; };
-	UnsignedInt getCurrentWaypointID () { return m_currentWaypointID; };
+	UnsignedInt getPriorWaypointID();
+	UnsignedInt getCurrentWaypointID();
 
-	void clearMoveOutOfWay() {m_moveOutOfWay1 = INVALID_ID; m_moveOutOfWay2 = INVALID_ID;}
+	void clearMoveOutOfWay();
 
-	void setTmpValue(Int val) {m_tmpInt = val;}
-	Int getTmpValue() {return m_tmpInt;}
+	void setTmpValue(Int val);
+	Int getTmpValue();
 
-	Bool getRetryPath() {return m_retryPath;}
+	Bool getRetryPath();
 	static Bool gxAiRule(Int switchBit);	///< web port: the one gate for game-changing AI rules (AIUpdate.cpp)
 
-	void setAllowedToChase( Bool allow ) { m_allowedToChase = allow; }
-	Bool isAllowedToChase() const { return m_allowedToChase; }
+	void setAllowedToChase( Bool allow );
+	Bool isAllowedToChase() const;
 
 	// only for AIStateMachine.
 	virtual void friend_notifyStateMachineChanged();
@@ -692,49 +698,23 @@ private:
 	Bool chooseLocomotorSetExplicit(LocomotorSetType wst);
 
 private:
-	UnsignedInt					m_priorWaypointID;						///< ID of the path we followed to before the most recent one
-	UnsignedInt					m_currentWaypointID;					///< ID of the most recent one...
+	GxRow<struct GxAIUpdateInterfaceRow> m_gxAIUpdateInterfaceRow;	///< web port (round 5): this unit's row in TheGxAIUpdateInterfaces
+	friend struct GxAIUpdateInterfaceRow;
+	inline struct GxAIUpdateInterfaceRow &gxRow() const;
 
-	AIStateMachine*			m_stateMachine;							///< the state machine
-	UnsignedInt					m_nextEnemyScanTime;				///< how long until the next enemy scan
-	ObjectID						m_currentVictimID;					///< if not INVALID_ID, this agent's current victim.
-	Real								m_desiredSpeed;							///< the desired speed of the tank
 	CommandSourceType		m_lastCommandSource;			/**< Keep track of the source of the last command we got.
 																									This is set immediately before the SetState that goes
 																									to the state machine, so onEnter in there can know where
 																									the command came from.
 																								*/
 
-	GuardMode							m_guardMode;
-	GuardTargetType				m_guardTargetType[2];
-	Coord3D								m_locationToGuard;
-	ObjectID							m_objectToGuard;
-	const PolygonTrigger*	m_areaToGuard;
 
 	// Attack Info --------------------------------------------------------------------------------------------
-	const AttackPriorityInfo*	m_attackInfo;
 
 	// "Planning Mode" -----------------------------------------------------------------------------------------
 	enum { MAX_WAYPOINTS = 16 };
-	Coord3D						m_waypointQueue[ MAX_WAYPOINTS ];		///< the waypoint queue
-	Int								m_waypointCount;										///< number of waypoints in the queue
-	Int								m_waypointIndex;										///< current waypoint we are moving to
-	const Waypoint*		m_completedWaypoint;								///< Set to the last waypoint in a path when the FollowWaypointPath is complete.
 
 	// Pathfinding ---------------------------------------------------------------------------------------------
-	Path*				m_path;											///< current path to follow (for moving)
-	ObjectID		m_requestedVictimID;
-	Coord3D			m_requestedDestination;
-	Coord3D			m_requestedDestination2;
-	UnsignedInt	m_pathTimestamp;						///< time of path construction
-	ObjectID		m_ignoreObstacleID;					///< ignore this obstacle when pathfinding
-	Real				m_pathExtraDistance;				///< If we are following a waypoint path, there will be extra distance beyond the current path.
-	ICoord2D		m_pathfindGoalCell;					///< Cell we are moving towards.
-	ICoord2D		m_pathfindCurCell;					///< Cell we are currently occupying.
-	Int					m_blockedFrames;						///< Number of frames we've been blocked.
-	Real				m_curMaxBlockedSpeed;				///< Max speed we can have and not run into blocking things.
-	Real				m_bumpSpeedLimit;						///< Max speed after bumping a unit.
-	UnsignedInt	m_ignoreCollisionsUntil;		///< Timer to cheat if we get stuck.
 	/**
 		If nonzero and >= now, frame when we should queueForPath.
 
@@ -743,13 +723,6 @@ private:
 		NEVER EVER EVER set this directly. you must call setQueueForPathTime() in ALL CASES.
 		NEVER EVER EVER set this directly. you must call setQueueForPathTime() in ALL CASES.
 	*/
-	UnsignedInt	m_queueForPathFrame;
-	Coord3D			m_finalPosition;						///< Final position for the moveto states.
-	ObjectID		m_repulsor1;								///< First object we are running away from.
-	ObjectID		m_repulsor2;								///< Second object we are running away from.
-	Int					m_nextGoalPathIndex;				///< The simple goal path index we are moving to next.
-	ObjectID		m_moveOutOfWay1;
-	ObjectID		m_moveOutOfWay2;
 
 	// Locomotors -------------------------------------------------------------------------------------------------
 	enum LocoGoalType	 // Note - written out in save/load xfer, don't change these numbers.  jba.
@@ -759,62 +732,244 @@ private:
 		POSITION_EXPLICIT = 2,
 		ANGLE = 3
 	};
-	LocomotorSet			m_locomotorSet;
-	Locomotor*				m_curLocomotor;
-	LocomotorSetType	m_curLocomotorSet;
-	LocoGoalType			m_locomotorGoalType;
-	Coord3D						m_locomotorGoalData;
 
 	// Turrets -------------------------------------------------------------------------------------------------
-	TurretAI*					m_turretAI[MAX_TURRETS];		// ai for our turret (or null if no turret)
-	WhichTurretType		m_turretSyncFlag;						///< for private use by multiturreted units where the turrets must sync with each other
 
 	// AI -------------------------------------------------------------------------------------------
-	AttitudeType	m_attitude;
-	UnsignedInt		m_nextMoodCheckTime;
 
 	// Common AI "status" effects -------------------------------------------------------------------
 #ifdef ALLOW_DEMORALIZE
-	UnsignedInt   m_demoralizedFramesLeft;
 #endif
 #ifdef ALLOW_SURRENDER
-	UnsignedInt		m_surrenderedFramesLeft;				///< Non-zero when in a surrendered state
-	Int						m_surrenderedPlayerIndex;				///< if surrendered, the playerindex to whom we are surrendered, or -1 if available for everyone
 #endif
 
 	// Note the id of a crate we caused to be created.
-	ObjectID			m_crateCreated;
 
-	Int						m_tmpInt;
 
 	// -------------------------------------------------------------------
-	Bool				m_doFinalPosition;					///< True if we are moving towards final position in a non-physics kind of way.
-	Bool				m_waitingForPath;						///< True if we have a pathfind request outstanding.
-	Bool				m_gxCoarse = FALSE;					///< web port: m_path is the coarse route (not saved: a load waits for the full route)
-	Coord3D			m_gxCoarseTo;								///< web port: where the coarse route goes
-	std::vector<Coord3D> m_gxHintPts;	///< web port (match rule groupRoute): the group route shifted to this unit (not saved)
-	UnsignedInt	m_gxHintFrame = 0;
 	void				gxStartCoarse( const Coord3D *destination );
-	Bool				m_isAttackPath;							///< True if we have an attack path.
-	Bool				m_isFinalGoal;							///< True if this path ends at our destination (as opposed to an intermediate point on a waypoint path).
-	Bool				m_isApproachPath;						///< True if we are just approaching to tighten.
-	Bool				m_isSafePath;								///< True if we are just approaching to tighten.
-	Bool				m_movementComplete;					///< True if we finished an AIInternalMoveToState.
-	Bool				m_isMoving;									///< True if we are in an AIInternalMoveToState.
-	Bool				m_isBlocked;
-	Bool				m_isBlockedAndStuck;				///< True if we are stuck & need to recompute path.
-	Bool				m_upgradedLocomotors;
-	Bool				m_canPathThroughUnits;			///< Can path through units.
-	Bool				m_randomlyOffsetMoodCheck;	///< If true, randomly offset the mood check rate next time, to avoid "spiking" of ai checks
-	Bool				m_isAiDead;									///< TRUE if dead
-	Bool				m_isRecruitable;						///< TRUE if recruitable by the ai.
-	Bool				m_executingWaypointQueue;						///< if true, we are moving thru the waypoints
-	Bool				m_retryPath;								///< If true, we need to try the path a second time.  jba.
-	Bool				m_allowedToChase;						///< Allowed to pursue targets.
-	Bool				m_isInUpdate;
-	Bool				m_gxMoveOn = FALSE;	///< web port: in the store's MOVE list (not saved: a load starts with no masks)								///< If true, we are inside our update method.
-	Bool				m_fixLocoInPostProcess;
 };
+
+// Web port (round 5, units are pure data): AIUpdateInterface's per-unit state, one row per unit in TheGxAIUpdateInterfaces;
+// the module is a facade over its row (members read and write it through macros in its .cpp).
+struct GxAIUpdateInterfaceRow
+{
+	UnsignedInt priorWaypointID;
+	UnsignedInt currentWaypointID;
+	AIStateMachine* stateMachine;
+	UnsignedInt nextEnemyScanTime;
+	ObjectID currentVictimID;
+	Real desiredSpeed;
+	GuardMode guardMode;
+	GuardTargetType guardTargetType[2];
+	Coord3D locationToGuard;
+	ObjectID objectToGuard;
+	const PolygonTrigger* areaToGuard;
+	const AttackPriorityInfo* attackInfo;
+	Coord3D waypointQueue[ AIUpdateInterface::MAX_WAYPOINTS ];
+	Int waypointCount;
+	Int waypointIndex;
+	const Waypoint* completedWaypoint;
+	Path* path;
+	ObjectID requestedVictimID;
+	Coord3D requestedDestination;
+	Coord3D requestedDestination2;
+	UnsignedInt pathTimestamp;
+	ObjectID ignoreObstacleID;
+	Real pathExtraDistance;
+	ICoord2D pathfindGoalCell;
+	ICoord2D pathfindCurCell;
+	Int blockedFrames;
+	Real curMaxBlockedSpeed;
+	Real bumpSpeedLimit;
+	UnsignedInt ignoreCollisionsUntil;
+	UnsignedInt queueForPathFrame;
+	Coord3D finalPosition;
+	ObjectID repulsor1;
+	ObjectID repulsor2;
+	Int nextGoalPathIndex;
+	ObjectID moveOutOfWay1;
+	ObjectID moveOutOfWay2;
+	LocomotorSet locomotorSet;
+	Locomotor* curLocomotor;
+	LocomotorSetType curLocomotorSet;
+	AIUpdateInterface::LocoGoalType locomotorGoalType;
+	Coord3D locomotorGoalData;
+	TurretAI* turretAI[MAX_TURRETS];
+	WhichTurretType turretSyncFlag;
+	AttitudeType attitude;
+	UnsignedInt nextMoodCheckTime;
+	UnsignedInt demoralizedFramesLeft;
+	UnsignedInt surrenderedFramesLeft;
+	Int surrenderedPlayerIndex;
+	ObjectID crateCreated;
+	Int tmpInt;
+	Bool doFinalPosition;
+	Bool waitingForPath;
+	Bool gxCoarse = FALSE;
+	Coord3D gxCoarseTo;
+	std::vector<Coord3D> gxHintPts;
+	UnsignedInt gxHintFrame = 0;
+	Bool isAttackPath;
+	Bool isFinalGoal;
+	Bool isApproachPath;
+	Bool isSafePath;
+	Bool movementComplete;
+	Bool isMoving;
+	Bool isBlocked;
+	Bool isBlockedAndStuck;
+	Bool upgradedLocomotors;
+	Bool canPathThroughUnits;
+	Bool randomlyOffsetMoodCheck;
+	Bool isAiDead;
+	Bool isRecruitable;
+	Bool executingWaypointQueue;
+	Bool retryPath;
+	Bool allowedToChase;
+	Bool isInUpdate;
+	Bool gxMoveOn = FALSE;
+	Bool fixLocoInPostProcess;
+	// web port (dataBehaviors): last chooseBestLocomotorForPosition answer and its key (cell, layer,
+	// pathfinder cell-type version); invalid whenever the locomotor set is rebuilt
+	Bool gxLocoValid = false;
+	UnsignedInt gxLocoVer = 0;
+	Int gxLocoLayer = 0, gxLocoX = 0, gxLocoY = 0;
+	Locomotor *gxLocoResult = nullptr;
+};
+
+
+inline GxAIUpdateInterfaceRow &AIUpdateInterface::gxRow() const { return const_cast<GxAIUpdateInterfaceRow &>(*m_gxAIUpdateInterfaceRow); }
+inline const Coord3D * AIUpdateInterface::getGuardLocation() const
+{ return &gxRow().locationToGuard;	}
+inline ObjectID AIUpdateInterface::getGuardObject() const
+{ return gxRow().objectToGuard; }
+inline const PolygonTrigger * AIUpdateInterface::getAreaToGuard() const
+{ return gxRow().areaToGuard; }
+inline GuardTargetType AIUpdateInterface::getGuardTargetType() const
+{ return gxRow().guardTargetType[1]; }
+inline void AIUpdateInterface::clearGuardTargetType()
+{ gxRow().guardTargetType[1] = gxRow().guardTargetType[0]; gxRow().guardTargetType[0] = GUARDTARGET_NONE; }
+inline GuardMode AIUpdateInterface::getGuardMode() const
+{ return gxRow().guardMode; }
+inline AsciiString AIUpdateInterface::getCurrentStateName() const
+{ return gxRow().stateMachine->getCurrentStateName(); }
+inline void AIUpdateInterface::setPriorWaypointID( UnsignedInt id )
+{ gxRow().priorWaypointID = id; }
+inline void AIUpdateInterface::setCurrentWaypointID( UnsignedInt id )
+{ gxRow().currentWaypointID = id; }
+inline Bool AIUpdateInterface::isAiInDeadState() const
+{ return gxRow().isAiDead; }
+inline Bool AIUpdateInterface::isRecruitable() const
+{return gxRow().isRecruitable;}
+inline void AIUpdateInterface::setIsRecruitable(Bool isRecruitable)
+{gxRow().isRecruitable = isRecruitable;}
+inline Real AIUpdateInterface::getDesiredSpeed() const
+{ return gxRow().desiredSpeed; }
+inline void AIUpdateInterface::setDesiredSpeed( Real speed )
+{ gxRow().desiredSpeed = speed; }
+inline const Locomotor * AIUpdateInterface::getCurLocomotor() const
+{return gxRow().curLocomotor;}
+inline Locomotor * AIUpdateInterface::getCurLocomotor()
+{ return gxRow().curLocomotor; }
+inline LocomotorSetType AIUpdateInterface::getCurLocomotorSetType() const
+{ return gxRow().curLocomotorSet; }
+inline Bool AIUpdateInterface::isWaitingForPath() const
+{return gxRow().waitingForPath;}
+inline Bool AIUpdateInterface::gxWantsClosestSpot() const
+{ return gxRow().isApproachPath; }
+inline const Coord3D * AIUpdateInterface::gxRequestedDest() const
+{ return &gxRow().requestedDestination; }
+inline Bool AIUpdateInterface::gxPlainRequest() const
+{ return gxRow().waitingForPath && !gxRow().isApproachPath && !gxRow().isAttackPath && !gxRow().isSafePath; }
+inline void AIUpdateInterface::gxStartCoarseDeferred()
+{ if (gxRow().waitingForPath) gxStartCoarse(&gxRow().requestedDestination); }
+inline void AIUpdateInterface::gxSetRouteHint( const std::vector<Coord3D> &pts, UnsignedInt frame )
+{ gxRow().gxHintPts = pts; gxRow().gxHintFrame = frame; }
+inline Bool AIUpdateInterface::gxOnCoarsePath() const
+{ return gxRow().gxCoarse && gxRow().path != nullptr; }
+inline Bool AIUpdateInterface::isAttackPath() const
+{return gxRow().isAttackPath;}
+inline Path* AIUpdateInterface::getPath()
+{ return gxRow().path; }
+inline const Path* AIUpdateInterface::getPath() const
+{ return gxRow().path; }
+inline UnsignedInt AIUpdateInterface::getPathAge() const
+{ return TheGameLogic->getFrame() - gxRow().pathTimestamp; }
+inline Int AIUpdateInterface::getNumFramesBlocked() const
+{return gxRow().blockedFrames;}
+inline Bool AIUpdateInterface::isBlockedAndStuck() const
+{return gxRow().isBlockedAndStuck;}
+inline Path* AIUpdateInterface::friend_getPath()
+{ return gxRow().path; }
+inline const Waypoint * AIUpdateInterface::getCompletedWaypoint() const
+{return gxRow().completedWaypoint;}
+inline void AIUpdateInterface::setCompletedWaypoint(const Waypoint *pWay)
+{gxRow().completedWaypoint = pWay;}
+inline const LocomotorSet& AIUpdateInterface::getLocomotorSet() const
+{return gxRow().locomotorSet;}
+inline void AIUpdateInterface::setPathExtraDistance(Real dist)
+{gxRow().pathExtraDistance = dist;}
+inline Real AIUpdateInterface::getPathExtraDistance() const
+{ return gxRow().pathExtraDistance; }
+inline const AttackPriorityInfo * AIUpdateInterface::getAttackInfo()
+{return gxRow().attackInfo;}
+inline void AIUpdateInterface::setAttackInfo(const AttackPriorityInfo *info)
+{gxRow().attackInfo = info;}
+inline void AIUpdateInterface::setCurPathfindCell(const ICoord2D &cell)
+{gxRow().pathfindCurCell = cell;}
+inline void AIUpdateInterface::setPathfindGoalCell(const ICoord2D &cell)
+{gxRow().pathfindGoalCell = cell;}
+inline const ICoord2D * AIUpdateInterface::getCurPathfindCell() const
+{return &gxRow().pathfindCurCell;}
+inline const ICoord2D * AIUpdateInterface::getPathfindGoalCell() const
+{return &gxRow().pathfindGoalCell;}
+inline void AIUpdateInterface::setFinalPosition(const Coord3D *pos)
+{ gxRow().finalPosition = *pos; gxRow().doFinalPosition = false;}
+inline UnsignedInt AIUpdateInterface::getNextMoodCheckTime() const
+{ return gxRow().nextMoodCheckTime; }
+#ifdef ALLOW_DEMORALIZE
+inline Bool AIUpdateInterface::isDemoralized() const
+{ return gxRow().demoralizedFramesLeft > 0; }
+#endif
+inline Bool AIUpdateInterface::canPathThroughUnits() const
+{ return gxRow().canPathThroughUnits; }
+inline void AIUpdateInterface::setCanPathThroughUnits( Bool canPath )
+{ gxRow().canPathThroughUnits = canPath; if (canPath) gxRow().isBlockedAndStuck=false;}
+inline void AIUpdateInterface::notifyCrate(ObjectID id)
+{ gxRow().crateCreated = id; }
+inline ObjectID AIUpdateInterface::getCrateID() const
+{ return gxRow().crateCreated; }
+inline void AIUpdateInterface::setIgnoreCollisionTime(Int frames)
+{ gxRow().ignoreCollisionsUntil = TheGameLogic->getFrame() + frames; }
+inline AIStateMachine* AIUpdateInterface::getStateMachine()
+{ return gxRow().stateMachine; }
+inline const AIStateMachine* AIUpdateInterface::getStateMachine() const
+{ return gxRow().stateMachine; }
+inline Int AIUpdateInterface::friend_getCurrentGoalPathIndex() const
+{ return gxRow().nextGoalPathIndex; }
+inline void AIUpdateInterface::friend_setCurrentGoalPathIndex( Int index )
+{ gxRow().nextGoalPathIndex = index; }
+inline WhichTurretType AIUpdateInterface::friend_getTurretSync() const
+{ return gxRow().turretSyncFlag; }
+inline void AIUpdateInterface::friend_setTurretSync(WhichTurretType t)
+{ gxRow().turretSyncFlag = t; }
+inline UnsignedInt AIUpdateInterface::getPriorWaypointID()
+{ return gxRow().priorWaypointID; }
+inline UnsignedInt AIUpdateInterface::getCurrentWaypointID()
+{ return gxRow().currentWaypointID; }
+inline void AIUpdateInterface::clearMoveOutOfWay()
+{gxRow().moveOutOfWay1 = INVALID_ID; gxRow().moveOutOfWay2 = INVALID_ID;}
+inline void AIUpdateInterface::setTmpValue(Int val)
+{gxRow().tmpInt = val;}
+inline Int AIUpdateInterface::getTmpValue()
+{return gxRow().tmpInt;}
+inline Bool AIUpdateInterface::getRetryPath()
+{return gxRow().retryPath;}
+inline void AIUpdateInterface::setAllowedToChase( Bool allow )
+{ gxRow().allowedToChase = allow; }
+inline Bool AIUpdateInterface::isAllowedToChase() const
+{ return gxRow().allowedToChase; }
+
 
 //------------------------------------------------------------------------------------------------------------
 // Inlines

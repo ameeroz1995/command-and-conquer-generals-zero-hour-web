@@ -30,6 +30,7 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
 #include "GameLogic/Module/UpdateModule.h"
 #include "Common/INI.h"
 #include "Lib/BaseType.h"
@@ -95,23 +96,33 @@ public:
 
 protected:
 
-	Coord3D m_rallyPoint;						///< Where units should move to after they have reached the "natural" rally point
-	Bool m_rallyPointExists;				///< Only move to the rally point if this is true
 
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		Coord3D rallyPoint; ///< Where units should move to after they have reached the "natural" rally point
+		Bool rallyPointExists; ///< Only move to the rally point if this is true
+	};
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline DefaultProductionExitUpdate::GxState &DefaultProductionExitUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }
 
 //-------------------------------------------------------------------------------------------------
 inline void DefaultProductionExitUpdate::setRallyPoint( const Coord3D *pos )
 {
-	m_rallyPoint = *pos;
-	m_rallyPointExists = true;
+	R().rallyPoint = *pos;
+	R().rallyPointExists = true;
 }
 
 //-------------------------------------------------------------------------------------------------
 inline const Coord3D *DefaultProductionExitUpdate::getRallyPoint() const
 {
-	if (m_rallyPointExists)
-		return &m_rallyPoint;
+	if (R().rallyPointExists)
+		return &R().rallyPoint;
 
 	return nullptr;
 }

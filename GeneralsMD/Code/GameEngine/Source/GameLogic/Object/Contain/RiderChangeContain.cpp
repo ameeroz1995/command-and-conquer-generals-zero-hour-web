@@ -54,6 +54,11 @@
 #include "GameLogic/Module/StealthUpdate.h"
 #include "GameLogic/Module/RiderChangeContain.h"
 
+// Web port (round 5, units are pure data): RiderChangeContain's per-unit state is a row of TheGxRiderChangeContains;
+// GXROW_RIDERCHANGECONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_RIDERCHANGECONTAIN (const_cast<GxRiderChangeContainRow &>(*m_gxRiderChangeContainRow))
+
+
 
 
 // ------------------------------------------------------------------------------------------------
@@ -131,13 +136,13 @@ Int RiderChangeContain::getContainMax() const
 // PUBLIC /////////////////////////////////////////////////////////////////////////////////////////
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-RiderChangeContain::RiderChangeContain( Thing *thing, const ModuleData *moduleData ) :
-								 TransportContain( thing, moduleData )
+RiderChangeContain::RiderChangeContain( Thing *thing, const ModuleData *moduleData ) : TransportContain( thing, moduleData )
 {
-	m_extraSlotsInUse = 0;
-	m_frameExitNotBusy = 0;
-	m_containing = FALSE;
-	m_scuttledOnFrame = 0;
+
+	GXROW_RIDERCHANGECONTAIN.extraSlotsInUse = 0;
+	GXROW_RIDERCHANGECONTAIN.frameExitNotBusy = 0;
+	GXROW_RIDERCHANGECONTAIN.containing = FALSE;
+	GXROW_RIDERCHANGECONTAIN.scuttledOnFrame = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -158,7 +163,7 @@ Bool RiderChangeContain::isValidContainerFor(const Object* rider, Bool checkCapa
 	//Don't check capacity because our rider will kick the other rider out!
 	if( TransportContain::isValidContainerFor( rider, FALSE ) )
 	{
-		if( m_scuttledOnFrame != 0 )
+		if( GXROW_RIDERCHANGECONTAIN.scuttledOnFrame != 0 )
 		{
 			//Scuttled... too late!
 			return FALSE;
@@ -185,9 +190,9 @@ Bool RiderChangeContain::isValidContainerFor(const Object* rider, Bool checkCapa
 void RiderChangeContain::onContaining( Object *rider, Bool wasSelected )
 {
 	Object *obj = getObject();
-	m_containing = TRUE;
+	GXROW_RIDERCHANGECONTAIN.containing = TRUE;
 	//Remove our existing rider
-	if( m_payloadCreated )
+	if( TransportContain::gxRow().payloadCreated )
 	{
 		obj->getAI()->aiEvacuateInstantly( TRUE, CMD_FROM_AI );
 	}
@@ -261,7 +266,7 @@ void RiderChangeContain::onContaining( Object *rider, Bool wasSelected )
 	//Extend base class
 	TransportContain::onContaining( rider, wasSelected );
 
-	m_containing = FALSE;
+	GXROW_RIDERCHANGECONTAIN.containing = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -276,7 +281,7 @@ void RiderChangeContain::onRemoving( Object *rider )
 		return;
 	}
 
-	if( m_payloadCreated )
+	if( TransportContain::gxRow().payloadCreated )
 	{
 		//Extend base class
 		TransportContain::onRemoving( rider );
@@ -317,7 +322,7 @@ void RiderChangeContain::onRemoving( Object *rider )
 
 	//If we're not replacing the rider, then if the cycle is selected, transfer selection
 	//to the rider getting off (because the bike is gonna blow).
-	if( !m_containing )
+	if( !GXROW_RIDERCHANGECONTAIN.containing )
 	{
 		Drawable *containDraw = bike->getDrawable();
 		Drawable *riderDraw = rider->getDrawable();
@@ -339,7 +344,7 @@ void RiderChangeContain::onRemoving( Object *rider )
 			}
 
 			//Finally, scuttle the bike so nobody else can use it! <Design Spec>
-			m_scuttledOnFrame = TheGameLogic->getFrame();
+			GXROW_RIDERCHANGECONTAIN.scuttledOnFrame = TheGameLogic->getFrame();
 			bike->setStatus( MAKE_OBJECT_STATUS_MASK( OBJECT_STATUS_UNSELECTABLE ) );
 			bike->setModelConditionState( data->m_scuttleState );
 			if( !bike->getAI()->isMoving() )
@@ -362,12 +367,12 @@ void RiderChangeContain::createPayload()
 // ------------------------------------------------------------------------------------------------
 UpdateSleepTime RiderChangeContain::update()
 {
-	if( m_scuttledOnFrame != 0 )
+	if( GXROW_RIDERCHANGECONTAIN.scuttledOnFrame != 0 )
 	{
 		//Bike in the process of getting scuttled.
 		const RiderChangeContainModuleData *data = getRiderChangeContainModuleData();
 		UnsignedInt now = TheGameLogic->getFrame();
-		if( m_scuttledOnFrame + data->m_scuttleFrames <= now )
+		if( GXROW_RIDERCHANGECONTAIN.scuttledOnFrame + data->m_scuttleFrames <= now )
 		{
 			//We have scuttled the bike (at least as far as tipping it over via scuttle animation. Now
 			//kill the bike in a way that will cause it to sink into the ground without any real destruction.
@@ -437,8 +442,8 @@ Bool RiderChangeContain::getContainerPipsToShow(Int& numTotal, Int& numFull)
 //-------------------------------------------------------------------------------------------------
 const Object *RiderChangeContain::friend_getRider() const
 {
- 	if( m_containListSize > 0 ) // Yes, this does assume that infantry never ride double on the bike
- 		return m_containList.front();
+ 	if( OpenContain::gxRow().containListSize > 0 ) // Yes, this does assume that infantry never ride double on the bike
+ 		return OpenContain::gxRow().containList.front();
 
 	return nullptr;
 }
@@ -474,13 +479,13 @@ void RiderChangeContain::xfer( Xfer *xfer )
 	TransportContain::xfer( xfer );
 
 	// payload created
-	xfer->xferBool( &m_payloadCreated );
+	xfer->xferBool( &TransportContain::gxRow().payloadCreated );
 
 	// extra slots in use
-	xfer->xferInt( &m_extraSlotsInUse );
+	xfer->xferInt( &GXROW_RIDERCHANGECONTAIN.extraSlotsInUse );
 
 	// frame exit not busy
-	xfer->xferUnsignedInt( &m_frameExitNotBusy );
+	xfer->xferUnsignedInt( &GXROW_RIDERCHANGECONTAIN.frameExitNotBusy );
 
 }
 

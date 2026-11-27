@@ -27,6 +27,7 @@
 
 #pragma once
 
+#include "Common/GxComponentPool.h"
 #include "Common/STLTypedefs.h"
 #include "Common/GameMemory.h"
 #include "GameLogic/AIStateMachine.h"
@@ -102,7 +103,7 @@ public:
 	virtual void notifyVictimIsDead();
 	virtual Bool isOutOfSpecialReloadAmmo() const;
 
-	const Coord3D* friend_getProducerLocation() const { return &m_producerLocation; }
+	const Coord3D* friend_getProducerLocation() const { return &R().producerLocation; }
 	Real friend_getOutOfAmmoDamagePerSecond() const { return getJetAIUpdateModuleData()->m_outOfAmmoDamagePerSecond; }
 	Bool friend_keepsParkingSpaceWhenAirborne() const { return getJetAIUpdateModuleData()->m_keepsParkingSpaceWhenAirborne; }
 	Bool friend_needsRunway() const { return getJetAIUpdateModuleData()->m_needsRunway; }
@@ -116,7 +117,7 @@ public:
 	void friend_setTaxiInProgress(Bool v) { setFlag(TAXI_IN_PROGRESS, v); }
 	void friend_setUseSpecialReturnLoco(Bool v) { setFlag(USE_SPECIAL_RETURN_LOCO, v); }
 	void friend_setAllowCircling(Bool v) { setFlag(ALLOW_CIRCLING, v); }
-	const Coord3D& friend_getLandingPosForHelipadStuff() const { return m_landingPosForHelipadStuff; }
+	const Coord3D& friend_getLandingPosForHelipadStuff() const { return R().landingPosForHelipadStuff; }
 	void friend_enableAfterburners(Bool v);
 	void friend_setAllowAirLoco(Bool a);
 	Bool friend_isTakeoffOrLandingInProgress() const
@@ -157,22 +158,36 @@ private:
 		TAXI_IN_PROGRESS
 	};
 
-	Coord3D									m_producerLocation;		///< remember this, so that if our producer dies, we have a place to circle aimlessly
-	AICommandParmsStorage		m_mostRecentCommand;
-	AudioEventRTS						m_afterburnerSound;		///< Sound when afterburners on
-	UnsignedInt							m_attackLocoExpireFrame;
-	UnsignedInt							m_attackersMissExpireFrame;
-	UnsignedInt							m_returnToBaseFrame;	///< if nonzero, return to base at this frame when we are idle, even if not out of ammo
 	std::list<ObjectID>			m_targetedBy;					///< object(s) currently targeting us, if any
-	UnsignedInt							m_untargetableExpireFrame;
-	Drawable*								m_lockonDrawable;
-	Int											m_flags;
-	Coord3D									m_landingPosForHelipadStuff;
-	Bool										m_enginesOn;					///<
 
 	void getProducerLocation();
 	void buildLockonDrawableIfNecessary();
 	void doLandingCommand(Object *airfield, CommandSourceType cmdSource);
 	Bool getFlag(FlagType f) const;
 	void setFlag(FlagType f, Bool v);
+public:
+	// web port (round 5, units are pure data): the per-unit state is a row of GxComponentPool<GxState>;
+	// this module object is the facade (INI, xfer, crc) holding its row handle.
+	struct GxState
+	{
+		UnsignedInt gxOpFrame; ///< web port: frame + 1 of the kernel result (0: none)
+		Int gxOp; ///< web port: the kernel result
+		Bool gxJoined; ///< web port: in the kernel list
+		Coord3D producerLocation; ///< remember this, so that if our producer dies, we have a place to circle aimlessly
+		AICommandParmsStorage mostRecentCommand;
+		AudioEventRTS afterburnerSound; ///< Sound when afterburners on
+		UnsignedInt attackLocoExpireFrame;
+		UnsignedInt attackersMissExpireFrame;
+		UnsignedInt returnToBaseFrame; ///< if nonzero, return to base at this frame when we are idle, even if not out of ammo
+		UnsignedInt untargetableExpireFrame;
+		Drawable* lockonDrawable;
+		Int flags;
+		Coord3D landingPosForHelipadStuff;
+		Bool enginesOn; ///<
+	};
+	void gxKernelStep(UnsignedInt now);	///< web port: this unit's kernel step (GxPathsKernels.h)
+	GxState &R() const;
+private:
+	int m_gxRow;
 };
+inline JetAIUpdate::GxState &JetAIUpdate::R() const { return GxComponentPool<GxState>::the()[m_gxRow]; }

@@ -29,7 +29,10 @@ enum GxMatchRule
 	GXRULE_SPATIAL_PAIRS  = 8192,	///< pairOffer: touching-pair search drops clearly-apart neighbours when offered (PartitionManager.cpp)
 	GXRULE_WEAPON_PASS    = 16384,	///< weaponPass: armed objects' weapon status kept by one end-of-tick pass in object-ID order (ObjectWeaponStatusHelper.cpp)
 	GXRULE_UPDATE_PASSES  = 131072,	///< updatePasses: every-frame update modules run as flat passes per phase, by behaviour then object ID (GameLogic.cpp)
-	GXRULE_DAMAGE_QUEUE   = 524288,	///< damageQueue: weapon damage queued during the tick and applied in one pass in victim-ID order (Weapon.cpp)
+	GXRULE_DAMAGE_QUEUE   = 524288,
+	// "off" rules (an old recording without them plays as before, kernels on):
+	GXRULE_KIND_KERNELS_OFF    = 16777216,	///< kindKernels off: no per-kind kernels under updatePasses (GameLogic.cpp)
+	GXRULE_CONTAIN_KERNELS_OFF = 33554432,	///< containKernels off: containers / rebuild holes count down in their own turns (OpenContain.cpp, RebuildHoleBehavior.cpp)	///< damageQueue: weapon damage queued during the tick and applied in one pass in victim-ID order (Weapon.cpp)
 };
 
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for

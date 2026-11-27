@@ -43,6 +43,11 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 
+// Web port (round 5, units are pure data): TunnelContain's per-unit state is a row of TheGxTunnelContains;
+// GXROW_TUNNELCONTAIN is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
+#define GXROW_TUNNELCONTAIN (const_cast<GxTunnelContainRow &>(*m_gxTunnelContainRow))
+
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // PUBLIC FUNCTIONS ///////////////////////////////////////////////////////////////////////////////
@@ -52,8 +57,9 @@
 //-------------------------------------------------------------------------------------------------
 TunnelContain::TunnelContain( Thing *thing, const ModuleData* moduleData ) : OpenContain( thing, moduleData )
 {
-	m_needToRunOnBuildComplete = true;
-	m_isCurrentlyRegistered = FALSE;
+
+	GXROW_TUNNELCONTAIN.needToRunOnBuildComplete = true;
+	GXROW_TUNNELCONTAIN.isCurrentlyRegistered = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -277,10 +283,10 @@ void TunnelContain::onSelling()
 
 	// Unregister after the kick out, or else the unregistering will activate a cavein-kill.
 	// We need to do this in case someone sells their last two tunnels at the same time.
-	if( m_isCurrentlyRegistered )
+	if( GXROW_TUNNELCONTAIN.isCurrentlyRegistered )
 	{
 		tunnelTracker->onTunnelDestroyed( getObject() );
-		m_isCurrentlyRegistered = FALSE;
+		GXROW_TUNNELCONTAIN.isCurrentlyRegistered = FALSE;
 	}
 }
 
@@ -406,7 +412,7 @@ void TunnelContain::onDie( const DamageInfo * damageInfo )
 	if (!getTunnelContainModuleData()->m_dieMuxData.isDieApplicable(getObject(), damageInfo))
 		return;
 
-	if( !m_isCurrentlyRegistered )
+	if( !GXROW_TUNNELCONTAIN.isCurrentlyRegistered )
 		return;//it isn't registered as a tunnel
 
 	Player *owningPlayer = getObject()->getControllingPlayer();
@@ -417,7 +423,7 @@ void TunnelContain::onDie( const DamageInfo * damageInfo )
 		return;
 
 	tunnelTracker->onTunnelDestroyed( getObject() );
-	m_isCurrentlyRegistered = FALSE;
+	GXROW_TUNNELCONTAIN.isCurrentlyRegistered = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -425,7 +431,7 @@ void TunnelContain::onDelete()
 {
 	// Being sold is a straight up delete.  no death
 
-	if( !m_isCurrentlyRegistered )
+	if( !GXROW_TUNNELCONTAIN.isCurrentlyRegistered )
 		return;//it isn't registered as a tunnel
 
 	Player *owningPlayer = getObject()->getControllingPlayer();
@@ -436,7 +442,7 @@ void TunnelContain::onDelete()
 		return;
 
 	tunnelTracker->onTunnelDestroyed( getObject() );
-	m_isCurrentlyRegistered = FALSE;
+	GXROW_TUNNELCONTAIN.isCurrentlyRegistered = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -452,7 +458,7 @@ void TunnelContain::onObjectCreated()
 	if( ! shouldDoOnBuildComplete() )
 		return;
 
-	m_needToRunOnBuildComplete = false;
+	GXROW_TUNNELCONTAIN.needToRunOnBuildComplete = false;
 
 	Player *owningPlayer = getObject()->getControllingPlayer();
 	if( owningPlayer == nullptr )
@@ -462,7 +468,7 @@ void TunnelContain::onObjectCreated()
 		return;
 
 	tunnelTracker->onTunnelCreated( getObject() );
-	m_isCurrentlyRegistered = TRUE;
+	GXROW_TUNNELCONTAIN.isCurrentlyRegistered = TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -474,7 +480,7 @@ void TunnelContain::onBuildComplete()
 	if( ! shouldDoOnBuildComplete() )
 		return;
 
-	m_needToRunOnBuildComplete = false;
+	GXROW_TUNNELCONTAIN.needToRunOnBuildComplete = false;
 
 	Player *owningPlayer = getObject()->getControllingPlayer();
 	if( owningPlayer == nullptr )
@@ -484,7 +490,7 @@ void TunnelContain::onBuildComplete()
 		return;
 
 	tunnelTracker->onTunnelCreated( getObject() );
-	m_isCurrentlyRegistered = TRUE;
+	GXROW_TUNNELCONTAIN.isCurrentlyRegistered = TRUE;
 	*/
 }
 
@@ -492,7 +498,7 @@ void TunnelContain::onBuildComplete()
 // ------------------------------------------------------------------------------------------------
 void TunnelContain::onCapture( Player *oldOwner, Player *newOwner )
 {
-	if( m_isCurrentlyRegistered )
+	if( GXROW_TUNNELCONTAIN.isCurrentlyRegistered )
 	{
 		TunnelTracker *oldTunnelTracker = oldOwner->getTunnelSystem();
 		if( oldTunnelTracker )
@@ -608,10 +614,10 @@ void TunnelContain::xfer( Xfer *xfer )
 	OpenContain::xfer( xfer );
 
 	// need to run on build complete
-	xfer->xferBool( &m_needToRunOnBuildComplete );
+	xfer->xferBool( &GXROW_TUNNELCONTAIN.needToRunOnBuildComplete );
 
 	// Currently registered with owning player
-	xfer->xferBool( &m_isCurrentlyRegistered );
+	xfer->xferBool( &GXROW_TUNNELCONTAIN.isCurrentlyRegistered );
 
 }
 
