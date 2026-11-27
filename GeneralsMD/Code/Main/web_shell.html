@@ -1324,6 +1324,7 @@
             { key: 'recruitIndex', def: true, label: 'TEAM RECRUITING FROM PLAYER LIST', note: 'AI teams look for units to recruit among the player\'s own units instead of every unit on the map. Same game.' },
             { key: 'aiWorldIndex', def: true, label: 'AI DOZER AND REBUILD LOOKUPS', note: 'The AI finds its dozers among its own units and the hole of a destroyed building by an index, instead of looking at every unit. Same game.' },
             { key: 'playerKindCounts', def: true, label: 'PER-PLAYER BLACK MARKET AND DRONE COUNTS', note: 'Stealth and drone docks skip looking through all of a player\'s units when the player has no black market or drone. Same game.' },
+            { key: 'aiScripts', def: true, label: 'SKIRMISH AI SCRIPTS', note: 'Loads the skirmish and multiplayer AI scripts (loose install files) at start, so AI players build and fight. Off only to play replays recorded before this fix. Changes the game; takes effect on reload.' },
             { key: 'circleReuse', def: true, label: 'REUSE SIGHT AND THREAT CIRCLES', note: 'Shroud cover, threat and value circles reuse one buffer instead of allocating each time a unit changes cell. Same game.' },
             { key: 'geomColumns', def: true, label: 'UNIT SHAPES AS PLAIN COLUMNS', note: 'With unit state in the unit table: each unit\'s shape and transform are also kept as plain number columns, which the map cells, collision height test and facing read. Same game.' },
             { key: 'hotInStore', def: true, label: 'UNIT STATE IN THE UNIT TABLE', note: 'Each unit\'s position, status, disabled state, layer, shape, facing and transform are kept in the shared unit table instead of inside the unit. Same game as without.' },
@@ -2068,7 +2069,7 @@
           (function () {
             var cats = [
               { name: 'MANAGER PATTERN', note: 'Unit data kept in one store, and each game system run as one pass over all its units, in unit order.',
-                keys: ['positionInStore', 'hotInStore', 'geomColumns', 'recruitIndex', 'aiWorldIndex', 'playerKindCounts', 'circleReuse', 'updatePasses', 'moveAfterTick', 'physBulk', 'physSimd', 'storePairs', 'collideSimd', 'scanManager', 'rowKernels', 'simdSearch', 'fogStamps', 'fogKeep', 'weaponPass', 'weaponSkip', 'damageQueue', 'animStoreList', 'disabledList', 'dataBehaviors'] },
+                keys: ['positionInStore', 'hotInStore', 'geomColumns', 'recruitIndex', 'aiWorldIndex', 'playerKindCounts', 'circleReuse', 'aiScripts', 'updatePasses', 'moveAfterTick', 'physBulk', 'physSimd', 'storePairs', 'collideSimd', 'scanManager', 'rowKernels', 'simdSearch', 'fogStamps', 'fogKeep', 'weaponPass', 'weaponSkip', 'damageQueue', 'animStoreList', 'disabledList', 'dataBehaviors'] },
               { name: 'ROUTE PLANNING', note: 'How units find their way: shared route maps, route reuse and how much planning each frame does.',
                 keys: ['flowFields', 'lazyFields', 'gpuFlowFields', 'flowCover', 'coarseStart', 'groupRoute', 'routeQueue', 'routeCache', 'routeRefine', 'sharedRoutes', 'routeBudget', 'ignoreUnitsInPaths', 'openHeap', 'cellBits', 'cpopSegments', 'cpopSimd'] },
               { name: 'COMPUTATION', note: 'Cheaper game logic: searches, collisions, physics and bookkeeping.',
