@@ -7302,13 +7302,13 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 			if (GLES3_Page_Switches() & 2097152) {	// verify mode: the search must fail again
 				const Int before = m_cumulativeCellsAllocated; const unsigned expBefore = gxExpansions, expCached = s_gxFailExp;
 				Path *chk = internalFindPath(obj, locomotorSet, from, rawTo);
-				static int s_checked = 0, s_bad = 0;
-				if (chk) { if (++s_bad <= 20) printf("GXVERIFY failCache mismatch: the search found a route\n"); deleteInstance(chk); }
+				static int s_checked = 0, s_bad = 0, s_found = 0;
+				if (chk) { ++s_found; if (++s_bad <= 20) printf("GXVERIFY failCache mismatch: the search found a route\n"); deleteInstance(chk); }
 				else if (m_cumulativeCellsAllocated - before != gxCells) { if (++s_bad <= 20) printf("GXVERIFY failCache mismatch: cells %d, cached %d; expanded %u, cached %u\n", m_cumulativeCellsAllocated - before, gxCells, gxExpansions - expBefore, expCached); }
-				if (++s_checked % 100 == 0) printf("GXVERIFY failCache checked %d, mismatches %d\n", s_checked, s_bad);
+				if (++s_checked % 100 == 0) printf("GXVERIFY failCache checked %d, mismatches %d (a route found %d, the rest only the cells spent)\n", s_checked, s_bad, s_found);
+				m_cumulativeCellsAllocated = before;	// the game goes on as the rule plays it, not as the check ran
 			}
-			else
-				m_cumulativeCellsAllocated += gxCells;	// the same budget the search would have used (it is in the CRC)
+			m_cumulativeCellsAllocated += gxCells;	// the cells the stored search charged to the budget (it is in the CRC)
 			s_gxPlanIgnoringUnits = wasIgnoring;
 			return nullptr;
 		}

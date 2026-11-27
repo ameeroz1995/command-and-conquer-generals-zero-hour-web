@@ -4564,3 +4564,15 @@ Level within noise (the ceiling was the call's 0.4% self share).
   route search -14%, p99 28.5 -> 22 ms). ON by default.
 - ai-long.rep divergence on this branch: leaves the recording at frame 20,902 (recorded on collide's
   soa-24), with or without this branch's new switches; main traces it at merge8.
+- Heavy AI timing (main's ask): scratch build paths-fc8a = this branch + a650518 (AI scripts) + collide's
+  aec0d5f (bench_record settings recordMap / recordAIs). Two recordings, 7 brutal AIs on Twilight Flame,
+  36,000 frames: paths-heavy-fcon.rep (GX=28FEE6E7;GX2=1;) and paths-heavy-fcoff.rep (GX=28FEE6E7;).
+  Both replay to a match. Different games once the rule acts, so compare like for like:
+  route search off 7.213 / 7.806, on 5.946 / 5.844 ms/tick (-18 to -25%); logic off 11.50 / 12.50,
+  on 10.16 / 10.40; frames over 100 ms off 407 / 642, on 369 / 356; p99 104.1 / 119.8, 100.8 / 99.8 ms.
+  Failed A* searches: off 8,196 using 161 M of 167 M cells (228-247 s), on 6,683 using 127 M (177-182 s).
+  Kept ON.
+- Verify fix: on a hit, verify runs the real search, which charged its own (pool-dependent) cells and so
+  played a different game (verify replay of the rule-on recording left it at frame 20,402). The budget is
+  now reset to the cached charge after the check; the verify replay matches all 36,000 frames: 1,500 hits
+  checked, 0 where the search would have found a route, 1,493 where only the cells spent differ.
