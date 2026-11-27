@@ -353,6 +353,25 @@ void StateMachine::internalClear()
 }
 
 //-----------------------------------------------------------------------------
+void StateMachine::gxRecycle()
+{
+	// as ~StateMachine: the current state exits with EXIT_RESET, lock or not
+	if (GXROW_STATEMACHINE.currentState)
+		GXROW_STATEMACHINE.currentState->onExit( EXIT_RESET );
+	// as StateMachine::StateMachine
+	GXROW_STATEMACHINE.sleepTill = 0;
+	GXROW_STATEMACHINE.defaultStateInited = false;
+	GXROW_STATEMACHINE.currentState = nullptr; gxNoteCurrentState();
+	GXROW_STATEMACHINE.locked = false;
+#ifdef STATE_MACHINE_DEBUG
+	GXROW_STATEMACHINE.lockedby = nullptr;
+#endif
+	internalClear();
+	for (std::map<StateID, State *>::iterator i = GXROW_STATEMACHINE.stateMap.begin(); i != GXROW_STATEMACHINE.stateMap.end(); ++i)
+		i->second->gxReinit();
+}
+
+//-----------------------------------------------------------------------------
 /**
  * Clear the machine
  */

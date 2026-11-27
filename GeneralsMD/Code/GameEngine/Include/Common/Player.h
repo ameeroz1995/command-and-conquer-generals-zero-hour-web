@@ -648,6 +648,7 @@ public:
 
 	// fills an AIGroup object that is the currently selected group.
 	void getCurrentSelectionAsAIGroup(AIGroup *group);
+	Bool gxSelectionHolds(const Object *obj) const;	///< web port (deathDeselect): is obj in this player's current selection?
 
 	// sets the currently selected group to be the given AIGroup
 	void setCurrentlySelectedAIGroup(AIGroup *group);

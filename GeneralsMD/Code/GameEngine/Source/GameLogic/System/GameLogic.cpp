@@ -3059,6 +3059,19 @@ void GameLogic::deselectObject(Object *obj, PlayerMaskType playerMask, Bool affe
 			return;
 		}
 
+		// web port deathDeselect (match rule bit 31): a selection that does not hold the unit is left
+		// as it is, without the temporary group (which used a group ID and re-grouped the selection)
+		if (gxMatchRule(GXRULE_DEATH_DESELECT) && !player->gxSelectionHolds(obj))
+		{
+			if (affectClient)
+			{
+				Drawable *draw = obj->getDrawable();
+				if (draw)
+					TheInGameUI->deselectDrawable(draw);
+			}
+			continue;
+		}
+
 		CRCGEN_LOG(( "Removing a unit from a selected group in GameLogic::deselectObject()" ));
 		AIGroupPtr group = TheAI->createGroup();
 #if RETAIL_COMPATIBLE_AIGROUP

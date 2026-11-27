@@ -298,6 +298,7 @@ protected:
 	virtual Bool computePath();												///< compute the path
 
 	void forceRepath();
+	void gxReinitMove();	///< web port (attackReuse): this level's row as the constructor left it
 
 private:
 	void startMoveSound();
@@ -520,6 +521,7 @@ class AIAttackApproachTargetState : public AIInternalMoveToState
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIAttackApproachTargetState, "AIAttackApproachTargetState")
 public:
 	AIAttackApproachTargetState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking );	///< web port (round 5): defined in the .cpp
+	virtual void gxReinit();	///< web port (attackReuse)
 
 	virtual Bool isAttack() const { return TRUE; }
 	virtual StateReturnType onEnter();
@@ -571,6 +573,7 @@ class AIAttackPursueTargetState : public AIInternalMoveToState
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIAttackPursueTargetState, "AIAttackPursueTargetState")
 public:
 	AIAttackPursueTargetState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking );	///< web port (round 5): defined in the .cpp
+	virtual void gxReinit();	///< web port (attackReuse)
 
 	virtual Bool isAttack() const { return TRUE; }
 	virtual StateReturnType onEnter();
@@ -1072,6 +1075,7 @@ class AIAttackAimAtTargetState : public State
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIAttackAimAtTargetState, "AIAttackAimAtTargetState")
 public:
 	AIAttackAimAtTargetState( StateMachine *machine, Bool attackingObject, Bool forceAttacking );	///< web port (round 5): defined in the .cpp
+	virtual void gxReinit();	///< web port (attackReuse)
 
 	virtual Bool isAttack() const { return TRUE; }
 	virtual StateReturnType onEnter();
@@ -1210,6 +1214,8 @@ struct GxAIAttackStateRow
 	Bool follow;
 	Bool isAttackingObject;
 	Bool isForceAttacking;
+	AttackStateMachine* gxKept;	///< web port (attackReuse): the last attack's machine, recycled, for the next attack
+	Int gxKeptKey;	///< what it was built for (follow, object, forced, immobile, portable rider)
 };
 
 

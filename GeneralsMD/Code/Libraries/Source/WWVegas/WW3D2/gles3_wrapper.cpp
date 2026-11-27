@@ -521,6 +521,9 @@ void GLES3_Begin_Scene() {
                  | (o.supplyOnce === true ? 4 : 0)        // bit 2 (ai): AI supply search collects the warehouses once (AIPlayer.cpp; same game)
                  | (o.teamOneWalk === true ? 1048576 : 0) // bit 20 (ai, second range 20-23): AI team build checks factories in one walk (AIPlayer.cpp; same game)
                  | (o.lightIter === true ? 2097152 : 0) // bit 21 (ai, second range): terrain vertex lighting keeps its lights iterator on the stack (BaseHeightMap.cpp; same picture)
+                 | (o.audioNames === true ? 4194304 : 0) // bit 22 (ai): sound file names built once per event and sound (AudioEventRTS.cpp; same game)
+                 | (o.attackReuse === true ? 8388608 : 0) // bit 23 (ai): an attack's state machine recycled for the next attack (AIStates.cpp; same game)
+                 | (o.deathDeselect === true ? 16777216 : 0) // bit 24 (ai): match rule bit 31, a dying unit leaves only selections that hold it (GameLogic.cpp)
                  | (o.fastRemove === true ? 8 : 0);       // bit 3 (ai): unit group and radar removal by stored node / back link (AIGroup.cpp, Radar.cpp; same game)
         });
         g_PageSwitches5 = EM_ASM_INT({

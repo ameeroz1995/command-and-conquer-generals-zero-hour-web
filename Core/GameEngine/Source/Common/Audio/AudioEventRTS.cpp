@@ -43,6 +43,9 @@
 #include "Common/AudioEventInfo.h"
 #include "Common/AudioRandomValue.h"
 #include "Common/AudioSettings.h"
+#include "Common/GxSweep.h"
+#include <unordered_map>
+#include <vector>
 #include "Common/file.h"
 #include "Common/FileSystem.h"
 #include "Common/GameSounds.h"
@@ -320,7 +323,11 @@ void AudioEventRTS::generateFilename()
 		return;
 	}
 
-	m_filenameToLoad = generateFilenamePrefix(m_eventInfo->m_soundType, false);
+	// web port audioNames (sixth word bit 22): a sound's full file name is built once per event and
+	// sound and kept; the random choice below is untouched
+	const Bool gxNames = gxSweepOn(GXSW_AUDIO_NAMES) && m_eventInfo->m_soundType != AT_Music && m_eventInfo->m_soundType != AT_Streaming;
+	if (!gxNames)
+		m_filenameToLoad = generateFilenamePrefix(m_eventInfo->m_soundType, false);
 
 	Int which = 0;
 
@@ -359,9 +366,30 @@ void AudioEventRTS::generateFilename()
 
 	}
 
-	m_filenameToLoad.concat(m_eventInfo->m_sounds[which]);
-	m_filenameToLoad.concat(generateFilenameExtension(m_eventInfo->m_soundType));
-	adjustForLocalization(m_filenameToLoad);
+	if (gxNames)
+	{
+		struct GxName { AsciiString sound, path; };
+		static std::unordered_map<const AudioEventInfo *, std::vector<GxName>> s_names;
+		std::vector<GxName> &v = s_names[m_eventInfo];
+		if (v.size() < m_eventInfo->m_sounds.size())
+			v.resize(m_eventInfo->m_sounds.size());
+		GxName &n = v[which];
+		if (n.path.isEmpty() || n.sound != m_eventInfo->m_sounds[which])	// built on first use; a reused info pointer rebuilds
+		{
+			n.sound = m_eventInfo->m_sounds[which];
+			n.path = generateFilenamePrefix(m_eventInfo->m_soundType, false);
+			n.path.concat(n.sound);
+			n.path.concat(generateFilenameExtension(m_eventInfo->m_soundType));
+			adjustForLocalization(n.path);
+		}
+		m_filenameToLoad = n.path;
+	}
+	else
+	{
+		m_filenameToLoad.concat(m_eventInfo->m_sounds[which]);
+		m_filenameToLoad.concat(generateFilenameExtension(m_eventInfo->m_soundType));
+		adjustForLocalization(m_filenameToLoad);
+	}
 
 	// Note: Also generate Delay when generating a filename, cause
 	// we want delay to apply between every loop of a sound.
