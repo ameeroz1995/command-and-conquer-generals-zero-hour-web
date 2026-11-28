@@ -58,6 +58,28 @@
 #include "GameLogic/ScriptConditions.h"
 #include "GameLogic/ScriptEngine.h"
 #include "Common/GxTime.h"	// web port: moduleCost condition table
+#include "Common/GxNameMap.h"	// web port: verify helpers (powerRows)
+
+/// switch areaRows (eighth word bit 26, phase 13 E): area counts and values from the player's objects by
+/// template (Player::m_gxByTmpl, the same objects as the team walk, rebuilt on team join / leave); templates
+/// the check rules out are skipped whole (an object's template is fixed). A sum, so order does not matter.
+/// Verify (first word bit 21) runs the walk too and compares.
+static inline Bool gxAreaRowsOn() { return (GLES3_Page_Switches8() & 67108864) != 0; }
+template <class TmplOk, class ObjValue>
+static Int gxAreaRows(Player *p, TmplOk tmplOk, ObjValue objValue)
+{
+	p->gxRefreshMembers();
+	Int sum = 0;
+	for (auto it = p->m_gxByTmpl.begin(); it != p->m_gxByTmpl.end(); ++it)
+	{
+		if (it->second.empty() || !tmplOk(it->first))
+			continue;
+		for (Object *o : it->second)
+			sum += objValue(o);
+	}
+	return sum;
+}
+
 #include "GameLogic/Scripts.h"
 #include "GameLogic/VictoryConditions.h"
 
@@ -477,6 +499,10 @@ Bool ScriptConditions::evaluatePlayerHasUnitTypeInArea(Condition *pCondition, Pa
 	objectTypesFromParam(pTypeParm, types.m_types);
 
 	Int count = 0;
+	Int gxRows = gxAreaRowsOn() ? gxAreaRows(pPlayer, [&](const ThingTemplate *t) { return types.m_types->isInSet(t); },
+		[&](Object *pObj) { return (pObj->isInside(pTrig) && (!(pObj->isEffectivelyDead() || pObj->isKindOf(KINDOF_INERT)) || pObj->isKindOf( KINDOF_CRATE ))) ? 1 : 0; }) : -1;
+	if (gxRows >= 0 && !gxNameMapVerify()) count = gxRows;
+	else {
 	for (it = pPlayer->getPlayerTeams()->begin(); it != pPlayer->getPlayerTeams()->end(); ++it) {
 		for (DLINK_ITERATOR<Team> iter = (*it)->iterate_TeamInstanceList(); !iter.done(); iter.advance()) {
 			Team *team = iter.cur();
@@ -504,6 +530,8 @@ Bool ScriptConditions::evaluatePlayerHasUnitTypeInArea(Condition *pCondition, Pa
 				}
 			}
 		}
+	}
+	if (gxRows >= 0) gxNameCheck("areaRows", "typeInArea", gxRows == count);
 	}
 
 	Bool comparison = false;
@@ -569,6 +597,10 @@ Bool ScriptConditions::evaluatePlayerHasUnitKindInArea(Condition *pCondition, Pa
 
 
 	Int count = 0;
+	Int gxRows = gxAreaRowsOn() ? gxAreaRows(pPlayer, [&](const ThingTemplate *t) { return t->isKindOf(kind); },
+		[&](Object *pObj) { return (pObj->isInside(pTrig) && !(pObj->isEffectivelyDead() || pObj->isKindOf(KINDOF_INERT))) ? 1 : 0; }) : -1;
+	if (gxRows >= 0 && !gxNameMapVerify()) count = gxRows;
+	else {
 	for (it = pPlayer->getPlayerTeams()->begin(); it != pPlayer->getPlayerTeams()->end(); ++it) {
 		for (DLINK_ITERATOR<Team> iter = (*it)->iterate_TeamInstanceList(); !iter.done(); iter.advance()) {
 			Team *team = iter.cur();
@@ -589,6 +621,8 @@ Bool ScriptConditions::evaluatePlayerHasUnitKindInArea(Condition *pCondition, Pa
 				}
 			}
 		}
+	}
+	if (gxRows >= 0) gxNameCheck("areaRows", "kindInArea", gxRows == count);
 	}
 
 	Bool comparison = false;
@@ -1896,6 +1930,32 @@ Bool ScriptConditions::evaluatePlayerHasComparisonValueExcessPower(Parameter *pP
 //-------------------------------------------------------------------------------------------------
 /** evaluateSkirmishSpecialPowerIsReady - does any unit have this special power ready to use? */
 //-------------------------------------------------------------------------------------------------
+/// powerRows verify: the original walk, answer only (true if ready, else nextFrame lowered)
+static Bool gxPowerReadyWalk(Player *pPlayer, const SpecialPowerTemplate *power, Int &nextFrame)
+{
+	for (Player::PlayerTeamList::const_iterator it = pPlayer->getPlayerTeams()->begin(); it != pPlayer->getPlayerTeams()->end(); ++it) {
+		for (DLINK_ITERATOR<Team> iter = (*it)->iterate_TeamInstanceList(); !iter.done(); iter.advance()) {
+			Team *team = iter.cur();
+			if (!team) continue;
+			for (DLINK_ITERATOR<Object> iter = team->iterate_TeamMemberList(); !iter.done(); iter.advance()) {
+				Object *pObj = iter.cur();
+				if (!pObj) continue;
+				if( pObj->getStatusBits().test( OBJECT_STATUS_UNDER_CONSTRUCTION ) || pObj->isDisabled() )
+					continue;
+				SpecialPowerModuleInterface *mod = pObj->getSpecialPowerModule(power);
+				if (mod)
+				{
+					if (!TheSpecialPowerStore->canUseSpecialPower(pObj, power))
+						continue;
+					if (mod->isReady()) return true;
+					if (mod->getReadyFrame()<nextFrame) nextFrame = mod->getReadyFrame();
+				}
+			}
+		}
+	}
+	return false;
+}
+
 Bool ScriptConditions::evaluateSkirmishSpecialPowerIsReady(Parameter *pSkirmishPlayerParm, Parameter *pPower)
 {
 	if (pPower->getInt() == -1) return false;
@@ -1913,6 +1973,49 @@ Bool ScriptConditions::evaluateSkirmishSpecialPowerIsReady(Parameter *pSkirmishP
 	Player *pPlayer = playerFromParam(pSkirmishPlayerParm);
 	if (pPlayer==nullptr)
 		return false;
+
+	// switch powerRows (eighth word bit 25, phase 13 B/E): the power's own module list instead of every
+	// member of every team of the player. Same objects (a team member whose team's prototype the player
+	// owns), the first module of that power on each, the same tests; true if any is ready, else the
+	// soonest ready frame, neither of which depends on the order. Verify (first word bit 21) checks
+	// both answers against the walk below.
+	if (GLES3_Page_Switches8() & 33554432)
+	{
+		Int rowsNext = nextFrame;
+		Bool rowsReady = false;
+		if (const std::vector<SpecialPowerModule *> *rows = SpecialPowerModule::gxPowerRows(power->getID()))
+		{
+			for (SpecialPowerModule *m : *rows)
+			{
+				Object *pObj = m->gxObject();
+				Team *team = pObj->getTeam();
+				if (!team || team->getPrototype()->getControllingPlayer() != pPlayer)
+					continue;
+				if( pObj->getStatusBits().test( OBJECT_STATUS_UNDER_CONSTRUCTION ) || pObj->isDisabled() )
+					continue;
+				if (pObj->getSpecialPowerModule(power) != static_cast<SpecialPowerModuleInterface *>(m))
+					continue;	// a second module of the same power: the walk only asks the first
+				if (!TheSpecialPowerStore->canUseSpecialPower(pObj, power))
+					continue;
+				// through the const interface, as the walk: SpecialPowerModule also has a non-const
+				// getReadyFrame() (the raw frame, for Player's timers) that a non-const pointer would pick
+				const SpecialPowerModuleInterface *mi = m;
+				if (mi->isReady()) { rowsReady = true; break; }
+				if (mi->getReadyFrame() < rowsNext) rowsNext = mi->getReadyFrame();	// unsigned compare, as the walk
+			}
+		}
+		if (!gxNameMapVerify())
+		{
+			if (!rowsReady) pPower->friend_setInt(rowsNext);
+			return rowsReady;
+		}
+		// verify: the walk below decides; compare its answer
+		Int walkNext = nextFrame;
+		Bool walkReady = gxPowerReadyWalk(pPlayer, power, walkNext);
+		gxNameCheck("powerRows", power->getName().str(), walkReady == rowsReady && (walkReady || walkNext == rowsNext));
+		if (!walkReady) pPower->friend_setInt(walkNext);
+		return walkReady;
+	}
 
 	for (it = pPlayer->getPlayerTeams()->begin(); it != pPlayer->getPlayerTeams()->end(); ++it) {
 		for (DLINK_ITERATOR<Team> iter = (*it)->iterate_TeamInstanceList(); !iter.done(); iter.advance()) {
@@ -2146,6 +2249,10 @@ Bool ScriptConditions::evaluateSkirmishValueInArea(Condition *pCondition, Parame
 		if (pCondition->getCustomData()==1) return true;
 	}
 	Int totalCost = 0;
+	Int gxRows = gxAreaRowsOn() ? gxAreaRows(player, [&](const ThingTemplate *t) { return !t->isKindOf(KINDOF_INERT); },
+		[&](Object *pObj) { return (pObj->isInside(pTrig) && !pObj->isEffectivelyDead()) ? pObj->getTemplate()->friend_getBuildCost() : 0; }) : -1;
+	if (gxRows >= 0 && !gxNameMapVerify()) totalCost = gxRows;
+	else {
 	for (it = player->getPlayerTeams()->begin(); it != player->getPlayerTeams()->end(); ++it) {
 		for (DLINK_ITERATOR<Team> iter = (*it)->iterate_TeamInstanceList(); !iter.done(); iter.advance()) {
 			Team *team = iter.cur();
@@ -2168,6 +2275,8 @@ Bool ScriptConditions::evaluateSkirmishValueInArea(Condition *pCondition, Parame
 				}
 			}
 		}
+	}
+	if (gxRows >= 0) gxNameCheck("areaRows", "valueInArea", gxRows == totalCost);
 	}
 
 	Bool comparison = false;

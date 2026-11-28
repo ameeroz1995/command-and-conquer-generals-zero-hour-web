@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #pragma once
+#include <vector>
 
 // USER INCLUDES //////////////////////////////////////////////////////////////////////////////////
 #include "Common/AudioEventRTS.h"
@@ -159,6 +160,12 @@ public:
 	virtual const AudioEventRTS& getInitiateSound() const;
 
 	virtual Bool isScriptOnly() const;
+
+	/// phase 13 B (query), switch powerRows: every live module, listed under its power's template ID (any
+	/// order; kept with every module, the switch only picks who reads it). nullptr: no module of that power.
+	static const std::vector<SpecialPowerModule *> *gxPowerRows(UnsignedInt templateID);
+	Int m_gxPowerRow;	///< this module's index in its power's list
+	Object *gxObject() const { return const_cast<Object *>(getObject()); }	///< powerRows: the owner, for ScriptConditions
 
 	//If the special power launches a construction site, we need to know the final product for placement purposes.
 	virtual const ThingTemplate* getReferenceThingTemplate() const { return nullptr; }

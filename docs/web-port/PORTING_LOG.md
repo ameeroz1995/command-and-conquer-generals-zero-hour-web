@@ -5016,3 +5016,17 @@ Level within noise. batchScan on is timed once query's pass lands.
   TransportAIUpdate 0.90, JetAIUpdate 0.71, StealthUpdate 0.47, SpawnBehavior 0.36); creation 1.89 ms/tick
   (new units 50-110 ms each, about 300-750 allocations); script conditions 0.48 ms/tick
   (SKIRMISH_SPECIAL_POWER_READY 0.26).
+
+## 2026-11-28 (query): phase 13 parts B and E (powerRows bit 25 ON, areaRows bit 26 OFF)
+- powerRows (eighth word bit 25, default on): every SpecialPowerModule lists itself under its power's template ID
+  (SpecialPowerModule::gxPowerRows; swap-remove on destruction). evaluateSkirmishSpecialPowerIsReady reads that list
+  with the same filters as the walk (controlling player, not under construction / disabled, the object's module for the
+  power, canUseSpecialPower). The ready frame must be read through the const interface: the non-const
+  getReadyFrame() overload returns the raw frame and skips the shared-sync / pause handling. With verify (first word
+  bit 21) the walk also runs and is compared ("GXVERIFY nameMaps ... powerRows").
+  Battle: SKIRMISH_SPECIAL_POWER_READY 0.28 -> 0.008 ms/tick; work ms/tick inside noise (off 31.19/30.49, on
+  30.79/30.77; p99 and over-100 ms frames unchanged). ai7 verify 12000 frames 0 mismatches of 333,824; ai7 36004 and
+  referee match.
+- areaRows (eighth word bit 26, default off): PLAYER_HAS_UNIT_TYPE_IN_AREA, PLAYER_HAS_UNIT_KIND_IN_AREA and
+  SKIRMISH_VALUE_IN_AREA summed per template from Player::m_gxByTmpl. Exact, but slower (0.07 -> 0.8-1.0 ms/tick for
+  SKIRMISH_VALUE_IN_AREA) since that index is rebuilt on every team membership change. Off.

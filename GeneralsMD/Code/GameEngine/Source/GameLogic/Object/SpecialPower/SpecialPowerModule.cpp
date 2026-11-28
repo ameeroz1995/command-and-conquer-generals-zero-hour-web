@@ -94,8 +94,22 @@ SpecialPowerModuleData::SpecialPowerModuleData()
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+// phase 13 B (query): the modules of each power, by template ID (SpecialPowerModule::gxPowerRows)
+static std::vector<std::vector<SpecialPowerModule *> > s_gxPowerRows;
+
+const std::vector<SpecialPowerModule *> *SpecialPowerModule::gxPowerRows(UnsignedInt templateID)
+{
+	return templateID < s_gxPowerRows.size() && !s_gxPowerRows[templateID].empty() ? &s_gxPowerRows[templateID] : nullptr;
+}
+
 SpecialPowerModule::SpecialPowerModule( Thing *thing, const ModuleData *moduleData ) : BehaviorModule( thing, moduleData )
 {
+	{
+		const UnsignedInt id = getSpecialPowerModuleData()->m_specialPowerTemplate->getID();
+		if (id >= s_gxPowerRows.size()) s_gxPowerRows.resize(id + 1);
+		m_gxPowerRow = (Int)s_gxPowerRows[id].size();
+		s_gxPowerRows[id].push_back(this);
+	}
 
 
 #if RETAIL_COMPATIBLE_CRC
@@ -156,6 +170,12 @@ const AudioEventRTS& SpecialPowerModule::getInitiateSound() const
 //-------------------------------------------------------------------------------------------------
 SpecialPowerModule::~SpecialPowerModule()
 {
+	{
+		std::vector<SpecialPowerModule *> &rows = s_gxPowerRows[getSpecialPowerModuleData()->m_specialPowerTemplate->getID()];
+		rows[m_gxPowerRow] = rows.back();	// swap-remove: the list has no order
+		rows[m_gxPowerRow]->m_gxPowerRow = m_gxPowerRow;
+		rows.pop_back();
+	}
 
  	if( getSpecialPowerModuleData()->m_specialPowerTemplate->hasPublicTimer() == TRUE &&
 			getObject()->getControllingPlayer() )
