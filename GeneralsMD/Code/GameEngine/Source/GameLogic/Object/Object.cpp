@@ -1843,8 +1843,18 @@ void Object::reactToTurretChange( WhichTurretType turret, Real oldRotation, Real
 
 //-------------------------------------------------------------------------------------------------
 //DECLARE_PERF_TIMER(Object_reactToTransformChange)
+// web port (measuring only, tickTiming; phase 13 part B): reactToTransformChange by section, "GXXFK"
+// every 900 frames: drawable, store sync, partition place, dirty + contain, trigger areas + extent
+static double s_gxXfMs[5]; static unsigned long long s_gxXfN = 0; static UnsignedInt s_gxXfPrinted = 0;
+static double s_gxTrMs[3]; static unsigned long long s_gxTrCalls = 0, s_gxTrVisits = 0;	// triggers: client notify, pathfinder updatePos, polygon walk
 void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPos, Real oldAngle)
 {
+	const bool gxOn = gxTimingOn(); double gxT[6] = { 0 };
+	if (gxOn) {
+		const UnsignedInt f = TheGameLogic->getFrame();
+		if (f % 900 == 0 && f != s_gxXfPrinted) { s_gxXfPrinted = f; printf("GXXFK f%u: calls %llu, drawable %.0f ms, store %.0f ms, place %.0f ms, dirty+contain %.0f ms, triggers %.0f ms (moved a unit: %llu, notify %.0f ms, pathfinder pos %.0f ms, polygon walk %.0f ms, %llu trigger visits)\n", f, s_gxXfN, s_gxXfMs[0], s_gxXfMs[1], s_gxXfMs[2], s_gxXfMs[3], s_gxXfMs[4], s_gxTrCalls, s_gxTrMs[0], s_gxTrMs[1], s_gxTrMs[2], s_gxTrVisits); }
+		++s_gxXfN; gxT[0] = emscripten_get_now();
+	}
 	//USE_PERF_TIMER(Object_reactToTransformChange)
 	// web port (round 5): one position read for the checks below (with the position in the store
 	// each getPosition() copies the store's x/y/z into the row); nothing before makeDirty moves us
@@ -1857,15 +1867,18 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
 	{
   	m_gxObj->m_drawable->setTransformMatrix( this->getTransformMatrix() );
 	}
+	if (gxOn) gxT[1] = emscripten_get_now();
 
 	if (!gxPosInStore())
 		TheGxUnitStore.setPos(this, *gxPosNow);	// web port (round 4): write-through without positionInStore
 	else if (m_gxHotInStore)
 		TheGxUnitStore.gxXfSync(gxStoreSlot());	// web port: geomColumns, every transform change ends here
+	if (gxOn) gxT[2] = emscripten_get_now();
 
 	// web port (switch searchCache): range searches keep a copy of where we are
 	if (m_gxObj->m_partitionData)
 		m_gxObj->m_partitionData->gxRefreshPlace();
+	if (gxOn) gxT[3] = emscripten_get_now();
 
 	Bool posDiff = isPosDifferent(oldPos, gxPosNow);
 	Bool angDiff = isAngleDifferent(oldAngle, getOrientation());
@@ -1878,6 +1891,7 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
 		if (getContain())
 			getContain()->containReactToTransformChange();
 	}
+	if (gxOn) gxT[4] = emscripten_get_now();
 
 	if (posDiff)
 	{
@@ -1890,6 +1904,7 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
 		else
 			m_gxObj->m_privateStatus |= OFF_MAP;
 	}
+	if (gxOn) { gxT[5] = emscripten_get_now(); for (int i = 0; i < 5; ++i) s_gxXfMs[i] += gxT[i + 1] - gxT[i]; }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2729,16 +2744,20 @@ void Object::setTriggerAreaFlagsForChangeInPosition()
 		return; // didn't move enough to change integer position.
 	}
 
+	const bool gxOn = gxTimingOn(); double gxT0 = gxOn ? emscripten_get_now() : 0.0, gxT1 = gxT0, gxT2 = gxT0;
+	if (gxOn) ++s_gxTrCalls;
 	if (!isKindOf(KINDOF_IMMOBILE)) {
 		if (isKindOf(KINDOF_INFANTRY) || isKindOf(KINDOF_VEHICLE) ) {
 			TheGameClient->notifyTerrainObjectMoved(this);
 		}
 	}
+	if (gxOn) gxT1 = emscripten_get_now();
 
 	if (getAIUpdateInterface())
 	{
 		TheAI->pathfinder()->updatePos(this, getPosition());
 	}
+	if (gxOn) gxT2 = emscripten_get_now();
 
 	UnsignedInt now = TheGameLogic->getFrame();
 	if (m_gxObj->m_enteredOrExitedFrame != 0 && m_gxObj->m_enteredOrExitedFrame != now)
@@ -2766,6 +2785,7 @@ void Object::setTriggerAreaFlagsForChangeInPosition()
 
 	for (const PolygonTrigger *pTrig = PolygonTrigger::getFirstPolygonTrigger(); pTrig; pTrig = pTrig->getNext())
 	{
+		if (gxOn) ++s_gxTrVisits;
 		Bool skip = false;
 		for (i = 0; i < m_gxObj->m_numTriggerAreasActive; i++)
 		{
@@ -2809,6 +2829,7 @@ void Object::setTriggerAreaFlagsForChangeInPosition()
 
 	}
 
+	if (gxOn) { const double t3 = emscripten_get_now(); s_gxTrMs[0] += gxT1 - gxT0; s_gxTrMs[1] += gxT2 - gxT1; s_gxTrMs[2] += t3 - gxT2; }
 }
 
 

@@ -812,9 +812,20 @@ UpdateSleepTime PhysicsBehavior::update()
 	return gxStep();
 }
 
+// web port (measuring only, tickTiming; phase 13 part B): the physics step by section. One "GXPHYSK"
+// line every 900 frames: ms since the start in the step before the transform, the transform, and after.
+static double s_gxPhysMs[3]; static unsigned long long s_gxPhysN = 0; static UnsignedInt s_gxPhysPrinted = 0;
+static inline double gxPhysNow() { return gxTimingOn() ? emscripten_get_now() : 0.0; }
+
 UpdateSleepTime PhysicsBehavior::gxStep()
 {
 	USE_PERF_TIMER(PhysicsBehavior)
+	const double gxT0 = gxPhysNow(); double gxT1 = gxT0, gxT2 = gxT0;
+	if (gxTimingOn()) {
+		const UnsignedInt f = TheGameLogic->getFrame();
+		if (f % 900 == 0 && f != s_gxPhysPrinted) { s_gxPhysPrinted = f; printf("GXPHYSK f%u: steps %llu, before transform %.0f ms, transform %.0f ms, after %.0f ms\n", f, s_gxPhysN, s_gxPhysMs[0], s_gxPhysMs[1], s_gxPhysMs[2]); }
+		++s_gxPhysN;
+	}
 
 	Object*														obj = getObject();
 	const PhysicsBehaviorModuleData*	d = getPhysicsBehaviorModuleData();
@@ -988,6 +999,7 @@ UpdateSleepTime PhysicsBehavior::gxStep()
 			}
 		}
 
+		gxT1 = gxPhysNow();
 		if (gotBounceForce)
 		{
 			// Right the object after the bounce since the pitch and roll may have been affected
@@ -1006,6 +1018,7 @@ UpdateSleepTime PhysicsBehavior::gxStep()
 			obj->setTransformMatrix(&mtx);
 		}
 
+		gxT2 = gxPhysNow();
 		// physReuse: the airborne check below would look up the same ground height again
 		const Coord3D *p = obj->getPosition();
 		if (physReuse && p->x == mtx.Get_X_Translation() && p->y == mtx.Get_Y_Translation())
@@ -1120,6 +1133,7 @@ UpdateSleepTime PhysicsBehavior::gxStep()
 	setFlag(WAS_AIRBORNE_LAST_FRAME, airborneAtEnd);
 
 	setFlag(IS_IN_UPDATE, false);
+	if (gxTimingOn()) { const double t3 = emscripten_get_now(); s_gxPhysMs[0] += gxT1 - gxT0; s_gxPhysMs[1] += gxT2 - gxT1; s_gxPhysMs[2] += t3 - gxT2; }
 	return calcSleepTime();
 }
 
