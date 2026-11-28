@@ -126,6 +126,29 @@ struct GxCostScope
 	}
 };
 
+/// ai, phase 13 part A: self time of a named piece of work (a state class, a part of a state's update);
+/// nested named scopes are subtracted from their parent, so the table's self times add up
+struct GxNamedScope
+{
+	static int &depth() { static int d = 0; return d; }
+	static double *child() { static double c[16]; return c; }
+	const char *nm; int d; double t0; bool on;
+	explicit GxNamedScope(const char *n) : nm(n), d(0), t0(0.0), on(gxTimingOn() && depth() < 16)
+	{ if (on) { d = depth()++; child()[d] = 0.0; t0 = emscripten_get_now(); } }
+	~GxNamedScope()
+	{
+		if (!on) return;
+		const double el = emscripten_get_now() - t0;
+		--depth();
+		if (d > 0) child()[d - 1] += el;
+		std::vector<GxTimeState::Named> &v = gxTime().states;
+		size_t i = 0;
+		while (i < v.size() && v[i].name != nm) ++i;
+		if (i == v.size()) v.push_back({ nm, 0.0, 0 });
+		v[i].ms += el - child()[d]; v[i].calls++;
+	}
+};
+
 /// game memory blocks allocated while the outermost scope of `id` is open (g_gxAllocs, GameMemory.cpp)
 struct GxAllocScope
 {

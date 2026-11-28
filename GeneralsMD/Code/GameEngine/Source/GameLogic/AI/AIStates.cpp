@@ -69,6 +69,7 @@
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Module/StealthUpdate.h"
 #include "Common/GxSweep.h"
+#include "Common/GxTime.h"
 
 // Web port (round 5, units are pure data): AIStateMachine's per-unit state is a row of TheGxAIStateMachines;
 // GXROW_AISTATEMACHINE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
@@ -1561,7 +1562,8 @@ StateReturnType AIIdleState::update()
 		// do repulsor logic
 		if (obj->isKindOf(KINDOF_CAN_BE_REPULSED) && ai->isIdle())
 		{
-			Object* enemy = TheAI->findClosestRepulsor(obj, obj->getVisionRange());
+			Object* enemy;
+			{ GxNamedScope gxs("~idle.repulsor"); enemy = TheAI->findClosestRepulsor(obj, obj->getVisionRange()); }
 			if (enemy)
 			{
 				getMachine()->setState(AI_MOVE_AWAY_FROM_REPULSORS);
@@ -1571,7 +1573,8 @@ StateReturnType AIIdleState::update()
 		}
 
 		// Check to see if we have created a crate we need to pick up.
-		Object* crate = ai->checkForCrateToPickup();
+		Object* crate;
+		{ GxNamedScope gxs("~ai.crateCheck"); crate = ai->checkForCrateToPickup(); }
 		if (crate)
 		{
 			ai->aiMoveToObject(crate, CMD_FROM_AI);
@@ -1591,7 +1594,8 @@ StateReturnType AIIdleState::update()
 			if ((moodAdjust & MAA_Affect_Range_IgnoreAll) == 0)
 			{
 				// If we're supposed to attack based on mood, etc, then we will do so.
-				Object* enemy = ai->getNextMoodTarget( true, true );
+				Object* enemy;
+				{ GxNamedScope gxs("~idle.moodTarget"); enemy = ai->getNextMoodTarget( true, true ); }
 				if (enemy)
 				{
 	 				ai->aiAttackObject(enemy, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
@@ -3808,7 +3812,8 @@ StateReturnType AIAttackMoveToState::update()
 	{
 
 		// Check to see if we have created a crate we need to pick up.
-		Object* crate = ai->checkForCrateToPickup();
+		Object* crate;
+		{ GxNamedScope gxs("~ai.crateCheck"); crate = ai->checkForCrateToPickup(); }
 		if (crate)
 		{
 			m_attackMoveMachine->setGoalObject(crate);
@@ -3817,7 +3822,7 @@ StateReturnType AIAttackMoveToState::update()
 		}
 
 		Object* nextObjectToAttack;
-		nextObjectToAttack = ai->getNextMoodTarget( !forceRetargetThisFrame, false );
+		{ GxNamedScope gxs("~attackMove.moodTarget"); nextObjectToAttack = ai->getNextMoodTarget( !forceRetargetThisFrame, false ); }
 		if (nextObjectToAttack != nullptr)
 		{
 			ai->friend_endingMove();
@@ -3843,7 +3848,8 @@ StateReturnType AIAttackMoveToState::update()
 		forceRepath();
 	}
 
-	StateReturnType ret = AIMoveToState::update();
+	StateReturnType ret;
+	{ GxNamedScope gxs("~attackMove.moveTo"); ret = AIMoveToState::update(); }
 	if (ret != STATE_CONTINUE) {
 		if (m_retryCount<1) return ret;
 		/* check for close enough. */
@@ -5431,7 +5437,7 @@ StateReturnType AIAttackFireWeaponState::update()
     // that lookl like the //LINKED TURRETS// block, below
 
 
-		obj->fireCurrentWeapon(victim);
+		{ GxNamedScope gxs("~fire.fireWeapon"); obj->fireCurrentWeapon(victim); }
 
 		//Kris: October 21, 2003 - Patch 1.01
 		//Fixes cases where some units couldn't transfer their attack to a different object. One example was Colonel Burton attacking
@@ -5876,7 +5882,8 @@ StateReturnType AIAttackState::update()
 
 	// Something can happen to make none of our weapons work.  Return failure, or we will start shooting
 	// our Primary (default pick) regardless of legality.
-	Bool weaponPicked = chooseWeapon();
+	Bool weaponPicked;
+	{ GxNamedScope gxs("~attack.chooseWeapon"); weaponPicked = chooseWeapon(); }
 	if( !weaponPicked )
 		return STATE_FAILURE;
 
