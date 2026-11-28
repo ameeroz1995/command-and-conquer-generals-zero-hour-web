@@ -30,6 +30,7 @@
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #include "Common/GxSweep.h"
 #include "Common/GxTime.h"	// web port: per-tick timers and work counters (tickTiming switch)
+
 #include <algorithm>
 #include <map>
 #include <Utility/gx_trace.h>
@@ -4324,7 +4325,8 @@ void GameLogic::update()
 			if (!dis.any() || dis.anyIntersectionWith(u->getDisabledTypesToProcess()))
 			{
 				m_curUpdateModule = u;
-				sleepLen = u->update();
+				{ GxCostScope gxCost(&GxTimeState::mod, gxCostOn() ? (int)u->getModuleNameKey() : -1);	// moduleCost
+				sleepLen = u->update(); }
 				gxCount(GXC_AI_MODULE_CALLS);
 				if (sleepLen < 1)
 					sleepLen = UPDATE_SLEEP_NONE;
@@ -4609,7 +4611,8 @@ void GameLogic::update()
 				//DEBUG_LOG(("calling update %08lx (%d %d)...",update,update->friend_getNextCallFrame(),update->friend_getNextCallPhase()));
 				m_curUpdateModule = u;
 
-				sleepLen = u->update();
+				{ GxCostScope gxCost(&GxTimeState::mod, gxCostOn() ? (int)u->getModuleNameKey() : -1);	// moduleCost
+				sleepLen = u->update(); }
 				gxCount(GXC_AI_MODULE_CALLS);
 				DEBUG_ASSERTCRASH(sleepLen > 0, ("you may not return 0 from update"));
 				if (sleepLen < 1)
@@ -6228,3 +6231,13 @@ void GameLogic::loadPostProcess()
 
 }
 
+/// GxTime.h moduleCost tables: a module type's name key or a template ID as text (copied, the tables print
+/// one name at a time)
+const char *gxCostName(bool spawn, int key)
+{
+	static char name[128];
+	const ThingTemplate *t = spawn && TheThingFactory ? TheThingFactory->findByTemplateID((UnsignedShort)key) : nullptr;
+	if (spawn) snprintf(name, sizeof(name), "%s", t ? t->getName().str() : "?");
+	else snprintf(name, sizeof(name), "%s", TheNameKeyGenerator ? TheNameKeyGenerator->keyToName((NameKeyType)key).str() : "?");
+	return name;
+}

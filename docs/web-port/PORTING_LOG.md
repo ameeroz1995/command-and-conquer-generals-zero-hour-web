@@ -5000,3 +5000,19 @@ Level within noise. batchScan on is timed once query's pass lands.
     all 5 pairs: 3.35 -> 4.06, 3.36 -> 3.82, then alternated 2.88 -> 3.11, 2.86 -> 3.12, 2.86 -> 3.01 (logic means
     28.47 off vs 28.88 on). With the scalar cull already branchless and call-free, the SIMD block setup costs more
     than it saves at this density.
+
+## 2026-11-28 (query): phase 13 part A, the shared cost tool (moduleCost, eighth word bit 24, off; measuring only)
+- With tickTiming, `"moduleCost":true` times every module update by module type (getModuleNameKey, the class
+  name), every object creation by template (ThingFactory::newObject, from createObject to initObject, keyed by
+  template ID) and every script condition by type (internal name). Tables are rows keyed by name key / ID in
+  GxTimeState (GxTime.h), so lanes add no GxTime enum ids.
+- At the end (GXTIMEEND) three lines, the 60 costliest rows each: `GXMOD`, `GXSPAWN`, `GXCOND`, each row
+  `name ms/tick calls/tick us/call max ms over1 allocs/call` (over1 = calls over 1 ms: creation spikes). The
+  bench result shows them as gxmod / gxspawn / gxcond (bench_run with draw:false, and bench_replay with
+  settings {"tickTiming":true,"moduleCost":true}).
+- Times are inclusive (a module update that creates objects holds their cost). The browser clock is 0.1 ms
+  grained, so us/call is only meaningful as an average over many calls; max and over1 are real.
+- Battle (query-71): modules 16.1 ms/tick of aiLoop's 21.9 (AIUpdateInterface 5.10, PhysicsBehavior 4.93,
+  TransportAIUpdate 0.90, JetAIUpdate 0.71, StealthUpdate 0.47, SpawnBehavior 0.36); creation 1.89 ms/tick
+  (new units 50-110 ms each, about 300-750 allocations); script conditions 0.48 ms/tick
+  (SKIRMISH_SPECIAL_POWER_READY 0.26).

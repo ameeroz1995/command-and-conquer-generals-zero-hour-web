@@ -47,6 +47,7 @@
 #include "GameClient/GameClient.h"
 #include "GameClient/Drawable.h"
 #include "Common/INI.h"
+#include "Common/GxTime.h"	// web port: moduleCost creation table
 
 
 enum { TEMPLATE_HASH_SIZE = 12288 };
@@ -327,6 +328,9 @@ Object *ThingFactory::newObject( const ThingTemplate *tmplate, Team *team, Objec
 	// (this will throw an exception on failure.)
 	//Added ability to pass in optional statusBits. This is needed to be set prior to
 	//the onCreate() calls... in the case of constructing.
+	// moduleCost (GxTime.h): creation cost and spikes per template (by template ID, which a lookup by
+	// name would not add a name key for), from here to initObject
+	GxCostScope gxCost(&GxTimeState::spawn, gxCostOn() ? (int)tmplate->getTemplateID() : -1);
 	Object *obj = TheGameLogic->friend_createObject( tmplate, statusBits, team );
 
 	// run the create function for the thing

@@ -57,6 +57,7 @@
 #include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/ScriptConditions.h"
 #include "GameLogic/ScriptEngine.h"
+#include "Common/GxTime.h"	// web port: moduleCost condition table
 #include "GameLogic/Scripts.h"
 #include "GameLogic/VictoryConditions.h"
 
@@ -2723,6 +2724,9 @@ Bool ScriptConditions::evaluatePlayerLostObjectType(Parameter *pPlayerParm, Para
 //-------------------------------------------------------------------------------------------------
 Bool ScriptConditions::evaluateCondition( Condition *pCondition )
 {
+	// moduleCost (GxTime.h): cost per condition type, keyed by its internal name's key
+	const ConditionTemplate *gxTmpl = gxCostOn() ? TheScriptEngine->getConditionTemplate(pCondition->getConditionType()) : nullptr;
+	GxCostScope gxCost(&GxTimeState::cond, gxTmpl ? (int)gxTmpl->m_internalNameKey : -1);
 	switch (pCondition->getConditionType()) {
 		default:
 			DEBUG_CRASH(("Unknown ScriptCondition type %d", pCondition->getConditionType()));

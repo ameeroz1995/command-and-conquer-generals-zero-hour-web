@@ -13,11 +13,17 @@
 #include <vector>
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 extern int GLES3_Page_Switches4();
+extern int GLES3_Page_Switches8();
 #else
+#ifndef GX_SWITCHES8_FALLBACK
+#define GX_SWITCHES8_FALLBACK
+static inline int GLES3_Page_Switches8() { return 0; }
+#endif
 #ifndef GX_SWITCHES4_FALLBACK
 #define GX_SWITCHES4_FALLBACK
 static inline int GLES3_Page_Switches4() { return 0; }
@@ -57,6 +63,10 @@ enum GxCountId
 
 extern unsigned long long g_gxAllocs;	///< game memory blocks handed out (GameMemory.cpp)
 
+/// phase 13 part A (query): one row of a cost table keyed by a name key (module type or object template),
+/// so lanes add no enum ids. Inclusive times: a module update that creates objects also holds their cost.
+struct GxCostRow { double ms = 0.0, maxMs = 0.0; unsigned long long calls = 0, over1 = 0, allocs = 0; };
+
 struct GxTimeState
 {
 	double ms[GXT_TIME_COUNT] = {};
@@ -66,6 +76,7 @@ struct GxTimeState
 	std::vector<float> frames;	///< frame intervals (ms)
 	double lastFrame = 0.0;
 	int depth[GXT_TIME_COUNT] = {};	///< nesting guard: only the outermost scope of an id is timed
+	std::vector<GxCostRow> mod, spawn, cond;	///< moduleCost: per module type (getModuleNameKey), per created template (template ID), per script condition type (internal name key)
 };
 
 extern unsigned long long g_gxAllocs;	// GameMemory.cpp: every pool block and large block handed out
@@ -85,6 +96,31 @@ struct GxTimeScope
 		GxTimeState &s = gxTime();
 		if (on) { s.ms[id] += emscripten_get_now() - t0; s.allocs[id] += g_gxAllocs - a0; }
 		if (s.depth[id] > 0) --s.depth[id];
+	}
+};
+
+/// switch moduleCost (eighth word bit 24, with tickTiming): every module update timed by module type and
+/// every object creation by template, every script condition by type; printed as GXMOD / GXSPAWN / GXCOND
+/// lines next to GXTIMEEND
+inline bool gxCostOn() { return gxTimingOn() && (GLES3_Page_Switches8() & 16777216) != 0; }
+const char *gxCostName(bool spawn, int key);	///< module name key or template ID -> text (GameLogic.cpp)
+struct GxCostScope
+{
+	std::vector<GxCostRow> *t; int key; double t0; unsigned long long a0;
+	GxCostScope(std::vector<GxCostRow> GxTimeState::*table, int k) : t(nullptr), key(k), t0(0.0), a0(0)
+	{
+		if (!gxCostOn() || k < 0) return;
+		t = &(gxTime().*table); a0 = g_gxAllocs; t0 = emscripten_get_now();
+	}
+	~GxCostScope()
+	{
+		if (!t) return;
+		const double d = emscripten_get_now() - t0;
+		if ((size_t)key >= t->size()) t->resize(key + 1);
+		GxCostRow &r = (*t)[key];
+		r.ms += d; r.calls++; r.allocs += g_gxAllocs - a0;
+		if (d > r.maxMs) r.maxMs = d;
+		if (d > 1.0) r.over1++;
 	}
 };
 
@@ -115,7 +151,26 @@ inline void gxTimeFrameStart()
 
 inline void gxTimePrint(const char *tag);
 
-inline void gxTimePrint(const char *tag);
+/// one "<tag> ticks N: name ms/tick calls/tick us/call max ms over1 allocs/call; ..." line, the `top` costliest
+/// rows by total time (GXMOD at a replay's or battle's end; GXSPAWN adds creation spikes: max and calls over 1 ms)
+inline void gxCostPrint(const char *tag, const std::vector<GxCostRow> &t, unsigned long long ticks, int top)
+{
+	std::vector<int> k;
+	double sum = 0.0;
+	for (size_t i = 0; i < t.size(); ++i) if (t[i].calls) { k.push_back((int)i); sum += t[i].ms; }
+	std::sort(k.begin(), k.end(), [&](int a, int b) { return t[a].ms > t[b].ms; });
+	if ((int)k.size() > top) k.resize(top);
+	static char buf[16384];
+	int n = snprintf(buf, sizeof(buf), "%s ticks %llu: total %.3f ms/tick;", tag, ticks, sum / ticks);
+	for (int i : k)
+	{
+		const GxCostRow &r = t[i];
+		if (n >= (int)sizeof(buf) - 256) break;
+		n += snprintf(buf + n, sizeof(buf) - n, " %s %.3f ms/tick %.2f calls/tick %.1f us/call max %.2f ms over1 %llu allocs/call %.1f;",
+			gxCostName(&t == &gxTime().spawn, i), r.ms / ticks, (double)r.calls / ticks, 1000.0 * r.ms / r.calls, r.maxMs, r.over1, (double)r.allocs / r.calls);
+	}
+	printf("%s\n", buf);
+}
 
 /// after each logic tick
 inline void gxTimeTickEnd()
@@ -157,4 +212,5 @@ inline void gxTimePrint(const char *tag)
 	for (int i = GXT_SEARCH; i < GXT_TIME_COUNT; ++i) k += snprintf(buf + k, sizeof(buf) - k, " %sAllocs %.1f/tick;", tn[i], (double)s.allocs[i] / s.ticks);
 	snprintf(buf + k, sizeof(buf) - k, " frames %d, p99 %.1f ms, over 100 ms %d", (int)f.size(), p99, over100);
 	printf("%s\n", buf);
+	if (gxCostOn() && strcmp(tag, "GXTIME") != 0) { gxCostPrint("GXMOD", s.mod, s.ticks, 60); gxCostPrint("GXSPAWN", s.spawn, s.ticks, 60); gxCostPrint("GXCOND", s.cond, s.ticks, 60); }
 }

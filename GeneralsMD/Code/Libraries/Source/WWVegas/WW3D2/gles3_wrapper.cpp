@@ -520,7 +520,8 @@ void GLES3_Begin_Scene() {
         });
         g_PageSwitches8 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
-            return 0;   // eighth word (phase 13): collide 0-5, paths 6-11, combat 12-17, ai 18-23, query 24-29, 30-31 main
+            return 0   // eighth word (phase 13): collide 0-5, paths 6-11, combat 12-17, ai 18-23, query 24-29, 30-31 main
+                 | (o.moduleCost === true ? 16777216 : 0);   // bit 24 (query): with tickTiming, cost per module type and per created object template, printed as GXMOD / GXSPAWN lines (GxTime.h; measuring only)
         });
         g_PageSwitches7 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
