@@ -62,6 +62,7 @@ extern int GLES3_Page_Switches5();
 extern int GLES3_Page_Switches6();
 extern int GLES3_Page_Switches7();
 extern int GLES3_Page_Switches8();
+extern int GLES3_Page_Switches9();
 #else
 #ifndef GX_SWITCHES56_FALLBACK
 #define GX_SWITCHES56_FALLBACK
@@ -69,6 +70,7 @@ static inline int GLES3_Page_Switches5() { return 0; }
 static inline int GLES3_Page_Switches6() { return 0; }
 static inline int GLES3_Page_Switches7() { return 0; }
 static inline int GLES3_Page_Switches8() { return 0; }
+static inline int GLES3_Page_Switches9() { return 0; }
 #endif
 #endif
 /// switch geomColumns (round 5, fifth word bit 4, value 16; with hotInStore): geometry and transform also
