@@ -52,6 +52,7 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/PolygonTrigger.h"
+#include "Common/GxTime.h"
 
 // Web port (round 5, units are pure data): ExitConditions's per-unit state is a row of TheGxExitConditionss;
 // GXROW_EXITCONDITIONS is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
@@ -317,6 +318,19 @@ Bool AIGuardMachine::lookForInnerTarget()
 		filters[count++] = &f4;
 	}
 
+	if (GLES3_Page_Switches8() & (1 << 19))
+	{
+		// filterOrder (eighth word bit 19, exact): every filter must pass and none has side effects, so
+		// the order only decides how soon an object is rejected. The weapon / enter / hijack tests go
+		// last, after the cheap relationship, map status, area and flying tests (first filter kept).
+		PartitionFilter *late[3]; Int nLate = 0, k = 1;
+		for (Int i = 1; i < count; ++i)
+		{
+			if (filters[i] == &f2 || filters[i] == &f6 || filters[i] == &f7) late[nLate++] = filters[i];
+			else filters[k++] = filters[i];
+		}
+		for (Int i = 0; i < nLate; ++i) filters[k++] = late[i];
+	}
 	filters[count++] = nullptr;
 
 //	SimpleObjectIterator* iter = ThePartitionManager->iterateObjectsInRange(
@@ -328,7 +342,8 @@ Bool AIGuardMachine::lookForInnerTarget()
 // just ask for that; the above has to find ALL objects in range, but we ignore all
 // but the first (closest).
 //
-	Object* target = ThePartitionManager->getClosestObject(&pos, visionRange, FROM_CENTER_2D, filters);
+	Object* target;
+	{ GxNamedScope gxs(area ? "~guard.searchArea" : "~guard.search"); target = ThePartitionManager->getClosestObject(&pos, visionRange, FROM_CENTER_2D, filters); }
 	if (target)
 	{
 		setNemesisID(target->getID());

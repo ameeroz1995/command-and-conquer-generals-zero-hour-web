@@ -6005,9 +6005,9 @@ SimpleObjectIterator *PartitionManager::iterateObjectsInRange(
 	SimpleObjectIterator *iter = newInstance(SimpleObjectIterator);
 	iterHolder.hold(iter);
 
-	getClosestObjects(obj, nullptr, maxDist, dc, filters, iter, nullptr, nullptr);
+	{ GxNamedScope gxs("~iter.collect"); getClosestObjects(obj, nullptr, maxDist, dc, filters, iter, nullptr, nullptr); }
 
-	iter->sort(order);
+	{ GxNamedScope gxs("~iter.sort"); iter->sort(order); }
 	iterHolder.release();
 	return iter;
 }

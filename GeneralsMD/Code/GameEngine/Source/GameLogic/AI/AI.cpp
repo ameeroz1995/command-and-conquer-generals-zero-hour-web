@@ -44,6 +44,7 @@
 #include "GameLogic/SidesList.h"
 #include "GameLogic/AIPathfind.h"
 #include "GameLogic/Weapon.h"
+#include "Common/GxTime.h"
 
 extern void addIcon(const Coord3D *pos, Real width, Int numFramesDuration, RGBColor color);
 
@@ -675,6 +676,16 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 
 	filters[numFilters++] = &filterStealth;
 
+	if ((qualifiers & CAN_ATTACK) && (GLES3_Page_Switches8() & (1 << 19)))
+	{
+		// filterOrder (eighth word bit 19, exact): the filters have no side effects and all must pass, so
+		// the weapon test (the costly one) moves after the fog, insignificant-building and stealth tests
+		Int k = 0;
+		for (Int i = 0; i < numFilters; ++i)
+			if (filters[i] != &filterAttack) filters[k++] = filters[i];
+		filters[k++] = &filterAttack;
+	}
+
 	if (optionalFilter)
 	{
 		filters[numFilters++] = optionalFilter;
@@ -689,11 +700,52 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 		return o;
 	}
 
+	if (GLES3_Page_Switches8() & (1 << 18))
+	{
+		// priorityNoSort (eighth word bit 18, exact): the loop below keeps the first enemy, in near-to-far
+		// order, with the highest (distance-adjusted priority, priority). The sort is a stable merge
+		// sort on the stored distance, so that is the enemy with the highest (adjusted, priority), then
+		// the smallest stored distance, then the earliest in the unsorted list: one pass, no sort.
+		Object *best = nullptr;
+		Int bestMod = 0, bestCur = 0;
+		Real bestNum = 0.0f;
+		SimpleObjectIterator *it = ThePartitionManager->iterateObjectsInRange(me, range, FROM_BOUNDINGSPHERE_2D, filters, ITER_FASTEST);
+		MemoryPoolObjectHolder h(it);
+		Real num = 0.0f;
+		for (Object *theEnemy = it->firstWithNumeric(&num); theEnemy; theEnemy = it->nextWithNumeric(&num))
+		{
+			Int curPriority = info->getPriority(theEnemy->getTemplate());
+			if (curPriority == 0)
+				continue;
+			ContainModuleInterface* contain = theEnemy->getContain();
+			if (contain) {
+				TPriorityInfo priorityInfo;
+				priorityInfo.priority = curPriority;
+				priorityInfo.info = info;
+				contain->iterateContained( priorityFunc, &priorityInfo, false ) ;
+				if (priorityInfo.priority > curPriority)
+					curPriority = priorityInfo.priority;
+			}
+			Real distSqr = ThePartitionManager->getDistanceSquared(me, theEnemy, FROM_BOUNDINGSPHERE_2D);
+			Real dist = sqrt(distSqr);
+			Int modifier = dist/getAiData()->m_attackPriorityDistanceModifier;
+			Int modPriority = curPriority-modifier;
+			if (modPriority < 1)
+				modPriority = 1;
+			if (best == nullptr || modPriority > bestMod || (modPriority == bestMod && (curPriority > bestCur || (curPriority == bestCur && num < bestNum))))
+			{
+				best = theEnemy; bestMod = modPriority; bestCur = curPriority; bestNum = num;
+			}
+		}
+		return best;
+	}
+
 	Object *bestEnemy = nullptr;
 	Int			effectivePriority=0;
 	Int			actualPriority=0;
 	ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange(me, range, FROM_BOUNDINGSPHERE_2D, filters, ITER_SORTED_NEAR_TO_FAR);
 	MemoryPoolObjectHolder holder(iter);
+	GxNamedScope gxsLoop("~fce.priorityLoop");
 	for (Object *theEnemy = iter->first(); theEnemy; theEnemy = iter->next())
 	{
 		Int curPriority = info->getPriority(theEnemy->getTemplate());

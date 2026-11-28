@@ -7427,7 +7427,7 @@ StateReturnType AIHuntState::update()
 		else
 		{
 			// do NOT do line of sight check - we want to find everything
-			victim = TheAI->findClosestEnemy( owner, 9999.9f, AI::CAN_ATTACK, info );
+			{ GxNamedScope gxs("~hunt.findEnemy"); victim = TheAI->findClosestEnemy( owner, 9999.9f, AI::CAN_ATTACK, info ); }
 			if (victim==nullptr && owner->getControllingPlayer() && owner->getControllingPlayer()->getUnitsShouldHunt()) {
 				// If we are doing an all hunt, try hunting without the attack priority info. jba.
 				victim = TheAI->findClosestEnemy(owner, 9999.9f, AI::CAN_ATTACK, nullptr);
