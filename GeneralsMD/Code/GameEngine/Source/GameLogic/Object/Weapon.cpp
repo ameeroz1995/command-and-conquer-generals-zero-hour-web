@@ -1059,6 +1059,7 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate(
       handled =
           TRUE; // then let's just pretend like we did the fx by returning true
     } else {
+      GX_WCOST("WeaponDrawFX");	// moduleCost
       handled = sourceObj->getDrawable()->handleWeaponFireFX(
           wslot, specificBarrelToUse, fx, getWeaponSpeed(), reAngle, reDir,
           &targetPos, getPrimaryDamageRadius(bonus));
@@ -1071,6 +1072,7 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate(
                                  ? &targetPos
                                  : sourceObj->getDrawable()->getPosition();
       GxAllocScope gxFx(GXC_ALLOC_FX); // tickTiming: allocations in the fire FX (client side)
+      GX_WCOST("WeaponFireFX");	// moduleCost
       FXList::doFXPos(fx, where, sourceObj->getDrawable()->getTransformMatrix(),
                       getWeaponSpeed(), &targetPos,
                       getPrimaryDamageRadius(bonus));
@@ -1084,6 +1086,7 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate(
         isProjectileDetonation ? getProjectileDetonationOCL(v) : getFireOCL(v);
     if (oclToUse) {
       GxAllocScope gxSp(GXC_ALLOC_SPAWN); // tickTiming: allocations creating objects
+      GX_WCOST("WeaponFireOCL");	// moduleCost
       ObjectCreationList::create(oclToUse, sourceObj, nullptr);
     }
   }
@@ -1160,11 +1163,13 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate(
         if (victimObj) {
           projectileDestination.set(victimObj->getPosition());
         }
+        GX_WCOST("WeaponLaser");	// moduleCost
         firingWeapon->createLaser(sourceObj, victimObj, &projectileDestination);
       } else {
         // We are missing our intended target, so now we want to aim at the
         // ground at the projectile offset.
         damageID = INVALID_ID;
+        GX_WCOST("WeaponLaser");	// moduleCost
         firingWeapon->createLaser(sourceObj, nullptr, &projectileDestination);
       }
       if (inflictDamage) {
@@ -1221,6 +1226,7 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate(
     Object *projectile;
     {
       GxAllocScope gxSp(GXC_ALLOC_SPAWN); // tickTiming
+      GX_WCOST("WeaponProjectileNew");	// moduleCost
       projectile = TheThingFactory->newObject(
           getProjectileTemplate(), owningPlayer->getDefaultTeam());
     }
@@ -1263,6 +1269,7 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate(
         break;
     }
     if (pui) {
+      GX_WCOST("WeaponLaunch");	// moduleCost
       VeterancyLevel v = sourceObj->getVeterancyLevel();
       if (scatterRadius > 0.0f) {
         // With a scatter radius, don't follow the victim (overriding the
@@ -1500,6 +1507,7 @@ void WeaponTemplate::dealDamageInternal(ObjectID sourceID, ObjectID victimID,
                                         const WeaponBonus &bonus,
                                         Bool isProjectileDetonation) const {
   GxAllocScope gxA(GXC_ALLOC_DAMAGE); // tickTiming
+	GX_WCOST("WeaponDamage");	// moduleCost
   if (sourceID == 0) // must have a source
     return;
 
@@ -2865,8 +2873,10 @@ Bool Weapon::privateFireWeapon(const Object *sourceObj, Object *victimObj,
 
   // If we are a networked weapon, tell everyone nearby they might want to get
   // in on this shot
-  if (TheGxWeapons.tmpl[m_row]->getRequestAssistRange() && victimObj)
+  if (TheGxWeapons.tmpl[m_row]->getRequestAssistRange() && victimObj) {
+    GX_WCOST("WeaponAssist");	// moduleCost
     processRequestAssistance(sourceObj, victimObj);
+  }
 
   // For weapon templates that have the leech range weapon flag set, it
   // essentially grants the weapon unlimited range for the remainder of the
@@ -3010,6 +3020,7 @@ Bool Weapon::privateFireWeapon(const Object *sourceObj, Object *victimObj,
                                      ignoreRanges, this, projectileID,
                                      inflictDamage);
     } else {
+      GX_WCOST("WeaponTemplateFire");	// moduleCost
       TheGxWeapons.tmpl[m_row]->fireWeaponTemplate(sourceObj, TheGxWeapons.wslot[m_row], TheGxWeapons.curBarrel[m_row], victimObj,
                                      victimPos, bonus, isProjectileDetonation,
                                      ignoreRanges, this, projectileID,
