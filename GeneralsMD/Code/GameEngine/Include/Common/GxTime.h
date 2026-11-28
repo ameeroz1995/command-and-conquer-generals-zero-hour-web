@@ -77,6 +77,8 @@ struct GxTimeState
 	double lastFrame = 0.0;
 	int depth[GXT_TIME_COUNT] = {};	///< nesting guard: only the outermost scope of an id is timed
 	std::vector<GxCostRow> mod, spawn, cond;	///< moduleCost: per module type (getModuleNameKey), per created template (template ID), per script condition type (internal name key)
+	struct Named { const char *name; double ms; unsigned long long calls; };
+	std::vector<Named> states;	///< ai, phase 13 part A: self time per state class (StateMachine::updateStateMachine)
 };
 
 extern unsigned long long g_gxAllocs;	// GameMemory.cpp: every pool block and large block handed out
@@ -213,4 +215,13 @@ inline void gxTimePrint(const char *tag)
 	snprintf(buf + k, sizeof(buf) - k, " frames %d, p99 %.1f ms, over 100 ms %d", (int)f.size(), p99, over100);
 	printf("%s\n", buf);
 	if (gxCostOn() && strcmp(tag, "GXTIME") != 0) { gxCostPrint("GXMOD", s.mod, s.ticks, 60); gxCostPrint("GXSPAWN", s.spawn, s.ticks, 60); gxCostPrint("GXCOND", s.cond, s.ticks, 60); }
+	if (tag[0] == 'G' && tag[6] == 'E' && !s.states.empty())	// GXTIMEEND: ai's state cost table, top 30 by self time
+	{
+		std::vector<GxTimeState::Named> v = s.states;
+		std::sort(v.begin(), v.end(), [](const GxTimeState::Named &a, const GxTimeState::Named &b) { return a.ms > b.ms; });
+		k = snprintf(buf, sizeof(buf), "GXSTATECOST ticks %llu:", s.ticks);
+		for (size_t i = 0; i < v.size() && i < 30; ++i)
+			k += snprintf(buf + k, sizeof(buf) - k, " %s %.3f ms %.1f calls;", v[i].name, v[i].ms / s.ticks, (double)v[i].calls / s.ticks);
+		printf("%s\n", buf);
+	}
 }

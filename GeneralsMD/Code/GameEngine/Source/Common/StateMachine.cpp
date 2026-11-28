@@ -39,6 +39,8 @@
 #include "GameLogic/Object.h"
 
 #include "ref_ptr.h"
+#include "Common/GxTime.h"
+#include <typeinfo>
 
 // Web port (round 5, units are pure data): State's per-unit state is a row of TheGxStates;
 // GXROW_STATE is this unit's row (the old m_ members), so logic and xfer/CRC order are unchanged.
@@ -476,7 +478,26 @@ StateReturnType StateMachine::updateStateMachine()
 		State* stateBeforeUpdate = GXROW_STATEMACHINE.currentState;
 
 		// execute this state
-		StateReturnType status = GXROW_STATEMACHINE.currentState->update();
+		StateReturnType status;
+		static int s_gxDepth = 0; static double s_gxChild[16];
+		if (gxTimingOn() && s_gxDepth < 16)
+		{
+			// tickTiming (ai, phase 13 part A): each state class's self time (nested machines' states subtracted)
+			const char *nm = typeid(*stateBeforeUpdate).name();
+			const int d = s_gxDepth++; s_gxChild[d] = 0.0;
+			const double t0 = emscripten_get_now();
+			status = GXROW_STATEMACHINE.currentState->update();
+			const double el = emscripten_get_now() - t0;
+			--s_gxDepth;
+			if (d > 0) s_gxChild[d - 1] += el;
+			std::vector<GxTimeState::Named> &v = gxTime().states;
+			size_t i = 0;
+			while (i < v.size() && v[i].name != nm) ++i;
+			if (i == v.size()) v.push_back({ nm, 0.0, 0 });
+			v[i].ms += el - s_gxChild[d]; v[i].calls++;
+		}
+		else
+			status = GXROW_STATEMACHINE.currentState->update();
 
 		// it is possible that the state's update() method clears the state machine.
 		if (GXROW_STATEMACHINE.currentState == nullptr)
