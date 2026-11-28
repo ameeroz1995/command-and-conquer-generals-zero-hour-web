@@ -53,6 +53,13 @@
 #include "GameLogic/Module/SpawnBehavior.h"
 
 #include "GameLogic/Weapon.h"
+#include "Common/GxTime.h"
+
+// phase 13 part A (combat): weapon work inside unit updates, timed by name in the moduleCost table
+// (inclusive: choose holds the estimates it asks for, fire holds the projectile and damage it makes)
+#define GX_WCOST(name) static int gxWk_ = -1; \
+	GxCostScope gxWCost_(&GxTimeState::mod, gxCostOn() ? (gxWk_ < 0 ? (gxWk_ = (int)NAMEKEY(name)) : gxWk_) : -1)
+
 
 
 
@@ -347,6 +354,7 @@ void WeaponSet::loadPostProcess()
 //-------------------------------------------------------------------------------------------------
 void WeaponSet::updateWeaponSet(const Object* obj)
 {
+	GX_WCOST("WeaponSetUpdate");	// moduleCost
 	const WeaponTemplateSet* set = obj->getTemplate()->findWeaponTemplateSet(obj->getWeaponSetFlags());
 	DEBUG_ASSERTCRASH(set, ("findWeaponSet should never return null"));
 	if (set && set != TheGxWeaponSets.tmplSet[m_row])
@@ -850,6 +858,7 @@ CanAttackResult WeaponSet::getAbleToUseWeaponAgainstTarget( AbleToAttackType att
 //-------------------------------------------------------------------------------------------------
 Bool WeaponSet::chooseBestWeaponForTarget(const Object* obj, const Object* victim, WeaponChoiceCriteria criteria, CommandSourceType cmdSource)
 {
+	GX_WCOST("WeaponChoose");	// moduleCost
 	GxAllocScope gxA(GXC_ALLOC_ESTIMATE); // tickTiming: allocations in target / weapon choice
 	/*
 		1) The first criteria is weapon fitness.  If the object has two weapons that can fire concurrently,

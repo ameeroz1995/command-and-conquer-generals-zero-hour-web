@@ -93,6 +93,13 @@ static int GLES3_Page_Switches5() { return 0; }
 #include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Module/ProjectileStreamUpdate.h"
 #include "GameLogic/TerrainLogic.h"
+#include "Common/GxTime.h"
+
+// phase 13 part A (combat): weapon work inside unit updates, timed by name in the moduleCost table
+// (inclusive: choose holds the estimates it asks for, fire holds the projectile and damage it makes)
+#define GX_WCOST(name) static int gxWk_ = -1; \
+	GxCostScope gxWCost_(&GxTimeState::mod, gxCostOn() ? (gxWk_ < 0 ? (gxWk_ = (int)NAMEKEY(name)) : gxWk_) : -1)
+
 
 #define RATIONALIZE_ATTACK_RANGE
 #define ATTACK_RANGE_IS_2D
@@ -2211,6 +2218,7 @@ void Weapon::loadAmmoNow(const Object *sourceObj) {
 
 //-------------------------------------------------------------------------------------------------
 void Weapon::reloadAmmo(const Object *sourceObj) {
+	GX_WCOST("WeaponReload");	// moduleCost
 
   WeaponBonus bonus;
   computeBonus(sourceObj, 0, bonus);
@@ -2352,6 +2360,7 @@ void Weapon::onWeaponBonusChange(const Object *source) {
 Bool Weapon::computeApproachTarget(const Object *source, const Object *target,
                                    const Coord3D *pos, Real angleOffset,
                                    Coord3D &approachTargetPos) const {
+	GX_WCOST("WeaponApproach");	// moduleCost
   // compute unit direction vector from us to our victim
   const Coord3D *targetPos;
   Coord3D dir;
@@ -2508,6 +2517,7 @@ Bool Weapon::isSourceObjectWithGoalPositionWithinAttackRange(
 //-------------------------------------------------------------------------------------------------
 Bool Weapon::isWithinAttackRange(const Object *source,
                                  const Coord3D *pos) const {
+	GX_WCOST("WeaponRangeCheck");	// moduleCost
   Real distSqr = ThePartitionManager->getDistanceSquared(
       source, pos, ATTACK_RANGE_CALC_TYPE);
   Real attackRangeSqr = sqr(getAttackRange(source));
@@ -2526,6 +2536,7 @@ Bool Weapon::isWithinAttackRange(const Object *source,
 //-------------------------------------------------------------------------------------------------
 Bool Weapon::isWithinAttackRange(const Object *source,
                                  const Object *target) const {
+	GX_WCOST("WeaponRangeCheck");	// moduleCost
   Real distSqr;
   Real attackRangeSqr = sqr(getAttackRange(source));
 
@@ -2581,6 +2592,7 @@ Bool Weapon::isWithinAttackRange(const Object *source,
 
 //-------------------------------------------------------------------------------------------------
 Bool Weapon::isTooClose(const Object *source, const Object *target) const {
+	GX_WCOST("WeaponTooClose");	// moduleCost
   Real minAttackRange = TheGxWeapons.tmpl[m_row]->getMinimumAttackRange();
   if (minAttackRange == 0.0f)
     return false;
@@ -2595,6 +2607,7 @@ Bool Weapon::isTooClose(const Object *source, const Object *target) const {
 
 //-------------------------------------------------------------------------------------------------
 Bool Weapon::isTooClose(const Object *source, const Coord3D *pos) const {
+	GX_WCOST("WeaponTooClose");	// moduleCost
   Real minAttackRange = TheGxWeapons.tmpl[m_row]->getMinimumAttackRange();
   if (minAttackRange == 0.0f)
     return false;
@@ -2612,6 +2625,7 @@ Bool Weapon::isGoalPosWithinAttackRange(const Object *source,
                                         const Coord3D *goalPos,
                                         const Object *target,
                                         const Coord3D *targetPos) const {
+	GX_WCOST("WeaponRangeCheck");	// moduleCost
   Real distSqr;
   // Note - undersize by 1/4 of a pathfind cell, so that the goal is not
   // teetering on the edge of firing range.  jba. Note 2 - even with
@@ -2735,6 +2749,7 @@ Real Weapon::getAttackDistance(const Object *source, const Object *victimObj,
 Real Weapon::estimateWeaponDamage(const Object *sourceObj,
                                   const Object *victimObj,
                                   const Coord3D *victimPos) {
+	GX_WCOST("WeaponEstimate");	// moduleCost
   GxAllocScope gxA(GXC_ALLOC_ESTIMATE); // tickTiming
   if (!TheGxWeapons.tmpl[m_row])
     return 0.0f;
@@ -2839,6 +2854,7 @@ Bool Weapon::privateFireWeapon(const Object *sourceObj, Object *victimObj,
                                Bool isProjectileDetonation, Bool ignoreRanges,
                                WeaponBonusConditionFlags extraBonusFlags,
                                ObjectID *projectileID, Bool inflictDamage) {
+	GX_WCOST("WeaponFire");	// moduleCost
   // CRCDEBUG_LOG(("Weapon::privateFireWeapon() for %s",
   // DescribeObject(sourceObj).str())); USE_PERF_TIMER(fireWeapon)
   if (projectileID)
@@ -3122,6 +3138,7 @@ Object *Weapon::forceFireWeapon(const Object *source, const Coord3D *pos) {
 
 //-------------------------------------------------------------------------------------------------
 WeaponStatus Weapon::getStatus() const {
+	GX_WCOST("WeaponStatus");	// moduleCost
   UnsignedInt now = TheGameLogic->getFrame();
   if (now < TheGxWeapons.preAttack[m_row]) {
     return PRE_ATTACK;
@@ -3140,6 +3157,7 @@ WeaponStatus Weapon::getStatus() const {
 //-------------------------------------------------------------------------------------------------
 Bool Weapon::isWithinTargetPitch(const Object *source,
                                  const Object *victim) const {
+	GX_WCOST("WeaponPitchCheck");	// moduleCost
   if (isContactWeapon() || !isPitchLimited())
     return true;
 
