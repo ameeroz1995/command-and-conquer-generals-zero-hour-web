@@ -1865,6 +1865,12 @@ void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPo
 	}
 	if (m_gxObj->m_drawable)
 	{
+#ifdef __EMSCRIPTEN__
+		extern int GLES3_Page_Switches8();
+		if (GLES3_Page_Switches8() & 64)	// switch drawSync (eighth word bit 6): draw modules react later
+			m_gxObj->m_drawable->gxSetTransformDeferred(this->getTransformMatrix());
+		else
+#endif
   	m_gxObj->m_drawable->setTransformMatrix( this->getTransformMatrix() );
 	}
 	if (gxOn) gxT[1] = emscripten_get_now();

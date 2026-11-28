@@ -5016,3 +5016,35 @@ Level within noise. batchScan on is timed once query's pass lands.
   TransportAIUpdate 0.90, JetAIUpdate 0.71, StealthUpdate 0.47, SpawnBehavior 0.36); creation 1.89 ms/tick
   (new units 50-110 ms each, about 300-750 allocations); script conditions 0.48 ms/tick
   (SKIRMISH_SPECIAL_POWER_READY 0.26).
+
+## 2026-11-28 — paths, phase 13 part B: physics step, drawable sync (drawSync, physKernel: both OFF)
+- Measured (battle, GXPHYSK / GXXFK, timers inflate, shares only): PhysicsBehavior's step is 1.15 ms/tick
+  before setTransformMatrix (integration, rotation, ground, bounce), 2.81 in it, 0.89 after. Inside every
+  transform reaction (4.87 M in the battle): drawable sync 37%, partition place 18%, partition dirty +
+  contain 17%, trigger areas 16% (client terrain notify, pathfinder unit cells, ~7-polygon walk), store 11%.
+  The transform side effects run per object in order on the main thread; only the part before is a row kernel.
+- Ceiling for (b): a measuring-only build skipping the drawable sync entirely (not the same picture),
+  timing slots, two swapped pairs: no-draw work ms armies 28.5 / 28.9 with the sync vs 28.0 / 27.4
+  without, strikes 38.5 / 36.0 vs 39.3 / 37.2; drawing on: armies 51.3 vs 49.5, strikes 70.9 vs 73.9.
+  No measurable gain even with the whole sync gone.
+- drawSync (eighth word bit 6, OFF, same game): built anyway as asked. The object's transform change sets
+  the drawable's own matrix at once; the draw modules' reaction (W3DModelDraw Set_Transform, tread track
+  edges, debris / tracer / prop) runs on the next access to the draw modules (getDrawModules, both
+  variants, and getDrawModulesNonDirty), on the drawable's next change (one change pending at a time, so
+  each reaction sees the matrix it saw before), before the client update (all pending), before xfer and
+  at destruction. Rendering chat consulted (no conflicting work; lightDrawableUpdate's skipped drawables
+  are covered by the flush before the update loop). Checks: referee.rep, merge8-ai7.rep (36,004 frames)
+  match; battle verify 0 mismatches; bench_visual on referee.rep 0 / 74 / 0 / 74 changed pixels at
+  600 / 1800 / 3600 / 5400 against an A/A baseline of 208 / 70 / 165 / 144 (noise). Timing (load 17-21):
+  work ms armies 27.5 / 27.8 off, 25.6 / 30.7 on; strikes 34.4 / 36.5 off, 32.9 / 38.5 on: level. OFF.
+- physKernel (eighth word bit 7, OFF, same game as physBulk): with physSimd (on physBulk's match rule) the
+  bulk pass also looks up each due unit's ground height at x + vx, y + vy (braking: x, y) and layer, into a
+  per-row buffer; the step takes it when its matrix x, y and layer are those (read-only terrain lookups,
+  worker-safe over row ranges). Checks: battle verify 2.6 M and a physBulk recording (paths-pb.rep, made
+  with physKernel off, GX=ECFEEEE7) 1.6 M checks, 0 mismatches; paths-pb.rep replays to a match with it on;
+  referee and merge8-ai7 match. Timing (physBulk + physSimd both sides, tickTiming off, swapped pairs, load
+  7-9): strikes work ms off 41.8 / 40.7, on 45.7 / 39.9: level. OFF.
+- (d) partition and trigger share: gxRefreshPlace and makeDirty are a few stores and a list insert per
+  move and their values are read by range searches later in the same tick, so they can't wait; the trigger
+  walk visits ~7 polygons with a bounds reject first and Pathfinder::updatePos already returns unless the
+  unit's cell changed. Nothing worth batching found; not built.

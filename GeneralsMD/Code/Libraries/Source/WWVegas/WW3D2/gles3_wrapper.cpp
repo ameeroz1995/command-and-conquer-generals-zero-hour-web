@@ -521,6 +521,8 @@ void GLES3_Begin_Scene() {
         g_PageSwitches8 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // eighth word (phase 13): collide 0-5, paths 6-11, combat 12-17, ai 18-23, query 24-29, 30-31 main
+                 | (o.physKernel === true ? 128 : 0)   // bit 7 (paths): with physSimd (rides on match rule physBulk), the bulk pass also looks up each due unit's ground height at its next position (PhysicsUpdate.cpp; same game as physBulk)
+                 | (o.drawSync === true ? 64 : 0)   // bit 6 (paths): an object's transform change reaches its drawable's draw modules on their next use, the next change or before the client update (Drawable.cpp; same game)
                  | (o.moduleCost === true ? 16777216 : 0);   // bit 24 (query): with tickTiming, cost per module type and per created object template, printed as GXMOD / GXSPAWN lines (GxTime.h; measuring only)
         });
         g_PageSwitches7 = EM_ASM_INT({

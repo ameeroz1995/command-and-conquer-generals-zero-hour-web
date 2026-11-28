@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include <vector>
 #include <unordered_map>
 
 #include "Common/AudioEventInfo.h"
@@ -530,9 +531,45 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatusBits statu
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+// web port (switch drawSync): drawables whose draw modules have not seen the last transform change
+static std::vector<Drawable *> s_gxXfPending;
+
+void Drawable::gxSetTransformDeferred( const Matrix3D *mx )
+{
+	if (m_gxXfPending)
+		gxFlushTransform();	// one change at a time: each reaction sees the matrix it saw before
+	m_gxOldMtx = *getTransformMatrix();
+	m_gxOldPos = *getPosition();
+	m_gxOldAngle = getOrientation();
+	gxSetTransformNoReact(mx);
+	m_gxXfPending = true;
+	m_gxXfIndex = (Int)s_gxXfPending.size();
+	s_gxXfPending.push_back(this);
+}
+
+void Drawable::gxFlushTransform()
+{
+	if (!m_gxXfPending)
+		return;
+	m_gxXfPending = false;
+	Drawable *last = s_gxXfPending.back();	// swap-remove
+	s_gxXfPending[m_gxXfIndex] = last;
+	last->m_gxXfIndex = m_gxXfIndex;
+	s_gxXfPending.pop_back();
+	m_gxXfIndex = -1;
+	reactToTransformChange(&m_gxOldMtx, &m_gxOldPos, m_gxOldAngle);
+}
+
+void Drawable::gxFlushAllTransforms()
+{
+	while (!s_gxXfPending.empty())
+		s_gxXfPending.back()->gxFlushTransform();
+}
+
 Drawable::~Drawable()
 {
 	Int i;
+	gxFlushTransform();	// web port (drawSync): nothing left pending on a drawable going away
 
 	if( m_constructDisplayString )
 		TheDisplayStringManager->freeDisplayString( m_constructDisplayString );
@@ -4000,6 +4037,7 @@ void Drawable::clearAndSetModelConditionState( ModelConditionFlagType clr, Model
 //-------------------------------------------------------------------------------------------------
 DrawModule** Drawable::getDrawModulesNonDirty()
 {
+	if (m_gxXfPending) gxFlushTransform();	// web port (drawSync)
 	DrawModule** dm = (DrawModule**)getModuleList(MODULETYPE_DRAW);
 	DEBUG_ASSERTCRASH(dm != nullptr, ("Draw Module List is not expected null"));
 	return dm;
@@ -4008,6 +4046,7 @@ DrawModule** Drawable::getDrawModulesNonDirty()
 //-------------------------------------------------------------------------------------------------
 DrawModule** Drawable::getDrawModules()
 {
+	if (m_gxXfPending) gxFlushTransform();	// web port (drawSync)
 	DrawModule** dm = (DrawModule**)getModuleList(MODULETYPE_DRAW);
 
 #ifdef DIRTY_CONDITION_FLAGS
@@ -4034,6 +4073,7 @@ DrawModule** Drawable::getDrawModules()
 //-------------------------------------------------------------------------------------------------
 DrawModule const** Drawable::getDrawModules() const
 {
+	if (m_gxXfPending) const_cast<Drawable*>(this)->gxFlushTransform();	// web port (drawSync)
 	DrawModule const** dm = (DrawModule const**)getModuleList(MODULETYPE_DRAW);
 
 #ifdef DIRTY_CONDITION_FLAGS
@@ -4977,6 +5017,7 @@ void Drawable::xferDrawableModules( Xfer *xfer )
 // ------------------------------------------------------------------------------------------------
 void Drawable::xfer( Xfer *xfer )
 {
+	gxFlushTransform();	// web port (drawSync)
 
 	// version
 #if RETAIL_COMPATIBLE_XFER_SAVE

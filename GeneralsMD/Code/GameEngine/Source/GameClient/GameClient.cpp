@@ -670,6 +670,7 @@ void GameClient::update()
 		}
 
 
+		Drawable::gxFlushAllTransforms();	// web port (drawSync): every drawable's draw modules up to date first
 		// call the update for all client drawables
 		extern int GLES3_Page_Switches3();
 		extern bool gxOffscreen(const Coord3D *pos, float radius);

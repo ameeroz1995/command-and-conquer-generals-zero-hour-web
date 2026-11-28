@@ -153,6 +153,7 @@ public:
 	void convertBonePosToWorldPos(const Coord3D* bonePos, const Matrix3D* boneTransform, Coord3D* worldPos, Matrix3D* worldTransform) const;
 
 	void setTransformMatrix( const Matrix3D *mx );												///< set the world transformation matrix
+	void gxSetTransformNoReact( const Matrix3D *mx );	///< web port: set the matrix without reactToTransformChange (drawable sync experiments)
 	const Matrix3D* getTransformMatrix() const		///< return the world transformation matrix
 	{
 		// web port (round 5): every setter writes the translation and the store's x/y/z together, so the

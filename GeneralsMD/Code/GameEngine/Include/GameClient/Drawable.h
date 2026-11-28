@@ -739,6 +739,19 @@ private:
 #ifdef DIRTY_CONDITION_FLAGS
 	Int m_gxClipSlots;	///< gx clipSkip: weapon slots whose loaded-missile display any draw module shows (-1 = not asked yet)
 	Bool m_isModelDirty;				///< if true, must call replaceModelConditionState() before drawing or accessing drawmodule info
+public:
+	// web port (switch drawSync, eighth word bit 6; same game): the object's transform change reaches the
+	// draw modules later. The drawable's own matrix is set at once; the draw modules react on the next
+	// access to them, on the next change, before the client update, before xfer, or at destruction.
+	void gxSetTransformDeferred( const Matrix3D *mx );
+	void gxFlushTransform();
+	static void gxFlushAllTransforms();
+private:
+	Bool m_gxXfPending = false;
+	Int m_gxXfIndex = -1;
+	Matrix3D m_gxOldMtx;
+	Coord3D m_gxOldPos;
+	Real m_gxOldAngle = 0.0f;
 #endif
 
 	//*******************************************

@@ -695,6 +695,11 @@ void PhysicsBehavior::gxIntegrate()
 // heap then only hands back the sleep time its step returned. Units woken during the phase (not due
 // when the pass ran) step on their own call as before. The drift: units step in ID order instead of
 // the update heap's order.
+// web port (switch physKernel): per store row, the ground height the bulk pass looked up for this frame
+struct GxGroundRow { UnsignedInt frame = ~0u; Real x = 0, y = 0, h = 0; PathfindLayerEnum layer = LAYER_GROUND; };
+static std::vector<GxGroundRow> s_gxGround;
+extern int GLES3_Page_Switches8();
+
 void PhysicsBehavior::gxBulkPass(UnsignedInt now)
 {
 	static std::vector<int> s_list;	// a copy: the step can create objects, which may rebuild pass lists
@@ -724,6 +729,27 @@ void PhysicsBehavior::gxBulkPass(UnsignedInt now)
 			s_due[s_list[i]] = ~0u;
 		}
 		gxIntegrateColumns(s_due.data(), 0, S.size());	// kernel over all rows (a job system can split the range)
+		// web port (switch physKernel, eighth word bit 7; rides on physSimd): the ground height under
+		// each due unit's next position, x + vx and y + vy (braking units keep x, y), for its step to
+		// take when that is where it is (a read-only terrain lookup: worker-safe over row ranges)
+		if (GLES3_Page_Switches8() & 128)
+		{
+			s_gxGround.resize(S.size());
+			for (size_t i = 0; i < s_list.size(); ++i)
+			{
+				const int r = s_list[i];
+				if (!s_due[r]) continue;
+				Object *o = S.obj[r];
+				GxGroundRow &g = s_gxGround[r];
+				const Coord3D *p = o->getPosition();
+				const Bool braking = o->testStatus(OBJECT_STATUS_BRAKING);
+				g.x = braking ? p->x : p->x + S.vx[r];
+				g.y = braking ? p->y : p->y + S.vy[r];
+				g.layer = o->getLayer();
+				g.h = TheTerrainLogic->getLayerHeight(g.x, g.y, g.layer);
+				g.frame = now;
+			}
+		}
 	}
 	for (size_t i = 0; i < s_list.size(); ++i)
 	{
@@ -952,7 +978,23 @@ UpdateSleepTime PhysicsBehavior::gxStep()
 		}
 
 		// do not allow object to pass through the ground
-		Real groundZ = TheTerrainLogic->getLayerHeight(mtx.Get_X_Translation(), mtx.Get_Y_Translation(), obj->getLayer());
+		Real groundZ;
+		{
+			const int r = obj->gxStoreSlot();
+			const GxGroundRow *g = (gxPreIntegrated && (GLES3_Page_Switches8() & 128) && r >= 0 && r < (int)s_gxGround.size()) ? &s_gxGround[r] : nullptr;
+			if (g && g->frame == TheGameLogic->getFrame() && g->x == mtx.Get_X_Translation() && g->y == mtx.Get_Y_Translation() && g->layer == obj->getLayer())
+			{
+				groundZ = g->h;	// physKernel: looked up by the bulk pass at this x, y and layer
+				if (gxVerify)
+				{
+					static Int s_checked = 0, s_bad = 0;
+					if (groundZ != TheTerrainLogic->getLayerHeight(g->x, g->y, g->layer) && ++s_bad <= 20) printf("GXVERIFY physKernel mismatch: object %u\n", obj->getID());
+					if (++s_checked % 100000 == 0) printf("GXVERIFY physKernel checked %d, mismatches %d\n", s_checked, s_bad);
+				}
+			}
+			else
+				groundZ = TheTerrainLogic->getLayerHeight(mtx.Get_X_Translation(), mtx.Get_Y_Translation(), obj->getLayer());
+		}
 		const Real layerZ = groundZ;	// web port (physReuse): Object::calculateHeightAboveTerrain() at this x, y and layer
 		if( obj->getStatusBits().test( OBJECT_STATUS_DECK_HEIGHT_OFFSET ) )
 		{

@@ -262,6 +262,16 @@ void Thing::setOrientation( Real angle )
 //=============================================================================
 /** Set the world transformation matrix */
 //=============================================================================
+void Thing::gxSetTransformNoReact( const Matrix3D *mx )
+{
+	gxXf() = *mx;
+	gxPos().x = gxXf().Get_X_Translation();
+	gxPos().y = gxXf().Get_Y_Translation();
+	gxPos().z = gxXf().Get_Z_Translation();
+	gxAngle() = gxXf().Get_Z_Rotation();
+	m_gxThing->m_cacheFlags = 0;
+}
+
 void Thing::setTransformMatrix( const Matrix3D *mx )
 {
 	//USE_PERF_TIMER(ThingMatrixStuff)
