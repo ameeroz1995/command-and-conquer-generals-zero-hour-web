@@ -61,7 +61,7 @@
 #include "Common/GxNameMap.h"	// web port: verify helpers (powerRows)
 
 /// switch areaRows (eighth word bit 26, phase 13 E): area counts and values from the player's objects by
-/// template (Player::m_gxByTmpl, the same objects as the team walk, rebuilt on team join / leave); templates
+/// template (Player::m_gxByTmpl, the same objects as the team walk; with tmplRowsIncr updated per team join / leave); templates
 /// the check rules out are skipped whole (an object's template is fixed). A sum, so order does not matter.
 /// Verify (first word bit 21) runs the walk too and compares.
 static inline Bool gxAreaRowsOn() { return (GLES3_Page_Switches8() & 67108864) != 0; }

@@ -5030,3 +5030,15 @@ Level within noise. batchScan on is timed once query's pass lands.
 - areaRows (eighth word bit 26, default off): PLAYER_HAS_UNIT_TYPE_IN_AREA, PLAYER_HAS_UNIT_KIND_IN_AREA and
   SKIRMISH_VALUE_IN_AREA summed per template from Player::m_gxByTmpl. Exact, but slower (0.07 -> 0.8-1.0 ms/tick for
   SKIRMISH_VALUE_IN_AREA) since that index is rebuilt on every team membership change. Off.
+- tmplRowsIncr (eighth word bit 27, default on): Player::m_gxByTmpl (#2) takes each team join / leave
+  (Player::becomingTeamMember: push, or swap-remove) instead of a full rebuild on next use. The producer list is redone
+  from those lists only when asked (gxRefreshProducers): a new object joins its team (Object.cpp setTeam) before its
+  modules exist, so the producer check can't be made at join time (first try: 96 verify mismatches). Verify compares the
+  kept index with a fresh walk. With areaRows on, SKIRMISH_VALUE_IN_AREA 0.79 -> 0.14 ms/tick. ai7 logic
+  9.80 vs 9.83 ms/tick (default vs tmplRowsIncr + liveCountRows off). Exact: ai7 verify over 12000 frames 0 of 374,784; ai7 36004 frames (areaRows on) and referee
+  match.
+- areaRows stays off: even with incremental rows, 0.137 vs 0.068 ms/tick for the walk. That check rules out only inert
+  objects, so it visits the same objects as the walk. A real gain needs a spatial query of the trigger area.
+- liveCountRows (eighth word bit 28, default off): live counts (countObjectsByThingTemplate with ignoreDead) from the
+  per-template lists. Exact, but no gain (PLAYER_LOST_OBJECT_TYPE 0.032 vs 0.034 ms/tick): those checks cost the
+  name -> template lookups and ObjectTypes copy, not the walk.

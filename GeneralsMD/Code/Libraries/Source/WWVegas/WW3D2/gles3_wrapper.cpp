@@ -523,7 +523,9 @@ void GLES3_Begin_Scene() {
             return 0   // eighth word (phase 13): collide 0-5, paths 6-11, combat 12-17, ai 18-23, query 24-29, 30-31 main
                  | (o.moduleCost === true ? 16777216 : 0)   // bit 24 (query): with tickTiming, cost per module type and per created object template, printed as GXMOD / GXSPAWN lines (GxTime.h; measuring only)
                  | (o.powerRows === false ? 0 : 33554432)   // bit 25 (query): the script check "special power ready" reads the power's own module list, not every unit of the player (ScriptConditions.cpp; same game)
-                 | (o.areaRows === true ? 67108864 : 0);   // bit 26 (query): script checks counting a player's units or their value in an area read the player's units by type, skipping types the check rules out (ScriptConditions.cpp; same game)
+                 | (o.areaRows === true ? 67108864 : 0)   // bit 26 (query): script checks counting a player's units or their value in an area read the player's units by type, skipping types the check rules out (ScriptConditions.cpp; same game)
+                 | (o.tmplRowsIncr === false ? 0 : 134217728)   // bit 27 (query): a player's per-type unit index takes each team join / leave instead of being rebuilt (Player.cpp; same game)
+                 | (o.liveCountRows === true ? 268435456 : 0);   // bit 28 (query): counts of a player's live units of some types (script check "player lost object type" and others) read the per-type index, not every unit (Player.cpp; same game)
         });
         g_PageSwitches7 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};

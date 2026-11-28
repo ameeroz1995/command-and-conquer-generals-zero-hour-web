@@ -44,6 +44,7 @@
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #include "Common/GxTime.h"
+#include "Common/GxNameMap.h"
 #include <algorithm>
 #include <cstdio>
 #ifdef __EMSCRIPTEN__
@@ -1070,11 +1071,28 @@ void Player::initFromDict(const Dict* d)
 }
 
 //=============================================================================
+static void gxMembersMove(std::vector<Object*> &v, Object *obj, Bool yes)	// tmplRowsIncr: add, or swap-remove one
+{
+	if (yes) { v.push_back(obj); return; }
+	for (size_t i = 0; i < v.size(); ++i)
+		if (v[i] == obj) { v[i] = v.back(); v.pop_back(); return; }
+}
 void Player::becomingTeamMember(Object *obj, Bool yes)
 {
 	if (!obj)
 		return;
+	// phase 13 E (query), switch tmplRowsIncr (eighth word bit 27): a live per-template index (#2) takes this
+	// one join / leave instead of a full rebuild on next use (lists are counted, so their order does not matter)
+	const bool gxByTmplLive = (GLES3_Page_Switches8() & 134217728) != 0
+		&& m_gxByTmplVer == m_gxMemberVer && m_gxByTmplGen == g_gxTmplCountGen;
 	++m_gxMemberVer;	// #8
+	if (gxByTmplLive)
+	{
+		// the producer list is redone from the lists on next use: a new object joins its team before its modules exist
+		gxMembersMove(m_gxByTmpl[obj->getTemplate()], obj, yes);
+		m_gxProducersStale = true;
+		m_gxByTmplVer = m_gxMemberVer;
+	}
 
 	// #1 / #57: the template-count index follows team joins and leaves
 	if (m_gxTmplCountGen == g_gxTmplCountGen)
@@ -1952,12 +1970,54 @@ static void gxMembersAdd(Object *obj, void *userData)
 	if (ProductionUpdate::getProductionUpdateInterfaceFromObject(obj))
 		p->m_gxProducers.push_back(obj);
 }
+void Player::gxRefreshProducers() const	// tmplRowsIncr: the producer list, redone from the lists only when asked
+{
+	if (!m_gxProducersStale)
+		return;
+	m_gxProducers.clear();
+	for (auto &kv : m_gxByTmpl)
+		for (Object *o : kv.second)
+			if (ProductionUpdate::getProductionUpdateInterfaceFromObject(o))
+				m_gxProducers.push_back(o);
+	m_gxProducersStale = false;
+}
 void Player::gxRefreshMembers() const
 {
 	if (m_gxByTmplVer == m_gxMemberVer && m_gxByTmplGen == g_gxTmplCountGen)
+	{
+		if (gxNameMapVerify() && (GLES3_Page_Switches8() & 134217728))
+		{
+			gxRefreshProducers();
+			// tmplRowsIncr verify: the kept index holds the same objects as a fresh walk
+			std::unordered_map<const ThingTemplate*, std::vector<Object*> > keptT; keptT.swap(m_gxByTmpl);
+			std::vector<Object*> keptP; keptP.swap(m_gxProducers);
+			iterateObjects(gxMembersAdd, (void *)this);
+			bool same = keptP.size() == m_gxProducers.size();
+			std::sort(keptP.begin(), keptP.end()); std::vector<Object*> freshP = m_gxProducers; std::sort(freshP.begin(), freshP.end());
+			same = same && keptP == freshP;
+			for (auto &kv : keptT)
+			{
+				std::vector<Object*> a = kv.second, b;
+				auto f = m_gxByTmpl.find(kv.first);
+				if (f != m_gxByTmpl.end()) b = f->second;
+				std::sort(a.begin(), a.end()); std::sort(b.begin(), b.end());
+				same = same && a == b;
+			}
+			for (auto &kv : m_gxByTmpl)
+				same = same && (!kv.second.empty() ? keptT.count(kv.first) != 0 : true);
+			gxNameCheck("tmplRowsIncr", "byTmpl", same);
+		}
 		return;
+	}
+	if (gxCostOn())	// moduleCost: how often the index is still rebuilt whole, and why
+	{
+		static unsigned long long s_rebuilt = 0, s_byGen = 0;
+		++s_rebuilt; if (m_gxByTmplGen != g_gxTmplCountGen) ++s_byGen;
+		if (s_rebuilt % 500 == 0) printf("GXROWS byTmpl rebuilt %llu (team list / owner change %llu)\n", s_rebuilt, s_byGen);
+	}
 	m_gxByTmpl.clear();
 	m_gxProducers.clear();
+	m_gxProducersStale = false;
 	iterateObjects(gxMembersAdd, (void *)this);
 	m_gxByTmplVer = m_gxMemberVer;
 	m_gxByTmplGen = g_gxTmplCountGen;
@@ -1975,6 +2035,36 @@ void Player::countObjectsByThingTemplate(Int numTmplates, const ThingTemplate* c
 {
 	Int i;
 
+	if (ignoreDead && !ignoreUnderConstruction && (GLES3_Page_Switches8() & 268435456))
+	{
+		// phase 13 E (query), switch liveCountRows (eighth word bit 28): live objects counted from the
+		// per-template lists (#2). Each list's template matches the same first asked template as in the walk.
+		for (i = 0; i < numTmplates; ++i)
+			counts[i] = 0;
+		gxRefreshMembers();
+		for (auto it = m_gxByTmpl.begin(); it != m_gxByTmpl.end(); ++it)
+		{
+			if (it->second.empty())
+				continue;
+			for (Int k = 0; k < numTmplates; ++k)
+				if (gxEquivalent(it->first, things[k]))
+				{
+					for (Object *o : it->second)
+						if (!o->isEffectivelyDead())
+							++counts[k];
+					break;
+				}
+		}
+		if (!gxNameMapVerify())
+			return;
+		std::vector<Int> rows(counts, counts + numTmplates);
+		for (i = 0; i < numTmplates; ++i)
+			counts[i] = 0;
+		for (PlayerTeamList::const_iterator it = m_playerTeamPrototypes.begin(); it != m_playerTeamPrototypes.end(); ++it)
+			(*it)->countObjectsByThingTemplate(numTmplates, things, ignoreDead, counts, ignoreUnderConstruction);
+		gxNameCheck("liveCountRows", "countLive", std::equal(rows.begin(), rows.end(), counts));
+		return;
+	}
 	if (!ignoreDead && !ignoreUnderConstruction && (GLES3_Page_Switches5() & 16777216))	// fifth word bit 24: tmplIndex
 	{
 		gxCountByTemplate(numTmplates, things, counts);
@@ -3118,6 +3208,7 @@ Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild ) const
     {
       // #2 buildMoreIndex: the same count from the per-template lists and the producer list
       gxRefreshMembers();
+      gxRefreshProducers();
       UnsignedInt n = 0;
       for (auto it = m_gxByTmpl.begin(); it != m_gxByTmpl.end(); ++it)
       {

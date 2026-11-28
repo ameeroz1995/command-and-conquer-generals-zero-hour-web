@@ -424,9 +424,11 @@ public:
 	/// #2 (switch buildMoreIndex, fifth word bit 26): this player's objects by template, and the ones with a
 	/// production queue, for canBuildMoreOfType (a count, so order does not matter); same rebuild rule as #8
 	void gxRefreshMembers() const;
+	void gxRefreshProducers() const;	///< after gxRefreshMembers: m_gxProducers made current
 	mutable std::unordered_map<const ThingTemplate*, std::vector<Object*> > m_gxByTmpl;
 	mutable std::vector<Object*> m_gxProducers;
 	mutable UnsignedInt m_gxByTmplVer = 0, m_gxByTmplGen = 0;
+	mutable Bool m_gxProducersStale = false;	///< tmplRowsIncr: m_gxProducers to redo from m_gxByTmpl
 
 	/**
 		this is called when the player becomes the local player (yes==true)
