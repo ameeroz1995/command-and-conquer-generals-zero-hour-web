@@ -1389,6 +1389,8 @@
             { key: 'areaRows', def: true, label: 'AREA CHECKS FROM THE AREA\'S UNIT LIST', note: 'Script checks that count a player\'s units (or their value) in an area look only at the units inside that area. Same game.' },
             { key: 'tmplRowsIncr', def: false, label: 'UNIT TYPE INDEX KEPT UP TO DATE', note: 'A player\'s list of units by type is updated as units join or leave instead of being rebuilt. Same game.' },
             { key: 'liveCountRows', def: false, label: 'LIVE UNIT COUNTS BY TYPE', note: 'Counting a player\'s living units of some types looks only at those types, not at every unit. Same game.' },
+            { key: 'laserCells', def: false, label: 'LASER SCANS SKIP EMPTY SQUARES', note: 'Point-defense lasers looking for missiles skip map squares that hold nothing a laser could shoot at. Same game.' },
+            { key: 'stealthCells', def: false, label: 'STEALTH DETECTORS SKIP EMPTY SQUARES', note: 'Stealth detectors skip map squares that hold nothing stealthed and no building that could hide stealthed units. Same game.' },
             { key: 'typeCache', def: true, label: 'SCRIPT UNIT TYPES LOOKED UP ONCE', note: 'Script checks that count units of some types find those types once, not on every check. Same game.' },
             { key: 'fogStamps', def: true, label: 'FOG CIRCLE STAMPS', note: 'Units\' sight circles are applied from precomputed shapes, eight map squares at a time using the browser\'s SIMD instructions. Same game.' },
             { key: 'fogKeep', def: true, label: 'KEEP FOG STATUS', note: 'A unit that moves without leaving its map squares keeps its known fog state instead of working it out again each frame. Same game.' },

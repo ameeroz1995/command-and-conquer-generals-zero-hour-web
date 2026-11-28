@@ -1019,6 +1019,9 @@ void Object::setStatus( ObjectStatusMaskType objectStatus, Bool set )
 
 	if (gxStatus() != oldStatus)
 	{
+		// web port (switch stealthCells): the stealthed bit is one of the partition's cell classes
+		if (gxStatus().test(OBJECT_STATUS_STEALTHED) != oldStatus.test(OBJECT_STATUS_STEALTHED) && m_gxObj->m_partitionData)
+			m_gxObj->m_partitionData->gxRefreshClass();
 		if( set && objectStatus.test( OBJECT_STATUS_REPULSOR ) && m_gxObj->m_repulsorHelper != nullptr )
 		{
 			// Damaged repulsable civilians scare (repulse) other civs, but only
@@ -4304,6 +4307,8 @@ void Object::xfer( Xfer *xfer )
 	if( version >= 8 )
 	{
 		gxStatus().xfer( xfer );
+		if (xfer->getXferMode() == XFER_LOAD && m_gxObj->m_partitionData)
+			m_gxObj->m_partitionData->gxRefreshClass();	// web port (switch stealthCells)
 	}
 	else
 	{

@@ -33,6 +33,7 @@
 #include <emscripten.h>
 #endif
 
+#include <typeinfo>
 #include "Common/BitFlagsIO.h"
 #include "Common/RandomValue.h"
 #include "Common/ThingTemplate.h"
@@ -63,15 +64,24 @@ PointDefenseLaserUpdateModuleData::PointDefenseLaserUpdateModuleData()
 }
 
 //-------------------------------------------------------------------------------------------------
-/*static*/ void PointDefenseLaserUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
+/*static*/ // Web port (switch laserCells, eighth word bit 5): every laser's target kinds, gathered into one
+// union as the INI is read (PartitionManager.cpp counts the objects of those kinds per cell)
+extern KindOfMaskType g_gxLaserKinds;
+static void gxParseLaserKinds(INI *ini, void *instance, void *store, const void *userData)
+{
+	KindOfMaskType::parseFromINI(ini, instance, store, userData);
+	g_gxLaserKinds.set(*(const KindOfMaskType *)store);
+}
+
+void PointDefenseLaserUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
 {
 	ModuleData::buildFieldParse(p);
 
 	static const FieldParse dataFieldParse[] =
 	{
 		{ "WeaponTemplate",				INI::parseWeaponTemplate,				nullptr, offsetof( PointDefenseLaserUpdateModuleData, m_weaponTemplate ) },
-		{ "PrimaryTargetTypes",		KindOfMaskType::parseFromINI,								nullptr, offsetof( PointDefenseLaserUpdateModuleData, m_primaryTargetKindOf ) },
-		{ "SecondaryTargetTypes",	KindOfMaskType::parseFromINI,								nullptr, offsetof( PointDefenseLaserUpdateModuleData, m_secondaryTargetKindOf ) },
+		{ "PrimaryTargetTypes",		gxParseLaserKinds,								nullptr, offsetof( PointDefenseLaserUpdateModuleData, m_primaryTargetKindOf ) },
+		{ "SecondaryTargetTypes",	gxParseLaserKinds,								nullptr, offsetof( PointDefenseLaserUpdateModuleData, m_secondaryTargetKindOf ) },
 		{ "ScanRate",							INI::parseDurationUnsignedInt,	nullptr, offsetof( PointDefenseLaserUpdateModuleData, m_scanFrames ) },
 		{ "ScanRange",						INI::parseReal,									nullptr, offsetof( PointDefenseLaserUpdateModuleData, m_scanRange ) },
 		{ "PredictTargetVelocityFactor", INI::parseReal,					nullptr, offsetof( PointDefenseLaserUpdateModuleData, m_velocityFactor ) },
@@ -270,6 +280,8 @@ public:
 	virtual const char* debugGetName() { return "PartitionFilterPointDefenseTarget"; }
 #endif
 };
+extern const std::type_info *g_gxLaserFilterType;
+static const bool s_gxLaserFilterReg = (g_gxLaserFilterType = &typeid(PartitionFilterPointDefenseTarget), true);
 
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();

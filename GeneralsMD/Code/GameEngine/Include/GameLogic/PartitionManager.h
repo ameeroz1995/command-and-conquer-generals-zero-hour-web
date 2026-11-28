@@ -202,12 +202,15 @@ private:
 	// cell list runs from high to low sequence and per-slot lists can be merged back into it.
 	CellAndObjectIntersection *m_gxSlotPrev, *m_gxSlotNext;
 	UnsignedInt								m_gxSeq;
+	UnsignedByte							m_gxClass = 0;	///< web port (laserCells / stealthCells): class bits of the object, counted in PartitionCell::m_gxClassN
 
 	void gxSlotLink(Int slot);		///< into m_cell's list for slot, at the place its sequence says
 	void gxSlotUnlink();				///< out of m_cell's list for m_gxPlayer
 
 public:
 	UnsignedInt gxSeq() const { return m_gxSeq; }
+	void gxSetClass(UnsignedByte cls);	///< web port (stealthCells): recount in m_cell
+	PartitionCell *gxCell() const { return m_cell; }
 	void gxMoveToFront();	///< web port: to the head of its cell list, keeping the per-slot lists in step (switch cellReuse)
 	CellAndObjectIntersection *gxSlotNext() const { return m_gxSlotNext; }
 	Int gxPlayerSlot() const { return m_gxPlayer; }
@@ -349,9 +352,12 @@ private:
 	UnsignedInt										m_gxMask;
 	CellAndObjectIntersection			*m_gxSlotHead[MAX_PLAYER_COUNT + 1];	///< per-slot COI lists (switch searchSlotSkip)
 	UnsignedInt										m_gxNextSeq;
+	UnsignedShort									m_gxClassN[2] = { 0, 0 };	///< web port: COIs here per class bit (0 laser target kinds, switch laserCells; 1 stealthed or garrisonable, switch stealthCells)
 
 public:
 	UnsignedInt gxPlayerMask() const { return m_gxMask; }
+	void gxClassCount(UnsignedByte cls, Int delta) { if (cls & 1) m_gxClassN[0] += delta; if (cls & 2) m_gxClassN[1] += delta; }
+	Bool gxHasClass(UnsignedInt need) const { return ((need & 1) && m_gxClassN[0]) || ((need & 2) && m_gxClassN[1]); }
 	CellAndObjectIntersection *&gxSlotHead(Int slot) { return m_gxSlotHead[slot]; }
 	UnsignedInt gxTakeSeq() { return m_gxNextSeq++; }
 	void gxCount(Int slot, Int delta)
@@ -466,6 +472,8 @@ private:
 public:
 	/// web port (switch searchCache): copy the object's position and radius into every COI in use
 	void gxRefreshPlace();
+	/// web port (switch stealthCells): the object's class bits changed (stealthed status): recount its COIs
+	void gxRefreshClass();
 	/// web port (switches pairPlace / pairOffer): the same copy kept here, for the touching-pair tests
 	/// web port (round 5): this object's slot in TheGxUnitStore, which holds its cached place and fog
 	/// bits (query block); -1 for a ghost-only PartitionData (no place: never turned away; nothing kept)

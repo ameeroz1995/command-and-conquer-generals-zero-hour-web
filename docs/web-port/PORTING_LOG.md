@@ -5063,3 +5063,16 @@ Level within noise. batchScan on is timed once query's pass lands.
 - Work pairs (battle, tickTiming off): off 32.33/34.65, on 33.64/32.49 ms/tick; p99 [144-152 / 141-164]; over 100 ms
   off 17/20, on 15/9. Inside noise. ai7 logic 11.98 (on) vs 10.93 (off), but every unrelated timer (search, move,
   physics, aiLoop) was ~8-10% higher in that run too: machine load, not this change. GXCOND in the same runs 0.160 vs 0.184.
+
+## Phase 13 query: laserCells / stealthCells (eighth word bits 5 / 31, both OFF: no real gain)
+- Each partition cell keeps a count per object class (1 = a kind some PointDefenseLaser targets, 2 = stealthed or
+  a garrisonable contain); the scan-manager snapshot keeps the OR per cell. A search whose filter list holds
+  PartitionFilterPointDefenseTarget (laserCells) or PartitionFilterStealthedOrStealthGarrisoned (stealthCells)
+  skips cells with no object of that class. Class is refreshed on STEALTHED changes (setStatus, xfer load).
+- Exact (mt): ai7 verify 12000 frames on and off: every GXVERIFY check 0 mismatches; scan-manager drift
+  22722 in both arms (same answers); the 8 failCache lines (AIPathfind) appear in both arms, not from this change.
+  Referee and ai7 36004 match the recording.
+- Work pairs (battle, mt, tickTiming off): off 36.08/36.77, on 37.54/36.09 ms/tick; p99 [192-199 / 226-240];
+  over 100 ms off 15/19, on 17/16. No gain.
+- moduleCost (ranking only, inflated ~2x): PointDefenseLaserUpdate 1.87 -> 1.40, StealthDetectorUpdate 0.84 -> 0.63
+  ms/tick; cells per call 16.7 -> 10.2 (laser), 16.9 -> 9.5 (stealth). ~0.35 ms/tick real at best, below the noise.

@@ -1366,6 +1366,54 @@ void gxRefreshBlockMask(Int cellX, Int cellY)
 	g_gxBlockMasks[(cellY >> GX_BLOCK_SHIFT) * g_gxBlockMaskW + (cellX >> GX_BLOCK_SHIFT)] = m;
 }
 
+// Web port (switch laserCells, eighth word bit 5): the union of every point-defense laser's primary and
+// secondary target kinds (PointDefenseLaserUpdate.cpp, gathered as the INI is read, before any game).
+// An object of none of those kinds is turned away by PartitionFilterPointDefenseTarget's first test,
+// so a laser scan may skip a cell that holds none (counted per cell as COIs come and go; kinds come
+// from the template, which never changes).
+KindOfMaskType g_gxLaserKinds;
+const std::type_info *g_gxLaserFilterType = nullptr;	// PartitionFilterPointDefenseTarget (PointDefenseLaserUpdate.cpp)
+// Class bit 2 (switch stealthCells, eighth word bit 31): stealthed now, or a garrisonable container.
+// PartitionFilterStealthedOrStealthGarrisoned (StealthDetectorUpdate.cpp) passes only such objects, so
+// a detector scan may skip a cell holding none. The stealthed status changes only through
+// Object::setStatus (and the constructor / a load), which recount the object's COIs (gxRefreshClass).
+const std::type_info *g_gxStealthFilterType = nullptr;	// PartitionFilterStealthedOrStealthGarrisoned
+UnsignedByte gxClassOf(const Object *o)
+{
+	if (!o)
+		return 0;
+	UnsignedByte c = o->isAnyKindOf(g_gxLaserKinds) ? 1 : 0;
+	if (o->testStatus(OBJECT_STATUS_STEALTHED))
+		c |= 2;
+	else
+	{
+		const ContainModuleInterface *contain = o->getContain();
+		if (contain && contain->isGarrisonable())
+			c |= 2;
+	}
+	return c;
+}
+static void gxSnapMarkClass(Int s, UnsignedByte cls);
+
+void CellAndObjectIntersection::gxSetClass(UnsignedByte cls)
+{
+	if (m_cell && cls != m_gxClass)
+	{
+		m_cell->gxClassCount(m_gxClass, -1);
+		m_cell->gxClassCount(cls, +1);
+	}
+	m_gxClass = cls;
+}
+
+void PartitionData::gxRefreshClass()
+{
+	const UnsignedByte c = gxClassOf(getObject());
+	for (Int i = 0; i < m_coiInUseCount; ++i)
+		m_coiArray[i].gxSetClass(c);
+	if (getObject())
+		gxSnapMarkClass(getObject()->gxStoreSlot(), c);
+}
+
 void CellAndObjectIntersection::gxSetPlayerSlot(Int slot)
 {
 	if (m_cell && slot != m_gxPlayer)
@@ -1490,6 +1538,8 @@ void CellAndObjectIntersection::addCoverage(PartitionCell *cell, PartitionData *
 		m_cell = cell;
 		m_gxSeq = cell->gxTakeSeq();
 		gxSlotLink(m_gxPlayer);
+		m_gxClass = gxClassOf(module->getObject());
+		cell->gxClassCount(m_gxClass, +1);
 	}
 
 	m_cell = cell;
@@ -1519,6 +1569,8 @@ void CellAndObjectIntersection::removeAllCoverage()
 	m_cell->friend_removeFromCellList(this);
 	m_cell->gxCount(m_gxPlayer, -1);
 	gxSlotUnlink();
+	m_cell->gxClassCount(m_gxClass, -1);
+	m_gxClass = 0;
 	m_cell = nullptr;
 	m_module = nullptr;
 }
@@ -4574,6 +4626,7 @@ static UnsignedInt gxEnemySlots(PartitionFilter **filters)
 // Changes the game (answers as of the tick's first search): a match rule, default off.
 static unsigned long long g_gxSimdCulled = 0;	// lanes the SIMD cull dropped (verify report)
 static std::vector<Int> s_gxSnapStart, s_gxSnapSlots;	// per cell: first index into slots; one more at the end
+static std::vector<unsigned char> s_gxSnapClass, s_gxSnapClassBase;	// per cell: 1 if its tick list holds a slot whose object may be a laser target (switch laserCells)
 static std::vector<UnsignedInt> s_gxSnapStamp;			// per slot: last search that looked at it
 static std::vector<Real> s_gxSnapR;	// per slot: max(bounding circle, bounding sphere) radius, as the COIs' cached place
 static UnsignedInt s_gxSnapSearch = 0, s_gxSnapFrame = ~0u, s_gxSnapEpoch = 0;
@@ -4782,6 +4835,16 @@ static void gxBuildStoreSnapshot(Int cellCountX, Int cellCountY)
 			for (Int x = box[4 * s]; x <= box[4 * s + 2]; ++x)
 				s_gxSnapSlots[fill[y * cellCountX + x]++] = s;
 	}
+	s_gxSnapClass.assign(cells, 0);
+	for (Int s = 0; s < n; ++s)
+	{
+		const UnsignedByte c = box[4 * s] >= 0 ? gxClassOf(S.obj[s]) : 0;
+		if (c)
+			for (Int y = box[4 * s + 1]; y <= box[4 * s + 3]; ++y)
+				for (Int x = box[4 * s]; x <= box[4 * s + 2]; ++x)
+					s_gxSnapClass[y * cellCountX + x] |= c;
+	}
+	s_gxSnapClassBase = s_gxSnapClass;
 	s_gxSnapBeg.assign(s_gxSnapStart.begin(), s_gxSnapStart.end() - 1);
 	s_gxSnapEnd.assign(s_gxSnapStart.begin() + 1, s_gxSnapStart.end());
 	s_gxBaseX.assign(S.x.begin(), S.x.begin() + n);
@@ -4865,6 +4928,7 @@ static Bool gxPatchStoreSnapshot(Int cellCountX, Int cellCountY)
 		const Int c = s_gxPatchedCells[i];
 		s_gxSnapBeg[c] = s_gxSnapStart[c];
 		s_gxSnapEnd[c] = s_gxSnapStart[c + 1];
+		s_gxSnapClass[c] = s_gxSnapClassBase[c];
 	}
 	s_gxPatchedCells.clear();
 	// the cells to redo, each with the changed slots that cover it now (ascending, as changed is)
@@ -4919,6 +4983,10 @@ static Bool gxPatchStoreSnapshot(Int cellCountX, Int cellCountY)
 			s_gxSnapSlots.push_back(add[j++]);
 		s_gxSnapBeg[c] = beg;
 		s_gxSnapEnd[c] = (Int)s_gxSnapSlots.size();
+		unsigned char cls = 0;
+		for (Int k = beg; k < s_gxSnapEnd[c]; ++k)
+			cls |= gxClassOf(S.obj[s_gxSnapSlots[k]]);
+		s_gxSnapClass[c] = cls | s_gxSnapClassBase[c];	// base: may hold marks of class changes since the build (more is safe)
 	}
 	s_gxCurBox.assign(s_gxBaseBox.begin(), s_gxBaseBox.begin() + 4 * s_gxBaseN);
 	s_gxCurBox.resize(4 * n, -1);
@@ -4926,6 +4994,28 @@ static Bool gxPatchStoreSnapshot(Int cellCountX, Int cellCountY)
 		memcpy(&s_gxCurBox[4 * changed[i]], &cur[4 * changed[i]], 4 * sizeof(Int));
 	s_gxSnapEpoch = S.epoch();
 	return TRUE;
+}
+
+// switch stealthCells: an object's class changed during the tick: its cells in the tick's lists (and the
+// base the patch restores) say so too. Bits are only added (a cell marked too often is just walked).
+static void gxSnapMarkClass(Int s, UnsignedByte cls)
+{
+	if (!cls || s < 0 || 4 * s + 3 >= (Int)s_gxCurBox.size() || !ThePartitionManager)
+		return;
+	const Int w = ThePartitionManager->getCellCountX();
+	for (int pass = 0; pass < 2; ++pass)
+	{
+		const std::vector<Int> &bx = pass ? s_gxBaseBox : s_gxCurBox;
+		if (4 * s + 3 >= (Int)bx.size() || bx[4 * s] < 0)
+			continue;
+		for (Int y = bx[4 * s + 1]; y <= bx[4 * s + 3]; ++y)
+			for (Int x = bx[4 * s]; x <= bx[4 * s + 2]; ++x)
+			{
+				const Int c = y * w + x;
+				if (c < (Int)s_gxSnapClass.size()) s_gxSnapClass[c] |= cls;
+				if (c < (Int)s_gxSnapClassBase.size()) s_gxSnapClassBase[c] |= cls;
+			}
+	}
 }
 
 /// verify (snapPatch): the lists a full build would make now, compared cell by cell with the ones in use
@@ -5001,7 +5091,9 @@ enum
 	GX_GCO_DENSE = 4,		// read cell masks from the dense array (switch denseCellMask)
 	GX_GCO_CACHE = 8,		// entries farther than the range by their cached place (switch searchCache)
 	GX_GCO_BLOCKS = 16,		// read the 8x8 block's mask first (switch blockMask)
-	GX_GCO_SNAP = 32		// read this tick's per-cell lists of store slots (match rule scanManager)
+	GX_GCO_SNAP = 32,		// read this tick's per-cell lists of store slots (match rule scanManager)
+	GX_GCO_CLASS = 64,		// cells holding no possible laser target (switch laserCells)
+	GX_GCO_CLASS2 = 128		// cells holding nothing stealthed or garrisonable (switch stealthCells)
 };
 
 Int PartitionData::gxSlot() const
@@ -5053,6 +5145,17 @@ Object *PartitionManager::getClosestObjects(
 	const Int sw = GLES3_Page_Switches2();
 	if (sw & 524288)
 		flags |= GX_GCO_CACHE;
+	{
+		const Int sw8 = GLES3_Page_Switches8();
+		if (sw8 & (32 | (Int)0x80000000))
+			for (PartitionFilter **fp = filters; fp && *fp; ++fp)
+			{
+				if ((sw8 & 32) && g_gxLaserFilterType && typeid(**fp) == *g_gxLaserFilterType)
+					flags |= GX_GCO_CLASS;
+				if ((sw8 & (Int)0x80000000) && g_gxStealthFilterType && typeid(**fp) == *g_gxStealthFilterType)
+					flags |= GX_GCO_CLASS2;
+			}
+	}
 	mask = gxEnemySlots(filters);
 	if (mask != 0xffffffffu)
 	{
@@ -5392,6 +5495,15 @@ Object *PartitionManager::gxClosestImpl(const Object *obj, const Coord3D *pos, R
 			// done flags only matter for objects that pass.
 			if ((gxFlags & GX_GCO_CELLS) && !(thisCell->gxPlayerMask() & gxEnemyMask))
 				continue;
+			// switch laserCells: a laser scan skips a cell with no object of any laser target kind (the tick's
+			// lists in scanManager mode, else the live cell). Those objects would all be rejected by the
+			// laser filter and done flags only matter for objects that pass: same result and order.
+			if (gxFlags & (GX_GCO_CLASS | GX_GCO_CLASS2))
+			{
+				const UnsignedInt need = ((gxFlags & GX_GCO_CLASS) ? 1u : 0u) | ((gxFlags & GX_GCO_CLASS2) ? 2u : 0u);
+				if ((gxFlags & GX_GCO_SNAP) ? !(s_gxSnapClass[gxY * m_cellCountX + gxX] & need) : !thisCell->gxHasClass(need))
+					continue;
+			}
 
 			// switch searchSlotSkip: walk only the lists of the players in the mask, merged back into the
 			// cell list's order by sequence (high to low), so entries of other players are never read

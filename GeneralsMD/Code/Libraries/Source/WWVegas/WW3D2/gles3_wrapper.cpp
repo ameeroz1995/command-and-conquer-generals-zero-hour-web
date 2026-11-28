@@ -527,6 +527,8 @@ void GLES3_Begin_Scene() {
         g_PageSwitches8 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // eighth word (phase 13): collide 0-5, paths 6-11, combat 12-17, ai 18-23, query 24-29, 30-31 main
+                 | (o.laserCells === true ? 32 : 0)   // bit 5 (query): point-defense laser scans skip map cells holding nothing a laser could target (PartitionManager.cpp; same game)
+                 | (o.stealthCells === true ? -2147483648 : 0)   // bit 31 (query, main's bit lent): stealth detector scans skip map cells holding nothing stealthed or garrisonable (PartitionManager.cpp; same game)
                  | (o.moduleCost === true ? 16777216 : 0)   // bit 24 (query): with tickTiming, cost per module type and per created object template, printed as GXMOD / GXSPAWN lines (GxTime.h; measuring only)
                  | (o.powerRows === false ? 0 : 33554432)   // bit 25 (query): the script check "special power ready" reads the power's own module list, not every unit of the player (ScriptConditions.cpp; same game)
                  | (o.areaRows === false ? 0 : 67108864)   // bit 26 (query): script checks counting a player's units or their value in an area read the area's own list of units inside it (ScriptConditions.cpp; same game)

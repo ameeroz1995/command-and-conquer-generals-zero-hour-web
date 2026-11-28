@@ -28,6 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
+#include <typeinfo>
 
 #define DEFINE_STEALTHLEVEL_NAMES
 
@@ -138,6 +139,9 @@ Bool PartitionFilterStealthedOrStealthGarrisoned::allow( Object *objOther)
 
 	return FALSE;
 }
+// web port (switch stealthCells): the partition skips cells holding nothing this filter can pass
+extern const std::type_info *g_gxStealthFilterType;
+static const bool s_gxStealthFilterReg = (g_gxStealthFilterType = &typeid(PartitionFilterStealthedOrStealthGarrisoned), true);
 
 //-------------------------------------------------------------------------------------------------
 /** The update callback. */
