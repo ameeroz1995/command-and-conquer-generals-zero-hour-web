@@ -64,6 +64,8 @@ int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
 static int g_PageSwitches7 = (int)0x00000031u;	// merge8: default-on bits of every lane, computed from the Settings defaults
 int GLES3_Page_Switches7() { return g_PageSwitches7; }	// non-web builds: callers use a local stub returning 0
+static int g_PageSwitches8 = 0;	// eighth word (phase 13): collide 0-5, paths 6-11, combat 12-17, ai 18-23, query 24-29, 30-31 main
+int GLES3_Page_Switches8() { return g_PageSwitches8; }	// non-web builds: callers use a local stub returning 0
 static int g_PageSwitches4 = (int)0xC206D3C6u;	// merge8: default-on bits of every lane, computed from the Settings defaults
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
 static int g_PageSwitches5 = (int)0x30FFFFF3u;	// merge8: default-on bits of every lane, computed from the Settings defaults
@@ -515,6 +517,10 @@ void GLES3_Begin_Scene() {
                  | (o.simdPairs === false ? 0 : 131072)    // bit 17: with pairOffer, the clearly-apart neighbour test 4 at a time with wasm SIMD (PartitionManager.cpp; same game)
                  | (o.simdBody === false ? 0 : 1073741824)  // bit 30 (query): with simdSearch, the search body's enemy test and 2D distance 8 at a time with wasm SIMD (same game)
                  | (o.snapPatch === false ? 0 : -2147483648); // bit 31 (query): scanManager's per-cell lists patched where units crossed a cell edge, not rebuilt, later in a tick (same game)
+        });
+        g_PageSwitches8 = EM_ASM_INT({
+            var o = (window.GeneralsX && window.GeneralsX.opt) || {};
+            return 0;   // eighth word (phase 13): collide 0-5, paths 6-11, combat 12-17, ai 18-23, query 24-29, 30-31 main
         });
         g_PageSwitches7 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
