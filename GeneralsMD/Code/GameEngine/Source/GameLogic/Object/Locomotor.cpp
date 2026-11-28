@@ -78,6 +78,8 @@ struct GxLocoScope
 // polynomial gxLocoAtan2; the movement pass has usually computed it already (4 movers per SIMD op)
 // for this unit's (goal - position), so take that when the inputs are exactly the same.
 Bool gxTakeLocoAngle(const Object *obj, Real dy, Real dx, Real &angle);	// AIUpdate.cpp
+Bool gxTakeLocoGround(const Object *obj, const Locomotor *loco, const Coord3D &pos, Bool &valid, Real &h);	// AIUpdate.cpp (switch locoKernel)
+extern int GLES3_Page_Switches8();
 static inline Real gxLocoHeading(const Object *obj, Real dy, Real dx)
 {
 	if (!gxMatchRule(GXRULE_LOCO_SIMD))
@@ -1031,8 +1033,10 @@ void Locomotor::locoUpdate_moveTowardsPosition(Object* obj, const Coord3D& goalP
 	// do not allow for invalid positions that the pathfinder cannot handle ... for airborne
 	// objects we don't need the pathfinder so we'll ignore this
 	//
+	const Bool gxLkOn = (GLES3_Page_Switches8() & 256) != 0;	// switch locoKernel (eighth word bit 8)
+	Bool gxValid; Real gxH;
 	if( BitIsSet( m_template->m_surfaces, LOCOMOTORSURFACE_AIR ) == false &&
-			!TheAI->pathfinder()->validMovementTerrain(obj->getLayer(), this, obj->getPosition()) &&
+			!((gxLkOn && gxTakeLocoGround(obj, this, *obj->getPosition(), gxValid, gxH)) ? gxValid : TheAI->pathfinder()->validMovementTerrain(obj->getLayer(), this, obj->getPosition())) &&
 			!getFlag(ALLOW_INVALID_POSITION))
 	{
 		// Somehow, we have gotten to an invalid location.
@@ -1061,7 +1065,7 @@ void Locomotor::locoUpdate_moveTowardsPosition(Object* obj, const Coord3D& goalP
 
 	Bool treatAsAirborne = false;
 	Coord3D pos = *obj->getPosition();
-	Real heightAboveSurface = pos.z - TheTerrainLogic->getLayerHeight(pos.x, pos.y, obj->getLayer());
+	Real heightAboveSurface = pos.z - ((gxLkOn && gxTakeLocoGround(obj, this, pos, gxValid, gxH)) ? gxH : TheTerrainLogic->getLayerHeight(pos.x, pos.y, obj->getLayer()));
 
 	if( obj->getStatusBits().test( OBJECT_STATUS_DECK_HEIGHT_OFFSET ) )
 	{

@@ -5048,3 +5048,11 @@ Level within noise. batchScan on is timed once query's pass lands.
   move and their values are read by range searches later in the same tick, so they can't wait; the trigger
   walk visits ~7 polygons with a bounds reject first and Pathfinder::updatePos already returns unless the
   unit's cell changed. Nothing worth batching found; not built.
+- locoKernel (eighth word bit 8, OFF, same game): in the movement pass, after the angle kernel, the
+  locomotor's two terrain reads at each served unit's position (validMovementTerrain, getLayerHeight on its
+  layer) are computed for all rows before anyone moves (AIUpdate.cpp gxLocoGroundKernel); the locomotor
+  takes them when frame, locomotor, layer and exact position match (Locomotor.cpp, gxTakeLocoGround).
+  Checks: referee.rep and merge8-ai7.rep (36,004 frames) match; merge8-ai7 verify 5.0 M checks, battle
+  verify 1.6 M, 0 mismatches. Timing (tickTiming off, swapped pairs, load 5-9): work ms armies 27.0 / 25.6
+  off, 27.0 / 27.0 on; strikes 33.7 / 32.1 off, 37.4 / 35.6 on (slower: the extra pass costs more than the
+  lookups it saves). merge8-ai7 loco 0.431 off vs 0.442 on (on run at load 15, not counted). OFF.

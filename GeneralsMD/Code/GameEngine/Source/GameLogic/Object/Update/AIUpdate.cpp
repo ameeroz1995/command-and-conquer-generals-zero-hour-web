@@ -1153,6 +1153,8 @@ struct GxCpopRow
 	ClosestPointOnPathInfo info;
 	UnsignedInt angleFrame;	// match rule locoSimd: heading of (posOnPath - pos), valid this frame
 	Real angleDy, angleDx, angle;
+	UnsignedInt groundFrame;	// switch locoKernel: the locomotor's terrain checks at pos, valid this frame
+	const Locomotor *groundLoco; PathfindLayerEnum groundLayer; Real groundH; Bool groundValid;
 };
 static std::vector<GxCpopRow> s_gxCpop;	// by store slot
 
@@ -1236,9 +1238,58 @@ static void gxLocoAngleKernel(const int *list, int n, UnsignedInt frame)
 	}
 }
 
+// switch locoKernel (eighth word bit 8): the two terrain checks every ground locomotor's
+// moveTowardsPosition makes at the unit's position (valid movement terrain for its locomotor, the layer
+// height under it), for every unit the route kernel just served, before any of them moves.
+// Reads the pathfinder grid and the terrain (nobody moves during this phase); writes its own rows.
+static void gxLocoGroundKernel(const int *list, int n, UnsignedInt frame)
+{
+	for (int i = 0; i < n; ++i)
+	{
+		GxCpopRow &row = s_gxCpop[list[i]];
+		row.groundFrame = ~0u;
+		if (row.frame != frame)
+			continue;
+		Object *obj = TheGxUnitStore.obj[list[i]];
+		AIUpdateInterface *ai = obj ? obj->getAI() : nullptr;
+		const Locomotor *loco = ai ? ai->getCurLocomotor() : nullptr;
+		if (!loco)
+			continue;
+		row.groundLoco = loco;
+		row.groundLayer = obj->getLayer();
+		row.groundValid = TheAI->pathfinder()->validMovementTerrain(row.groundLayer, const_cast<Locomotor *>(loco), &row.pos);
+		row.groundH = TheTerrainLogic->getLayerHeight(row.pos.x, row.pos.y, row.groundLayer);
+		row.groundFrame = frame;
+	}
+}
+
 #ifdef __EMSCRIPTEN__
 extern int GLES3_Page_Switches();
 #endif
+// locoKernel: the stored terrain checks when the unit is still where they were made, on the same layer
+Bool gxTakeLocoGround(const Object *obj, const Locomotor *loco, const Coord3D &pos, Bool &valid, Real &h)
+{
+	const int s = obj->gxStoreSlot();
+	if (s < 0 || s >= (int)s_gxCpop.size())
+		return FALSE;
+	const GxCpopRow &row = s_gxCpop[s];
+	if (row.groundFrame != TheGameLogic->getFrame() || row.groundLoco != loco || row.groundLayer != obj->getLayer()
+		|| row.pos.x != pos.x || row.pos.y != pos.y || row.pos.z != pos.z)
+		return FALSE;
+	valid = row.groundValid; h = row.groundH;
+#ifdef __EMSCRIPTEN__
+	if (GLES3_Page_Switches() & 2097152)	// verify mode: the same answers as the inline checks
+	{
+		static int s_checked = 0, s_bad = 0;
+		const Bool v = TheAI->pathfinder()->validMovementTerrain(obj->getLayer(), const_cast<Locomotor *>(loco), &pos);
+		const Real hh = TheTerrainLogic->getLayerHeight(pos.x, pos.y, obj->getLayer());
+		if ((v != valid || hh != h) && ++s_bad <= 20) printf("GXVERIFY locoKernel mismatch: object %u\n", obj->getID());
+		if (++s_checked % 100000 == 0) printf("GXVERIFY locoKernel checked %d, mismatches %d\n", s_checked, s_bad);
+	}
+#endif
+	return TRUE;
+}
+
 Bool gxTakeLocoAngle(const Object *obj, Real dy, Real dx, Real &angle)
 {
 	const int s = obj->gxStoreSlot();
@@ -1281,13 +1332,16 @@ void gxRunMovementPass()
 	{
 		if ((int)s_gxCpop.size() < TheGxUnitStore.size())
 		{
-			GxCpopRow none; none.frame = ~0u; none.angleFrame = ~0u; none.path = nullptr; none.pos.zero();
+			GxCpopRow none; none.frame = ~0u; none.angleFrame = ~0u; none.groundFrame = ~0u; none.groundLoco = nullptr; none.groundLayer = LAYER_GROUND; none.groundH = 0; none.groundValid = FALSE; none.path = nullptr; none.pos.zero();
 			s_gxCpop.resize(TheGxUnitStore.size() + 256, none);
 		}
 		GxTimeScope gxTimeKernel(GXT_MOVE_KERNEL);
 		gxMoveKernel(s_list.data(), 0, (int)s_list.size(), TheGameLogic->getFrame());
 		if (gxMatchRule(GXRULE_LOCO_SIMD))
 			gxLocoAngleKernel(s_list.data(), (int)s_list.size(), TheGameLogic->getFrame());
+		extern int GLES3_Page_Switches8();
+		if (GLES3_Page_Switches8() & 256)
+			gxLocoGroundKernel(s_list.data(), (int)s_list.size(), TheGameLogic->getFrame());
 	}
 	// apply, in object-ID order: locomotion, physics forces, positions, grid marks
 	for (size_t i = 0; i < s_list.size(); ++i)

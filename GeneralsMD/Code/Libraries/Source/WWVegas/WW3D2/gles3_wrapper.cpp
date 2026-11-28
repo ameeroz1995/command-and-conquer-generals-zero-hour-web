@@ -64,7 +64,7 @@ int GLES3_Page_Switches3() { return g_PageSwitches3; }
 // paths 18-23, combat 24-29. Default: the bits whose switches default on.
 static int g_PageSwitches7 = (int)0x00000031u;	// merge8: default-on bits of every lane, computed from the Settings defaults
 int GLES3_Page_Switches7() { return g_PageSwitches7; }	// non-web builds: callers use a local stub returning 0
-static int g_PageSwitches8 = 0;	// eighth word (phase 13): collide 0-5, paths 6-11, combat 12-17, ai 18-23, query 24-29, 30-31 main
+static int g_PageSwitches8 = 0;	// eighth word (phase 13; default-on: none): collide 0-5, paths 6-11, combat 12-17, ai 18-23, query 24-29, 30-31 main
 int GLES3_Page_Switches8() { return g_PageSwitches8; }	// non-web builds: callers use a local stub returning 0
 static int g_PageSwitches4 = (int)0xC206D3C6u;	// merge8: default-on bits of every lane, computed from the Settings defaults
 int GLES3_Page_Switches4() { return g_PageSwitches4; }
@@ -522,6 +522,7 @@ void GLES3_Begin_Scene() {
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // eighth word (phase 13): collide 0-5, paths 6-11, combat 12-17, ai 18-23, query 24-29, 30-31 main
                  | (o.physKernel === true ? 128 : 0)   // bit 7 (paths): with physSimd (rides on match rule physBulk), the bulk pass also looks up each due unit's ground height at its next position (PhysicsUpdate.cpp; same game as physBulk)
+                 | (o.locoKernel === true ? 256 : 0)   // bit 8 (paths): the locomotor's two terrain checks at each served unit's position computed in the movement pass before anyone moves (AIUpdate.cpp, Locomotor.cpp; same game)
                  | (o.drawSync === true ? 64 : 0)   // bit 6 (paths): an object's transform change reaches its drawable's draw modules on their next use, the next change or before the client update (Drawable.cpp; same game)
                  | (o.moduleCost === true ? 16777216 : 0);   // bit 24 (query): with tickTiming, cost per module type and per created object template, printed as GXMOD / GXSPAWN lines (GxTime.h; measuring only)
         });
