@@ -5050,3 +5050,11 @@ Level within noise. batchScan on is timed once query's pass lands.
   frames over 100 ms 41 / 21 off vs 16 / 9 on.
 - OFF until the drawing side lands: with it on the pieces are not drawn at all. The drawing side (rendering chat)
   gets the pieces as client-only effects.
+
+## Phase 13 C (combat): dumb projectile rows skipped (2026-11-28)
+- In the battle the only dumb projectiles are Toxin truck streams (0.64/tick) and Dragon tank flame (0.13/tick).
+- Their weapons use ProjectileStreamName. The stream is drawn through the live projectile objects' ids (Weapon::newProjectileFired -> ProjectileStreamUpdate), so they must stay objects.
+- What could become rows is about 0.01 projectiles/tick (mob rocks), so dumb rows are skipped (main's call).
+- Instead:
+  - a per-model render-object recycle pool (ninth word bit 12, exact), which helps every spawn;
+  - missile rows as a match rule (rule word 2 bit 9), with homing, fuel and PDL / countermeasure / flare search over rows. Drawing goes through the rendering chat's shared row-draw path.
