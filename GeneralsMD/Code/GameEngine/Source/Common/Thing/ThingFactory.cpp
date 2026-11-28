@@ -307,6 +307,9 @@ ThingTemplate *ThingFactory::findTemplateInternal( const AsciiString& name, Bool
 
 }
 
+// moduleCost (measuring only): object creation split by name in the module table
+#define GX_SCOST(name) static int gxSk_ = -1; \
+	GxCostScope gxSCost_(&GxTimeState::mod, gxCostOn() ? (gxSk_ < 0 ? (gxSk_ = (int)NAMEKEY(name)) : gxSk_) : -1)
 //=============================================================================
 Object *ThingFactory::newObject( const ThingTemplate *tmplate, Team *team, ObjectStatusMaskType statusBits )
 {
@@ -331,7 +334,9 @@ Object *ThingFactory::newObject( const ThingTemplate *tmplate, Team *team, Objec
 	// moduleCost (GxTime.h): creation cost and spikes per template (by template ID, which a lookup by
 	// name would not add a name key for), from here to initObject
 	GxCostScope gxCost(&GxTimeState::spawn, gxCostOn() ? (int)tmplate->getTemplateID() : -1);
-	Object *obj = TheGameLogic->friend_createObject( tmplate, statusBits, team );
+	Object *obj;
+	{ GX_SCOST("SpawnObject"); obj = TheGameLogic->friend_createObject( tmplate, statusBits, team ); }	// moduleCost
+	{ GX_SCOST("SpawnOnCreate");	// moduleCost
 
 	// run the create function for the thing
 	for (BehaviorModule** m = obj->getBehaviorModules(); *m; ++m)
@@ -342,14 +347,15 @@ Object *ThingFactory::newObject( const ThingTemplate *tmplate, Team *team, Objec
 
 		create->onCreate();
 	}
+	}
 
 	//
 	// all objects are part of the partition manager system, add it to that
 	// system now
 	//
-	ThePartitionManager->registerObject( obj );
+	{ GX_SCOST("SpawnRegister"); ThePartitionManager->registerObject( obj ); }	// moduleCost
 
-	obj->initObject();
+	{ GX_SCOST("SpawnInit"); obj->initObject(); }	// moduleCost
 
 	return obj;
 
@@ -361,7 +367,8 @@ Drawable *ThingFactory::newDrawable(const ThingTemplate *tmplate, DrawableStatus
 	if (tmplate == nullptr)
 		throw ERROR_BAD_ARG;
 
-	Drawable *draw = TheGameClient->friend_createDrawable( tmplate, statusBits );
+	Drawable *draw;
+	{ GX_SCOST("SpawnDrawable"); draw = TheGameClient->friend_createDrawable( tmplate, statusBits ); }	// moduleCost
 
 	/** @todo we should keep track of all the drawables we've allocated here
 	but we'll wait until we have an drawable storage to do that cause it will

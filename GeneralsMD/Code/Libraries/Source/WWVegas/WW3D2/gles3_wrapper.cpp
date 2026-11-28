@@ -524,7 +524,7 @@ void GLES3_Begin_Scene() {
                  | (o.bonusRows === false ? 0 : 4096)   // bit 12 (combat): weapon bonus answer kept per weapon row for the frame (Weapon.cpp computeBonus; same game)
                  | (o.chooseRows === false ? 0 : 8192)   // bit 13 (combat): weapon choice reads victim anti mask / AI once, no range walk for PREFER_MOST_DAMAGE (WeaponSet.cpp; same game)
                  | (o.fireBoneCache === true ? 16384 : 0)   // bit 14 (combat): fire-bone transform kept per frame per render object and bone (W3DModelDraw.cpp; client only)
-                 | (o.fireFXQueue === true ? 32768 : 0)   // bit 15 (combat): weapon fire FX queued in the logic tick, played at the start of GameClient::update (W3DModelDraw.cpp; client random only, same game)
+                 | (o.fireFXQueue === false ? 0 : 32768)   // bit 15 (combat): weapon fire FX queued in the logic tick, played at the start of GameClient::update (W3DModelDraw.cpp; client random only, same game)
                  | (o.moduleCost === true ? 16777216 : 0);   // bit 24 (query): with tickTiming, cost per module type and per created object template, printed as GXMOD / GXSPAWN lines (GxTime.h; measuring only)
         });
         g_PageSwitches7 = EM_ASM_INT({
