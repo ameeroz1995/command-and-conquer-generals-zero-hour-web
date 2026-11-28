@@ -65,6 +65,9 @@ extern int GLES3_Page_Switches();
 
 // web port (switch scriptLookups): bumped at every write of m_namedObjects / m_allObjectTypeLists
 static UnsignedInt s_gxNamedEpoch = 1, s_gxTypesEpoch = 1;
+/// phase 13 E (query), switch typeCache: bumped at every change of an object type list (which lists exist,
+/// what is in them, a load, a reset); ScriptConditions' resolved-template rows are redone when it moves
+UnsignedInt g_gxTypeContentGen = 1;
 
 
 // These are for debugger window
@@ -5309,6 +5312,7 @@ void ScriptEngine::init()
 //-------------------------------------------------------------------------------------------------
 void ScriptEngine::reset()
 {
+	++g_gxTypeContentGen;	// typeCache: a new game
 	// setting FPS limit in case a script had changed it
 	if (TheFramePacer && TheGlobalData)
 		TheFramePacer->setFramesPerSecondLimit(TheGlobalData->m_framesPerSecondLimit);
@@ -5431,7 +5435,7 @@ void ScriptEngine::reset()
 		if (*it) {
 			removeObjectTypes(*it);
 		} else {
-			++s_gxTypesEpoch; m_allObjectTypeLists.erase(it);
+			++s_gxTypesEpoch; ++g_gxTypeContentGen; m_allObjectTypeLists.erase(it);
 		}
 	}
 	DEBUG_ASSERTCRASH( m_allObjectTypeLists.empty() == TRUE, ("ScriptEngine::reset - m_allObjectTypeLists should be empty but is not!") );
@@ -5953,7 +5957,7 @@ void ScriptEngine::doObjectTypeListMaintenance(const AsciiString& objectTypeList
 
 	if (!currentObjectTypeVec) {
 		ObjectTypes *newVec = newInstance(ObjectTypes)(objectTypeList);
-		++s_gxTypesEpoch; m_allObjectTypeLists.push_back(newVec);
+		++s_gxTypesEpoch; ++g_gxTypeContentGen; m_allObjectTypeLists.push_back(newVec);
 		currentObjectTypeVec = newVec;
 	}
 
@@ -5962,6 +5966,7 @@ void ScriptEngine::doObjectTypeListMaintenance(const AsciiString& objectTypeList
 	} else {
 		currentObjectTypeVec->removeObjectType(objectType);
 	}
+	++g_gxTypeContentGen;	// typeCache
 
 	// Remove it. Its dead Jim.
 	if (currentObjectTypeVec->getListSize() == 0) {
@@ -6864,7 +6869,7 @@ void ScriptEngine::removeObjectTypes(ObjectTypes *typesToRemove)
 	deleteInstance(typesToRemove);
 
 	// remove it from the main array of stuff
-	++s_gxTypesEpoch; m_allObjectTypeLists.erase(it);
+	++s_gxTypesEpoch; ++g_gxTypeContentGen; m_allObjectTypeLists.erase(it);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -9436,7 +9441,7 @@ void ScriptEngine::xfer( Xfer *xfer )
 				xfer->xferSnapshot( objectTypes );
 
 				// put on list
-				++s_gxTypesEpoch; m_allObjectTypeLists.push_back( objectTypes );
+				++s_gxTypesEpoch; ++g_gxTypeContentGen; m_allObjectTypeLists.push_back( objectTypes );
 
 			}
 

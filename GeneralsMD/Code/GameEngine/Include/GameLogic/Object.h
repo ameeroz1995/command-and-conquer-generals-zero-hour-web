@@ -30,6 +30,7 @@
 
 #include "Lib/BaseType.h"
 #include "ref_ptr.h"
+#include <vector>
 
 #include "Common/Geometry.h"
 #include "Common/GxComponentPool.h"
@@ -588,6 +589,13 @@ public:
 	Bool didEnter(const PolygonTrigger *pTrigger) const;
 	Bool didExit(const PolygonTrigger *pTrigger) const;
 	Bool isInside(const PolygonTrigger *pTrigger) const;
+	/// phase 13 E (query), switch areaRows (eighth word bit 26): every object whose trigger flags say it is
+	/// inside a trigger area, listed under that trigger (any order). nullptr: none. gxTrigSync after each flag write.
+	static const std::vector<Object*> *gxTriggerRows(const PolygonTrigger *pTrigger);
+	void gxTrigSync();
+	const PolygonTrigger *m_gxTrigIdx[5];	///< triggers this object is listed under (MAX_TRIGGER_AREA_INFOS)
+	Int m_gxTrigPos[5];	///< its index in each trigger's list
+	Byte m_gxTrigN = 0;
 
 	// exiting of any kind
 	ExitInterface *getObjectExitInterface() const;  ///< get exit interface is present

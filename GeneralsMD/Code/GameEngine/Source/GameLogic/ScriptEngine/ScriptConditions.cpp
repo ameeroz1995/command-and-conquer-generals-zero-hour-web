@@ -59,29 +59,31 @@
 #include "GameLogic/ScriptEngine.h"
 #include "Common/GxTime.h"	// web port: moduleCost condition table
 #include "Common/GxNameMap.h"	// web port: verify helpers (powerRows)
+#include <unordered_map>
 
-/// switch areaRows (eighth word bit 26, phase 13 E): area counts and values from the player's objects by
-/// template (Player::m_gxByTmpl, the same objects as the team walk; with tmplRowsIncr updated per team join / leave); templates
-/// the check rules out are skipped whole (an object's template is fixed). A sum, so order does not matter.
-/// Verify (first word bit 21) runs the walk too and compares.
+/// switch areaRows (eighth word bit 26, phase 13 E): area counts and values from the trigger area's own list
+/// (Object::gxTriggerRows: every object whose trigger flags say it is inside, the same flags isInside reads),
+/// kept to the objects of the player's teams (controlling player of the object's team, as the team walk).
+/// A sum, so order does not matter. Verify (first word bit 21) runs the walk too and compares.
 static inline Bool gxAreaRowsOn() { return (GLES3_Page_Switches8() & 67108864) != 0; }
 template <class TmplOk, class ObjValue>
-static Int gxAreaRows(Player *p, TmplOk tmplOk, ObjValue objValue)
+static Int gxAreaRows(Player *p, const PolygonTrigger *pTrig, TmplOk tmplOk, ObjValue objValue)
 {
-	p->gxRefreshMembers();
 	Int sum = 0;
-	for (auto it = p->m_gxByTmpl.begin(); it != p->m_gxByTmpl.end(); ++it)
-	{
-		if (it->second.empty() || !tmplOk(it->first))
-			continue;
-		for (Object *o : it->second)
+	if (const std::vector<Object*> *rows = Object::gxTriggerRows(pTrig))
+		for (Object *o : *rows)
+		{
+			const Team *team = o->getTeam();
+			if (!team || team->getControllingPlayer() != p || !tmplOk(o->getTemplate()))
+				continue;
 			sum += objValue(o);
-	}
+		}
 	return sum;
 }
 
 #include "GameLogic/Scripts.h"
 #include "GameLogic/VictoryConditions.h"
+
 
 
 class ObjectTypesTemp
@@ -99,6 +101,66 @@ public:
 		deleteInstance(m_types);
 	}
 };
+
+/// switch typeCache (eighth word bit 29, phase 13 E): the templates a type parameter names (an object type list
+/// or one template name), resolved as prepForPlayerCounting does, kept per parameter until any object type list
+/// changes (g_gxTypeContentGen, ScriptEngine.cpp). Saves the ObjectTypes copy and the name lookups per call.
+extern UnsignedInt g_gxTypeContentGen;
+struct GxTypeRow
+{
+	UnsignedInt gen = 0;
+	AsciiString name;
+	std::vector<const ThingTemplate *> tmpls;
+	Bool nameIsTmpl = false;	///< TheThingFactory->findTemplate(name) (BUILT_BY_PLAYER needs it)
+};
+static std::unordered_map<const Parameter *, GxTypeRow> s_gxTypeRows;
+static const GxTypeRow *gxTypeRow(Parameter *pTypeParm)
+{
+	if (!(GLES3_Page_Switches8() & 536870912))
+		return nullptr;
+	GxTypeRow &r = s_gxTypeRows[pTypeParm];
+	if (r.gen == g_gxTypeContentGen && r.name == pTypeParm->getString() && gxNameMapVerify())
+	{
+		// verify: the kept row is what a fresh resolve gives now
+		GxTypeRow kept = r;
+		r.gen = 0;
+		gxTypeRow(pTypeParm);
+		gxNameCheck("typeCache", r.name.str(), kept.tmpls == r.tmpls && kept.nameIsTmpl == r.nameIsTmpl);
+		return &r;
+	}
+	if (r.gen != g_gxTypeContentGen || r.name != pTypeParm->getString())
+	{
+		r.gen = g_gxTypeContentGen;
+		r.name = pTypeParm->getString();
+		r.tmpls.clear();
+		r.nameIsTmpl = TheThingFactory->findTemplate(r.name) != nullptr;
+		if (r.name.isNotEmpty())
+		{
+			ObjectTypesTemp one;
+			ObjectTypes *types = TheScriptEngine->getObjectTypes(r.name);
+			if (!types)
+			{
+				one.m_types->addObjectType(r.name);
+				types = one.m_types;
+			}
+			std::vector<Int> counts;
+			types->prepForPlayerCounting(r.tmpls, counts);
+		}
+	}
+	return &r;
+}
+/// count with the cached templates, as the original's prepForPlayerCounting + countObjectsByThingTemplate
+static Int gxTypeRowCount(Player *p, const GxTypeRow *r, Bool ignoreDead)
+{
+	static std::vector<Int> counts;
+	const Int n = (Int)r->tmpls.size();
+	counts.assign(n, 0);
+	p->countObjectsByThingTemplate(n, r->tmpls.data(), ignoreDead, counts.data());
+	Int sum = 0;
+	for (Int c : counts)
+		sum += c;
+	return sum;
+}
 
 // STATICS ////////////////////////////////////////////////////////////////////////////////////////
 namespace rts
@@ -499,7 +561,7 @@ Bool ScriptConditions::evaluatePlayerHasUnitTypeInArea(Condition *pCondition, Pa
 	objectTypesFromParam(pTypeParm, types.m_types);
 
 	Int count = 0;
-	Int gxRows = gxAreaRowsOn() ? gxAreaRows(pPlayer, [&](const ThingTemplate *t) { return types.m_types->isInSet(t); },
+	Int gxRows = gxAreaRowsOn() ? gxAreaRows(pPlayer, pTrig, [&](const ThingTemplate *t) { return types.m_types->isInSet(t); },
 		[&](Object *pObj) { return (pObj->isInside(pTrig) && (!(pObj->isEffectivelyDead() || pObj->isKindOf(KINDOF_INERT)) || pObj->isKindOf( KINDOF_CRATE ))) ? 1 : 0; }) : -1;
 	if (gxRows >= 0 && !gxNameMapVerify()) count = gxRows;
 	else {
@@ -597,7 +659,7 @@ Bool ScriptConditions::evaluatePlayerHasUnitKindInArea(Condition *pCondition, Pa
 
 
 	Int count = 0;
-	Int gxRows = gxAreaRowsOn() ? gxAreaRows(pPlayer, [&](const ThingTemplate *t) { return t->isKindOf(kind); },
+	Int gxRows = gxAreaRowsOn() ? gxAreaRows(pPlayer, pTrig, [&](const ThingTemplate *t) { return t->isKindOf(kind); },
 		[&](Object *pObj) { return (pObj->isInside(pTrig) && !(pObj->isEffectivelyDead() || pObj->isKindOf(KINDOF_INERT))) ? 1 : 0; }) : -1;
 	if (gxRows >= 0 && !gxNameMapVerify()) count = gxRows;
 	else {
@@ -920,6 +982,14 @@ Bool ScriptConditions::evaluateBuiltByPlayer(Condition *pCondition, Parameter* p
 		return false;
 	}
 
+	Int sumOfObjs;
+	if (const GxTypeRow *tr = gxTypeRow(pTypeParm)) {	// typeCache
+		if (!tr->nameIsTmpl)
+			return false;
+		if (tr->tmpls.empty())
+			return 0;
+		sumOfObjs = gxTypeRowCount(pPlayer, tr, false);
+	} else {
 	const ThingTemplate* pTemplate = TheThingFactory->findTemplate(pTypeParm->getString());
 	if (!pTemplate) {
 		return false;
@@ -938,7 +1008,8 @@ Bool ScriptConditions::evaluateBuiltByPlayer(Condition *pCondition, Parameter* p
 		return 0;
 	}
 
-	Int sumOfObjs = rts::sum(counts);
+	sumOfObjs = rts::sum(counts);
+	}
 	pCondition->setCustomData(-1); // false.
 	if (sumOfObjs != 0) {
 		pCondition->setCustomData(1); // true.
@@ -1833,6 +1904,14 @@ Bool ScriptConditions::evaluatePlayerUnitCondition(Condition *pCondition, Parame
 		return false;
 	}
 
+	Int count = 0;
+	if (const GxTypeRow *tr = gxTypeRow(pUnitTypeParm))	// typeCache
+	{
+		if (!tr->tmpls.empty())
+			count = gxTypeRowCount(pPlayer, tr, false);
+	}
+	else
+	{
 	ObjectTypesTemp types;
 	objectTypesFromParam(pUnitTypeParm, types.m_types);
 
@@ -1840,12 +1919,12 @@ Bool ScriptConditions::evaluatePlayerUnitCondition(Condition *pCondition, Parame
 	std::vector<const ThingTemplate *> templates;
 
 	Int numObjs = types.m_types->prepForPlayerCounting(templates, counts);
-	Int count = 0;
 
 	if (numObjs > 0)
 	{
 		pPlayer->countObjectsByThingTemplate(numObjs, &(*templates.begin()), false, &(*counts.begin()));
 		count = rts::sum(counts);
+	}
 	}
 
 	Bool comparison = false;
@@ -2249,7 +2328,7 @@ Bool ScriptConditions::evaluateSkirmishValueInArea(Condition *pCondition, Parame
 		if (pCondition->getCustomData()==1) return true;
 	}
 	Int totalCost = 0;
-	Int gxRows = gxAreaRowsOn() ? gxAreaRows(player, [&](const ThingTemplate *t) { return !t->isKindOf(KINDOF_INERT); },
+	Int gxRows = gxAreaRowsOn() ? gxAreaRows(player, pTrig, [&](const ThingTemplate *t) { return !t->isKindOf(KINDOF_INERT); },
 		[&](Object *pObj) { return (pObj->isInside(pTrig) && !pObj->isEffectivelyDead()) ? pObj->getTemplate()->friend_getBuildCost() : 0; }) : -1;
 	if (gxRows >= 0 && !gxNameMapVerify()) totalCost = gxRows;
 	else {
@@ -2805,6 +2884,12 @@ Bool ScriptConditions::evaluatePlayerLostObjectType(Parameter *pPlayerParm, Para
 		return FALSE;
 	}
 
+	Int sumOfObjs;
+	if (const GxTypeRow *tr = gxTypeRow(pTypeParm)) {	// typeCache
+		if (tr->tmpls.empty())
+			return FALSE;
+		sumOfObjs = gxTypeRowCount(player, tr, true);
+	} else {
 	ObjectTypesTemp objs;
 	objectTypesFromParam(pTypeParm, objs.m_types);
 
@@ -2818,7 +2903,8 @@ Bool ScriptConditions::evaluatePlayerLostObjectType(Parameter *pPlayerParm, Para
 		return FALSE;
 	}
 
-	Int sumOfObjs = rts::sum(counts);
+	sumOfObjs = rts::sum(counts);
+	}
 	Int currentCount = TheScriptEngine->getObjectCount(player->getPlayerIndex(), pTypeParm->getString());
 
 	if (sumOfObjs != currentCount) {

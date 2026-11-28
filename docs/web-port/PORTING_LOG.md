@@ -5030,7 +5030,7 @@ Level within noise. batchScan on is timed once query's pass lands.
 - areaRows (eighth word bit 26, default off): PLAYER_HAS_UNIT_TYPE_IN_AREA, PLAYER_HAS_UNIT_KIND_IN_AREA and
   SKIRMISH_VALUE_IN_AREA summed per template from Player::m_gxByTmpl. Exact, but slower (0.07 -> 0.8-1.0 ms/tick for
   SKIRMISH_VALUE_IN_AREA) since that index is rebuilt on every team membership change. Off.
-- tmplRowsIncr (eighth word bit 27, default on): Player::m_gxByTmpl (#2) takes each team join / leave
+- tmplRowsIncr (eighth word bit 27, default on; set OFF in query-79, see below): Player::m_gxByTmpl (#2) takes each team join / leave
   (Player::becomingTeamMember: push, or swap-remove) instead of a full rebuild on next use. The producer list is redone
   from those lists only when asked (gxRefreshProducers): a new object joins its team (Object.cpp setTeam) before its
   modules exist, so the producer check can't be made at join time (first try: 96 verify mismatches). Verify compares the
@@ -5042,3 +5042,24 @@ Level within noise. batchScan on is timed once query's pass lands.
 - liveCountRows (eighth word bit 28, default off): live counts (countObjectsByThingTemplate with ignoreDead) from the
   per-template lists. Exact, but no gain (PLAYER_LOST_OBJECT_TYPE 0.032 vs 0.034 ms/tick): those checks cost the
   name -> template lookups and ObjectTypes copy, not the walk.
+
+## 2026-11-28 (query-79): areaRows ON (trigger-area unit lists), typeCache ON (bit 29), tmplRowsIncr OFF
+- areaRows (eighth word bit 26) now reads a per-trigger list of the objects inside it instead of m_gxByTmpl.
+  Object keeps the triggers its isInside flags name (m_gxTrigIdx/m_gxTrigPos, at most MAX_TRIGGER_AREA_INFOS);
+  Object::gxTrigSync updates s_gxTrigRows (push / swap-remove) at the end of updateTriggerAreaFlags,
+  setTriggerAreaFlagsForChangeInPosition, after xfer load and in the destructor. The check then filters by
+  controlling player and template exactly like the walk, so it reads the same isInside flags the walk reads.
+  SKIRMISH_VALUE_IN_AREA 0.077 -> 0.036/0.040 ms/tick (battle); ai7 IN_TRIGGER_AREA 0.030 -> 0.017. ON.
+- typeCache (eighth word bit 29, new): BUILT_BY_PLAYER, PLAYER_HAS_OBJECT_COMPARISON (evaluatePlayerUnitCondition) and
+  PLAYER_LOST_OBJECT_TYPE keep the resolved template list on the condition's Parameter until g_gxTypeContentGen
+  changes (bumped with every s_gxTypesEpoch bump, after doObjectTypeListMaintenance add/remove and at
+  ScriptEngine::reset). Verify re-resolves and compares ("typeCache"). BUILT_BY_PLAYER 0.060/0.054 -> 0.045 ms/tick;
+  GXCOND total 0.304/0.279 (both off) -> 0.242 (typeCache) -> 0.191/0.203 (both). ON.
+- tmplRowsIncr (bit 27) -> OFF. Nothing on the default path reads m_gxByTmpl: buildMoreIndex (fifth word bit 26),
+  tmplIndex (fifth bit 24), liveCountRows (bit 28) are off and areaRows no longer uses it. The 9.80 vs 9.83 ai7 logic
+  was noise, so it is off by the gain rule. Correction to the entry above / PHASE13_MEASURE: BUILT_BY_PLAYER,
+  OBJECT_COMPARISON and LOST_OBJECT_TYPE do not count from tmplIndex by default; they walk the player's units.
+- Exact: ai7 verify over 12000 frames 0 mismatches of 646,144 (areaRows + typeCache on); ai7 36004 frames and referee match.
+- Work pairs (battle, tickTiming off): off 32.33/34.65, on 33.64/32.49 ms/tick; p99 [144-152 / 141-164]; over 100 ms
+  off 17/20, on 15/9. Inside noise. ai7 logic 11.98 (on) vs 10.93 (off), but every unrelated timer (search, move,
+  physics, aiLoop) was ~8-10% higher in that run too: machine load, not this change. GXCOND in the same runs 0.160 vs 0.184.

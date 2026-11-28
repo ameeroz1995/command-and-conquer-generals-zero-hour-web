@@ -30,6 +30,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file in the GameEngine
 #include "Common/GxTime.h"
+#include <unordered_map>
 #define DEFINE_WEAPONCONDITIONMAP
 #include "Common/GxUnitStore.h"
 #include "Common/BitFlagsIO.h"
@@ -580,6 +581,11 @@ void Object::initObject()
 Object::~Object()
 {
 	TheGxUnitStore.remove(this);	// web port (round 4)
+	if (m_gxTrigN)
+	{
+		m_gxObj->m_numTriggerAreasActive = 0;	// areaRows: leave every trigger list
+		gxTrigSync();
+	}
 
 	// tell the AI the building is gone
 	/// @todo Generalize the notion of objects entering and leaving the world, so we don't have to special case this
@@ -2472,6 +2478,61 @@ void Object::updateTriggerAreaFlags()
 		j++;
 	}
 	m_gxObj->m_numTriggerAreasActive = j;
+	gxTrigSync();
+}
+
+//-------------------------------------------------------------------------------------------------
+// phase 13 E (query), areaRows: the trigger-area index (objects whose flags say inside, per trigger)
+//-------------------------------------------------------------------------------------------------
+static std::unordered_map<const PolygonTrigger *, std::vector<Object *> > s_gxTrigRows;
+const std::vector<Object*> *Object::gxTriggerRows(const PolygonTrigger *pTrigger)
+{
+	auto it = s_gxTrigRows.find(pTrigger);
+	return it == s_gxTrigRows.end() ? nullptr : &it->second;
+}
+void Object::gxTrigSync()
+{
+	if (!m_gxTrigN && !(GLES3_Page_Switches8() & 67108864))
+		return;
+	const PolygonTrigger *cur[MAX_TRIGGER_AREA_INFOS];
+	Int n = 0, k, c;
+	for (Int i = 0; i < m_gxObj->m_numTriggerAreasActive; ++i)
+	{
+		const PolygonTrigger *t = m_gxObj->m_triggerInfo[i].isInside ? m_gxObj->m_triggerInfo[i].pTrigger : nullptr;
+		for (c = 0; c < n && t; ++c)
+			if (cur[c] == t)
+				t = nullptr;
+		if (t)
+			cur[n++] = t;
+	}
+	for (k = 0; k < m_gxTrigN; )
+	{
+		for (c = 0; c < n && cur[c] != m_gxTrigIdx[k]; ++c) {}
+		if (c < n) { ++k; continue; }
+		// leave this trigger's list: swap-remove, fix the moved object's slot
+		std::vector<Object *> &v = s_gxTrigRows[m_gxTrigIdx[k]];
+		Object *last = v.back();
+		v[m_gxTrigPos[k]] = last;
+		v.pop_back();
+		if (last != this)
+			for (Int s2 = 0; s2 < last->m_gxTrigN; ++s2)
+				if (last->m_gxTrigIdx[s2] == m_gxTrigIdx[k])
+					last->m_gxTrigPos[s2] = m_gxTrigPos[k];
+		--m_gxTrigN;
+		m_gxTrigIdx[k] = m_gxTrigIdx[m_gxTrigN];
+		m_gxTrigPos[k] = m_gxTrigPos[m_gxTrigN];
+	}
+	for (c = 0; c < n; ++c)
+	{
+		for (k = 0; k < m_gxTrigN && m_gxTrigIdx[k] != cur[c]; ++k) {}
+		if (k < m_gxTrigN)
+			continue;
+		std::vector<Object *> &v = s_gxTrigRows[cur[c]];
+		m_gxTrigIdx[m_gxTrigN] = cur[c];
+		m_gxTrigPos[m_gxTrigN] = (Int)v.size();
+		++m_gxTrigN;
+		v.push_back(this);
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2808,7 +2869,7 @@ void Object::setTriggerAreaFlagsForChangeInPosition()
 		}
 
 	}
-
+	gxTrigSync();
 }
 
 
@@ -4417,6 +4478,8 @@ void Object::xfer( Xfer *xfer )
 		xfer->xferByte(&m_gxObj->m_triggerInfo[i].exited);
 		xfer->xferByte(&m_gxObj->m_triggerInfo[i].isInside);
 	}
+	if (xfer->getXferMode() == XFER_LOAD)
+		gxTrigSync();	// areaRows
 	// Layer object is pathing on.
 	xfer->xferUser(&gxLayerRef(), sizeof(gxLayerRef()));
 
