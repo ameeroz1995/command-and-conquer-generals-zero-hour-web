@@ -1721,6 +1721,10 @@ const ModelConditionInfo* W3DModelDrawModuleData::findBestInfo(const ModelCondit
 //-------------------------------------------------------------------------------------------------
 
 //-------------------------------------------------------------------------------------------------
+#include "Common/GxTime.h"
+// moduleCost (measuring only): model draw creation split by name in the module table
+#define GX_MCOST(name) static int gxMk_ = -1; \
+	GxCostScope gxMCost_(&GxTimeState::mod, gxCostOn() ? (gxMk_ < 0 ? (gxMk_ = (int)NAMEKEY(name)) : gxMk_) : -1)
 //-------------------------------------------------------------------------------------------------
 W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawModule(thing, moduleData)
 {
@@ -1747,9 +1751,10 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
 	gxForgetSubObjIndices();
 
 	// only validate the current time-of-day and weather conditions by default.
+	{ GX_MCOST("ModelCtorTimeWeather");	// moduleCost
 	getW3DModelDrawModuleData()->validateStuffForTimeAndWeather(getDrawable(),
 											TheGlobalData->m_timeOfDay == TIME_OF_DAY_NIGHT,
-											TheGlobalData->m_weather == WEATHER_SNOWY);
+											TheGlobalData->m_weather == WEATHER_SNOWY); }
 
 	ModelConditionFlags emptyFlags;
 	const ModelConditionInfo* info = findBestInfo(emptyFlags);
@@ -1780,7 +1785,7 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
     }
   }
 
-	setModelState(info);
+	{ GX_MCOST("ModelCtorSetState"); setModelState(info); }	// moduleCost
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3112,7 +3117,7 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 		}
 		else
 		{
-			m_renderObject = W3DDisplay::m_assetManager->Create_Render_Obj(newState->m_modelName.str(), draw->getScale(), m_hexColor);
+			{ GX_MCOST("ModelCreateRobj"); m_renderObject = W3DDisplay::m_assetManager->Create_Render_Obj(newState->m_modelName.str(), draw->getScale(), m_hexColor); }	// moduleCost
 			DEBUG_ASSERTCRASH(m_renderObject, ("*** ASSET ERROR: Model %s not found!",newState->m_modelName.str()));
 			// store's ANIM bit (combat): the bone workers take their units from the store's ANIM list
 			if (m_renderObject && m_renderObject->Class_ID() == RenderObjClass::CLASSID_HLOD && draw->getObject())
@@ -3122,11 +3127,11 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 		//BONEPOS_LOG(("validateStuff() from within W3DModelDraw::setModelState()"));
 		//BONEPOS_DUMPREAL(draw->getScale());
 
-		newState->validateStuff(m_renderObject, draw->getScale(), getW3DModelDrawModuleData()->m_extraPublicBones);
+		{ GX_MCOST("ModelValidate"); newState->validateStuff(m_renderObject, draw->getScale(), getW3DModelDrawModuleData()->m_extraPublicBones); }	// moduleCost
 		// ensure that any muzzle flashes from the *new* state, start out hidden...
 //		hideAllMuzzleFlashes(newState, m_renderObject);//moved to above
-		rebuildWeaponRecoilInfo(newState);
-		doHideShowSubObjs(&newState->m_hideShowVec);
+		{ GX_MCOST("ModelRecoilInfo"); rebuildWeaponRecoilInfo(newState); }	// moduleCost
+		{ GX_MCOST("ModelHideShow"); doHideShowSubObjs(&newState->m_hideShowVec); }	// moduleCost
 
 #if defined(RTS_DEBUG)	//art wants to see buildings without flags as a test.
 		if (TheGlobalData->m_hideGarrisonFlags && draw->isKindOf(KINDOF_STRUCTURE))
@@ -3142,6 +3147,7 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 				TheTerrainTracksRenderObjClassSystem != nullptr &&
 				!getW3DModelDrawModuleData()->m_trackFile.isEmpty())
 		{
+			GX_MCOST("ModelTrack");	// moduleCost
 			m_trackRenderObject = TheTerrainTracksRenderObjClassSystem->bindTrack(m_renderObject, 1.0f*MAP_XY_FACTOR, getW3DModelDrawModuleData()->m_trackFile.str());
 			if (draw && m_trackRenderObject)
 				m_trackRenderObject->setOwnerDrawable(draw);
@@ -3162,7 +3168,7 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 			shadowInfo.m_offsetY				= tmplate->getShadowOffsetY();
 
 			DEBUG_ASSERTCRASH(m_shadow == nullptr, ("m_shadow is not null"));
-			m_shadow = TheW3DShadowManager->addShadow(m_renderObject, &shadowInfo, draw);
+			{ GX_MCOST("ModelShadow"); m_shadow = TheW3DShadowManager->addShadow(m_renderObject, &shadowInfo, draw); }	// moduleCost
 			if (m_shadow)
 			{	m_shadow->enableShadowInvisible(m_fullyObscuredByShroud);
 				m_shadow->enableShadowRender(m_shadowEnabled);
@@ -3218,7 +3224,7 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 
 			// add render object to our scene
 			if (W3DDisplay::m_3DScene != nullptr)
-				W3DDisplay::m_3DScene->Add_Render_Object(m_renderObject);
+				{ GX_MCOST("ModelSceneAdd"); W3DDisplay::m_3DScene->Add_Render_Object(m_renderObject); }	// moduleCost
 
 			// tie in our drawable as the user data pointer in the render object
 			m_renderObject->Set_User_Data(draw->getDrawableInfo());
@@ -3239,7 +3245,7 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 			// as the previous one
 			//
 			m_renderObject->Set_Transform(transform);
-			onRenderObjRecreated();
+			{ GX_MCOST("ModelRecreated"); onRenderObjRecreated(); }	// moduleCost
 		}
 	}
 	else

@@ -343,6 +343,10 @@ void Drawable::saturateRGB(RGBColor& color, Real factor)
  * and are usually bound to GameLogic objects.  In other words, they are the
  * graphical side of a logical object, whereas GameLogic objects encapsulate
  * behaviors and physics.  */
+#include "Common/GxTime.h"
+// moduleCost (measuring only): drawable creation split by name in the module table
+#define GX_DCOST(name) static int gxDk_ = -1; \
+	GxCostScope gxDCost_(&GxTimeState::mod, gxCostOn() ? (gxDk_ < 0 ? (gxDk_ = (int)NAMEKEY(name)) : gxDk_) : -1)
 //-------------------------------------------------------------------------------------------------
 Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatusBits statusBits )
 				: Thing( thingTemplate )
@@ -372,10 +376,12 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatusBits statu
 
 	m_lastConstructDisplayed = -1.0f;
 	//Fix for the building percent
+	GX_DCOST("DrawCtorAll");	// moduleCost: the constructor from here
+	{ GX_DCOST("DrawCaption");	// moduleCost
 	m_constructDisplayString = TheDisplayStringManager->newDisplayString();
 	m_constructDisplayString->setFont(TheFontLibrary->getFont(TheInGameUI->getDrawableCaptionFontName(),
 																TheGlobalLanguageData->adjustFontSize(TheInGameUI->getDrawableCaptionPointSize()),
-																TheInGameUI->isDrawableCaptionBold() ));
+																TheInGameUI->isDrawableCaptionBold() )); }	// moduleCost
 
 	m_ambientSound = nullptr;
   m_ambientSoundEnabled = true;
@@ -458,7 +464,7 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatusBits statu
 		if (TheGlobalData->m_useDrawModuleLOD &&
 				newModData->getMinimumRequiredGameLOD() > TheGameLODManager->getStaticLODLevel())
 			continue;
-		*m++ = TheModuleFactory->newModule(this, drawMI.getNthName(modIdx), newModData, MODULETYPE_DRAW);
+		{ GX_DCOST("DrawNewDrawModule"); *m++ = TheModuleFactory->newModule(this, drawMI.getNthName(modIdx), newModData, MODULETYPE_DRAW); }	// moduleCost
 	}
 	*m = nullptr;
 
@@ -478,7 +484,7 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatusBits statu
 					cuMI.getNthName(modIdx).compareNoCase("SwayClientUpdate") == 0)
 				continue;
 
-			*m++ = TheModuleFactory->newModule(this, cuMI.getNthName(modIdx), newModData, MODULETYPE_CLIENT_UPDATE);
+			{ GX_DCOST("DrawNewClientUpdate"); *m++ = TheModuleFactory->newModule(this, cuMI.getNthName(modIdx), newModData, MODULETYPE_CLIENT_UPDATE); }	// moduleCost
 		}
 		*m = nullptr;
 	}
@@ -487,7 +493,7 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatusBits statu
 	for (i = 0; i < NUM_DRAWABLE_MODULE_TYPES; ++i)
 	{
 		for (Module** m = m_modules[i]; m && *m; ++m)
-			(*m)->onObjectCreated();
+			{ GX_DCOST("DrawOnObjectCreated"); (*m)->onObjectCreated(); }	// moduleCost
 	}
 
 	const Bool shadowsEnabled = getShadowsEnabled();
@@ -495,7 +501,7 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatusBits statu
 	// TheSuperHackers @fix xezon 14/09/2025 Match the shadow states of all draw modules with this drawable.
 	for (DrawModule** dm = (DrawModule**)getModuleList(MODULETYPE_DRAW); *dm; ++dm)
 	{
-		(*dm)->setShadowsEnabled(shadowsEnabled);
+		{ GX_DCOST("DrawShadows"); (*dm)->setShadowsEnabled(shadowsEnabled); }	// moduleCost
 	}
 
 	m_groupNumber = nullptr;
@@ -507,7 +513,7 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatusBits statu
 	m_selectionFlashEnvelope = nullptr;	// lazily allocate!
 	m_colorTintEnvelope = nullptr;				// lazily allocate!
 
-	initStaticImages();
+	{ GX_DCOST("DrawStaticImages"); initStaticImages(); }	// moduleCost
 
   // If we are inside GameLogic::startNewGame(), then starting the ambient sound
   // will be taken care of by Drawable::onLevelStart(). It's important that we
