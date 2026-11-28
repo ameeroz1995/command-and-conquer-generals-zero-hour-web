@@ -5050,3 +5050,7 @@ Level within noise. batchScan on is timed once query's pass lands.
   frames over 100 ms 41 / 21 off vs 16 / 9 on.
 - OFF until the drawing side lands: with it on the pieces are not drawn at all. The drawing side (rendering chat)
   gets the pieces as client-only effects.
+- Hook for the drawing side: with the rule on, each piece is sent as a GXClientDebris record (GameClient/
+  GXClientDebris.h, the rendering chat's header) to a weak gxClientDebris(), before the logic random pick, so no
+  logic random numbers are drawn; the model pick uses client random. Without the drawing side linked, pieces are
+  skipped as before. Rule off: the loop is unchanged. Drawing side: perf/webgpu 4f24854 (shared row-draw path).

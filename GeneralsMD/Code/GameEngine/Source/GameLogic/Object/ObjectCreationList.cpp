@@ -36,6 +36,7 @@
 #define NO_DEBUG_CRC
 
 #include "Common/GxMatchRules.h"	// web port: clientDebris match rule
+#include "GameClient/GXClientDebris.h"	// web port: clientDebris record for the drawing side
 #include "Common/AudioEventRTS.h"
 #include "Common/DrawModule.h"
 #include "Common/GlobalData.h"
@@ -723,6 +724,9 @@ static void parseFrictionPerSec( INI* ini, void * /*instance*/, void *store, con
 }
 
 //-------------------------------------------------------------------------------------------------
+// web port: defined by the drawing side; weak so this links without it (pieces are then not drawn)
+extern "C++" void gxClientDebris(const GXClientDebris &d) __attribute__((weak));
+
 class GenericObjectCreationNugget : public ObjectCreationNugget
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(GenericObjectCreationNugget, "GenericObjectCreationNugget")
@@ -1338,6 +1342,14 @@ protected:
 
 		for (Int nn = 0; nn < m_debrisToGenerate; nn++)
 		{
+			// web port: match rule clientDebris (rule word 2 bit 1): generic debris go to the drawing side as a record,
+			// with no logic random numbers drawn (model and animation picks use client random)
+			if (!m_nameAreObjects && gxMatchRule2(GXRULE2_CLIENT_DEBRIS))
+			{
+				if (!TheGameLODManager->isDebrisSkipped() && gxClientDebris && debrisTemplate)
+					gxSendClientDebris(debrisTemplate, pos, mtx, orientation, sourceObj, lifetimeFrames);
+				continue;
+			}
 			Int pick = GameLogicRandomValue(0, m_names.size() - 1);
 
 			const ThingTemplate* tmpl;
@@ -1347,8 +1359,6 @@ protected:
 			{	//this is using the generic debris type so it's probably safe to
 				//remove if requested by the GameLOD manager.
 				if (TheGameLODManager->isDebrisSkipped())
-					continue;
-				if (gxMatchRule2(GXRULE2_CLIENT_DEBRIS))	// web port: match rule clientDebris (rule word 2 bit 1)
 					continue;
 
 				tmpl = debrisTemplate;
@@ -1437,6 +1447,46 @@ protected:
 			doStuffToObj( container, AsciiString::TheEmptyString, pos, mtx, orientation, sourceObj, lifetimeFrames );
 
 		return firstObject;
+	}
+
+	// web port: clientDebris: one piece as a plain record for the drawing side (GXClientDebris.h), the way
+	// doStuffToObj would set up a GenericDebris object
+	void gxSendClientDebris(const ThingTemplate *tmpl, const Coord3D *pos, const Matrix3D *mtx, Real orientation,
+		const Object *sourceObj, UnsignedInt lifetimeFrames) const
+	{
+		enum { GX_MAX_ANIMS = 8 };
+		GXDebrisAnim anims[GX_MAX_ANIMS];
+		Int animCount = 0;
+		for (size_t i = 0; i < m_animSets.size() && animCount < GX_MAX_ANIMS; ++i, ++animCount)
+		{
+			anims[animCount].initial = m_animSets[i].m_animInitial.str();
+			anims[animCount].flying = m_animSets[i].m_animFlying.str();
+			anims[animCount].final = m_animSets[i].m_animFinal.str();
+		}
+		GXClientDebris d;
+		d.model = m_names[GameClientRandomValue(0, m_names.size() - 1)].str();
+		d.tmpl = tmpl;
+		d.color = (m_okToChangeModelColor && sourceObj) ? sourceObj->getIndicatorColor() : 0;
+		d.shadowType = m_shadowType;
+		d.anims = animCount ? anims : nullptr; d.animCount = animCount;
+		d.fxFinal = m_fxFinal; d.bounceSound = &m_bounceSound;
+		Coord3D offset = m_offset;
+		if (mtx)
+			adjustVector(&offset, mtx);
+		d.pos.x = pos->x + offset.x; d.pos.y = pos->y + offset.y; d.pos.z = pos->z + offset.z;
+		d.mtx = mtx;
+		d.orientation = orientation;
+		d.srcVelocity.zero();
+		if (sourceObj && sourceObj->getPhysics())
+			d.srcVelocity = *sourceObj->getPhysics()->getVelocity();
+		d.disposition = m_disposition; d.dispositionIntensity = m_dispositionIntensity;
+		d.mass = m_mass; d.extraBounciness = m_extraBounciness;
+		d.minMag = m_minMag; d.maxMag = m_maxMag; d.minPitch = m_minPitch; d.maxPitch = m_maxPitch;
+		d.spinRate = m_spinRate; d.yawRate = m_yawRate; d.rollRate = m_rollRate; d.pitchRate = m_pitchRate;
+		d.orientInForceDirection = m_orientInForceDirection;
+		d.lifetimeFrames = lifetimeFrames; d.minFrames = m_minFrames; d.maxFrames = m_maxFrames;
+		d.fadeIn = m_fadeIn; d.fadeOut = m_fadeOut;
+		gxClientDebris(d);
 	}
 
 	static void parseDebrisObjectNames( INI* ini, void *instance, void *store, const void* /*userData*/ )
