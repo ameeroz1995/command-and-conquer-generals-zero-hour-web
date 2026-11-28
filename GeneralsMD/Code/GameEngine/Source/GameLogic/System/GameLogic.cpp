@@ -2060,7 +2060,7 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 	// will build and various damage states for all the structures on the map so that we
 	// don't have big pauses when building those objects or switching to those states
 	//
-	if( TheGlobalData->m_preloadAssets )
+	if( TheGlobalData->m_preloadAssets || (GLES3_Page_Switches8() & 1) )	// web port: preloadAssets switch (eighth word bit 0)
 	{
 		if (TheGlobalData->m_preloadEverything)
 		{

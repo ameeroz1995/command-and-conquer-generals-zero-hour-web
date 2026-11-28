@@ -1685,6 +1685,7 @@ extern int GLES3_Page_Switches3();
 extern int GLES3_Page_Switches4();
 extern int GLES3_Page_Switches5();
 extern int GLES3_Page_Switches6();
+extern int GLES3_Page_Switches8();
 #endif
 static UnsignedInt s_gxMatchRules = 0, s_gxMatchRules2 = 0;
 static Bool s_gxMatchRulesFixed = FALSE;
@@ -1747,7 +1748,8 @@ unsigned int gxLocalMatchRules2()
 {
 #ifdef __EMSCRIPTEN__
 	return 0
-		| ((GLES3_Page_Switches5() & 524288) ? GXRULE2_FAIL_CACHE : 0);	// fifth word bit 19: failCache
+		| ((GLES3_Page_Switches5() & 524288) ? GXRULE2_FAIL_CACHE : 0)	// fifth word bit 19: failCache
+		| ((GLES3_Page_Switches8() & 4) ? GXRULE2_CLIENT_DEBRIS : 0);	// eighth word bit 2: clientDebris
 #else
 	return 0;
 #endif
