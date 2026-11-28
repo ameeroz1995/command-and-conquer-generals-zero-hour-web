@@ -45,6 +45,7 @@ enum GxMatchRule
 enum GxMatchRule2
 {
 	GXRULE2_FAIL_CACHE    = 1,	///< failCache (paths): a terrain-only route search that ran its full flood and found nothing is answered "no route" again for the same exact inputs until an obstacle, cell type or zone changes, charging the same cells to the queue's budget; not exact because such floods end where the cell-info pool runs out, which depends on the units (AIPathfind.cpp)
+	GXRULE2_CLIENT_DEBRIS = 2,	///< clientDebris (collide): generic debris (GenericDebris) are not created as game objects; they no longer use object IDs, random numbers, physics or updates (ObjectCreationList.cpp)
 };
 
 unsigned int gxLocalMatchRules();		///< the rules the local Settings switches ask for

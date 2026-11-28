@@ -35,6 +35,7 @@
 
 #define NO_DEBUG_CRC
 
+#include "Common/GxMatchRules.h"	// web port: clientDebris match rule
 #include "Common/AudioEventRTS.h"
 #include "Common/DrawModule.h"
 #include "Common/GlobalData.h"
@@ -1346,6 +1347,8 @@ protected:
 			{	//this is using the generic debris type so it's probably safe to
 				//remove if requested by the GameLOD manager.
 				if (TheGameLODManager->isDebrisSkipped())
+					continue;
+				if (gxMatchRule2(GXRULE2_CLIENT_DEBRIS))	// web port: match rule clientDebris (rule word 2 bit 1)
 					continue;
 
 				tmpl = debrisTemplate;

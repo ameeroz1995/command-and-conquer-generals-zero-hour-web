@@ -5016,3 +5016,37 @@ Level within noise. batchScan on is timed once query's pass lands.
   TransportAIUpdate 0.90, JetAIUpdate 0.71, StealthUpdate 0.47, SpawnBehavior 0.36); creation 1.89 ms/tick
   (new units 50-110 ms each, about 300-750 allocations); script conditions 0.48 ms/tick
   (SKIRMISH_SPECIAL_POWER_READY 0.26).
+
+## 2026-11-28 (collide): phase 13 part D, creation spikes: preloadAssets (eighth word bit 0, ON)
+- Part A numbers (soa-26, moduleCost): creation 1.83 ms/tick in the battle, units 40-110 ms each with 290-755
+  allocations; in merge8-ai7.rep buildings are the spikes (GLAScudStorm 186 ms / 35583 allocations, AmericaWarFactory
+  175, ChinaInternetCenter 170). The max per template is far above its average: the first one of a kind pays.
+- Cause: the first drawable of each template loads its models and textures (W3D asset manager). The game already has
+  a fix, GameClient::preloadAssets (map drawables, every KINDOF_PRELOAD template, particles, control bar), run at
+  game start only with the -preload command line (m_preloadAssets). The switch runs it too (GameLogic.cpp).
+  Drawing side only: merge8-ai7.rep (36004 frames) and referee.rep match with it on.
+- soa-27, moduleCost on: battle creation 1.83 -> 0.77 ms/tick, no unit row over 25 ms left (the slowest are
+  missiles); merge8-ai7.rep creation 0.185 -> 0.073 ms/tick, no building spike left.
+- Timing, battle draw:false, tickTiming off, order off/on/on/off, work ms (armies / strikes / aftermath):
+  off 28.0 / 37.5 / 21.3 and 31.2 / 39.0 / 23.6; on 24.9 / 35.2 / 23.9 and 24.0 / 33.2 / 20.0. Frames over 100 ms
+  11 and 12 off, 8 and 9 on. merge8-ai7.rep timing (unpinned): logic 35.80 -> 35.05 ms/tick, over 100 ms
+  4853 -> 4826. ON.
+- Cost: memory. Heap at battle end 658 -> 910 MB (map loaded 279 -> 629 MB): every faction's buildable things are
+  loaded for every game. Flagged to main for the low-end target.
+- Also tried "preloadAll" (every template): slower (logic 45.7 ms/tick with moduleCost), 1366 MB, and referee.rep
+  did not load with it. Removed.
+- Part B (containers): the containers already step in a kernel (containKernels); their steady cost is 1-2 us a call
+  (0.34 ms/tick together in the battle). TransportContain's 70.8 ms max is createPayload, i.e. creation: covered by
+  preloadAssets. TransportAIUpdate has no update of its own (it is AIUpdateInterface on transports: ai's family).
+- soa-28 (preloadAssets on by default): referee.rep and merge8-ai7.rep (36004 frames) match.
+
+## 2026-11-28 (collide): phase 13 part C, clientDebris (eighth word bit 2 -> match rule word 2 bit 1, OFF for now)
+- Generic debris (OCL CreateDebris with model names, template GenericDebris) are full game objects: object ID,
+  physics, lifetime, slow death. In the battle they are half the physics units (physUnits 1770 -> 900 a tick).
+- Rule clientDebris: the OCL no longer creates them (ObjectCreationList.cpp, next to the game's own LOD debris skip).
+  Changes the game (IDs, random numbers), so it is a match rule (GX2 bit 1, value 2); old recordings play without it.
+- soa-28, battle draw:false with tickTiming, order off/on/on/off: logic 42.68 / 40.59 off vs 37.67 / 35.35 on;
+  physics 4.82 / 4.46 vs 2.89 / 2.73; work ms strikes 57.0 / 55.7 vs 46.5 / 44.4, armies 36.0 / 30.2 vs 34.1 / 30.2;
+  frames over 100 ms 41 / 21 off vs 16 / 9 on.
+- OFF until the drawing side lands: with it on the pieces are not drawn at all. The drawing side (rendering chat)
+  gets the pieces as client-only effects.

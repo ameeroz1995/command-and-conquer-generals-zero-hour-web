@@ -521,6 +521,8 @@ void GLES3_Begin_Scene() {
         g_PageSwitches8 = EM_ASM_INT({
             var o = (window.GeneralsX && window.GeneralsX.opt) || {};
             return 0   // eighth word (phase 13): collide 0-5, paths 6-11, combat 12-17, ai 18-23, query 24-29, 30-31 main
+                 | (o.preloadAssets === false ? 0 : 1)   // bit 0 (collide, on): models / textures of the map's objects, the factions' buildable things (KINDOF_PRELOAD), debris and particles load at game start, not at first creation (GameLogic.cpp, GameClient.cpp; drawing only, same game)
+                 | (o.clientDebris === true ? 4 : 0)   // bit 2 (collide): match rule clientDebris (rule word 2 bit 1): generic debris not created as game objects (ObjectCreationList.cpp; changes the game, the host / replay decide)
                  | (o.bonusRows === false ? 0 : 4096)   // bit 12 (combat): weapon bonus answer kept per weapon row for the frame (Weapon.cpp computeBonus; same game)
                  | (o.chooseRows === false ? 0 : 8192)   // bit 13 (combat): weapon choice reads victim anti mask / AI once, no range walk for PREFER_MOST_DAMAGE (WeaponSet.cpp; same game)
                  | (o.fireBoneCache === true ? 16384 : 0)   // bit 14 (combat): fire-bone transform kept per frame per render object and bone (W3DModelDraw.cpp; client only)
