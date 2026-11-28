@@ -48,6 +48,7 @@
 #include "Common/Xfer.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/FXList.h"
+#include "GameClient/GameClient.h"	// TheGameClient (fireFXQueue drain)
 #include "GameClient/Shadow.h"
 #include "GameLogic/GameLogic.h"		// for real-time frame
 #include "GameLogic/Object.h"
@@ -3778,6 +3779,57 @@ Int W3DModelDraw::getBarrelCount(WeaponSlotType wslot) const
 		m_curState->m_weaponBarrelInfoVec[wslot].size() : 0;
 }
 
+// Phase 13 (eighth word bit 14, fireBoneCache; same game): fire-bone transforms kept for the frame per
+// render object and bone, so several shots from one model in a frame ask the hierarchy once. Client only.
+// The key includes the model's own transform, so a move / turn between shots re-asks. (ponytail: a
+// turret pose change with the same root transform in one frame still hits; visual only, switch OFF
+// unless it gains.)
+static Matrix3D gxBoneTransform(RenderObjClass *robj, Int bone)
+{
+	if (!(GLES3_Page_Switches8() & 16384))
+		return robj->Get_Bone_Transform(bone);
+	struct Slot { RenderObjClass *r; Int b; UnsignedInt f; Matrix3D t, m; };
+	static Slot slots[64];
+	const UnsignedInt f = TheGameLogic->getFrame();
+	Slot &s = slots[(((uintptr_t)robj >> 4) ^ (UnsignedInt)bone * 31u) & 63];
+	const Matrix3D &t = robj->Get_Transform();
+	if (s.r != robj || s.b != bone || s.f != f || memcmp(&s.t, &t, sizeof(Matrix3D)) != 0)
+	{ s.r = robj; s.b = bone; s.f = f; s.t = t; s.m = robj->Get_Bone_Transform(bone); }
+	return s.m;
+}
+
+struct GxFireFX
+{
+	DrawableID id; const W3DModelDraw *draw; const ModelConditionInfo *state; RenderObjClass *robj;
+	Int bone; const FXList *fxl; Real speed, radius; Bool hasVictim; Coord3D victim;
+};
+static std::vector<GxFireFX> &gxFireFXQueue() { static std::vector<GxFireFX> q; return q; }
+
+void W3DModelDraw::gxDrainFireFX(Bool play)
+{
+	std::vector<GxFireFX> &q = gxFireFXQueue();
+	if (q.empty()) return;
+	if (!play) { q.clear(); return; }	// GameClient::reset: drawables are going away
+	for (size_t i = 0; i < q.size(); ++i)
+	{
+		const GxFireFX &e = q[i];
+		Drawable *d = TheGameClient->findDrawableByID(e.id);
+		if (d == nullptr) continue;	// gone before the client ran: its FX would have been under way
+		const W3DModelDraw *md = nullptr;
+		for (DrawModule **dm = d->getDrawModules(); *dm; ++dm)
+			if (*dm == static_cast<const DrawModule *>(e.draw)) { md = e.draw; break; }
+		Matrix3D mtx;
+		if (md && md->m_renderObject == e.robj && md->m_curState == e.state)
+			mtx = gxBoneTransform(e.robj, e.bone);
+		else
+			mtx = *d->getTransformMatrix();	// model changed since the shot: fire from the drawable
+		Coord3D pos;
+		pos.x = mtx.Get_X_Translation(); pos.y = mtx.Get_Y_Translation(); pos.z = mtx.Get_Z_Translation();
+		FXList::doFXPos(e.fxl, &pos, &mtx, e.speed, e.hasVictim ? &e.victim : nullptr, e.radius);
+	}
+	q.clear();
+}
+
 //-------------------------------------------------------------------------------------------------
 Bool W3DModelDraw::handleWeaponFireFX(WeaponSlotType wslot, Int specificBarrelToUse, const FXList* fxl, Real weaponSpeed, const Coord3D* victimPos, Real damageRadius)
 {
@@ -3807,10 +3859,25 @@ Bool W3DModelDraw::handleWeaponFireFX(WeaponSlotType wslot, Int specificBarrelTo
 		if (info.m_fxBone && m_renderObject)
 		{
 			const Object *logicObject = getDrawable()->getObject();// This is slow, so store it
+			// Phase 13 (eighth word bit 15, fireFXQueue; same game): FXList uses only the client random
+			// stream and makes only drawables / particles, so the FX is queued here and played by
+			// GameClient::update after the logic tick, where the bone transform is current anyway.
+			// Recoil / muzzle flash state below still changes now; `handled` is the same either way.
+			if ((GLES3_Page_Switches8() & 32768) && (!m_renderObject->Is_Hidden() || logicObject == nullptr))
+			{
+				GxFireFX q;
+				q.id = getDrawable()->getID(); q.draw = this; q.state = m_curState; q.robj = m_renderObject;
+				q.bone = info.m_fxBone; q.fxl = fxl; q.speed = weaponSpeed; q.radius = damageRadius;
+				q.hasVictim = victimPos != nullptr; if (victimPos) q.victim = *victimPos;
+				extern void (*g_gxDrainFireFX)(Bool);	// GameClient.cpp: drained at the start of the client update
+				g_gxDrainFireFX = &W3DModelDraw::gxDrainFireFX;
+				gxFireFXQueue().push_back(q);
+			}
+			else
 			if( ! m_renderObject->Is_Hidden() || (logicObject == nullptr) )
 			{
 				// I can ask the drawable's bone position if I am not hidden (if I have no object I have no choice)
-				Matrix3D mtx = m_renderObject->Get_Bone_Transform(info.m_fxBone);
+				Matrix3D mtx = gxBoneTransform(m_renderObject, info.m_fxBone);
 				Coord3D pos;
 				pos.x = mtx.Get_X_Translation();
 				pos.y = mtx.Get_Y_Translation();

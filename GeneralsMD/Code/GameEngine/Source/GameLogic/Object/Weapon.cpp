@@ -2185,6 +2185,26 @@ void Weapon::computeBonus(const Object *source,
   // a table keyed by both; target evaluation (estimateWeaponDamage per weapon per candidate) then
   // reads the table instead of walking the bonus sets again.
   const WeaponTemplate *tmpl = TheGxWeapons.tmpl[m_row];
+  // Phase 13 B (eighth word bit 12, bonusRows; same game): the last answer per weapon row, kept in
+  // row-indexed columns with the frame and the condition flags it was made for. The bonus chain reads
+  // only the template (fixed per row), the flags and the global bonus set, so a row whose frame and
+  // flags match gets the same bonus without walking the sets. Worker-ready: reads its row, writes
+  // only its own row's slot.
+  if (GLES3_Page_Switches8() & 4096) {
+    static std::vector<UnsignedInt> bFrame, bFlags;
+    static std::vector<WeaponBonus> bVal;
+    static std::vector<const WeaponTemplate *> bTmpl;	// rows are reused: the template is part of the key
+    const size_t r = (size_t)m_row;
+    if (r >= bFrame.size()) { bFrame.resize(r + 64, ~0u); bFlags.resize(r + 64, 0); bVal.resize(r + 64); bTmpl.resize(r + 64, nullptr); }
+    const UnsignedInt now = TheGameLogic->getFrame();
+    if (bFrame[r] == now && bFlags[r] == (UnsignedInt)flags && bTmpl[r] == tmpl) { bonus = bVal[r]; return; }
+    if (TheGlobalData->m_weaponBonusSet)
+      TheGlobalData->m_weaponBonusSet->appendBonuses(flags, bonus);
+    if (tmpl->getExtraBonus())
+      tmpl->getExtraBonus()->appendBonuses(flags, bonus);
+    bFrame[r] = now; bFlags[r] = (UnsignedInt)flags; bVal[r] = bonus; bTmpl[r] = tmpl;
+    return;
+  }
   const Bool table = (GLES3_Page_Switches4() & 67108864) != 0;
   unsigned long long key = 0;
   if (table) {

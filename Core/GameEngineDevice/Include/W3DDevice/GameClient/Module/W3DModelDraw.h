@@ -435,6 +435,7 @@ protected:
 	virtual void onRenderObjRecreated(){};
 
 	const ModelConditionInfo* getCurState() const { return m_curState; }
+	static void gxDrainFireFX(Bool play);	///< phase 13 (eighth word bit 15, fireFXQueue): plays the fire FX queued during the logic tick (GameClient::update)
 
 	void setModelState(const ModelConditionInfo* newState);
 	const ModelConditionInfo* findBestInfo(const ModelConditionFlags& c) const;

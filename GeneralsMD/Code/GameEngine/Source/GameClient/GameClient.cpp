@@ -440,11 +440,15 @@ void GameClient::init()
 
 }
 
+/// phase 13 (eighth word bit 15, fireFXQueue): set by W3DModelDraw when it queues weapon fire FX in the logic tick
+void (*g_gxDrainFireFX)(Bool play) = nullptr;
+
 //-------------------------------------------------------------------------------------------------
 /** Reset the game client for a new game */
 void GameClient::reset()
 {
 	Drawable *draw, *nextDraw;
+	if (g_gxDrainFireFX) g_gxDrainFireFX(FALSE);	// fireFXQueue: drop queued FX, the drawables go away
 //	m_drawableHash.clear();
 //	m_drawableHash.resize(DRAWABLE_HASH_SIZE);
 
@@ -511,6 +515,7 @@ DECLARE_PERF_TIMER(GameClient_draw)
 void GameClient::update()
 {
 	USE_PERF_TIMER(GameClient_update)
+	if (g_gxDrainFireFX) g_gxDrainFireFX(TRUE);	// fireFXQueue: play the fire FX queued by the logic tick
 	// create the FRAME_TICK message
 	GameMessage *frameMsg = TheMessageStream->appendMessage( GameMessage::MSG_FRAME_TICK );
 	frameMsg->appendTimestampArgument( getFrame() );
@@ -792,6 +797,7 @@ void GameClient::step()
 
 void GameClient::updateHeadless()
 {
+	if (g_gxDrainFireFX) g_gxDrainFireFX(TRUE);	// fireFXQueue
 	// TheSuperHackers @info helmutbuhler 03/05/2025 bobtista 02/02/2026
 	// Update particles to prevent accumulation in headless mode. Particles are generated
 	// during GameLogic and only cleaned up during rendering. update() lets particles finish

@@ -898,6 +898,13 @@ Bool WeaponSet::chooseBestWeaponForTarget(const Object* obj, const Object* victi
 	WeaponSlotType currentDecision = PRIMARY_WEAPON;
 	WeaponSlotType currentDecisionBackup = PRIMARY_WEAPON;
 
+	// Phase 13 B (eighth word bit 13, chooseRows; same game): the victim's anti mask and the unit's AI
+	// are the same for every slot, so they are read once per call; with PREFER_MOST_DAMAGE the attack
+	// range (a bonus walk) is not computed, since only PREFER_LONGEST_RANGE reads it.
+	const Bool gxChoose = (GLES3_Page_Switches8() & 8192) != 0;
+	const Int gxVictimAnti = gxChoose ? getVictimAntiMask(victim) : 0;
+	const AIUpdateInterface* gxAi = gxChoose ? obj->getAI() : nullptr;
+
 	// go backwards, so that in the event of ties, the primary weapon is preferred
 	for (Int i = WEAPONSLOT_COUNT - 1; i >= PRIMARY_WEAPON ; --i)
 	{
@@ -933,17 +940,17 @@ Bool WeaponSet::chooseBestWeaponForTarget(const Object* obj, const Object* victi
 			continue;
 
 		// weapon not allowed to target this kind of thing.
-		if (!(weapon->getAntiMask() & getVictimAntiMask(victim)))
+		if (!(weapon->getAntiMask() & (gxChoose ? gxVictimAnti : getVictimAntiMask(victim))))
 			continue;
 
 		if (!weapon->isWithinTargetPitch(obj, victim))
 			continue;
 
 		Real damage = weapon->estimateWeaponDamage(obj, victim);
-		Real attackRange = weapon->getAttackRange(obj);
+		Real attackRange = (gxChoose && criteria == PREFER_MOST_DAMAGE) ? 0.0f : weapon->getAttackRange(obj);
 		Bool weaponIsReady = (weapon->getStatus() == READY_TO_FIRE);
 
-		const AIUpdateInterface* ai = obj->getAI();
+		const AIUpdateInterface* ai = gxChoose ? gxAi : obj->getAI();
 		if (ai && ai->isWeaponSlotOnTurretAndAimingAtTarget((WeaponSlotType)i, victim))
 			weaponIsReady = false;
 
