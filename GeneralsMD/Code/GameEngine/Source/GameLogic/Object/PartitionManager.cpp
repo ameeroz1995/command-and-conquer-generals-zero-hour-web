@@ -93,6 +93,8 @@
 #include "GameLogic/ScriptEngine.h"
 #include <unordered_map>
 #include <typeinfo>
+#include <string>
+#include <algorithm>
 #include "Common/Recorder.h"
 #include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/Squad.h"
@@ -225,9 +227,87 @@ typedef Bool (*DistCalcProc)
 Bool DoFilterProfiling = false;
 #endif
 
+// moduleCost (eighth word bit 24, with tickTiming; measuring only): time, calls and rejects per filter class
+// (GXFILT) and per search by its filter list (GXSRCH: candidates = objects the filters were asked about),
+// outermost search only. Printed at GXTIMEEND (gxSearchCostPrint, GxTime.h).
+struct GxFiltRow { double ms = 0.0; unsigned long long calls = 0, rejects = 0; };
+struct GxSrchRow { double ms = 0.0, maxMs = 0.0; unsigned long long calls = 0, cand = 0, over1 = 0, cells = 0, entries = 0; };
+static bool s_gxFiltCost = false;
+static int s_gxSrchDepth = 0;
+static unsigned long long s_gxSrchCand = 0;
+static std::unordered_map<const char *, GxFiltRow> s_gxFiltRows;
+static std::unordered_map<std::string, GxSrchRow> s_gxSrchRows;
+struct GxSrchScope
+{
+	bool on = false; double t0 = 0.0; unsigned long long c0 = 0, k0 = 0, e0 = 0; std::string key;
+	GxSrchScope(PartitionFilter **filters, const Object *obj, Real maxDist, DistanceCalculationType dc, bool iter)
+	{
+		if (s_gxSrchDepth++ || !gxCostOn()) return;
+		on = true; s_gxFiltCost = true; c0 = s_gxSrchCand; k0 = gxTime().n[GXC_SEARCH_CELLS]; e0 = gxTime().n[GXC_SEARCH_ENTRIES];
+		key = obj ? "obj" : "pos";
+		key += iter ? ",all" : ",closest";
+		key += ",dc" + std::to_string((int)dc) + (maxDist > 400.0f ? ",far" : "");
+		for (PartitionFilter **fp = filters; fp && *fp; ++fp) { key += ' '; key += typeid(**fp).name(); }
+		t0 = emscripten_get_now();
+	}
+	~GxSrchScope()
+	{
+		--s_gxSrchDepth;
+		if (!on) return;
+		const double d = emscripten_get_now() - t0;
+		GxSrchRow &r = s_gxSrchRows[key];
+		r.ms += d; r.calls++; r.cand += s_gxSrchCand - c0; r.cells += gxTime().n[GXC_SEARCH_CELLS] - k0; r.entries += gxTime().n[GXC_SEARCH_ENTRIES] - e0;
+		if (d > r.maxMs) r.maxMs = d;
+		if (d > 1.0) r.over1++;
+		s_gxFiltCost = false;
+	}
+};
+void gxSearchCostPrint(unsigned long long ticks)
+{
+	std::vector<std::pair<double, std::string>> v;
+	char b[512];
+	for (auto &e : s_gxFiltRows)
+	{
+		snprintf(b, sizeof(b), " %s %.3f ms/tick %.1f calls/tick %.2f us/call rejects %.0f%%;", e.first, e.second.ms / ticks,
+			(double)e.second.calls / ticks, 1000.0 * e.second.ms / e.second.calls, 100.0 * e.second.rejects / e.second.calls);
+		v.push_back({ e.second.ms, b });
+	}
+	std::sort(v.begin(), v.end(), [](auto &a, auto &b) { return a.first > b.first; });
+	std::string out = "GXFILT ticks " + std::to_string(ticks) + ":";
+	for (auto &x : v) out += x.second;
+	printf("%s\n", out.c_str());
+	std::vector<std::pair<double, const std::string *>> w;
+	for (auto &e : s_gxSrchRows) w.push_back({ e.second.ms, &e.first });
+	std::sort(w.begin(), w.end(), [](auto &a, auto &b) { return a.first > b.first; });
+	for (size_t i = 0; i < w.size() && i < 25; ++i)
+	{
+		const GxSrchRow &r = s_gxSrchRows[*w[i].second];
+		printf("GXSRCH %s: %.3f ms/tick %.2f calls/tick %.1f us/call max %.2f ms over1 %llu cand/call %.1f cells/call %.1f entries/call %.1f\n",
+			w[i].second->c_str(), r.ms / ticks, (double)r.calls / ticks, 1000.0 * r.ms / r.calls, r.maxMs, r.over1,
+			(double)r.cand / r.calls, (double)r.cells / r.calls, (double)r.entries / r.calls);
+	}
+}
+static Bool gxFiltersAllowTimed(PartitionFilter **filters, Object *objOther)
+{
+	++s_gxSrchCand;
+	for (PartitionFilter **fp = filters; fp && *fp; fp++)
+	{
+		const double t0 = emscripten_get_now();
+		const Bool ok = (*fp)->allow(objOther);
+		GxFiltRow &r = s_gxFiltRows[typeid(**fp).name()];
+		r.ms += emscripten_get_now() - t0; r.calls++;
+		if (!ok) { r.rejects++; return false; }
+	}
+	return true;
+}
+
 //DECLARE_PERF_TIMER(filtersAllow)
 inline Bool filtersAllow(PartitionFilter **filters, Object *objOther)
 {
+#ifdef __EMSCRIPTEN__
+	if (s_gxFiltCost)
+		return gxFiltersAllowTimed(filters, objOther);
+#endif
 	//USE_PERF_TIMER(filtersAllow)
 #ifdef FILTER_PROFILING
 	const Int MAXR = 32;
@@ -263,11 +343,11 @@ inline Bool filtersAllow(PartitionFilter **filters, Object *objOther)
 			{
 				const char** namesarr = names;
 				for (idx = 0; idx < maxEver; ++idx)
-					if (namesarr[idx] == (*fp)->debugGetName())
+					if (namesarr[idx] == typeid(**fp).name())
 						break;
 				if (idx == maxEver)
 				{
-					namesarr[maxEver++] = (*fp)->debugGetName();
+					namesarr[maxEver++] = typeid(**fp).name();
 					DEBUG_ASSERTCRASH(maxEver<MAXR,("hmm, enlarge this array"));
 				}
 				++rejections[idx];
@@ -4966,6 +5046,7 @@ Object *PartitionManager::getClosestObjects(
 {
 	GxTimeScope gxT(GXT_SEARCH);	// tickTiming (Common/GxTime.h)
 	gxCount(GXC_SEARCHES);
+	GxSrchScope gxSrch(filters, obj, maxDist, dc, iterArg != nullptr);	// moduleCost: GXSRCH / GXFILT
 	UnsignedInt flags = 0;
 	UnsignedInt mask = 0xffffffffu;
 #ifdef __EMSCRIPTEN__

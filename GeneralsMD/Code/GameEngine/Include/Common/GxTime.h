@@ -212,5 +212,5 @@ inline void gxTimePrint(const char *tag)
 	for (int i = GXT_SEARCH; i < GXT_TIME_COUNT; ++i) k += snprintf(buf + k, sizeof(buf) - k, " %sAllocs %.1f/tick;", tn[i], (double)s.allocs[i] / s.ticks);
 	snprintf(buf + k, sizeof(buf) - k, " frames %d, p99 %.1f ms, over 100 ms %d", (int)f.size(), p99, over100);
 	printf("%s\n", buf);
-	if (gxCostOn() && strcmp(tag, "GXTIME") != 0) { gxCostPrint("GXMOD", s.mod, s.ticks, 60); gxCostPrint("GXSPAWN", s.spawn, s.ticks, 60); gxCostPrint("GXCOND", s.cond, s.ticks, 60); }
+	if (gxCostOn() && strcmp(tag, "GXTIME") != 0) { gxCostPrint("GXMOD", s.mod, s.ticks, 60); gxCostPrint("GXSPAWN", s.spawn, s.ticks, 60); gxCostPrint("GXCOND", s.cond, s.ticks, 60); extern void gxSearchCostPrint(unsigned long long ticks); gxSearchCostPrint(s.ticks); }
 }
