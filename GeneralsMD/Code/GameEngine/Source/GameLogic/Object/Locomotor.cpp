@@ -48,6 +48,31 @@
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/GxLocoAngle.h"
 #include "Common/GxMatchRules.h"
+#include "Common/GxTime.h"
+// web port (measuring only, tickTiming; phase 13 part A): locomotor cost by entry point and appearance,
+// keyed by name. One "GXLOCOK" line every 900 logic frames: calls and ms since the start.
+static const char *s_gxLocoEntry[3] = { "toPos", "toAngle", "hold" };
+static const char *s_gxLocoApp[LOCOMOTOR_APPEARANCE_COUNT] = { "legs", "wheels", "treads", "hover", "thrust", "wings", "climber", "other", "motorcycle" };
+static double s_gxLocoMs[3][LOCOMOTOR_APPEARANCE_COUNT]; static unsigned long long s_gxLocoN[3][LOCOMOTOR_APPEARANCE_COUNT];
+static UnsignedInt s_gxLocoPrinted = 0;
+struct GxLocoScope
+{
+	int e, a; double t0; bool on;
+	GxLocoScope(int entry, int app) : e(entry), a(app), t0(0.0), on(gxTimingOn() && app >= 0 && app < LOCOMOTOR_APPEARANCE_COUNT)
+	{
+		if (!on) return;
+		const UnsignedInt f = TheGameLogic->getFrame();
+		if (f % 900 == 0 && f != s_gxLocoPrinted) {
+			s_gxLocoPrinted = f;
+			char buf[1536]; int k = snprintf(buf, sizeof(buf), "GXLOCOK f%u:", f);
+			for (int i = 0; i < 3; ++i) for (int j = 0; j < LOCOMOTOR_APPEARANCE_COUNT; ++j)
+				if (s_gxLocoN[i][j]) k += snprintf(buf + k, sizeof(buf) - k, " %s/%s %llu calls %.0f ms;", s_gxLocoEntry[i], s_gxLocoApp[j], s_gxLocoN[i][j], s_gxLocoMs[i][j]);
+			printf("%s\n", buf);
+		}
+		t0 = emscripten_get_now();
+	}
+	~GxLocoScope() { if (on) { s_gxLocoMs[e][a] += emscripten_get_now() - t0; s_gxLocoN[e][a]++; } }
+};
 
 // web port (match rule locoSimd): every heading atan2 of the locomotor. Under the rule the fixed
 // polynomial gxLocoAtan2; the movement pass has usually computed it already (4 movers per SIMD op)
@@ -883,6 +908,7 @@ Real Locomotor::getMaxLift(BodyDamageType condition) const
 //-------------------------------------------------------------------------------------------------
 void Locomotor::locoUpdate_moveTowardsAngle(Object* obj, Real goalAngle)
 {
+	GxLocoScope gxLk(1, m_template->m_appearance);	// web port: GXLOCOK (tickTiming)
 	setFlag(MAINTAIN_POS_IS_VALID, false);
 
 	if (obj == nullptr || m_template == nullptr)
@@ -966,6 +992,7 @@ void Locomotor::setPhysicsOptions(Object* obj)
 void Locomotor::locoUpdate_moveTowardsPosition(Object* obj, const Coord3D& goalPos,
 																							 Real onPathDistToGoal, Real desiredSpeed, Bool *blocked)
 {
+	GxLocoScope gxLk(0, m_template->m_appearance);	// web port: GXLOCOK (tickTiming)
 	GxTimeScope gxTimeLoco(GXT_LOCO);	// web port: GXTIME (tickTiming)
 	gxCount(GXC_LOCO_CALLS);
 	setFlag(MAINTAIN_POS_IS_VALID, false);
@@ -2450,6 +2477,7 @@ void Locomotor::moveTowardsPositionOther(Object* obj, PhysicsBehavior *physics, 
 */
 Bool Locomotor::locoUpdate_maintainCurrentPosition(Object* obj)
 {
+	GxLocoScope gxLk(2, m_template->m_appearance);	// web port: GXLOCOK (tickTiming)
 	if (!getFlag(MAINTAIN_POS_IS_VALID))
 	{
 		R().maintainPos = *obj->getPosition();
